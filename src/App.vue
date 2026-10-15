@@ -427,7 +427,6 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/">{{ t('app.nav.dashboard') }}</RouterLink>
         <RouterLink to="/artikel">{{ t('app.nav.artikel') }}</RouterLink>
         <RouterLink to="/buchungen">{{ t('app.nav.buchungen') }}</RouterLink>
-        <RouterLink to="/einstellungen">{{ t('app.nav.einstellungen') }}</RouterLink>
       </nav>
       <div class="header-right">
         <div
@@ -438,6 +437,29 @@ function formatRelativ(iso: string | null): string {
         >
           DEV MODE
         </div>
+        <RouterLink
+          to="/einstellungen"
+          class="settings-link"
+          :title="t('app.nav.einstellungen')"
+          :aria-label="t('app.nav.einstellungen')"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"
+            />
+          </svg>
+        </RouterLink>
         <div v-if="auth.session" class="user-chip" :title="`Angemeldet als ${auth.session.email}`">
           <span class="user-role">{{ auth.rolle ?? 'user' }}</span>
           <span class="user-email">{{ auth.session.email }}</span>
@@ -999,6 +1021,33 @@ function formatRelativ(iso: string | null): string {
   cursor: help;
   box-shadow: 0 0 0 2px rgba(255, 122, 0, 0.25);
   user-select: none;
+}
+
+.settings-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: transparent;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  text-decoration: none;
+}
+
+.settings-link:hover {
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--text-strong);
+  text-decoration: none;
+}
+
+.settings-link.router-link-active {
+  background: var(--accent-bg);
+  color: var(--accent);
 }
 
 .user-chip {

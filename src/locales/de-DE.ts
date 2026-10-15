@@ -73,7 +73,7 @@ export default {
         standort: 'Standort',
         menge: '± Menge',
         typ: 'Typ',
-        projekt: 'Projekt',
+        projekt: 'Kommission',
         von: 'Benutzer',
       },
       form: {
@@ -92,7 +92,7 @@ export default {
         zielstandort: 'Zielstandort',
         menge: 'Menge',
         sollMenge: 'Soll-Menge',
-        projekt: 'Projekt-Nr.',
+        projekt: 'Kommission',
         kommentar: 'Kommentar',
         speichern: 'Speichern',
         abbrechen: 'Abbrechen',
