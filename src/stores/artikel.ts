@@ -7,7 +7,7 @@ import { defineStore } from 'pinia'
 import { liveQuery, type Subscription } from 'dexie'
 import { computed, ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
-import type { Artikel, ArtikelStatus, Buchung, NachbestellHinweis } from '../db/types'
+import type { Artikel, ArtikelStatus, NachbestellHinweis } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
 import { queueOp } from '../services/sync/worker'
 
@@ -32,11 +32,6 @@ export interface ArtikelFilter {
   suche?: string
   typ?: string
   status?: ArtikelStatus | 'alle'
-  /** Filtert auf Artikel, zu denen es mindestens eine (aktive oder
-   *  stornierte) Buchung auf diesem Standort gibt — entweder als
-   *  Quell- (`standortId`) oder Ziel-Standort (`standortZielId`,
-   *  z. B. Umlagerungen/Kommissionen). */
-  standortId?: string
 }
 
 export const useArtikelStore = defineStore('artikel', () => {
@@ -75,7 +70,6 @@ export const useArtikelStore = defineStore('artikel', () => {
     return artikel.value.filter((a) => {
       if (f.status && f.status !== 'alle' && a.status !== f.status) return false
       if (f.typ && a.typ !== f.typ) return false
-      if (f.standortId && !artikelHatBuchungAufStandort(a.id, f.standortId)) return false
       if (suche) {
         const haystack =
           `${a.titel} ${a.typ} ${a.lieferant ?? ''} ${a.bestellnummer ?? ''}`.toLowerCase()
@@ -87,25 +81,6 @@ export const useArtikelStore = defineStore('artikel', () => {
 
   function setFilter(next: ArtikelFilter): void {
     filter.value = next
-  }
-
-  /** Buchungs-Lookup für den Standort-Filter. Wird per
-   *  `setBuchungLookup` aus dem View gesetzt, damit der ArtikelStore
-   *  nicht selbst den BuchungStore instanziieren muss. */
-  let buchungLookup: ((artikelId: string) => Buchung[]) | null = null
-
-  function setBuchungLookup(fn: ((artikelId: string) => Buchung[]) | null): void {
-    buchungLookup = fn
-  }
-
-  function artikelHatBuchungAufStandort(artikelId: string, standortId: string): boolean {
-    if (!buchungLookup) return true
-    const rows = buchungLookup(artikelId)
-    for (const b of rows) {
-      if (b.standortId === standortId) return true
-      if (b.standortZielId === standortId) return true
-    }
-    return false
   }
 
   async function anlegen(e: ArtikelEingabe): Promise<Artikel> {
@@ -186,7 +161,6 @@ export const useArtikelStore = defineStore('artikel', () => {
     stop,
     byId,
     setFilter,
-    setBuchungLookup,
     anlegen,
     aktualisieren,
     archivieren,
