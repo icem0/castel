@@ -232,10 +232,16 @@ export const useAuthStore = defineStore('auth', () => {
       await aendereEigenesPasswortServer(altesPasswort, neuesPasswort)
     } catch (e) {
       if (e instanceof ApiError) {
-        throw new AuthError('auth.unknown', e.message)
+        // Server hat geantwortet (4xx/5xx). Die Message stammt vom Server
+        // (z. B. "Altes Passwort falsch") und ist bereits deutsch. Wir
+        // reichen sie als AuthError mit dem change_failed-Code weiter,
+        // damit authFehlerText genau diese Message anzeigt — und NICHT
+        // den generischen "Server nicht erreichbar"-Text.
+        throw new AuthError('auth.password.change_failed', e.message)
       }
-      // Netzwerk-/Server-Fehler: rohe Browsermeldung (z. B. "Failed to fetch")
-      // NICHT durchreichen — die View uebersetzt den Code.
+      // Echter Netzwerk-/Fetch-Fehler (DNS, CORS, "Failed to fetch", ...):
+      // rohe Browsermeldung NICHT durchreichen — die View uebersetzt den
+      // Code via authFehlerText.
       throw new AuthError(
         'auth.network',
         'Server nicht erreichbar. Bitte Internetverbindung prüfen.',

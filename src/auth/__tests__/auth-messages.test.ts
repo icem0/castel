@@ -22,12 +22,18 @@ const ALL_CODES: AuthErrorCode[] = [
   'auth.jwt.missing',
   'auth.jwt.expired',
   'auth.network',
+  'auth.password.change_failed',
   'auth.unknown',
 ]
 
 function setLocale(loc: 'de-DE' | 'en-US'): void {
   i18n.global.locale.value = loc
 }
+
+// Codes, deren Message direkt vom Server kommt und NICHT ueber i18n
+// uebersetzt wird. Fuer sie gibt es keinen vordefinierten Locale-Text —
+// sie sind semantisch ein "durchreichen wie geliefert".
+const SERVER_SUPPLIED_CODES: AuthErrorCode[] = ['auth.password.change_failed']
 
 describe('AuthError', () => {
   it('exposes its code', () => {
@@ -52,6 +58,8 @@ describe('authFehlerText / authFehlerTextFuerCode (de-DE)', () => {
     for (const code of ALL_CODES) {
       const text = authFehlerTextFuerCode(code)
       expect(text).toBeTruthy()
+      // Server-supplied Codes haben per Definition keinen i18n-Text.
+      if (SERVER_SUPPLIED_CODES.includes(code)) continue
       expect(text).not.toBe(code)
       // Sanity: nothing technical like "ENOTFOUND" should leak here.
       expect(text.toLowerCase()).not.toContain('enotfound')
@@ -73,6 +81,7 @@ describe('authFehlerText / authFehlerTextFuerCode (en-US)', () => {
     for (const code of ALL_CODES) {
       const text = authFehlerTextFuerCode(code)
       expect(text).toBeTruthy()
+      if (SERVER_SUPPLIED_CODES.includes(code)) continue
       expect(text).not.toBe(code)
       expect(text.toLowerCase()).not.toContain('enotfound')
       expect(text.toLowerCase()).not.toContain('getaddrinfo')
@@ -111,5 +120,18 @@ describe('authFehlerText (sanitisation)', () => {
     setLocale('de-DE')
     expect(authFehlerText(undefined)).toMatch(/server nicht erreichbar/i)
     expect(authFehlerText('boom')).toMatch(/server nicht erreichbar/i)
+  })
+})
+
+describe('authFehlerText (server-supplied messages)', () => {
+  it('forwards the server message for auth.password.change_failed verbatim', () => {
+    // Der Server liefert bei "altes Passwort falsch" (POST
+    // /api/auth/change-password) eine konkrete Message. Diese MUSS im
+    // UI erscheinen — kein generischer "Server nicht erreichbar"-Text.
+    setLocale('de-DE')
+    const text = authFehlerText(
+      new AuthError('auth.password.change_failed', 'Altes Passwort falsch'),
+    )
+    expect(text).toBe('Altes Passwort falsch')
   })
 })

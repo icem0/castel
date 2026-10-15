@@ -20,6 +20,7 @@ export type AuthErrorCode =
   | 'auth.jwt.missing'
   | 'auth.jwt.expired'
   | 'auth.network'
+  | 'auth.password.change_failed'
   | 'auth.unknown'
 
 export class AuthError extends Error {

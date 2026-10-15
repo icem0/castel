@@ -45,8 +45,8 @@ async function speichern(): Promise<void> {
       </p>
 
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label v-if="!erzwingt">
-          <span>Aktuelles Passwort</span>
+        <label>
+          <span>{{ erzwingt ? 'Initial-Passwort (vom Admin)' : 'Aktuelles Passwort' }}</span>
           <input
             v-model="altes"
             type="password"

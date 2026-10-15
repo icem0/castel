@@ -23,12 +23,21 @@ const I18N_KEYS: Record<AuthErrorCode, string> = {
   'auth.jwt.missing': 'auth.error.jwtMissing',
   'auth.jwt.expired': 'auth.error.jwtExpired',
   'auth.network': 'auth.error.network',
+  // Server hat den Passwort-Change explizit abgelehnt (z. B. "altes
+  // Passwort falsch"). Die Message kommt vom Server, daher KEINE
+  // i18n-Uebersetzung — nur AuthError.message wird durchgereicht.
+  'auth.password.change_failed': 'auth.password.change_failed',
   'auth.unknown': 'auth.error.serverUnreachable',
 }
 
 export function authFehlerText(e: unknown): string {
   if (isAuthError(e)) {
     const key = I18N_KEYS[e.code]
+    // Codes, deren Message direkt vom Server kommt (z. B. "Altes Passwort
+    // falsch"): i18n-Lookup ueberspringen, einfach e.message anzeigen.
+    // Das verhindert, dass ein generischer Auth-Bucket ("Server nicht
+    // erreichbar") einen konkreten Server-Fehlertext ueberschreibt.
+    if (key === e.code) return e.message
     const translated = i18n.global.t(key)
     if (translated && translated !== key) return translated
     return e.message
@@ -41,6 +50,9 @@ export function authFehlerText(e: unknown): string {
 
 export function authFehlerTextFuerCode(code: AuthErrorCode): string {
   const key = I18N_KEYS[code]
+  // Codes, deren Message vom Server kommt (z. B. change_failed): kein
+  // i18n-Lookup, einfach der Code-Slug als lesbarer Fallback.
+  if (key === code) return code
   const translated = i18n.global.t(key)
   if (translated && translated !== key) return translated
   // Build a deterministic fallback so the UI always has *some* text.
