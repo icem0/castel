@@ -14,20 +14,21 @@ const auth = useAuthStore()
 
 const sprache = ref(settings.settings.sprache)
 const standardId = ref<string>(settings.settings.standardStandortId ?? '')
+// firmaName: lokale Eingabe. Sobald der User das Feld beruehrt hat, halten
+// wir den lokalen Wert bis zum naechsten Mount — egal ob das Feld gerade
+// focussiert ist oder nicht. Ein liveQuery-Echo (z. B. vom Speichern der
+// Sprache oder einem Sync-Push im selben Tick) wuerde sonst den gerade
+// getippten Wert mit dem alten Store-Wert ueberschreiben, bevor der
+// eigene setKey ueberhaupt zurueckgekommen ist.
 const firmaName = ref<string>(settings.settings.companyName ?? '')
-// Flag: User hat das Feld fokussiert — wir ueberschreiben die Eingabe dann
-// nicht mit zwischenzeitlichen liveQuery-Updates, sonst "verschwindet"
-// die Eingabe sobald der Default-Wert aus IndexedDB nachlaeuft.
-const firmaNameDirty = ref(false)
+const firmaNameVomUser = ref(false)
 
 watch(
   () => settings.settings,
   (s) => {
     sprache.value = s.sprache
     standardId.value = s.standardStandortId ?? ''
-    // companyName nur uebernehmen, wenn das Feld gerade nicht bearbeitet
-    // wird oder noch nie geladen war.
-    if (!firmaNameDirty.value) {
+    if (!firmaNameVomUser.value) {
       firmaName.value = s.companyName ?? ''
     }
   },
@@ -100,8 +101,7 @@ onBeforeUnmount(() => {
             type="text"
             :disabled="laufend"
             :placeholder="t('view.settings.companyNameHint')"
-            @focus="firmaNameDirty = true"
-            @blur="firmaNameDirty = false"
+            @input="firmaNameVomUser = true"
           />
         </label>
 
