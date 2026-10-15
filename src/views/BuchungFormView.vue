@@ -224,6 +224,13 @@ function typIcon(wert: BuchungsTyp): string {
 
         <div v-if="mengeErforderlich" class="menge-block">
           <span class="menge-label">{{ t('view.buchung.form.menge') }} *</span>
+          <div class="menge-schnellwahltasten" role="group" :aria-label="t('view.buchung.form.menge')">
+            <button type="button" class="schnellwahl-taste" @click="menge = 1">1</button>
+            <button type="button" class="schnellwahl-taste" @click="menge = 2">2</button>
+            <button type="button" class="schnellwahl-taste" @click="menge = 3">3</button>
+            <button type="button" class="schnellwahl-taste" @click="menge = 5">5</button>
+            <button type="button" class="schnellwahl-taste" @click="menge = 10">10</button>
+          </div>
           <div class="stepper" role="group" :aria-label="t('view.buchung.form.menge')">
             <button
               type="button"
@@ -247,6 +254,13 @@ function typIcon(wert: BuchungsTyp): string {
 
         <div v-if="sollMengeErforderlich" class="menge-block">
           <span class="menge-label">{{ t('view.buchung.form.sollMenge') }} *</span>
+          <div class="menge-schnellwahltasten" role="group" :aria-label="t('view.buchung.form.sollMenge')">
+            <button type="button" class="schnellwahl-taste" @click="sollMenge = 1">1</button>
+            <button type="button" class="schnellwahl-taste" @click="sollMenge = 2">2</button>
+            <button type="button" class="schnellwahl-taste" @click="sollMenge = 3">3</button>
+            <button type="button" class="schnellwahl-taste" @click="sollMenge = 5">5</button>
+            <button type="button" class="schnellwahl-taste" @click="sollMenge = 10">10</button>
+          </div>
           <div class="stepper" role="group" :aria-label="t('view.buchung.form.sollMenge')">
             <button
               type="button"
