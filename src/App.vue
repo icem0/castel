@@ -948,8 +948,6 @@ function formatRelativ(iso: string | null): string {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-sm);
-  background: white;
-  padding: 2px;
 }
 
 .app-header nav {
