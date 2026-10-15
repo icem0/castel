@@ -173,6 +173,7 @@ export const useSettingsStore = defineStore('settings', () => {
     geladen,
     start,
     stop,
+    setKey,
     setSprache,
     setStandardStandort,
     setArtikelTypen,
