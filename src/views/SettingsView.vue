@@ -227,72 +227,72 @@ onBeforeUnmount(() => {
       <p class="hint">{{ t('view.settings.typVerwaltung.hint') }}</p>
 
       <div class="card">
-      <form class="form new-type" @submit.prevent="typHinzufuegen">
-        <label>
-          <span>{{ t('view.settings.typVerwaltung.neuerTyp') }}</span>
-          <input
-            v-model="neueEingabe"
-            type="text"
-            placeholder="z. B. Verteilerdose"
-            autocomplete="off"
-          />
-        </label>
-        <button type="submit" class="primary">
-          {{ t('view.settings.typVerwaltung.hinzufuegen') }}
-        </button>
-      </form>
-      <p v-if="ungueltigeEingabe" class="fehler">{{ ungueltigeEingabe }}</p>
-    </div>
+        <form class="form new-type" @submit.prevent="typHinzufuegen">
+          <label>
+            <span>{{ t('view.settings.typVerwaltung.neuerTyp') }}</span>
+            <input
+              v-model="neueEingabe"
+              type="text"
+              placeholder="z. B. Verteilerdose"
+              autocomplete="off"
+            />
+          </label>
+          <button type="submit" class="primary">
+            {{ t('view.settings.typVerwaltung.hinzufuegen') }}
+          </button>
+        </form>
+        <p v-if="ungueltigeEingabe" class="fehler">{{ ungueltigeEingabe }}</p>
+      </div>
 
-    <h3>{{ t('view.settings.typVerwaltung.konfigurierte') }}</h3>
-    <ul v-if="lokaleTypListe.length > 0" class="typ-list">
-      <li v-for="(typ, idx) in lokaleTypListe" :key="typ" class="card typ-row">
-        <span class="typ-name">{{ typ }}</span>
-        <span class="typ-meta">
-          {{ anzahlLabel(typVerwendungen.find((t) => t.typ === typ)?.anzahl ?? 0) }}
-        </span>
-        <span class="typ-actions">
-          <button
-            type="button"
-            :disabled="idx === 0"
-            :title="
-              idx === 0
-                ? t('view.settings.typVerwaltung.istOben')
-                : t('view.settings.typVerwaltung.nachOben')
-            "
-            @click="typHoch(typ)"
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            :disabled="idx === lokaleTypListe.length - 1"
-            :title="
-              idx === lokaleTypListe.length - 1
-                ? t('view.settings.typVerwaltung.istUnten')
-                : t('view.settings.typVerwaltung.nachUnten')
-            "
-            @click="typRunter(typ)"
-          >
-            ↓
-          </button>
-          <button
-            type="button"
-            class="danger"
-            :disabled="(typVerwendungen.find((t) => t.typ === typ)?.anzahl ?? 0) > 0"
-            :title="
-              (typVerwendungen.find((t) => t.typ === typ)?.anzahl ?? 0) > 0
-                ? t('view.settings.typVerwaltung.entfernenGenutzt')
-                : t('view.settings.typVerwaltung.entfernen')
-            "
-            @click="typEntfernen(typ)"
-          >
-            {{ t('view.settings.typVerwaltung.entfernen') }}
-          </button>
-        </span>
-      </li>
-    </ul>
-    <p v-else class="empty-state">{{ t('view.settings.typVerwaltung.leer') }}</p>
+      <h3>{{ t('view.settings.typVerwaltung.konfigurierte') }}</h3>
+      <ul v-if="lokaleTypListe.length > 0" class="typ-list">
+        <li v-for="(typ, idx) in lokaleTypListe" :key="typ" class="card typ-row">
+          <span class="typ-name">{{ typ }}</span>
+          <span class="typ-meta">
+            {{ anzahlLabel(typVerwendungen.find((t) => t.typ === typ)?.anzahl ?? 0) }}
+          </span>
+          <span class="typ-actions">
+            <button
+              type="button"
+              :disabled="idx === 0"
+              :title="
+                idx === 0
+                  ? t('view.settings.typVerwaltung.istOben')
+                  : t('view.settings.typVerwaltung.nachOben')
+              "
+              @click="typHoch(typ)"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              :disabled="idx === lokaleTypListe.length - 1"
+              :title="
+                idx === lokaleTypListe.length - 1
+                  ? t('view.settings.typVerwaltung.istUnten')
+                  : t('view.settings.typVerwaltung.nachUnten')
+              "
+              @click="typRunter(typ)"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              class="danger"
+              :disabled="(typVerwendungen.find((t) => t.typ === typ)?.anzahl ?? 0) > 0"
+              :title="
+                (typVerwendungen.find((t) => t.typ === typ)?.anzahl ?? 0) > 0
+                  ? t('view.settings.typVerwaltung.entfernenGenutzt')
+                  : t('view.settings.typVerwaltung.entfernen')
+              "
+              @click="typEntfernen(typ)"
+            >
+              {{ t('view.settings.typVerwaltung.entfernen') }}
+            </button>
+          </span>
+        </li>
+      </ul>
+      <p v-else class="empty-state">{{ t('view.settings.typVerwaltung.leer') }}</p>
     </template>
 
     <template v-if="typVerwendungen.some((t) => t.verwaist)">
