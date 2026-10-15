@@ -23,6 +23,8 @@ export default {
         typAlle: '- alle -',
         status: 'Status',
         statusAlle: 'alle',
+        standort: 'Standort',
+        standortAlle: 'alle Standorte',
       },
       status: {
         verfuegbar: 'verfügbar',

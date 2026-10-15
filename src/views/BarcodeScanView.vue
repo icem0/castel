@@ -41,7 +41,7 @@ async function codeVerarbeiten(code: string, _format: string): Promise<void> {
     (a) => a.barcode === code || a.bestellnummer === code || a.id === code,
   )
   if (artikel) {
-    void router.push({ name: 'buchung-neu', query: { artikelId: artikel.id } })
+    void router.push({ name: 'buchung-neu', query: { artikelId: artikel.id, from: 'scan' } })
     return
   }
   // Nicht gefunden — User fragen. Der gescannte Code wird als
@@ -136,6 +136,14 @@ onBeforeUnmount(() => stop())
       />
       <button type="submit" class="primary" :disabled="!manuelleEingabe.trim()">Übernehmen</button>
     </form>
+
+    <button
+      type="button"
+      class="manual-buchen-btn primary"
+      @click="router.push({ name: 'buchung-neu', query: { from: 'scan' } })"
+    >
+      Manuell buchen
+    </button>
 
     <p class="hint hint-bottom">
       Hinweis: Die Kamera-Berechtigung muss im Browser erteilt sein. Auf mobilen Geräten muss die
@@ -315,6 +323,15 @@ onBeforeUnmount(() => stop())
 }
 .manual-form button {
   min-height: 2.75rem;
+}
+
+.manual-buchen-btn {
+  display: block;
+  width: 100%;
+  min-height: 3.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
 }
 
 @media (max-width: 540px) {

@@ -110,6 +110,10 @@ async function speichern(): Promise<void> {
         kommentar: kommentar.value || null,
       })
     }
+    if (route.query.from === 'scan') {
+      void router.push({ name: 'scan' })
+      return
+    }
     void router.push(artikel.value ? `/artikel/${artikel.value.id}` : '/buchungen')
   } catch (e) {
     if (e instanceof PflichtfeldFehltError) {
@@ -123,6 +127,10 @@ async function speichern(): Promise<void> {
 }
 
 function abbrechen(): void {
+  if (route.query.from === 'scan') {
+    void router.push({ name: 'scan' })
+    return
+  }
   if (artikel.value) void router.push(`/artikel/${artikel.value.id}`)
   else void router.push('/buchungen')
 }
