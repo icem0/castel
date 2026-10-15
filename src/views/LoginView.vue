@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useSettingsStore } from '../stores/settings'
 import { version, commit, branch, buildDate } from '../version'
 import { useDevMode } from '../composables/useDevMode'
 import { readDevResetMarker, clearDevResetMarker } from '../services/dev-mode-bootstrap'
@@ -12,6 +13,7 @@ import { authFehlerText } from '../auth/messages'
 
 const router = useRouter()
 const auth = useAuthStore()
+const settings = useSettingsStore()
 const { t } = useI18n()
 const { active: devModeActive, tooltip: devModeTooltip } = useDevMode()
 
@@ -222,7 +224,7 @@ async function copyVersion(): Promise<void> {
     <div class="card login-card">
       <div class="brand">
         <img src="/castel-logo.png" alt="" width="48" height="48" />
-        <h1>castel</h1>
+        <h1>{{ settings.settings.companyName || 'castel' }}</h1>
       </div>
 
       <!-- Lade-Zustand -->

@@ -222,10 +222,11 @@ onBeforeUnmount(() => {
       <RouterLink to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
     </div>
 
-    <h2>{{ t('view.settings.typVerwaltung.titel') }}</h2>
-    <p class="hint">{{ t('view.settings.typVerwaltung.hint') }}</p>
+    <template v-if="auth.istAdmin">
+      <h3>{{ t('view.settings.typVerwaltung.titel') }}</h3>
+      <p class="hint">{{ t('view.settings.typVerwaltung.hint') }}</p>
 
-    <div class="card">
+      <div class="card">
       <form class="form new-type" @submit.prevent="typHinzufuegen">
         <label>
           <span>{{ t('view.settings.typVerwaltung.neuerTyp') }}</span>
@@ -292,6 +293,7 @@ onBeforeUnmount(() => {
       </li>
     </ul>
     <p v-else class="empty-state">{{ t('view.settings.typVerwaltung.leer') }}</p>
+    </template>
 
     <template v-if="typVerwendungen.some((t) => t.verwaist)">
       <h3>{{ t('view.settings.typVerwaltung.verwaiste') }}</h3>
