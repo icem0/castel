@@ -25,7 +25,6 @@ const leeresFormular = (): Form => ({
 
 const formularOffen = ref(false)
 const formular = ref<Form>(leeresFormular())
-const archivierteAnzeigen = ref(false)
 const fehler = ref('')
 const laufend = ref(false)
 
@@ -85,11 +84,7 @@ async function wiederherstellen(id: string): Promise<void> {
 }
 
 const typOptionen: StandortTyp[] = ['lager', 'auto', 'baustelle', 'extern']
-const sichtbareStandorte = computed(() =>
-  archivierteAnzeigen.value
-    ? [...standortStore.aktive, ...standortStore.archivierte]
-    : standortStore.aktive,
-)
+const sichtbareStandorte = computed(() => [...standortStore.aktive, ...standortStore.archivierte])
 const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formularOffen.value)
 </script>
 
@@ -149,13 +144,6 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
     <p v-if="istLeer" class="empty-state">
       {{ t('view.standort.leer') }}
     </p>
-
-    <div v-else class="filter-bar">
-      <label class="check">
-        <input v-model="archivierteAnzeigen" type="checkbox" />
-        <span>{{ t('view.standort.filter.archivierteAnzeigen') }}</span>
-      </label>
-    </div>
 
     <table v-if="!istLeer" class="data desktop-only">
       <thead>

@@ -132,9 +132,6 @@ export default {
         speichern: 'Speichern',
         abbrechen: 'Abbrechen',
       },
-      filter: {
-        archivierteAnzeigen: 'Archivierte anzeigen',
-      },
       wiederherstellen: 'Wiederherstellen',
       leer: 'Noch keine Standorte.',
     },
