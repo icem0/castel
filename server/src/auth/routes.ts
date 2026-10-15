@@ -158,7 +158,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // ---------- POST /api/auth/change-password ----------
   const changePwSchema = z.object({
-    oldPassword: z.string().min(1),
+    // altes PW ist optional: beim erzwungenen PW-Wechsel nach Admin-Reset
+    // schickt der Client einen leeren String (der User hat das Initial-PW
+    // bereits fuer den Login benutzt und soll es nicht erneut eintippen).
+    // Ob es dann tatsaechlich uebersprungen wird, entscheidet der
+    // mustChangePassword-Flag in der Handler-Logik unten.
+    oldPassword: z.string(),
     newPassword: z.string().min(8),
   })
   app.post<{ Body: z.infer<typeof changePwSchema> }>(
