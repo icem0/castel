@@ -1,0 +1,47 @@
+# Multi-Stage Build für die PWA (Vue 3 + Vite).
+# Output: statische Dateien in /usr/share/nginx/html
+
+# ---------- Build ----------
+FROM node:22-bookworm-slim AS build
+# UTF-8-Locale: ohne die schreiben node/vite/rollup-Strings in der
+# Container-Default-Locale (C/POSIX), was bei mehrbyte-Zeichen wie U+23FB (⏻),
+# U+2026 (…), Emojis, Umlauten die Bytes beim Schreiben in /app/dist
+# zerstört. Symptom im Browser: 'ÔÅ╗'-artige Mojibake-Kaestchen statt der
+# eigentlichen Glyphen — obwohl die Source-Datei in der IDE korrekt
+# aussieht. Locale explizit setzen, BEVOR irgendwas geschrieben wird.
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    TZ=Europe/Berlin
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --no-audit --no-fund
+COPY tsconfig*.json vite.config.ts index.html ./
+COPY public ./public
+COPY src ./src
+COPY scripts ./scripts
+# Commit/Branch aus dem CI als Build-Arg durchreichen, damit write-version.mjs
+# in Buildx (ohne .git/) die echten Werte hat und nicht auf 'unbekannt' fällt.
+# Lokale `docker build`-Aufrufe bekommen leer-String und fallen sauber auf
+# git rev-parse zurück.
+ARG GIT_COMMIT=""
+ARG GIT_BRANCH=""
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_BRANCH=${GIT_BRANCH}
+RUN npm run build
+
+# ---------- Runtime ----------
+FROM nginx:1.27-alpine AS runtime
+COPY --from=build /app/dist /usr/share/nginx/html
+# nginx-Konfig: SPA-Routing (alles auf index.html), Healthz, Cache-Headers
+COPY nginx-pwa.conf /etc/nginx/conf.d/default.conf
+# Entrypoint generiert beim Container-Start /usr/share/nginx/html/config.js
+# aus der ENV VITE_API_URL (siehe scripts/pwa-entrypoint.sh).
+COPY scripts/pwa-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -q -O /dev/null http://localhost:3000/healthz || exit 1
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

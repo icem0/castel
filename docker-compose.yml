@@ -1,0 +1,177 @@
+# castel Production Compose.
+#
+# Startet das System:
+#   - PostgreSQL (persistent via Volume pgdata)
+#   - API (Fastify, Node 22) — Port 3000
+#   - PWA (nginx) — Port 80
+#
+# KEIN Tunnel, KEIN Reverse-Proxy im Stack.
+# Wenn du TLS / Domain brauchst, kümmerst du dich extern darum — z. B. mit
+# nginx, Caddy, Traefik oder einem Cloud-Loadbalancer vor diesem Stack.
+#
+# Images:
+#   api / pwa / migrate werden direkt von GitHub Container Registry
+#   (GHCR) als `ghcr.io/icem0/castel-{api,pwa}:latest` referenziert.
+#   Der CI-Workflow `.github/workflows/build-and-push.yml` baut und pusht
+#   diese Images bei jedem Push auf `main`. `migrate` ist ein Entry-Point
+#   desselben API-Images.
+#
+# Start:   docker compose up -d          # zieht Images von GHCR, startet den Stack
+# Update:  docker compose pull && docker compose up -d
+# Logs:    docker compose logs -f api
+#
+# Voraussetzung: .env-Datei (siehe .env.example).
+# Falls die GHCR-Pakete privat sind: ein GHCR-PAT mit Scope `read:packages`
+# in der Deployer-Registry konfigurieren (Arcane: `POST /container-registries`).
+# Für öffentliche Images reicht kein Token.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-castel}
+      POSTGRES_USER: ${DB_USER:-castel}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # Postgres-Loglevel. PG_LOG_LEVEL gewinnt ueber LOG_LEVEL;
+      # ohne beide: warning. Werte: debug5/debug4/debug3/debug2/debug1/debug/
+      # info/notice/warning/error/log/fatal/panic. Bei debug*/info/notice
+      # schaltet das command:-Snippet unten zusaetzlich log_statement=all +
+      # log_duration=on ein (jedes SQL landet im Log -> grosse Log-Flut,
+      # nur zum Debuggen kurzzeitig setzen).
+      PG_LOG_LEVEL: ${PG_LOG_LEVEL-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-castel} -d ${DB_NAME:-castel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    expose:
+      - "5432"
+    networks: [internal]
+    # Postgres-Log-GUCs in Abhaengigkeit von PG_LOG_LEVEL / LOG_LEVEL setzen.
+    # Mapping trace->debug2, debug->debug1, info->info, warn->warning,
+    # error->error. Bekannte Postgres-GUC-Werte (debug5..panic) werden
+    # unveraendert uebernommen. Default ohne beide: warning.
+    # Wir starten den Original-Entrypoint docker-entrypoint.sh (initialisiert
+    # den Cluster, wechselt per gosu auf den postgres-User) und reichen die
+    # GUC-Flags als dessen Argumente durch — so bleibt die offizielle
+    # Start-Sequenz intakt.
+    entrypoint:
+      - "sh"
+      - "-c"
+      - >-
+        M="$${PG_LOG_LEVEL:-$${LOG_LEVEL:-info}}";
+        case "$$M" in
+          trace) P=debug2 ;;
+          debug) P=debug1 ;;
+          info)  P=info   ;;
+          warning|warn) P=warning ;;
+          error|err)   P=error   ;;
+          debug5|debug4|debug3|debug2|debug1|info|notice|warning|error|log|fatal|panic) P="$$M" ;;
+          *) P=warning ;;
+        esac;
+        echo "castel-postgres-logging: PG_LVL=$$P";
+        case "$$P" in
+          debug1|debug2|debug3|debug4|debug5|info|notice) FLAGS="-c log_min_messages=$$P -c log_statement=all -c log_duration=on -c log_parameter_max_length=64" ;; *) FLAGS="-c log_min_messages=$$P" ;; esac;
+        exec docker-entrypoint.sh postgres $$FLAGS
+
+  api:
+    image: ghcr.io/icem0/castel-api:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-castel}:${DB_PASSWORD}@db:5432/${DB_NAME:-castel}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      FOTOS_DIR: /var/lib/castel/fotos
+      FOTOS_MAX_BYTES: ${FOTOS_MAX_BYTES:-524288}
+      FOTOS_MAX_PER_ARTIKEL: ${FOTOS_MAX_PER_ARTIKEL:-5}
+      RATE_LIMIT_LOGIN_MAX: ${RATE_LIMIT_LOGIN_MAX:-5}
+      RATE_LIMIT_LOGIN_WINDOW: ${RATE_LIMIT_LOGIN_WINDOW:-1 minute}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Development mode flag. API exponeert /api/dev/status mit dem
+      # Wert. PWA bekommt das gleiche Flag ueber VITE_DEV_MODE (siehe
+      # pwa-Service). Im Live-Betrieb DEV_MODE=false setzen.
+      DEV_MODE: ${DEV_MODE:-false}
+      PORT: "3000"
+    # Migrationen laufen vor jedem API-Start. Idempotent: bereits
+    # angewendete SQL-Dateien werden uebersprungen, also kein Risiko.
+    # Der separate `migrate`-Profil-Service unten bleibt fuer manuelle
+    # Aufrufe erhalten (z. B. CI mit separatem Job).
+    command: ["sh", "-c", "node dist/db/migrate.js && exec node dist/index.js"]
+    volumes:
+      - fotos-data:/var/lib/castel/fotos
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/api/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Default: API nur intern (pwa-nginx proxied /api/*).
+    # Fuer direkten Zugriff (z. B. CLI, curl, Debug) die naechste Zeile
+    # einkommentieren — dann ist die API unter http://HOST:${API_PORT:-4242}
+    # zusaetzlich erreichbar.
+    expose:
+      - "3000"
+    # ports:
+    #   - "${API_PORT:-4242}:3000"
+    networks: [internal]
+
+  pwa:
+    image: ghcr.io/icem0/castel-pwa:latest
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      # Basis-URL des API-Backends. Wird beim Container-Start in
+      # /usr/share/nginx/html/config.js geschrieben (siehe
+      # scripts/pwa-entrypoint.sh) und beim Laden der PWA als
+      # window.__CASTEL_API_URL__ ausgelesen.
+      #
+      # Leer = gleicher Origin (nginx im PWA-Container proxied /api/*).
+      # Sonst = absolute URL (z. B. http://api.example.com:4242).
+      VITE_API_URL: ${VITE_API_URL-}
+      # Development mode flag. Wird beim Container-Start in
+      # /usr/share/nginx/html/config.js geschrieben und beim Laden
+      # der PWA als window.__CASTEL_DEV_MODE__ ausgelesen. Steuert das
+      # "DEV MODE"-Badge in Login-Screen und Header. Werte: 'true' | 'false'.
+      VITE_DEV_MODE: ${DEV_MODE:-false}
+    ports:
+      - "${PWA_PORT:-4280}:3000"
+    networks: [internal]
+
+  # Einmaliger Job: Migration ausfuehren.
+  # Aufruf: docker compose --profile migrate up
+  migrate:
+    image: ghcr.io/icem0/castel-api:latest
+    profiles: ["migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-castel}:${DB_PASSWORD}@db:5432/${DB_NAME:-castel}
+      JWT_SECRET: ${JWT_SECRET}
+    entrypoint: ["node", "dist/db/migrate.js"]
+    networks: [internal]
+    restart: "no"
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  pgdata:
+  fotos-data:

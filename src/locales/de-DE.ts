@@ -1,0 +1,209 @@
+export default {
+  app: {
+    title: 'castel',
+    nav: {
+      dashboard: 'Dashboard',
+      artikel: 'Artikel',
+      buchungen: 'Buchungen',
+      standorte: 'Standorte',
+      einstellungen: 'Einstellungen',
+    },
+  },
+  view: {
+    dashboard: {
+      h1: 'Dashboard',
+      leer: 'Noch keine Daten. Lege im Menü "Standorte" und "Artikel" etwas an.',
+    },
+    artikel: {
+      h1: 'Artikel',
+      neu: 'Neuer Artikel',
+      suche: 'Suche (Titel, Typ, Bestellnummer)',
+      filter: {
+        typ: 'Typ',
+        status: 'Status',
+        statusAlle: 'alle',
+      },
+      status: {
+        verfuegbar: 'verfügbar',
+        reserviert: 'reserviert',
+        gesperrt: 'gesperrt',
+        ausgesondert: 'ausgesondert',
+        archiviert: 'archiviert',
+      },
+      spalten: {
+        titel: 'Titel',
+        typ: 'Typ',
+        bestand: 'Bestand',
+      },
+      leer: 'Keine Artikel gefunden.',
+      detail: {
+        h1: 'Artikel',
+        bestandProStandort: 'Bestand pro Standort',
+        historie: 'Historie',
+        buchen: 'Buchen',
+        archivieren: 'Archivieren',
+        archivierenFrage: 'Diesen Artikel archivieren?',
+        archiviert: 'archiviert',
+      },
+      form: {
+        h1: 'Neuer Artikel',
+        titel: 'Titel',
+        typ: 'Typ',
+        typOptional: '(optional)',
+        typKeiner: '— kein Typ —',
+        status: 'Status',
+        lieferant: 'Lieferant',
+        ve: 'Verpackungseinheit',
+        mindestbestand: 'Mindestbestand',
+        bestellnummer: 'Bestellnummer',
+        barcode: 'Barcode',
+        barcodeHint: 'EAN, Code128 oder QR. Wird vom Scanner gelesen.',
+        speichern: 'Speichern',
+        abbrechen: 'Abbrechen',
+        pflicht: 'Pflichtfeld',
+      },
+    },
+    buchung: {
+      h1: 'Buchungen',
+      leer: 'Noch keine Buchungen.',
+      spalten: {
+        zeit: 'Zeit',
+        artikel: 'Artikel',
+        standort: 'Standort',
+        menge: '± Menge',
+        typ: 'Typ',
+        projekt: 'Projekt',
+        von: 'Benutzer',
+      },
+      form: {
+        h1: 'Neue Buchung',
+        typ: 'Typ',
+        typen: {
+          einlagerung: 'Einlagerung',
+          entnahme: 'Entnahme',
+          umlagerung: 'Umlagerung',
+          inventur: 'Inventur',
+        },
+        artikel: 'Artikel',
+        standort: 'Standort',
+        zielstandort: 'Zielstandort',
+        menge: 'Menge',
+        sollMenge: 'Soll-Menge',
+        projekt: 'Projekt-Nr.',
+        kommentar: 'Kommentar',
+        speichern: 'Speichern',
+        abbrechen: 'Abbrechen',
+        warnNegativ: 'Achtung: Bestand kleiner als benötigte Menge. Trotzdem fortfahren?',
+      },
+    },
+    kommission: {
+      h1: 'Kommission',
+      erklaerung:
+        'Diese Aktion storniert die Original-Buchung und legt eine neue Buchung mit dem gewählten Projekt an. Der Bestand bleibt gleich.',
+      neuesProjekt: 'Neues Projekt',
+      speichern: 'Kommission ausführen',
+      abbrechen: 'Abbrechen',
+    },
+    standort: {
+      h1: 'Standorte',
+      neu: 'Neuer Standort',
+      spalten: {
+        name: 'Name',
+        typ: 'Typ',
+        projekt: 'Projekt',
+        kennzeichen: 'Kennzeichen',
+        standard: 'Standard',
+      },
+      typen: {
+        lager: 'Lager',
+        auto: 'Auto',
+        baustelle: 'Baustelle',
+        extern: 'extern',
+      },
+      form: {
+        name: 'Name',
+        typ: 'Typ',
+        projekt: 'Projekt',
+        kennzeichen: 'Kennzeichen',
+        standard: 'als Standard-Standort',
+        speichern: 'Speichern',
+        abbrechen: 'Abbrechen',
+      },
+      filter: {
+        archivierteAnzeigen: 'Archivierte anzeigen',
+      },
+      wiederherstellen: 'Wiederherstellen',
+      leer: 'Noch keine Standorte.',
+    },
+    settings: {
+      h1: 'Einstellungen',
+      sprache: 'Sprache',
+      sprachen: { de: 'Deutsch', en: 'English' },
+      benutzer: 'Anzeigename (für Buchungen)',
+      standardStandort: 'Standard-Standort',
+      speichern: 'Speichern',
+      gespeichert: 'gespeichert.',
+      nichtGelegt: 'noch nicht festgelegt',
+      typVerwaltung: {
+        titel: 'Artikel-Typen',
+        hint: 'Reihenfolge = Anzeige-Reihenfolge. Typen erscheinen im Filter der Artikel-Liste und als Auswahl im Artikel-Formular.',
+        neuerTyp: 'Neuer Typ',
+        hinzufuegen: 'Hinzufügen',
+        konfigurierte: 'Konfigurierte Typen',
+        verwaiste: 'Verwaiste Typen (nur in Artikeln)',
+        uebernehmen: 'Übernehmen',
+        leer: 'Keine Typen konfiguriert.',
+        anzahlEins: '1 Artikel',
+        anzahlViele: '{n} Artikel',
+        entfernenGenutzt: 'Typ wird noch von Artikeln verwendet – erst zuordnen oder archivieren',
+        entfernen: 'Entfernen',
+        nachOben: 'nach oben',
+        nachUnten: 'nach unten',
+        istOben: 'ist oben',
+        istUnten: 'ist unten',
+        speicherStatus: 'gespeichert',
+        fehlerLeer: 'Name darf nicht leer sein.',
+        fehlerDuplikat: 'ist bereits in der Liste.',
+      },
+    },
+    common: {
+      neu: 'Neu',
+      abbrechen: 'Abbrechen',
+      speichern: 'Speichern',
+      ja: 'Ja',
+      nein: 'Nein',
+      optional: '(optional)',
+    },
+  },
+  auth: {
+    error: {
+      emailRequired: 'Bitte eine E-Mail eingeben.',
+      passwordRequired: 'Bitte ein Passwort eingeben.',
+      credentialsRequired: 'Bitte E-Mail und Passwort eingeben.',
+      // Server antwortet nicht (Netzwerk, DNS, CORS, 5xx ohne Body).
+      // Konkrete Browser-/Proxy-Fehlermeldungen wie "Failed to fetch"
+      // oder "getaddrinfo ENOTFOUND db" werden hier zusammengefasst.
+      serverUnreachable: 'Server nicht erreichbar. Bitte Internet- oder VPN-Verbindung prüfen.',
+      // Offline-Login mit gecachten Credentials gescheitert:
+      // kein Cache-Eintrag fuer diese E-Mail oder das Passwort stimmt
+      // nicht mit dem gecachten Hash ueberein.
+      offlineNoCache: 'Offline-Login nicht möglich: kein gecachter Eintrag oder falsches Passwort.',
+      // Inkonsistenz: Passwort wurde verifiziert, aber der Credential-
+      // Eintrag ist zwischenzeitlich verschwunden (localStorage geloescht).
+      cacheLost: 'Interner Fehler: Credential-Cache verloren.',
+      // Passwort OK, aber kein JWT mehr im Cache (erster Login war nie online).
+      jwtMissing:
+        'Offline-Login möglich, aber kein gespeichertes Token. Bitte zuerst online anmelden.',
+      // JWT ist abgelaufen und der Server ist nicht erreichbar.
+      jwtExpired: 'Sitzung abgelaufen. Bitte online anmelden, um einen neuen Token zu erhalten.',
+      // Generischer Netzwerkfehler bei einem anderen Auth-Aufruf
+      // (z. B. Passwort aendern). Rohmeldungen des Browsers werden hier
+      // nicht durchgereicht.
+      network: 'Server nicht erreichbar. Bitte Internet- oder VPN-Verbindung prüfen.',
+      // Status-Check beim LoginView-Mount: Server nicht erreichbar,
+      // Offline-Login mit gecachten Daten wird versucht.
+      serverUnreachableHint:
+        'Server nicht erreichbar. Du kannst dich mit gecachten Daten anmelden, wenn du hier schon einmal online angemeldet warst.',
+    },
+  },
+}

@@ -1,0 +1,803 @@
+/* castel · Design-System
+ *
+ * Werkstatt-Look: dunkler Hintergrund, hoher Kontrast, kompakte Abstände.
+ * Indigo/Teal als Akzentfarbe. System-Font (kein Webfont-Bundle).
+ *
+ * Theme-Steuerung über das `data-theme`-Attribut auf <html>:
+ *   - data-theme="dark"  → Werkstatt-Look (Default)
+ *   - data-theme="light" → helles Layout
+ *   - ohne Attribut       → System-Präferenz
+ */
+
+:root,
+:root[data-theme='dark'] {
+  --bg-app: #0f1218;
+  --bg-card: #1a1f29;
+  --bg-input: #11151c;
+  --bg-header: #11151c;
+
+  --border: #232936;
+  --border-strong: #2f374a;
+
+  --text: #c8cdd9;
+  --text-muted: #8b91a3;
+  --text-strong: #f4f6fa;
+
+  --accent: #6366f1;
+  --accent-hover: #7c7ff5;
+  --accent-bg: rgba(99, 102, 241, 0.12);
+  --accent-border: rgba(99, 102, 241, 0.45);
+
+  --success: #4ade80;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --info: #60a5fa;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.02), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  --radius: 8px;
+  --radius-sm: 6px;
+
+  --sans: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+
+  font: 15px/1.5 var(--sans);
+  letter-spacing: 0.1px;
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--bg-app);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='light'] {
+  --bg-app: #f4f6fa;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-header: #ffffff;
+
+  --border: #e4e7ee;
+  --border-strong: #c7ccd9;
+
+  --text: #2c313a;
+  --text-muted: #6b7280;
+  --text-strong: #0f1218;
+
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-bg: rgba(79, 70, 229, 0.08);
+  --accent-border: rgba(79, 70, 229, 0.3);
+
+  --shadow-card: 0 1px 0 rgba(15, 18, 24, 0.02), 0 2px 8px rgba(15, 18, 24, 0.06);
+  --shadow-pop: 0 8px 24px rgba(15, 18, 24, 0.12);
+
+  color-scheme: light;
+  color: var(--text);
+  background: var(--bg-app);
+}
+
+/* Auto-Modus: System-Präferenz ohne Attribut.
+   Hell, wenn der User Light bevorzugt. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg-app: #f4f6fa;
+    --bg-card: #ffffff;
+    --bg-input: #ffffff;
+    --bg-header: #ffffff;
+
+    --border: #e4e7ee;
+    --border-strong: #c7ccd9;
+
+    --text: #2c313a;
+    --text-muted: #6b7280;
+    --text-strong: #0f1218;
+
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --accent-bg: rgba(79, 70, 229, 0.08);
+    --accent-border: rgba(79, 70, 229, 0.3);
+
+    --shadow-card: 0 1px 0 rgba(15, 18, 24, 0.02), 0 2px 8px rgba(15, 18, 24, 0.06);
+    --shadow-pop: 0 8px 24px rgba(15, 18, 24, 0.12);
+
+    color-scheme: light;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--text);
+}
+
+/* Typografie */
+h1, h2, h3 {
+  font-family: var(--sans);
+  color: var(--text-strong);
+  letter-spacing: -0.01em;
+  margin: 0 0 0.5em;
+}
+
+h1 { font-size: 1.5rem; font-weight: 600; }
+h2 { font-size: 1.15rem; font-weight: 600; margin-top: 1.5em; }
+h3 { font-size: 1rem; font-weight: 600; margin-top: 1em; }
+
+p { margin: 0 0 0.5em; }
+small { font-size: 0.8rem; color: var(--text-muted); }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* App-Container */
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Globale Klassen für Layout und Komponenten */
+.view {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.view-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.view-head h1 {
+  margin: 0;
+}
+
+/* Karten / Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-card);
+}
+
+.card + .card {
+  margin-top: 0.75rem;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.card-grid .card {
+  margin: 0;
+}
+
+.card-grid .stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.card-grid .stat strong {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-strong);
+  line-height: 1;
+}
+
+.card-grid .stat span {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Buttons */
+button, .btn {
+  font: inherit;
+  font-weight: 500;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  line-height: 1.2;
+}
+
+button:hover:not(:disabled), .btn:hover {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+  text-decoration: none;
+}
+
+button:disabled, .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary, .btn.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+button.primary:hover:not(:disabled), .btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+button.danger, .btn.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+button.danger:hover:not(:disabled), .btn.danger:hover {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+/* Inputs */
+input[type='text'],
+input[type='search'],
+input[type='number'],
+input[type='email'],
+input[type='password'],
+input[type='file'],
+select,
+textarea {
+  font: inherit;
+  color: var(--text-strong);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* Select-Pfeil: Browser-Default ist auf Mobile dünn und je nach Theme
+   kaum sichtbar. Eigener Pfeil in Akzent-Ton. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 2px),
+    calc(100% - 13px) calc(50% - 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+/* Browser-Autofill unterdrückt das gelbe Default-Highlighting
+   und zwingt Inputs in unser Design (Box-Shadow statt Background,
+   damit der Text lesbar bleibt). */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: var(--text-strong);
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-input) inset;
+  box-shadow: 0 0 0 1000px var(--bg-input) inset, 0 0 0 3px var(--accent-bg);
+  caret-color: var(--text-strong);
+  transition: background-color 9999s ease-out 0s;
+}
+
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-input) inset, 0 0 0 3px var(--accent-bg);
+  box-shadow: 0 0 0 1000px var(--bg-input) inset, 0 0 0 3px var(--accent-bg);
+}
+
+@supports not selector(input:-webkit-autofill) {
+  input:autofill {
+    background: var(--bg-input);
+    color: var(--text-strong);
+  }
+}
+
+input[type='file'] {
+  padding: 0.35rem 0.4rem;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: auto;
+}
+
+label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+label.check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Formulare */
+.form {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.form label > span {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Tabellen */
+.data {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.data th, .data td {
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.data th {
+  background: var(--bg-input);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.data tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data tbody tr:hover {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+:root[data-theme='light'] .data tbody tr:hover {
+  background: rgba(79, 70, 229, 0.04);
+}
+
+.data .actions-cell {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.data .num-plus { color: var(--success); font-variant-numeric: tabular-nums; }
+.data .num-minus { color: var(--danger); font-variant-numeric: tabular-nums; }
+.data .storno { color: var(--text-muted); text-decoration: line-through; }
+.data .archived { color: var(--text-muted); }
+
+/* Filter-Bar */
+.filter-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filter-bar > * {
+  flex: 0 0 auto;
+}
+
+.filter-bar input[type='search'] {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
+/* Hinweise */
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.hint-warn { color: var(--warning); }
+.hint-ok { color: var(--success); }
+.hint-danger { color: var(--danger); }
+
+.feiler {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.badge.accent { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-border); }
+.badge.success { background: rgba(74, 222, 128, 0.1); color: var(--success); border-color: rgba(74, 222, 128, 0.3); }
+.badge.warning { background: rgba(251, 191, 36, 0.1); color: var(--warning); border-color: rgba(251, 191, 36, 0.3); }
+.badge.danger { background: rgba(248, 113, 113, 0.1); color: var(--danger); border-color: rgba(248, 113, 113, 0.3); }
+
+/* Listen / Definitionen */
+.meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem 1.25rem;
+  margin: 0;
+}
+
+.meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.meta dt {
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.meta dd {
+  margin: 0;
+  color: var(--text-strong);
+}
+
+/* Empty-State */
+.empty-state {
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+/* ============================================================
+   Mobile-First Komponenten
+   ============================================================ */
+
+/* Wird per JS auf <html> gesetzt, damit reine CSS-Media-Queries nicht
+   ausreichen (Bottom-Nav muss z.B. verhindern, dass Inhalt darunter
+   verschwindet — siehe App.vue). */
+:root[data-layout='mobile'] {
+  --touch-min: 44px;
+  --bottom-nav-h: 4.25rem;
+}
+
+:root[data-layout='desktop'] {
+  --touch-min: auto;
+  --bottom-nav-h: 0px;
+}
+
+/* Touch-Mindesthöhe für alle interaktiven Elemente.
+   Auf Mobile gilt Apple-HIG (44pt) / Material (48dp) — wir wählen 44px. */
+@media (max-width: 720px) {
+  button,
+  .btn,
+  input[type='checkbox'],
+  select,
+  input[type='search'],
+  .app-header nav a {
+    min-height: var(--touch-min);
+  }
+
+  /* iOS zoomt in Inputs, wenn font-size < 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+}
+
+/* Floating Action Button — primäre Aktion auf Mobile (Scanner). */
+.fab {
+  position: fixed;
+  right: 1.25rem;
+  bottom: calc(var(--bottom-nav-h) + 1rem);
+  z-index: 30;
+  width: 3.75rem;
+  height: 3.75rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  box-shadow: var(--shadow-pop);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    transform 0.15s,
+    background 0.15s;
+}
+.fab:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+  color: white;
+  transform: translateY(-1px);
+}
+.fab:active {
+  transform: translateY(0);
+}
+.fab .icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* Sticky-Form-Bar: haftet am unteren Rand über der Bottom-Nav.
+   Für Workflows, bei denen "Speichern" immer in Daumenreichweite sein soll. */
+.sticky-form-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 1rem -1.25rem -1.25rem;
+  padding: 0.85rem 1.25rem;
+  padding-bottom: calc(0.85rem + var(--bottom-nav-h));
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sticky-form-bar .primary {
+  flex: 1 1 auto;
+  min-height: 2.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Stepper: große +/− Buttons für Mengeneingabe, einhändig bedienbar. */
+.stepper {
+  display: grid;
+  grid-template-columns: 3rem 1fr 3rem;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+}
+.stepper button {
+  background: var(--bg-input);
+  border: none;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-strong);
+  cursor: pointer;
+  padding: 0;
+  min-height: 3rem;
+}
+.stepper button:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--accent);
+}
+.stepper input {
+  border: none;
+  border-left: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-strong);
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 0.25rem 0;
+  -moz-appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.stepper input:focus {
+  box-shadow: none;
+}
+
+/* Tile-Selector für Buchungstyp: grosse Kacheln statt Dropdown auf Mobile. */
+.tile-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.6rem;
+}
+.tile-group .tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  padding: 1rem 0.5rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: center;
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--text);
+  min-height: 4.5rem;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.tile-group .tile:hover {
+  border-color: var(--accent-border);
+}
+.tile-group .tile.active {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.tile-group .tile .tile-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.tile-group .tile input[type='radio'] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Mobile Card-Liste: Alternative zu <table> auf kleinen Screens. */
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.card-list-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.card-list-item .card-list-title {
+  font-weight: 600;
+  color: var(--text-strong);
+  text-decoration: none;
+  font-size: 1rem;
+}
+.card-list-item .card-list-title:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+.card-list-item .card-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  align-items: center;
+}
+.card-list-item .card-list-meta .num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-size: 1.1rem;
+}
+.card-list-item .card-list-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+.card-list-item .card-list-actions .btn,
+.card-list-item .card-list-actions button {
+  flex: 1 1 auto;
+  min-height: 2.5rem;
+  width: 100%;
+}
+
+/* Auf Mobile ausblenden — wird in App.vue per data-layout gesteuert. */
+:root[data-layout='mobile'] .desktop-only {
+  display: none !important;
+}
+:root[data-layout='desktop'] .mobile-only {
+  display: none !important;
+}
+
+/* ============================================================
+   Responsive Layout-Shifts
+   ============================================================ */
+
+/* Mobile-Anpassungen */
+@media (max-width: 720px) {
+  /* Platz für die Bottom-Nav freihalten. */
+  .app-shell {
+    padding-bottom: var(--bottom-nav-h);
+  }
+  .view {
+    padding: 1rem 0.85rem 1.5rem;
+  }
+  h1 {
+    font-size: 1.25rem;
+  }
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Tabellen ab Mobile verstecken — Card-Liste übernimmt (per .mobile-only). */
+  .data {
+    display: none;
+  }
+  /* Auf Mobile das Dashboard-Cardgrid prominenter. */
+  .stat-card {
+    padding: 1.25rem;
+  }
+  .stat-card strong {
+    font-size: 2rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .data th,
+  .data td {
+    padding: 0.5rem 0.6rem;
+  }
+  .data .actions-cell {
+    flex-wrap: wrap;
+  }
+}
