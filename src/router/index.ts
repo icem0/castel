@@ -23,6 +23,7 @@ import BuchungFormView from '../views/BuchungFormView.vue'
 import KommissionView from '../views/KommissionView.vue'
 import StandortListView from '../views/StandortListView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import ArtikelTypenView from '../views/ArtikelTypenView.vue'
 import ImportView from '../views/ImportView.vue'
 import LoginView from '../views/LoginView.vue'
 import PasswortAendernView from '../views/PasswortAendernView.vue'
@@ -58,6 +59,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/user',
     name: 'einstellungen-user',
     component: UserVerwaltungView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/artikel-typen',
+    name: 'einstellungen-artikel-typen',
+    component: ArtikelTypenView,
     meta: { requiresAdmin: true },
   },
   { path: '/import', name: 'import', component: ImportView },
