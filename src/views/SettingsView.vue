@@ -15,13 +15,21 @@ const auth = useAuthStore()
 const sprache = ref(settings.settings.sprache)
 const standardId = ref<string>(settings.settings.standardStandortId ?? '')
 const firmaName = ref<string>(settings.settings.companyName ?? '')
+// Flag: User hat das Feld fokussiert — wir ueberschreiben die Eingabe dann
+// nicht mit zwischenzeitlichen liveQuery-Updates, sonst "verschwindet"
+// die Eingabe sobald der Default-Wert aus IndexedDB nachlaeuft.
+const firmaNameDirty = ref(false)
 
 watch(
   () => settings.settings,
   (s) => {
     sprache.value = s.sprache
     standardId.value = s.standardStandortId ?? ''
-    firmaName.value = s.companyName ?? ''
+    // companyName nur uebernehmen, wenn das Feld gerade nicht bearbeitet
+    // wird oder noch nie geladen war.
+    if (!firmaNameDirty.value) {
+      firmaName.value = s.companyName ?? ''
+    }
   },
 )
 
@@ -92,6 +100,8 @@ onBeforeUnmount(() => {
             type="text"
             :disabled="laufend"
             :placeholder="t('view.settings.companyNameHint')"
+            @focus="firmaNameDirty = true"
+            @blur="firmaNameDirty = false"
           />
         </label>
 
