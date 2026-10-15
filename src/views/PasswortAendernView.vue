@@ -23,7 +23,7 @@ async function speichern(): Promise<void> {
   }
   laufend.value = true
   try {
-    await auth.aendereEigenesPasswortMit(altes.value, neues.value)
+    await auth.aendereEigenesPasswortMit(erzwingt.value ? '' : altes.value, neues.value)
     void router.push('/')
   } catch (e) {
     // AuthError wird ueber authFehlerText lokalisiert; ein roher
@@ -41,12 +41,13 @@ async function speichern(): Promise<void> {
     <div class="card login-card">
       <h1>{{ erzwingt ? 'Neues Passwort setzen' : 'Passwort ändern' }}</h1>
       <p v-if="erzwingt" class="hint hint-warn">
-        Dein Passwort wurde zurückgesetzt. Bitte vergib ein neues.
+        Dein Passwort wurde vom Admin zurückgesetzt. Bitte vergib gleich ein neues — damit bist du
+        startklar.
       </p>
 
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label>
-          <span>{{ erzwingt ? 'Initial-Passwort (vom Admin)' : 'Aktuelles Passwort' }}</span>
+        <label v-if="!erzwingt">
+          <span>Aktuelles Passwort</span>
           <input
             v-model="altes"
             type="password"
@@ -66,6 +67,7 @@ async function speichern(): Promise<void> {
             minlength="8"
             pattern="(?=.*\d)(?=.*[A-Za-z]).{8,}"
             :title="'Mindestens 8 Zeichen, davon mindestens 1 Ziffer und 1 Buchstabe'"
+            :autofocus="erzwingt ? true : undefined"
             :disabled="laufend"
           />
         </label>

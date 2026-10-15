@@ -176,9 +176,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const user = rows[0]
       if (!user) return reply.code(404).send({ code: 'NOT_FOUND' })
 
-      const ok = await argon2.verify(user.passwordHash, parsed.data.oldPassword)
-      if (!ok) {
-        return reply.code(401).send({ code: 'INVALID_CREDENTIALS', message: 'Altes Passwort falsch' })
+      // Beim erzwungenen PW-Wechsel (Admin-Reset) hat der User gerade das
+      // temporäre Initial-PW benutzt, um sich anzumelden — er soll es jetzt
+      // durch ein selbst gewähltes ersetzen, ohne es erneut eintippen zu
+      // müssen. In dem Fall entfällt die Verifikation des alten PWs.
+      if (!user.mustChangePassword) {
+        const ok = await argon2.verify(user.passwordHash, parsed.data.oldPassword)
+        if (!ok) {
+          return reply.code(401).send({ code: 'INVALID_CREDENTIALS', message: 'Altes Passwort falsch' })
+        }
       }
       const newHash = await argon2.hash(parsed.data.newPassword)
       await db
