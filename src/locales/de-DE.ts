@@ -20,6 +20,7 @@ export default {
       suche: 'Suche (Titel, Typ, Bestellnummer)',
       filter: {
         typ: 'Typ',
+        typAlle: '- alle -',
         status: 'Status',
         statusAlle: 'alle',
       },
@@ -141,6 +142,8 @@ export default {
       sprachen: { de: 'Deutsch', en: 'English' },
       benutzer: 'Anzeigename (für Buchungen)',
       standardStandort: 'Standard-Standort',
+      companyName: 'Firmenzeichen',
+      companyNameHint: 'Wird im Header und in Berichten angezeigt. Nur für Admins konfigurierbar.',
       speichern: 'Speichern',
       gespeichert: 'gespeichert.',
       nichtGelegt: 'noch nicht festgelegt',

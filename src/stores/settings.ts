@@ -27,15 +27,18 @@ export interface Settings {
   standardStandortId: string | null
   /** Konfigurierbare Liste der Artikel-Typen (Reihenfolge wie angelegt). */
   artikelTypen: string[]
+  /** Firmenzeichen, nur von Admins konfigurierbar. */
+  companyName: string
 }
 
 const DEFAULTS: Settings = {
   sprache: 'de',
   standardStandortId: null,
   artikelTypen: ['Zubehör', 'Verbrauchsmaterial'],
+  companyName: '',
 }
 
-const GLOBAL_KEYS = new Set<string>(['artikelTypen'])
+const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'companyName'])
 const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId'])
 const GLOBAL_INDEX = ''
 
@@ -78,10 +81,14 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
   const standortRow = byKey.get('standardStandortId')
   const standardStandortId = standortRow?.value ? standortRow.value : DEFAULTS.standardStandortId
 
+  const companyNameRow = byKey.get('companyName')
+  const companyName = companyNameRow?.value ?? DEFAULTS.companyName
+
   return {
     sprache,
     standardStandortId,
     artikelTypen: typen,
+    companyName,
   }
 }
 

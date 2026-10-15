@@ -16,12 +16,14 @@ const { typVerwendungen } = useArtikelTypen()
 
 const sprache = ref(settings.settings.sprache)
 const standardId = ref<string>(settings.settings.standardStandortId ?? '')
+const firmaName = ref<string>(settings.settings.companyName ?? '')
 
 watch(
   () => settings.settings,
   (s) => {
     sprache.value = s.sprache
     standardId.value = s.standardStandortId ?? ''
+    firmaName.value = s.companyName ?? ''
   },
 )
 
@@ -36,6 +38,9 @@ async function speichern(): Promise<void> {
   try {
     await settings.setSprache(sprache.value)
     await settings.setStandardStandort(standardId.value || null)
+    if (auth.istAdmin) {
+      await settings.setKey('companyName', firmaName.value)
+    }
     statusmeldung.value = t('view.settings.gespeichert')
     if (statusTimer !== null) clearTimeout(statusTimer)
     statusTimer = setTimeout(() => {
@@ -170,6 +175,15 @@ onBeforeUnmount(() => {
             <option value="">— {{ t('view.settings.nichtGelegt') }} —</option>
             <option v-for="s in standorte" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
+        </label>
+        <label v-if="auth.istAdmin">
+          <span>{{ t('view.settings.companyName') }}</span>
+          <input
+            v-model="firmaName"
+            type="text"
+            :disabled="laufend"
+            :placeholder="t('view.settings.companyNameHint')"
+          />
         </label>
 
         <div class="form-actions">

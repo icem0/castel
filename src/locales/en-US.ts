@@ -20,6 +20,7 @@ export default {
       suche: 'Search (title, type, order no.)',
       filter: {
         typ: 'Type',
+        typAlle: '- all -',
         status: 'Status',
         statusAlle: 'all',
       },
@@ -141,6 +142,8 @@ export default {
       sprachen: { de: 'Deutsch', en: 'English' },
       benutzer: 'Display name (used on transactions)',
       standardStandort: 'Default location',
+      companyName: 'Company Name',
+      companyNameHint: 'Displayed in the header and reports. Only configurable by admins.',
       speichern: 'Save',
       gespeichert: 'saved.',
       nichtGelegt: 'not set',

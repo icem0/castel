@@ -75,7 +75,7 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
         @input="applyFilter"
       />
       <select v-model="filterTyp" @change="applyFilter">
-        <option value="">{{ t('view.artikel.filter.typ') }} —</option>
+        <option value="">{{ t('view.artikel.filter.typAlle') }}</option>
         <option v-for="typ in alleBenutzten" :key="typ" :value="typ">{{ typ }}</option>
       </select>
       <select v-model="filterStatus" @change="applyFilter">

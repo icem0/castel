@@ -20,7 +20,7 @@ const auth = useAuthStore()
 
 const typen: BuchungsTyp[] = ['einlagerung', 'entnahme', 'umlagerung', 'inventur']
 
-const typ = ref<BuchungsTyp>('einlagerung')
+const typ = ref<BuchungsTyp>('entnahme')
 const artikelId = ref<string>(String(route.query.artikelId ?? ''))
 const standortId = ref<string>(standortStore.standardlager?.id ?? '')
 const zielStandortId = ref<string>('')
@@ -169,139 +169,136 @@ function typIcon(wert: BuchungsTyp): string {
       </RouterLink>
     </header>
 
-    <form class="card buchung-card" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-      <fieldset class="typ-feldset">
-        <legend>{{ t('view.buchung.form.typ') }}</legend>
-        <div class="tile-group" role="radiogroup" :aria-label="t('view.buchung.form.typ')">
-          <label
-            v-for="opt in typOptionen"
-            :key="opt.wert"
-            class="tile"
-            :class="{ active: typ === opt.wert }"
-          >
+    <div class="card">
+      <form class="form buchung-card" :aria-busy="laufend || undefined" @submit.prevent="speichern">
+        <fieldset class="typ-feldset">
+          <legend>{{ t('view.buchung.form.typ') }}</legend>
+          <div class="tile-group" role="radiogroup" :aria-label="t('view.buchung.form.typ')">
+            <label
+              v-for="opt in typOptionen"
+              :key="opt.wert"
+              class="tile"
+              :class="{ active: typ === opt.wert }"
+            >
+              <input
+                type="radio"
+                name="buchung-typ"
+                :value="opt.wert"
+                :checked="typ === opt.wert"
+                @change="typ = opt.wert"
+              />
+              <span class="tile-icon" aria-hidden="true">{{ opt.icon }}</span>
+              <span class="tile-label">{{ opt.label }}</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          <span>{{ t('view.buchung.form.artikel') }} *</span>
+          <select v-model="artikelId" required :disabled="laufend">
+            <option value="" disabled>— wählen —</option>
+            <option v-for="a in artikelStore.artikel" :key="a.id" :value="a.id">
+              {{ a.titel }}
+            </option>
+          </select>
+        </label>
+
+        <label>
+          <span>{{ t('view.buchung.form.standort') }} *</span>
+          <select v-model="standortId" required :disabled="laufend">
+            <option v-for="s in standortStore.aktive" :key="s.id" :value="s.id">
+              {{ s.name }}
+            </option>
+          </select>
+        </label>
+
+        <label v-if="zielErforderlich">
+          <span>{{ t('view.buchung.form.zielstandort') }} *</span>
+          <select v-model="zielStandortId" required :disabled="laufend">
+            <option value="" disabled>— wählen —</option>
+            <option v-for="s in standortStore.aktive" :key="s.id" :value="s.id">
+              {{ s.name }}
+            </option>
+          </select>
+        </label>
+
+        <div v-if="mengeErforderlich" class="menge-block">
+          <span class="menge-label">{{ t('view.buchung.form.menge') }} *</span>
+          <div class="stepper" role="group" :aria-label="t('view.buchung.form.menge')">
+            <button
+              type="button"
+              :disabled="menge <= 1"
+              :aria-label="`Menge um 1 verringern`"
+              @click="stepper(-1)"
+            >
+              −
+            </button>
             <input
-              type="radio"
-              name="buchung-typ"
-              :value="opt.wert"
-              :checked="typ === opt.wert"
-              @change="typ = opt.wert"
+              v-model.number="menge"
+              type="number"
+              min="1"
+              inputmode="numeric"
+              required
+              :aria-label="t('view.buchung.form.menge')"
             />
-            <span class="tile-icon" aria-hidden="true">{{ opt.icon }}</span>
-            <span class="tile-label">{{ opt.label }}</span>
-          </label>
+            <button type="button" :aria-label="`Menge um 1 erhöhen`" @click="stepper(1)">+</button>
+          </div>
         </div>
-      </fieldset>
 
-      <label>
-        <span>{{ t('view.buchung.form.artikel') }} *</span>
-        <select v-model="artikelId" required>
-          <option value="" disabled>— wählen —</option>
-          <option v-for="a in artikelStore.artikel" :key="a.id" :value="a.id">
-            {{ a.titel }}
-          </option>
-        </select>
-      </label>
-
-      <label>
-        <span>{{ t('view.buchung.form.standort') }} *</span>
-        <select v-model="standortId" required>
-          <option v-for="s in standortStore.aktive" :key="s.id" :value="s.id">
-            {{ s.name }}
-          </option>
-        </select>
-      </label>
-
-      <label v-if="zielErforderlich">
-        <span>{{ t('view.buchung.form.zielstandort') }} *</span>
-        <select v-model="zielStandortId" required>
-          <option value="" disabled>— wählen —</option>
-          <option v-for="s in standortStore.aktive" :key="s.id" :value="s.id">
-            {{ s.name }}
-          </option>
-        </select>
-      </label>
-
-      <div v-if="mengeErforderlich" class="menge-block">
-        <span class="menge-label">{{ t('view.buchung.form.menge') }} *</span>
-        <div class="stepper" role="group" :aria-label="t('view.buchung.form.menge')">
-          <button
-            type="button"
-            :disabled="menge <= 1"
-            :aria-label="`Menge um 1 verringern`"
-            @click="stepper(-1)"
-          >
-            −
-          </button>
-          <input
-            v-model.number="menge"
-            type="number"
-            min="1"
-            inputmode="numeric"
-            required
-            :aria-label="t('view.buchung.form.menge')"
-          />
-          <button type="button" :aria-label="`Menge um 1 erhöhen`" @click="stepper(1)">+</button>
+        <div v-if="sollMengeErforderlich" class="menge-block">
+          <span class="menge-label">{{ t('view.buchung.form.sollMenge') }} *</span>
+          <div class="stepper" role="group" :aria-label="t('view.buchung.form.sollMenge')">
+            <button
+              type="button"
+              :disabled="sollMenge <= 0"
+              :aria-label="`Sollmenge um 1 verringern`"
+              @click="stepperSoll(-1)"
+            >
+              −
+            </button>
+            <input
+              v-model.number="sollMenge"
+              type="number"
+              min="0"
+              inputmode="numeric"
+              required
+              :aria-label="t('view.buchung.form.sollMenge')"
+            />
+            <button type="button" :aria-label="`Sollmenge um 1 erhöhen`" @click="stepperSoll(1)">
+              +
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div v-if="sollMengeErforderlich" class="menge-block">
-        <span class="menge-label">{{ t('view.buchung.form.sollMenge') }} *</span>
-        <div class="stepper" role="group" :aria-label="t('view.buchung.form.sollMenge')">
-          <button
-            type="button"
-            :disabled="sollMenge <= 0"
-            :aria-label="`Sollmenge um 1 verringern`"
-            @click="stepperSoll(-1)"
-          >
-            −
-          </button>
-          <input
-            v-model.number="sollMenge"
-            type="number"
-            min="0"
-            inputmode="numeric"
-            required
-            :aria-label="t('view.buchung.form.sollMenge')"
-          />
-          <button type="button" :aria-label="`Sollmenge um 1 erhöhen`" @click="stepperSoll(1)">
-            +
-          </button>
-        </div>
-      </div>
+        <label>
+          <span>{{ t('view.buchung.form.projekt') }}</span>
+          <input v-model="projekt" autocomplete="off" inputmode="text" :disabled="laufend" />
+        </label>
+        <label>
+          <span>{{ t('view.buchung.form.kommentar') }}</span>
+          <input v-model="kommentar" autocomplete="off" inputmode="text" :disabled="laufend" />
+        </label>
 
-      <label>
-        <span>{{ t('view.buchung.form.projekt') }}</span>
-        <input v-model="projekt" autocomplete="off" />
-      </label>
-      <label>
-        <span>{{ t('view.buchung.form.kommentar') }}</span>
-        <input v-model="kommentar" autocomplete="off" />
-      </label>
+        <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
+        <p v-if="warnung" class="hint hint-warn" role="status">{{ warnung }}</p>
+        <p v-if="standardStandort" class="hint">Standard-Standort: {{ standardStandort.name }}</p>
 
-      <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
-      <p v-if="warnung" class="hint hint-warn" role="status">{{ warnung }}</p>
-      <p v-if="standardStandort" class="hint">Standard-Standort: {{ standardStandort.name }}</p>
-
-      <!-- Sticky Save-Bar: auf Mobile immer in Daumenreichweite,
+        <!-- Sticky Save-Bar: auf Mobile immer in Daumenreichweite,
            auf Desktop normale Form-Actions. -->
-      <div class="sticky-form-bar">
-        <button type="submit" class="primary" :disabled="laufend">
-          {{ laufend ? '…' : t('view.buchung.form.speichern') }}
-        </button>
-        <button type="button" class="btn" :disabled="laufend" @click="abbrechen">
-          {{ t('view.buchung.form.abbrechen') }}
-        </button>
-      </div>
-    </form>
+        <div class="sticky-form-bar">
+          <button type="submit" class="primary" :disabled="laufend">
+            {{ laufend ? '…' : t('view.buchung.form.speichern') }}
+          </button>
+          <button type="button" class="btn" :disabled="laufend" @click="abbrechen">
+            {{ t('view.buchung.form.abbrechen') }}
+          </button>
+        </div>
+      </form>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.buchung-card {
-  display: grid;
-  gap: 0.85rem;
-}
-
 .typ-feldset {
   border: none;
   padding: 0;
@@ -321,7 +318,7 @@ function typIcon(wert: BuchungsTyp): string {
   display: grid;
   gap: 0.3rem;
 }
-.menge-label {
+.menge-block > span {
   color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 500;
@@ -329,7 +326,7 @@ function typIcon(wert: BuchungsTyp): string {
 
 /* Sticky-Bar im Desktop-Modus entkoppeln vom Card-Rand. */
 @media (min-width: 721px) {
-  .buchung-card .sticky-form-bar {
+  .card .sticky-form-bar {
     position: static;
     margin: 0;
     padding: 0;

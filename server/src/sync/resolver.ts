@@ -535,7 +535,7 @@ async function resolveUmlagerungPaar(
 // ---------- Einstellungs-Resolver ----------
 // Whitelist der erlaubten Keys. artikelTypen ist global und nur von
 // Admins pflegbar. sprache und standardStandortId sind pro User.
-const ADMIN_ONLY_KEYS = new Set<string>(['artikelTypen'])
+const ADMIN_ONLY_KEYS = new Set<string>(['artikelTypen', 'companyName'])
 
 async function resolveEinstellung(
   tx: Tx,
