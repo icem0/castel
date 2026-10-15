@@ -142,7 +142,7 @@ function formatDatum(iso: string | null): string {
       </form>
     </div>
 
-    <table v-if="userStore.users.length > 0" class="data desktop-only">
+    <table v-if="userStore.users.length > 0" class="data">
       <thead>
         <tr>
           <th>E-Mail</th>
@@ -202,39 +202,6 @@ function formatDatum(iso: string | null): string {
         </tr>
       </tbody>
     </table>
-
-    <ul v-if="userStore.users.length > 0" class="card-list mobile-only" role="list">
-      <li v-for="u in userStore.users" :key="u.id" class="card-list-item">
-        <span class="card-list-title">{{ u.email }}</span>
-        <div class="card-list-meta">
-          <span class="badge" :class="{ accent: u.rolle === 'admin' }">
-            {{ u.rolle }}
-          </span>
-          <span :class="u.aktiv ? 'badge success' : 'badge danger'">
-            {{ u.aktiv ? 'aktiv' : 'inaktiv' }}
-          </span>
-          <span class="muted">{{ formatDatum(u.erstelltAm) }}</span>
-          <span class="muted">{{ formatDatum(u.letzterLoginAm) }}</span>
-        </div>
-        <div class="card-list-actions">
-          <button
-            type="button"
-            :disabled="u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1"
-            @click="u.aktiv ? deaktivieren(u.id) : aktivieren(u.id)"
-          >
-            {{ u.aktiv ? 'Deaktivieren' : 'Aktivieren' }}
-          </button>
-          <button
-            type="button"
-            :disabled="u.rolle === 'admin' && aktiveAdminAnzahl <= 1"
-            @click="rolleAendern(u.id, u.rolle === 'admin' ? 'user' : 'admin')"
-          >
-            {{ u.rolle === 'admin' ? 'Zu User' : 'Zu Admin' }}
-          </button>
-          <button type="button" @click="passwortZuruecksetzen(u.id)">PW-Reset</button>
-        </div>
-      </li>
-    </ul>
     <p v-else class="empty-state">Noch keine Benutzer angelegt oder Backend nicht erreichbar.</p>
   </section>
 </template>

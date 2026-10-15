@@ -87,7 +87,7 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
 
     <p v-if="zeilen.length === 0" class="empty-state">{{ t('view.artikel.leer') }}</p>
 
-    <table v-else class="data desktop-only">
+    <table v-else class="data">
       <thead>
         <tr>
           <SortableTh
@@ -133,27 +133,6 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
         </tr>
       </tbody>
     </table>
-
-    <!-- Mobile Card-Liste: gleiche Daten, anderes Layout.
-         Per .data display:none auf Mobile bereits ausgeblendet,
-         deshalb erscheint nur diese Liste. -->
-    <ul v-if="zeilen.length > 0" class="card-list mobile-only" role="list">
-      <li v-for="a in zeilen" :key="a.id" class="card-list-item">
-        <RouterLink :to="`/artikel/${a.id}`" class="card-list-title">{{ a.titel }}</RouterLink>
-        <div class="card-list-meta">
-          <span class="badge">{{ a.typ }}</span>
-          <span v-if="standardStandort">
-            <span class="muted">{{ t('view.artikel.spalten.bestand') }}:</span>
-            <span class="num">{{ bestandStandard(a.id, standardStandort.id) }}</span>
-          </span>
-        </div>
-        <div class="card-list-actions">
-          <RouterLink :to="`/buchung/neu?artikelId=${a.id}`" class="btn primary">
-            {{ t('view.artikel.detail.buchen') }}
-          </RouterLink>
-        </div>
-      </li>
-    </ul>
   </section>
 </template>
 

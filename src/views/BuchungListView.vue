@@ -81,15 +81,6 @@ function formatDatum(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-function formatDatumKurz(iso: string): string {
-  const d = new Date(iso)
-  return (
-    d.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' }) +
-    ' ' +
-    d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  )
-}
-
 async function stornieren(b: Buchung): Promise<void> {
   if (istStorniert(b)) return
   if (!confirm('Stornieren?')) return
@@ -211,41 +202,6 @@ async function stornieren(b: Buchung): Promise<void> {
         </tr>
       </tbody>
     </table>
-
-    <ul v-if="zeilen.length > 0" class="card-list mobile-only" role="list">
-      <li
-        v-for="b in zeilen"
-        :key="b.id"
-        class="card-list-item"
-        :class="{ storno: istStorniert(b) }"
-      >
-        <div class="card-list-title-row">
-          <span class="card-list-title">{{ nameArtikel(b.artikelId) }}</span>
-          <span class="num" :class="b.menge > 0 ? 'num-plus' : b.menge < 0 ? 'num-minus' : ''">
-            {{ b.menge > 0 ? '+' : '' }}{{ b.menge }}
-          </span>
-        </div>
-        <div class="card-list-meta">
-          <span class="badge">{{ formatTyp(b.typ) }}</span>
-          <span class="muted">{{ nameStandort(b.standortId) }}</span>
-          <span class="muted">{{ formatDatumKurz(b.erstelltAm) }}</span>
-          <span v-if="b.projekt" class="muted">{{ b.projekt }}</span>
-        </div>
-        <div class="card-list-actions">
-          <button
-            v-if="!istStorniert(b) && b.typ !== 'kommission'"
-            type="button"
-            class="danger"
-            @click="stornieren(b)"
-          >
-            Storno
-          </button>
-          <RouterLink v-if="b.typ === 'kommission'" :to="`/kommission/${b.id}`" class="btn">
-            Kommission
-          </RouterLink>
-        </div>
-      </li>
-    </ul>
   </section>
 </template>
 
@@ -266,30 +222,6 @@ async function stornieren(b: Buchung): Promise<void> {
 }
 .data .storno td.num-plus,
 .data .storno td.num-minus {
-  color: var(--text-muted, #888);
-}
-
-.card-list-title-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-.card-list-item .num {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  font-size: 1.1rem;
-  color: var(--text-strong);
-}
-.card-list-item .num-plus {
-  color: var(--accent, #0a7a2a);
-}
-.card-list-item .num-minus {
-  color: var(--danger, #b53030);
-}
-.card-list-item.storno .card-list-title,
-.card-list-item.storno .num {
-  text-decoration: line-through;
   color: var(--text-muted, #888);
 }
 </style>
