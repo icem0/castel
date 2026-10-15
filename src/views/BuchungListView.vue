@@ -21,12 +21,6 @@ function istStorniert(b: Buchung): boolean {
   return b.storno || b.typ === 'storno'
 }
 
-function statusLabel(b: Buchung): string {
-  if (b.typ === 'storno') return t('view.buchung.status.storno')
-  if (b.storno) return t('view.buchung.status.storniert')
-  return t('view.buchung.status.aktiv')
-}
-
 type SortKey = 'erstelltAm' | 'artikel' | 'standort' | 'typ' | 'menge' | 'projekt' | 'von'
 
 const sortierung = useTableSort<Buchung, SortKey>({
@@ -185,7 +179,6 @@ async function stornieren(b: Buchung): Promise<void> {
             :dir="sortierung.sortDir.value"
             @sort="sortierung.onSort"
           />
-          <th>{{ t('view.buchung.spalten.status') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -202,11 +195,6 @@ async function stornieren(b: Buchung): Promise<void> {
           </td>
           <td>{{ b.projekt ?? '—' }}</td>
           <td>{{ b.erstelltVon }}</td>
-          <td>
-            <span class="status-badge" :class="istStorniert(b) ? 'status-storno' : 'status-aktiv'">
-              {{ statusLabel(b) }}
-            </span>
-          </td>
           <td class="actions-cell">
             <button
               v-if="!istStorniert(b) && b.typ !== 'kommission'"
@@ -239,9 +227,6 @@ async function stornieren(b: Buchung): Promise<void> {
         </div>
         <div class="card-list-meta">
           <span class="badge">{{ formatTyp(b.typ) }}</span>
-          <span class="status-badge" :class="istStorniert(b) ? 'status-storno' : 'status-aktiv'">
-            {{ statusLabel(b) }}
-          </span>
           <span class="muted">{{ nameStandort(b.standortId) }}</span>
           <span class="muted">{{ formatDatumKurz(b.erstelltAm) }}</span>
           <span v-if="b.projekt" class="muted">{{ b.projekt }}</span>
@@ -306,23 +291,5 @@ async function stornieren(b: Buchung): Promise<void> {
 .card-list-item.storno .num {
   text-decoration: line-through;
   color: var(--text-muted, #888);
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border-radius: 0.4rem;
-  font-size: 0.85em;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-.status-aktiv {
-  background: rgba(10, 122, 42, 0.12);
-  color: var(--accent, #0a7a2a);
-}
-.status-storno {
-  background: rgba(181, 48, 48, 0.12);
-  color: var(--danger, #b53030);
 }
 </style>
