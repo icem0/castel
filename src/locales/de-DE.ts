@@ -84,6 +84,8 @@ export default {
           entnahme: 'Entnahme',
           umlagerung: 'Umlagerung',
           inventur: 'Inventur',
+          kommission: 'Kommission',
+          storno: 'Storno',
         },
         artikel: 'Artikel',
         standort: 'Standort',

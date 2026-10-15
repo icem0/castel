@@ -84,6 +84,8 @@ export default {
           entnahme: 'Removal',
           umlagerung: 'Transfer',
           inventur: 'Inventory',
+          kommission: 'Picking',
+          storno: 'Cancellation',
         },
         artikel: 'Item',
         standort: 'Location',

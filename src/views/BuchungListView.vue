@@ -15,6 +15,7 @@ const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
 
 const artikelFilter = ref<string>('')
+const typFilter = ref<Buchung['typ'] | ''>('')
 
 function istStorniert(b: Buchung): boolean {
   return b.storno || b.typ === 'storno'
@@ -54,6 +55,7 @@ const sortierung = useTableSort<Buchung, SortKey>({
 const gefiltert = computed<Buchung[]>(() =>
   buchungStore.buchungen.filter((b) => {
     if (artikelFilter.value && b.artikelId !== artikelFilter.value) return false
+    if (typFilter.value && b.typ !== typFilter.value) return false
     return true
   }),
 )
@@ -68,7 +70,14 @@ function nameStandort(id: string): string {
 }
 
 function formatTyp(typ: Buchung['typ']): string {
-  if (typ === 'einlagerung' || typ === 'entnahme' || typ === 'umlagerung' || typ === 'inventur') {
+  if (
+    typ === 'einlagerung' ||
+    typ === 'entnahme' ||
+    typ === 'umlagerung' ||
+    typ === 'inventur' ||
+    typ === 'kommission' ||
+    typ === 'storno'
+  ) {
     return t(`view.buchung.form.typen.${typ}`)
   }
   return typ
@@ -109,6 +118,15 @@ async function stornieren(b: Buchung): Promise<void> {
       <select v-model="artikelFilter">
         <option value="">— Alle Artikel —</option>
         <option v-for="a in artikelStore.artikel" :key="a.id" :value="a.id">{{ a.titel }}</option>
+      </select>
+      <select v-model="typFilter">
+        <option value="">— Alle Typen —</option>
+        <option value="einlagerung">{{ formatTyp('einlagerung') }}</option>
+        <option value="entnahme">{{ formatTyp('entnahme') }}</option>
+        <option value="umlagerung">{{ formatTyp('umlagerung') }}</option>
+        <option value="inventur">{{ formatTyp('inventur') }}</option>
+        <option value="kommission">Kommission</option>
+        <option value="storno">Storno</option>
       </select>
     </div>
 
