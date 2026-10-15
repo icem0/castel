@@ -129,7 +129,6 @@ onBeforeUnmount(() => {
     <h2 v-if="auth.istAdmin">Administration</h2>
     <div v-if="auth.istAdmin" class="card quick-links">
       <RouterLink to="/einstellungen/user">Benutzer-Verwaltung</RouterLink>
-      <RouterLink to="/einstellungen/artikel-typen">{{ t('view.artikelTypen.h1') }}</RouterLink>
     </div>
 
     <h2>Daten</h2>
@@ -140,6 +139,12 @@ onBeforeUnmount(() => {
     <h2>Stammdaten</h2>
     <div class="card quick-links">
       <RouterLink to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
+      <RouterLink v-if="auth.istAdmin" to="/einstellungen/artikel-typen">{{
+        t('view.artikelTypen.h1')
+      }}</RouterLink>
+      <RouterLink v-if="auth.istAdmin" to="/einstellungen/kommissionen">{{
+        t('view.kommissionen.h1')
+      }}</RouterLink>
     </div>
   </section>
 </template>

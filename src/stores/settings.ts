@@ -142,8 +142,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   /**
    * Setzt eine Einstellung. userId wird automatisch aus dem aktuellen
-   * Auth-State abgeleitet: global für artikelTypen, sonst current user.
-   * Erzeugt zusätzlich einen Outbox-Eintrag für den Server-Sync.
+   * Auth-State abgeleitet: global für artikelTypen/kommissionen/companyName,
+   * sonst current user. Erzeugt zusätzlich einen Outbox-Eintrag für den
+   * Server-Sync.
    */
   async function setKey(key: string, value: string): Promise<void> {
     if (!PER_USER_KEYS.has(key) && !GLOBAL_KEYS.has(key)) {

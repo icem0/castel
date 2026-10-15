@@ -24,6 +24,7 @@ import KommissionView from '../views/KommissionView.vue'
 import StandortListView from '../views/StandortListView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import ArtikelTypenView from '../views/ArtikelTypenView.vue'
+import KommissionenView from '../views/KommissionenView.vue'
 import ImportView from '../views/ImportView.vue'
 import LoginView from '../views/LoginView.vue'
 import PasswortAendernView from '../views/PasswortAendernView.vue'
@@ -53,7 +54,12 @@ const routes: RouteRecordRaw[] = [
     component: KommissionView,
     props: true,
   },
-  { path: '/standorte', name: 'standorte', component: StandortListView },
+  {
+    path: '/standorte',
+    name: 'standorte',
+    component: StandortListView,
+    meta: { requiresAdmin: true },
+  },
   { path: '/einstellungen', name: 'einstellungen', component: SettingsView },
   {
     path: '/einstellungen/user',
@@ -67,7 +73,13 @@ const routes: RouteRecordRaw[] = [
     component: ArtikelTypenView,
     meta: { requiresAdmin: true },
   },
-  { path: '/import', name: 'import', component: ImportView },
+  {
+    path: '/einstellungen/kommissionen',
+    name: 'einstellungen-kommissionen',
+    component: KommissionenView,
+    meta: { requiresAdmin: true },
+  },
+  { path: '/import', name: 'import', component: ImportView, meta: { requiresAdmin: true } },
   { path: '/scan', name: 'scan', component: BarcodeScanView },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
