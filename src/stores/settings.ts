@@ -1,8 +1,8 @@
 // Settings-Store: liest die `einstellungen`-Tabelle reaktiv via Dexie liveQuery.
-// Speichert sprache, standardStandortId, artikelTypen.
+// Speichert sprache, standardStandortId, artikelTypen, kommissionen.
 //
 // Ab Dexie v5 sind die Einstellungen Cross-Device-synchronisiert:
-//   - artikelTypen → userId = null (global, vom Admin gepflegt)
+//   - artikelTypen, kommissionen, companyName → userId = null (global, vom Admin gepflegt)
 //   - sprache, standardStandortId → userId = <current user>
 // Beim Setzen wird ein Outbox-Eintrag erzeugt, den der Sync-Worker zum
 // Server pusht. Der Server ist Source of Truth (LWW auf geaendertAm).
@@ -27,6 +27,8 @@ export interface Settings {
   standardStandortId: string | null
   /** Konfigurierbare Liste der Artikel-Typen (Reihenfolge wie angelegt). */
   artikelTypen: string[]
+  /** Konfigurierbare Liste der Kommissionen/Projekte (Reihenfolge wie angelegt). */
+  kommissionen: string[]
   /** Firmenzeichen, nur von Admins konfigurierbar. */
   companyName: string
 }
@@ -35,10 +37,11 @@ const DEFAULTS: Settings = {
   sprache: 'de',
   standardStandortId: null,
   artikelTypen: ['Zubehör', 'Verbrauchsmaterial'],
+  kommissionen: [],
   companyName: '',
 }
 
-const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'companyName'])
+const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName'])
 const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId'])
 const GLOBAL_INDEX = ''
 
@@ -59,7 +62,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     }
   }
 
-  // artikelTypen wird als JSON-Array serialisiert; Fehlertoleranz bei Altbestand.
+  // artikelTypen und kommissionen werden als JSON-Array serialisiert; Fehlertoleranz bei Altbestand.
   let typen: string[] = DEFAULTS.artikelTypen
   const typenRow = byKey.get('artikelTypen')
   if (typenRow) {
@@ -67,6 +70,19 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
       const parsed: unknown = JSON.parse(typenRow.value)
       if (Array.isArray(parsed) && parsed.every((x): x is string => typeof x === 'string')) {
         typen = parsed
+      }
+    } catch {
+      // bewusst ignorieren → Defaults
+    }
+  }
+
+  let kommissionen: string[] = DEFAULTS.kommissionen
+  const kommissionenRow = byKey.get('kommissionen')
+  if (kommissionenRow) {
+    try {
+      const parsed: unknown = JSON.parse(kommissionenRow.value)
+      if (Array.isArray(parsed) && parsed.every((x): x is string => typeof x === 'string')) {
+        kommissionen = parsed
       }
     } catch {
       // bewusst ignorieren → Defaults
@@ -88,6 +104,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     sprache,
     standardStandortId,
     artikelTypen: typen,
+    kommissionen,
     companyName,
   }
 }
@@ -99,10 +116,14 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function start() {
     if (subscription) return
-    const currentUserId = sessionLesen()?.userId ?? null
+    // currentUserId wird bei jedem Update frisch aus der Session gelesen,
+    // nicht in der Closure eingefroren. Sonst zeigt der Settings-View
+    // nach einem Login (Subscription lief schon vor dem Login mit
+    // userId=null) die frisch gespeicherte per-User-Einstellung nicht an.
     const observable = liveQuery(() => getDb().einstellungen.toArray())
     subscription = observable.subscribe({
       next: (rows) => {
+        const currentUserId = sessionLesen()?.userId ?? null
         settings.value = fromRows(rows, currentUserId)
         geladen.value = true
       },
@@ -165,6 +186,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('artikelTypen', JSON.stringify(typen))
   }
 
+  async function setKommissionen(typen: string[]): Promise<void> {
+    await setKey('kommissionen', JSON.stringify(typen))
+  }
+
   // Hilfsfunktion: legt eine UUID-basierte ID an (für Outbox-Einträge).
   void neueUuid
 
@@ -177,5 +202,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setSprache,
     setStandardStandort,
     setArtikelTypen,
+    setKommissionen,
   }
 })
