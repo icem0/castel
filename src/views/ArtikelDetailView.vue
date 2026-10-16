@@ -197,6 +197,7 @@ watch(
 
 onMounted(() => {
   artikelStore.start()
+  settings.start()
   nextTick(() => renderBarcode())
 })
 </script>
