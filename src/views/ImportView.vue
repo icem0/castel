@@ -75,7 +75,7 @@ const warenFeldOptionen: WarenFeld[] = [
   'menge',
   'kommentar',
   'mitteilungAn',
-  'projekt',
+  'commission',
   'artikelTitle',
   'standortName',
 ]

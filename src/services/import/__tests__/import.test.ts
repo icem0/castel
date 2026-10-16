@@ -83,7 +83,7 @@ describe('defaultWarenMapping', () => {
     expect(mapping['Entnahme']).toBe('typ')
     expect(mapping['Artikel']).toBe('artikelTitle')
     expect(mapping['Menge']).toBe('menge')
-    expect(mapping['Projekt-AA-SA-Nummer']).toBe('kommission')
+    expect(mapping['Projekt-AA-SA-Nummer']).toBe('commission')
   })
 })
 
