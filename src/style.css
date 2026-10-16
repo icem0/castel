@@ -107,10 +107,15 @@
   }
 }
 
+html {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   background: var(--bg-app);
   color: var(--text);
+  overflow-x: hidden;
 }
 
 /* Typografie */
