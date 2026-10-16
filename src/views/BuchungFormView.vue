@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import type { BuchungsTyp } from '../db/types'
 import { NegativerBestandWarnung, PflichtfeldFehltError } from '../domain/errors'
 import { validiereBuchungsEingabe } from '../domain/buchung-form-validation'
+import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -203,12 +204,12 @@ function typIcon(wert: BuchungsTyp): string {
 
         <label>
           <span>{{ t('view.buchung.form.artikel') }} *</span>
-          <select v-model="artikelId" required :disabled="laufend">
-            <option value="" disabled>— wählen —</option>
-            <option v-for="a in artikelStore.artikel" :key="a.id" :value="a.id">
-              {{ a.titel }}
-            </option>
-          </select>
+          <ArtikelSucheSelect
+            v-model="artikelId"
+            :items="artikelStore.artikel"
+            :disabled="laufend"
+            required
+          />
         </label>
 
         <label>
