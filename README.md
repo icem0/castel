@@ -47,13 +47,44 @@ Mobile-First-Lager für Werkstatt und Baustelle. Funktioniert offline, synct wen
 
 ## 🚀 Quickstart
 
+### Empfohlener Weg: Docker Compose
+
+Die Images `castel-api` und `castel-pwa` werden direkt von GitHub Container Registry (GHCR) bezogen — kein lokaler Build nötig.
+
+```bash
+# 1) Repo klonen
+git clone https://github.com/icem0/castel.git /opt/castel
+cd /opt/castel
+
+# 2) .env kopieren und anpassen (mindestens DB_PASSWORD und JWT_SECRET setzen)
+cp .env.example .env
+$EDITOR .env
+
+# 3) Erste Migration ausführen
+docker compose --profile migrate up
+
+# 4) Stack starten (zieht Images von GHCR)
+docker compose up -d
+
+# 5) Im Browser /login aufrufen — der erste Admin wird per Setup-Formular angelegt,
+#    sobald die users-Tabelle leer ist.
+
+# 6) Updates nach neuen Releases
+git pull origin main
+docker compose pull && docker compose up -d
+```
+
+→ PWA unter `http://localhost:4280`, API intern unter Port `3000` (über PWA-nginx proxied).  
+Für direkte API-Zugriffe (z. B. CLI, curl) den auskommentierten `ports:`-Block beim `api`-Service in `docker-compose.yml` aktivieren (`4242:3000`).
+
+> 💡 Für private GHCR-Pakete braucht der Deployer einen GitHub-PAT mit Scope `read:packages` (`docker login ghcr.io` oder Arcane `POST /container-registries`). Siehe Deployment → Private GHCR-Pakete.
+
 ### Voraussetzungen
 
-- Node ≥ 22
-- Docker (Postgres + Tests)
-- Optional: Cloudflare-Account (externer Tunnel)
+- Docker + Docker Compose
+- Optional: Node ≥ 22 (nur für lokale Entwicklung ohne Docker)
 
-### 1) Frontend allein (Dev, ohne Backend)
+### Alternativ: Frontend allein (Dev, ohne Backend)
 
 ```bash
 npm install
@@ -61,57 +92,13 @@ npm run dev
 # → http://localhost:5173
 ```
 
-### 2) Mit Backend (lokal, embedded Postgres)
-
-Das Backend bringt ein Test-Skript mit, das eine embedded Postgres startet:
+### Alternativ: Backend lokal mit embedded Postgres (für Tests)
 
 ```bash
 cd server
 npm install
 node scripts/smoke-server.mjs
 ```
-
-Erwartete Ausgabe:
-
-```
-✓ Postgres läuft auf 5433
-✓ Migrationen ausgeführt (idempotent)
-✓ Server läuft auf Port 3001
-✓ /api/healthz: {"status":"ok",…}
-✓ Login erfolgreich: {…,"rolle":"admin",…}
-✓ /api/auth/me: {…}
-✅ Alle End-to-End-Tests bestanden.
-```
-
-### 3) Mit Production-Datenbank (Docker)
-
-```bash
-# 1) Postgres via Docker (oder nativ)
-docker run -d --name castel-pg \
-  -e POSTGRES_USER=castel \
-  -e POSTGRES_PASSWORD=castel-dev \
-  -e POSTGRES_DB=castel \
-  -p 5432:5432 \
-  postgres:16-alpine
-
-# 2) Backend
-cd server
-cp .env.example .env
-# .env anpassen (DATABASE_URL, JWT_SECRET)
-npm install
-npm run db:migrate
-npm run dev
-# → http://localhost:4242
-# Beim ersten Aufruf der Login-Seite wird der Admin-User per Setup-Formular angelegt.
-
-# 3) Frontend
-cd ..
-npm install
-npm run dev
-# VITE_API_URL=http://localhost:3000 npm run dev  # Dev-API bleibt auf 3000
-```
-
-> 💡 Der allererste Admin wird per Setup-Formular in der PWA angelegt (Login-Seite), sobald die `users`-Tabelle leer ist. Kein Bootstrap-Schritt aus der `.env` nötig.
 
 ---
 
