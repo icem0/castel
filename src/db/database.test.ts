@@ -1,8 +1,4 @@
-// Tests für die Dexie-Schema-Migration v7 → v8.
-// Hintergrund: Migration 0008 fuegt das `barcode`-Feld auf `artikel`
-// hinzu. Wir muessen sicherstellen, dass bestehende Datensaetze nach
-// dem Upgrade `barcode: null` haben und neue Eintraege das Feld
-// mitschreiben koennen.
+// Tests für die Dexie-Schema-Migration v7 → v8 (barcode) und v9 (standard-Index).
 
 import { describe, expect, it } from 'vitest'
 import 'fake-indexeddb/auto'
@@ -63,5 +59,21 @@ describe('Dexie v8 — barcode field', () => {
     const gefunden = await db.artikel.where('barcode').equals('EAN-12345').first()
     expect(gefunden?.id).toBe(a.id)
     expect(gefunden?.titel).toBe('Testartikel')
+  })
+})
+
+describe('Dexie v9 — standard index on standorte', () => {
+  it('Schema enthaelt den standard-Index auf standorte', () => {
+    // Wenn v9 fehlt (oder jemand den Index wieder rausnimmt),
+    // wirft `where('standard').equals(1)` einen SchemaError.
+    // Dieser Test laedt nur das Schema und prueft, dass kein
+    // SchemaError geworfen wird — das ist die Garantie, dass der
+    // Index registriert ist.
+    const db = freshDb()
+    expect(db.standorte.schema.primKey.keyPath).toBe('id')
+    // Index-Liste muss `standard` enthalten (sonst wirft der
+    // naechste Live-Lookup im Store eine DataError).
+    const indexNames = db.standorte.schema.indexes.map((i) => i.name)
+    expect(indexNames).toContain('standard')
   })
 })

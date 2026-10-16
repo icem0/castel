@@ -2,7 +2,7 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v8 (Barcode-Feld + Index auf `artikel.barcode`).
+// Aktuelles Schema: v9 (Index auf `standorte.standard`).
 // Frühere Versionen (v1–v7) sind nur noch für Migration existierender
 // Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v8 verwendet.
 //
@@ -236,6 +236,29 @@ export class CastelDb extends Dexie {
         if (alle.length > 0) {
           await tx.table('artikel').bulkPut(alle)
         }
+      })
+
+    // v9: Index auf `standorte.standard` ergaenzen. Wird vom Store in
+    //     `setStandard` und `anlegen({standard:true})` per
+    //     `where('standard').equals(1)` abgefragt — der Index fehlte
+    //     in v1–v8, weshalb der "Standard"-Switch im UI still scheiterte
+    //     und `standardlager` dauerhaft `null` blieb (Folge: Bestand-
+    //     Spalte in der Artikel-Liste wurde ausgeblendet).
+    //     Daten-Migration ist nicht noetig — das Feld existiert seit v1,
+    //     es fehlte nur der Index-Eintrag.
+    this.version(9)
+      .stores({
+        artikel: 'id, sharePointId, typ, status, titel, barcode',
+        standorte: 'id, name, typ, archiviert, standard',
+        buchungen:
+          'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
+        projekte: 'id, nummer, archiviert',
+        einstellungen: '[key+userId], key, userId',
+        auditLog: 'id, aktion, entitaet, entitaetId, zeit',
+        outbox: 'id, entity, syncedAt, createdAt, quarantinedAt',
+      })
+      .upgrade(async (_tx) => {
+        /* Index wird beim Upgrade automatisch aufgebaut. */
       })
   }
 }
