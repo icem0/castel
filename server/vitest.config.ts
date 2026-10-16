@@ -1,7 +1,6 @@
-import { defineConfig } from 'vitest/config'
+import { defineProject } from 'vitest/config'
 
-export default defineConfig({
-  root: '.',
+export default defineProject({
   test: {
     globals: true,
     environment: 'node',
