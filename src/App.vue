@@ -675,6 +675,9 @@ function formatRelativ(iso: string | null): string {
 
       <div v-if="sync.status.lastFailure" class="sync-diag-block wert-fehler" role="alert">
         <strong>Diagnose</strong>
+        <p v-if="sync.status.lastFailure.message" class="sync-diag-message">
+          {{ sync.status.lastFailure.message }}
+        </p>
         <dl class="sync-diag">
           <template v-if="sync.status.lastFailure.source">
             <dt>Schritt</dt>
@@ -1350,6 +1353,14 @@ function formatRelativ(iso: string | null): string {
 .sync-diag-block strong {
   display: block;
   margin-bottom: 0.25rem;
+}
+.sync-diag-message {
+  margin: 0.2rem 0 0.35rem;
+  font-size: 0.82rem;
+  font-family: var(--mono);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .sync-diag dt {
   color: var(--text-muted);

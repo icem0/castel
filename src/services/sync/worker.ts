@@ -681,6 +681,10 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
 
   try {
     updateStatus({ status: 'syncing' })
+    // Latch: merkt, ob der Push-Handler Items abgelehnt hat.
+    // Wird im success-Pfad genutzt, um den Status auf 'error' zu
+    // belassen und die Diagnose nicht wegzuschmeißen.
+    let hadPartialRejection = false
 
     // 1) Push
     const batch = await nextBatch()
@@ -758,6 +762,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
           // Fehler — der Worker läuft normal weiter. Wir hängen die Diagnose
           // aber an den Status, damit die UI sie sehen kann.
           if (lastPushDiagnosis.rejectedItems > 0) {
+            hadPartialRejection = true
             updateStatus({
               lastError: `Server hat ${lastPushDiagnosis.rejectedItems} von ${items.length} Items abgelehnt`,
               lastFailure: {
@@ -871,13 +876,13 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     }
 
     updateStatus({
-      status: 'idle',
+      status: hadPartialRejection ? 'error' : 'idle',
       lastSyncAt: jetztIso(),
-      // lastError/lastFailure nur zurücksetzen, wenn nicht partiell
-      // abgelehnt wurde (das Push-Handler-Update setzt eine Diagnose,
-      // die wir hier nicht überschreiben wollen).
-      lastError: _status.lastFailure?.code === 'PARTIAL_REJECTED' ? _status.lastError : null,
-      lastFailure: _status.lastFailure?.code === 'PARTIAL_REJECTED' ? _status.lastFailure : null,
+      // lastError/lastFailure nur zurücksetzen, wenn der aktuelle
+      // Zyklus keine Ablehnung hatte (und der catch-Block sie nicht
+      // schon wegen eines späteren Fehlers überschrieben hat).
+      lastError: hadPartialRejection ? _status.lastError : null,
+      lastFailure: hadPartialRejection ? _status.lastFailure : null,
       pending: await pendingCount(),
       ...(await quarantinedSnapshot()),
       serverCounts,
