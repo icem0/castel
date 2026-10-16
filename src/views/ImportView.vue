@@ -23,7 +23,12 @@ import {
   importWarenAusCsv,
   type ImportBericht,
 } from '../services/import/import'
-import { exportVollBackup, backupAlsText } from '../services/import/export'
+import {
+  exportVollBackup,
+  backupAlsText,
+  restoreBackup,
+  type Backup,
+} from '../services/import/export'
 
 const { t } = useI18n()
 
@@ -42,6 +47,11 @@ const validierung = ref<{ lager: ValidierungsErgebnis | null; waren: Validierung
 const bericht = ref<ImportBericht | null>(null)
 const laufend = ref(false)
 const fehler = ref('')
+
+// Backup-Wiederherstellung
+const restoreDatei = ref<File | null>(null)
+const restoreBestaetigt = ref(false)
+const restoreLaufend = ref(false)
 
 const artikelFeldOptionen: ArtikelFeld[] = [
   'sharePointId',
@@ -215,6 +225,44 @@ async function backupSpeichern(): Promise<void> {
   a.click()
   URL.revokeObjectURL(url)
 }
+
+async function onRestoreDateiChange(e: Event): Promise<void> {
+  const file = (e.target as HTMLInputElement).files?.[0] ?? null
+  restoreDatei.value = file
+  if (!file) return
+  fehler.value = ''
+}
+
+async function backupLaden(): Promise<void> {
+  const file = restoreDatei.value
+  if (!file) return
+  if (!restoreBestaetigt.value) {
+    fehler.value = t('view.backup.bestaetigungErforderlich')
+    return
+  }
+  restoreLaufend.value = true
+  fehler.value = ''
+  try {
+    const text = await file.text()
+    let backup: Backup
+    try {
+      backup = JSON.parse(text) as Backup
+    } catch {
+      throw new Error(t('view.backup.fehlerParse'))
+    }
+    await restoreBackup(backup)
+    restoreBestaetigt.value = false
+    restoreDatei.value = null
+    fehler.value = ''
+    // Seite neu laden, damit alle Views die wiederhergestellten Daten anzeigen.
+    location.reload()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    fehler.value = t('view.backup.fehler', { msg })
+  } finally {
+    restoreLaufend.value = false
+  }
+}
 </script>
 
 <template>
@@ -241,6 +289,28 @@ async function backupSpeichern(): Promise<void> {
         <small v-else class="hint hint-warn">noch nicht geladen</small>
       </label>
       <button type="button" :disabled="laufend" @click="backupSpeichern">Backup exportieren</button>
+    </div>
+
+    <div class="card restore-card">
+      <h2>{{ t('view.backup.wiederherstellen') }}</h2>
+      <p>{{ t('view.backup.hinweis') }}</p>
+      <label>
+        <span>{{ t('view.backup.datei') }}</span>
+        <input type="file" accept=".json" @change="onRestoreDateiChange" />
+        <small v-if="restoreDatei" class="hint hint-ok">✓ {{ restoreDatei.name }}</small>
+      </label>
+      <div class="checkbox">
+        <input id="restore-bestaetigen" v-model="restoreBestaetigt" type="checkbox" />
+        <label for="restore-bestaetigen">{{ t('view.backup.bestaetigen') }}</label>
+      </div>
+      <button
+        type="button"
+        :disabled="restoreLaufend || !restoreDatei || !restoreBestaetigt"
+        class="primary"
+        @click="backupLaden"
+      >
+        {{ restoreLaufend ? t('view.backup.laeuft') : t('view.backup.wiederherstellen') }}
+      </button>
     </div>
 
     <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>

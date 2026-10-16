@@ -2,10 +2,19 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { CastelDb, setDb } from '../../../db/database'
+import type {
+  Artikel,
+  AuditLogEintrag,
+  Buchung,
+  Einstellung,
+  Projekt,
+  Standort,
+} from '../../../db/types'
 import { parseCsv } from '../csv-parser'
 import { defaultArtikelMapping, defaultWarenMapping } from '../mapping'
 import { validiereArtikelMapping } from '../validierung'
 import { importArtikelAusCsv, importAusCsv, importWarenAusCsv } from '../import'
+import { exportVollBackup, backupAlsText, restoreBackup, type Backup } from '../export'
 
 // Mini-Fixtures (Test-Plan §12): repräsentieren einen SharePoint-Export.
 const LAGER_CSV = `ID;Foto;Title;Status;Type;Lieferant;VE;Bestand-min;Nachbestellung;Bestellnr.;Listenpreis;Geändert
@@ -228,5 +237,141 @@ describe('importAusCsv (kombiniert)', () => {
   it('akzeptiert leere Eingabe und liefert leeren Bericht', async () => {
     const bericht = await importAusCsv({})
     expect(bericht).toEqual({ artikelAngelegt: 0, buchungenAngelegt: 0, konflikte: [] })
+  })
+})
+
+describe('exportVollBackup / restoreBackup', () => {
+  const artikel: Artikel = {
+    id: 'a1',
+    sharePointId: 1,
+    foto: null,
+    fotoUrls: [],
+    titel: 'MS 400',
+    status: 'verfuegbar',
+    typ: 'Alarmierung',
+    lieferant: 'Bosch',
+    verpackungseinheit: 1,
+    mindestbestand: 20,
+    nachbestellHinweis: 'bald',
+    bestellnummer: 'MS400',
+    barcode: '4006381333931',
+    listenpreis: 1299,
+    geaendertAm: '2025-01-01T08:00:00Z',
+    erstelltAm: '2025-01-01T08:00:00Z',
+  }
+  const standort: Standort = {
+    id: 's1',
+    name: 'Hauptlager',
+    typ: 'lager',
+    kennzeichen: null,
+    projekt: null,
+    standard: true,
+    archiviert: false,
+    geaendertAm: '2025-01-01T08:00:00Z',
+    erstelltAm: '2025-01-01T08:00:00Z',
+  }
+  const buchung: Buchung = {
+    id: 'b1',
+    artikelId: 'a1',
+    standortId: 's1',
+    standortZielId: null,
+    typ: 'einlagerung',
+    menge: 10,
+    paarId: null,
+    projekt: null,
+    erstelltAm: '2025-01-02T08:00:00Z',
+    clientEingabeAm: '2025-01-02T08:00:00Z',
+    erstelltVon: 'test',
+    kommentar: null,
+    mitteilungAn: null,
+    storno: false,
+    stornoVon: null,
+    storniertDurch: null,
+    serverId: null,
+  }
+  const projekt: Projekt = {
+    id: 'p1',
+    nummer: 'P-1',
+    name: null,
+    archiviert: false,
+    geaendertAm: null,
+    erstelltAm: '2025-01-01T08:00:00Z',
+  }
+  const einstellung: Einstellung = {
+    key: 'sprache',
+    userId: '',
+    value: 'de-DE',
+    geaendertAm: '2025-01-01T08:00:00Z',
+  }
+  const audit: AuditLogEintrag = {
+    id: 'l1',
+    aktion: 'test',
+    entitaet: 'artikel',
+    entitaetId: 'a1',
+    daten: '{}',
+    zeit: '2025-01-01T08:00:00Z',
+  }
+
+  const backup: Backup = {
+    schema: 'castel-backup-1',
+    exportiertAm: '2025-01-01T00:00:00Z',
+    artikel: [artikel],
+    standorte: [standort],
+    buchungen: [buchung],
+    projekte: [projekt],
+    einstellungen: [einstellung],
+    auditLog: [audit],
+  }
+
+  it('exportVollBackup liefert alle Tabellen mit korrektem Schema', async () => {
+    await testDb.artikel.add(artikel)
+    await testDb.standorte.add(standort)
+    await testDb.buchungen.add(buchung)
+    await testDb.projekte.add(projekt)
+    await testDb.einstellungen.add(einstellung)
+    await testDb.auditLog.add(audit)
+
+    const exp = await exportVollBackup()
+    expect(exp.schema).toBe('castel-backup-1')
+    expect(exp.artikel).toHaveLength(1)
+    expect(exp.standorte).toHaveLength(1)
+    expect(exp.buchungen).toHaveLength(1)
+    expect(exp.projekte).toHaveLength(1)
+    expect(exp.einstellungen).toHaveLength(1)
+    expect(exp.auditLog).toHaveLength(1)
+    expect(typeof exp.exportiertAm).toBe('string')
+  })
+
+  it('backupAlsText erzeugt parsebares JSON', () => {
+    const text = backupAlsText(backup)
+    const parsed = JSON.parse(text) as Backup
+    expect(parsed.schema).toBe('castel-backup-1')
+    expect(parsed.artikel[0]!.titel).toBe('MS 400')
+  })
+
+  it('restoreBackup ersetzt alle Daten transaktional', async () => {
+    // Altbestand anlegen, der überschrieben werden soll.
+    await testDb.artikel.add({ ...artikel, titel: 'ALT' })
+    await testDb.standorte.add({ ...standort, name: 'ALT' })
+
+    await restoreBackup(backup)
+
+    const artikelNachher = await testDb.artikel.toArray()
+    expect(artikelNachher).toHaveLength(1)
+    expect(artikelNachher[0]!.titel).toBe('MS 400')
+
+    const standorteNachher = await testDb.standorte.toArray()
+    expect(standorteNachher).toHaveLength(1)
+    expect(standorteNachher[0]!.name).toBe('Hauptlager')
+
+    const buchungenNachher = await testDb.buchungen.toArray()
+    expect(buchungenNachher).toHaveLength(1)
+    expect(buchungenNachher[0]!.menge).toBe(10)
+  })
+
+  it('restoreBackup wirft bei unbekanntem Schema', async () => {
+    await expect(
+      restoreBackup({ ...backup, schema: 'castel-backup-99' } as Backup),
+    ).rejects.toThrow(/Unbekanntes Backup-Schema/)
   })
 })

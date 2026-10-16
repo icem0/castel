@@ -215,6 +215,19 @@ export default {
       nein: 'No',
       optional: '(optional)',
     },
+    backup: {
+      exportieren: 'Export backup',
+      wiederherstellen: 'Restore backup',
+      datei: 'Backup file (.json)',
+      laeuft: 'Restoring…',
+      bestaetigen: 'I confirm that all current local data will be overwritten by the backup.',
+      bestaetigungErforderlich: 'Please confirm before restoring the backup.',
+      fehlerParse: 'The file could not be read as JSON.',
+      fehlerSchema: 'Invalid backup (unknown schema).',
+      fehler: 'Restore failed: {msg}',
+      hinweis:
+        'Select a previously exported castel backup file (.json). All existing data will be replaced.',
+    },
     passwortAendern: {
       h1Erzwungen: 'Set new password',
       h1Frei: 'Change password',
