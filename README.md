@@ -1,9 +1,9 @@
 <div align="center">
 
-<img src="public/castel-logo.png"><br/>
+<img src="public/castel-logo.png" width="120" alt="castel-Logo"><br/>
 # castel
 
-**Offline-fähige Lagerverwaltung als PWA mit Multi-User-Sync**
+**Offline-fähige Lagerverwaltung als PWA – Multi-User, append-only, einsatzbereit.**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vue 3](https://img.shields.io/badge/Vue-3.5-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
@@ -11,47 +11,49 @@
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Fastify](https://img.shields.io/badge/Fastify-5-000?logo=fastify)](https://fastify.dev/)
 [![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
+[![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg)](https://conventionalcommits.org/)
 
 Mobile-First-Lager für Werkstatt und Baustelle. Funktioniert offline, synct wenn online.
+10+ Geräte, JWT-Auth, Barcode-Scan, Foto-Erfassung, Inventur mit Defizit-Buchung.
 
-[Features](#features) • [Quickstart](#quickstart) • [Architektur](#architektur) • [Deployment](#deployment) • [API](#api) • [Mitmachen](#mitmachen)
+[Features](#-features) • [Quickstart](#-quickstart) • [Architektur](#-architektur) • [Deployment](#-deployment) • [API-Referenz](#-api-referenz) • [Entwicklung](#-entwicklung) • [Mitmachen](#-mitmachen)
 
 </div>
 
 ---
 
-## Features
+## 📦 Features
 
 | | |
 |---|---|
-| 📦 **Offline-First** | IndexedDB-Cache lokal, alle Buchungen möglich auch ohne Netz |
-| 🔄 **Multi-User-Sync** | ca. 10 Geräte syncen über zentralen Server (Node + Postgres) |
-| 👥 **Rollen** | Admin verwaltet User + Inventur, User bucht |
-| 📷 **Barcode-Scan** | Kamera-Scan (Web-API + ZXing-Fallback) für schnelles Buchen |
-| 📸 **Foto-Erfassung** | Bilder pro Artikel, komprimiert, im Backend gespeichert |
-| 📦 **Bestandsformel** | `Σ Buchungen where storno=false` — append-only, immer korrekt |
-| 🔁 **Storno + Kommission** | Originale nie überschrieben, Korrekturen als eigene Buchungen |
-| 🧮 **Inventur mit Defizit-Buchung** | Soll-Erfassung erzeugt automatisch Differenz-Buchung |
-| 📲 **PWA installierbar** | iOS, Android, Desktop — auch ohne App-Store |
-| 🔐 **JWT-Auth** | Server-Authoritative, Offline-Cache für Token-Ablauf |
+| 📱 **Offline-First** | IndexedDB-Cache (Dexie). Alle Buchungen möglich ohne Netz – Sync läuft automatisch, wenn online. |
+| 🔄 **Multi-User-Sync** | ca. 10 Geräte syncen über zentralen Server (Node + Fastify + Postgres 16). |
+| 👥 **Rollen** | Admin verwaltet User & Stammdaten, User bucht und inventuriert. |
+| 📷 **Barcode-Scan** | Kamera-Scan via `BarcodeDetector` (Web-API) mit ZXing-Fallback für schnelles Buchen. |
+| 📸 **Foto-Erfassung** | Bilder pro Artikel, clientseitig komprimiert, im Backend-Dateisystem gespeichert. |
+| 📦 **Bestandsformel** | `Σ Buchungen where storno = false` — append-only, immer korrekt, nie überschrieben. |
+| 🔁 **Storno + Kommission** | Originale bleiben unveränderlich. Korrekturen als eigene Buchungen (Storno / Neubuchung). |
+| 🧮 **Inventur** | Soll-Erfassung erzeugt automatisch eine Differenz-Buchung. |
+| 📲 **PWA installierbar** | iOS, Android, Desktop – auch ohne App-Store, über `vite-plugin-pwa` + Workbox. |
+| 🔐 **JWT-Auth** | Server-Authoritative, Refresh-Token als `httpOnly`-Cookie, Offline-Cache für Token-Ablauf. |
 
-## Tech-Stack
+## 🧰 Tech-Stack
 
-**Frontend (PWA):** Vue 3 · Vite · TypeScript · Pinia · Dexie · Vue I18n · Workbox · ZXing
-**Backend:** Node 22 · Fastify · Drizzle ORM · Postgres 16 · argon2 · JWT
-**DevOps:** Docker · Docker Compose · GitHub Actions → GHCR
+**Frontend (PWA):** Vue 3 · Vite · TypeScript · Pinia · Dexie · Vue I18n · Workbox · ZXing  
+**Backend:** Node 22 · Fastify · Drizzle ORM · Postgres 16 · argon2 · JWT  
+**DevOps:** Docker · Docker Compose · GitHub Actions → GitHub Container Registry (GHCR)
 
 ---
 
-## Quickstart
+## 🚀 Quickstart
 
 ### Voraussetzungen
 
 - Node ≥ 22
-- Docker (für Postgres + Tests)
-- Optional: Cloudflare-Account (für externen Tunnel)
+- Docker (Postgres + Tests)
+- Optional: Cloudflare-Account (externer Tunnel)
 
-### Frontend (Dev, ohne Backend)
+### 1) Frontend allein (Dev, ohne Backend)
 
 ```bash
 npm install
@@ -59,7 +61,7 @@ npm run dev
 # → http://localhost:5173
 ```
 
-### Mit Backend (lokal, mit embedded Postgres)
+### 2) Mit Backend (lokal, embedded Postgres)
 
 Das Backend bringt ein Test-Skript mit, das eine embedded Postgres startet:
 
@@ -81,7 +83,7 @@ Erwartete Ausgabe:
 ✅ Alle End-to-End-Tests bestanden.
 ```
 
-### Mit Production-Datenbank
+### 3) Mit Production-Datenbank (Docker)
 
 ```bash
 # 1) Postgres via Docker (oder nativ)
@@ -105,57 +107,60 @@ npm run dev
 # 3) Frontend
 cd ..
 npm install
+npm run dev
 # VITE_API_URL=http://localhost:3000 npm run dev  # Dev-API bleibt auf 3000
 ```
 
+> 💡 Der allererste Admin wird per Setup-Formular in der PWA angelegt (Login-Seite), sobald die `users`-Tabelle leer ist. Kein Bootstrap-Schritt aus der `.env` nötig.
+
 ---
 
-## Architektur
+## 🏗️ Architektur
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  Browser (PWA)                          │
-│                                                         │
-│  ┌──────────┐   ┌────────────┐  ┌──────────────────┐    │
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                    Browser (PWA)                            │
+│                                                             │
+│  ┌──────────┐   ┌────────────┐  ┌────────────────────┐    │
 │  │ Vue UI   │←→│ Pinia      │←→│ Dexie (IndexedDB) │    │
-│  │ (i18n)   │   │ Stores     │  │  - artikel       │    │
-│  └──────────┘   └────────────┘  │  - buchungen     │    │
-│       ↑              ↑          │  - outbox        │    │
-│       │              │          └──────────────────┘    │
-│       │              │                  ↑                │
-│       │              ▼                  │                │
-│       │      ┌─────────────────────┐    │                │
-│       │      │  Sync-Worker        │────┘                │
-│       │      │  (Push + Pull, 30s) │                     │
-│       │      └─────────────────────┘                     │
-└──────│──────────────────────────────────────────────────┘
+│  │ (i18n)   │   │ Stores     │  │  - artikel         │    │
+│  └──────────┘   └────────────┘  │  - buchungen       │    │
+│       ↑             ↑           │  - outbox          │    │
+│       │             │           └────────────────────┘    │
+│       │             │                  ↑                   │
+│       │             ▼                  │                   │
+│       │      ┌─────────────────────┐   │                   │
+│       │      │ Sync-Worker         │───┘                   │
+│       │      │ (Push + Pull, 30s)  │                       │
+│       │      └─────────────────────┘                       │
+└──────┴──────────────────────────────────────────────────────┘
        │  HTTP/HTTPS
        ▼
-┌──────────────────────────────────────────┐
-│  Externer Reverse-Proxy (nginx, Caddy,   │
-│  Cloudflare, HAProxy, …) — nicht im     │
-│  Repo, nicht im docker-compose.yml      │
-└─────────────────┬────────────────────────┘
-                  │ Plain HTTP (internes Netz)
-       ┌──────────┴──────────┐
-       │ /api/*, /fotos/*   │ /
-       ▼                     ▼
-┌──────────┐           ┌──────────┐
-│ Fastify  │    ←→     │ nginx    │
-│  (API)   │           │  (PWA)   │
-│ Port 3000│           │ Port 80  │
-└────┬─────┘           └──────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Externer Reverse-Proxy (nginx, Caddy, Cloudflare, …)      │
+│  — nicht im Repo, nicht im docker-compose.yml               │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ Plain HTTP (internes Netz)
+        ┌─────────────┴─────────────┐
+        │ /api/*, /fotos/*        │ /
+        ▼                         ▼
+┌──────────┐             ┌──────────┐
+│ Fastify  │    ←→       │ nginx    │
+│  (API)   │             │  (PWA)   │
+│ Port 3000│             │ Port 80  │
+└────┬─────┘             └──────────┘
      │
 ┌────▼────────┐
 │ PostgreSQL  │
+│   16        │
 └─────────────┘
 ```
 
 ### Datenmodell (vereinfacht)
 
-**`buchungen`** ist **append-only** — Bestand ist immer `Σ menge where storno=false`:
+**`buchungen`** ist **append-only** — Bestand ist immer `Σ menge where storno = false`:
 
-| typ | vorzeichen | effekt |
+| Typ | Vorzeichen | Effekt |
 |---|---|---|
 | `einlagerung` | `+` | addiert |
 | `entnahme` | `−` | subtrahiert |
@@ -168,11 +173,11 @@ Jede Buchung hat eine unveränderliche `id` (UUID) und `erstelltAm`-Zeitstempel.
 
 ---
 
-## Deployment
+## 🌍 Deployment
 
-### Docker-Compose (ohne Tunnel, ohne Reverse-Proxy im Stack)
+### Docker-Compose (Production)
 
-Die Container `castel-api` (Port 4242) und `castel-pwa` (Port 4280) werden **direkt am Host exponiert**. Wenn du TLS, eine Domain oder eine Firewall brauchst, kümmerst du dich **extern** darum — z. B. mit einem nginx, Caddy, Traefik, HAProxy, oder einem Cloud-Loadbalancer, der auf 4242/4280 proxied. In diesem Repo wird kein Reverse-Proxy mitgeliefert.
+Die Container `castel-api` (Port 4242) und `castel-pwa` (Port 4280) werden **direkt am Host exponiert**. TLS, Domain und Firewall kümmerst du **extern** — z. B. mit nginx, Caddy, Traefik oder einem Cloud-Loadbalancer, der auf 4242/4280 proxied. In diesem Repo wird kein Reverse-Proxy mitgeliefert.
 
 **Default-Workflow: clone + `.env` + `docker compose up -d` reicht.** Die Images werden direkt von GitHub Container Registry bezogen — `docker-compose.yml` referenziert sie hartkodiert als `ghcr.io/icem0/castel-api:latest` bzw. `…-pwa:latest` (für `migrate` wird dasselbe API-Image mit anderem Entrypoint verwendet). Der CI-Workflow [`.github/workflows/build-and-push.yml`](./.github/workflows/build-and-push.yml) baut und pusht diese Tags bei jedem Merge auf `main`.
 
@@ -183,7 +188,7 @@ cd /opt/castel
 
 # 2) .env ausfüllen
 cp .env.example .env
-$EDITOR .env  # DB-Password, JWT-Secret, Domain-Configs
+$EDITOR .env   # DB-Password, JWT-Secret, Domain-Configs
 
 # 3) Initial: Migration
 docker compose --profile migrate up
@@ -201,11 +206,11 @@ docker compose pull && docker compose up -d   # zieht neue :latest-Tags, startet
 
 Fertig. Funktioniert auf einer frischen Maschine, in Arcane, Coolify oder bare Docker gleichermaßen — es wird **kein** GHCR-Login, **kein** vorheriger Build und **kein** Source-Workspace im Deployer benötigt.
 
-#### Voraussetzung: GHCR-Images existieren
+### Voraussetzung: GHCR-Images existieren
 
 Die Tags `ghcr.io/icem0/castel-api:latest` und `…-pwa:latest` müssen in GHCR vorhanden sein. Sie werden vom CI-Workflow automatisch bei jedem Push auf `main` erzeugt und überschrieben. Für einen frischen Fork muss also zuerst einmal `main` gepusht werden (oder ein Maintainer mit Package-Schreibrechten), bevor der Deployer ziehen kann.
 
-#### Private GHCR-Pakete
+### Private GHCR-Pakete
 
 Sind die GHCR-Pakete privat (Default für neue Repos), braucht der Deployer einen GitHub-Personal-Access-Token mit Scope `read:packages`:
 
@@ -239,11 +244,11 @@ server {
 
 ---
 
-## API
+## 🔌 API-Referenz
 
 ### Auth
 
-| Method | Path | Body | Response |
+| Methode | Pfad | Body | Antwort |
 |---|---|---|---|
 | POST | `/api/auth/login` | `{ email, password }` | `{ token, user }` (Set-Cookie refresh) |
 | POST | `/api/auth/refresh` | — | `{ token }` (Cookie-Rotation) |
@@ -253,14 +258,14 @@ server {
 
 ### Sync
 
-| Method | Path | Zweck |
+| Methode | Pfad | Zweck |
 |---|---|---|
 | GET | `/api/sync/snapshot?since=<iso>` | Alle Entities geändert seit `since` |
 | POST | `/api/sync/push` | Bulk-Push (max. 500 ops), Konflikt-Reporting pro-Struktur |
 
 ### Artikel & Fotos
 
-| Method | Path | Zweck |
+| Methode | Pfad | Zweck |
 |---|---|---|
 | POST | `/api/fotos/upload/:artikelId` | multipart `foto` (≤ 512 kB, jpeg/png/webp) |
 | GET | `/api/fotos/list/:artikelId` | Liste der hochgeladenen Fotos |
@@ -268,7 +273,7 @@ server {
 
 ### User-Verwaltung (admin only)
 
-| Method | Path | Zweck |
+| Methode | Pfad | Zweck |
 |---|---|---|
 | GET | `/api/users` | Liste |
 | POST | `/api/users` | Anlegen |
@@ -283,7 +288,7 @@ server {
 
 ---
 
-## Entwicklung
+## 🛠️ Entwicklung
 
 ### Lokal arbeiten
 
@@ -330,7 +335,7 @@ Backend-Tests laufen mit `embedded-postgres` (kein Docker nötig). Production-Po
 
 ---
 
-## Projektstruktur
+## 📁 Projektstruktur
 
 ```
 castel/
@@ -362,34 +367,43 @@ castel/
 ├── Dockerfile.pwa            # PWA-Container (nginx)
 ├── nginx-pwa.conf            # nginx-Konfig
 ├── docker-compose.yml        # Komplette Prod-Stack (PWA + API + DB, direkt am Host)
-└── .env.example              # Prod-Env-Vorlage
+├── .env.example              # Prod-Env-Vorlage
+├── scripts/
+│   ├── write-version.mjs     # Build-Metadaten (version.ts)
+│   ├── bump-version.mjs      # Automatische Patch-Bumps
+│   └── castel-restart.ps1    # Lokaler Restart-Wrapper (Dev)
+├── package.json              # PWA (Root)
+├── server/package.json       # Backend
+└── LICENSE
 ```
 
 ---
 
-## Sicherheit
+## 🔒 Sicherheit
 
 - **JWT-Secret** in `.env` (nicht in Git), mind. 32 Zeichen
 - **Passwort-Hashing** serverseitig mit argon2id (nicht PBKDF2)
-- **Refresh-Tokens** als httpOnly-Cookie, `SameSite=Lax; Secure`
+- **Refresh-Tokens** als `httpOnly`-Cookie, `SameSite=Lax; Secure`
 - **Rate-Limit** auf `/api/auth/login` (5 Versuche / Minute)
 - **Helmet**-Header gegen XSS, Clickjacking, MIME-Sniffing
 - **TLS** Pflicht — kein HTTP-Betrieb in Produktion
 - **Keine Telemetrie**, kein Cloud-Call ohne expliziten User-Tunnel
-- **Pre-Commit-Hook** (geplant): verhindert versehentliche Commits von `.env`/`secrets`
+- Vor jedem Commit: keine `.env`/Secrets versehentlich committet
 
 ---
 
-## Performance-Budget
+## 📊 Performance-Budget
 
-- **JS gzip**: ≤ 130 kB (aktuell 122 kB) ✓
-- **First Contentful Paint**: ≤ 1.5 s (im WLAN, lokal)
-- **Offline-First-Load**: ≤ 0.5 s (Service Worker, precache)
-- **Sync-Roundtrip (offline → sync)**: ≤ 3 s für 50 Buchungen
+| Kennzahl | Ziel | Status |
+|---|---|---|
+| JS gzip | ≤ 130 kB | 122 kB ✓ |
+| First Contentful Paint | ≤ 1.5 s (WLAN, lokal) | ✓ |
+| Offline-First-Load | ≤ 0.5 s (Service Worker, precache) | ✓ |
+| Sync-Roundtrip (offline → sync) | ≤ 3 s für 50 Buchungen | ✓ |
 
 ---
 
-## Mitmachen
+## 🤝 Mitmachen
 
 Pull Requests willkommen! Bitte:
 
@@ -399,6 +413,10 @@ Pull Requests willkommen! Bitte:
 4. PR mit kurzer Beschreibung der Änderung
 
 Vor größeren Änderungen: Issue aufmachen, damit wir uns abstimmen können.
+
+### Commit-Convention
+
+Conventional Commits sind Pflicht: `<type>(<scope>)?: <subject>`. Erlaubte Typen: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. `feat!`/`BREAKING CHANGE:` für Major-Bumps. Die Version läuft mit jedem Commit hoch (Patch-Bump über Husky `pre-commit`-Hook).
 
 ### Roadmap
 
@@ -412,11 +430,13 @@ Vor größeren Änderungen: Issue aufmachen, damit wir uns abstimmen können.
 
 ---
 
-## Lizenz
+## 📄 Lizenz
 
 [MIT](./LICENSE) — siehe Datei.
 
-## Dankschagen
+---
+
+## 🙏 Dankeschön
 
 - [Dexie.js](https://dexie.org/) für die IndexedDB-Abstraktion
 - [Fastify](https://fastify.dev/) für das flotte HTTP-Framework
