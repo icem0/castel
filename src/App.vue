@@ -581,7 +581,7 @@ function formatRelativ(iso: string | null): string {
           :title="syncZustandTitel"
           @click.stop="toggleSyncPanel"
         >
-          <span class="sync-dot" aria-hidden="true"></span>
+          <span class="sync-dot" :class="`state-${syncZustand}`" aria-hidden="true"></span>
           <span class="sync-label">DB-Sync</span>
           <span
             v-if="sync.status.pending > 0"
