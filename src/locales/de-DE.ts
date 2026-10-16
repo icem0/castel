@@ -5,6 +5,7 @@ export default {
       dashboard: 'Dashboard',
       artikel: 'Artikel',
       buchungen: 'Buchungen',
+      scan: 'Scan',
       standorte: 'Standorte',
       einstellungen: 'Einstellungen',
     },
@@ -23,6 +24,8 @@ export default {
         typAlle: '- alle -',
         status: 'Status',
         statusAlle: 'alle',
+        standort: 'Standort',
+        standortAlle: 'alle Standorte',
       },
       status: {
         verfuegbar: 'verfügbar',
@@ -215,6 +218,18 @@ export default {
       ja: 'Ja',
       nein: 'Nein',
       optional: '(optional)',
+    },
+    passwortAendern: {
+      h1Erzwungen: 'Neues Passwort setzen',
+      h1Frei: 'Passwort ändern',
+      hintErzwungen:
+        'Dein Passwort wurde vom Admin zurückgesetzt. Bitte vergib gleich ein neues — damit bist du startklar.',
+      aktuellesPw: 'Aktuelles Passwort',
+      neuesPw: 'Neues Passwort (≥ 8 Zeichen, mind. 1 Ziffer, 1 Buchstabe)',
+      neuesPwPatternTitel: 'Mindestens 8 Zeichen, davon mindestens 1 Ziffer und 1 Buchstabe',
+      neuesPwBestaetigen: 'Neues Passwort bestätigen',
+      fehlerPwStimmtNicht: 'Neue Passwörter stimmen nicht überein.',
+      speichernLaufend: 'Speichere …',
     },
   },
   auth: {

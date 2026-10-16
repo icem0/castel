@@ -19,18 +19,29 @@ const { alleBenutzten } = useArtikelTypen()
 const suche = ref('')
 const filterTyp = ref('')
 const filterStatus = ref<'alle' | ArtikelStatus>('verfuegbar')
+const filterStandort = ref('')
+
+// Buchungs-Lookup für den Standort-Filter bereitstellen.
+// Wird einmal beim Mount verdrahtet, damit `artikelStore.gefiltert`
+// auf den BuchungStore zugreifen kann, ohne ihn selbst zu kennen.
+artikelStore.setBuchungLookup(buchungStore.byArtikel)
 
 function applyFilter(): void {
   artikelStore.setFilter({
     suche: suche.value,
     typ: filterTyp.value || undefined,
     status: filterStatus.value,
+    standortId: filterStandort.value || undefined,
   })
 }
 
 type SortKey = 'titel' | 'typ' | 'bestand'
 
 const standardStandort = computed(() => standortStore.standardlager)
+
+const standortOptionen = computed(() =>
+  [...standortStore.aktive].sort((a, b) => a.name.localeCompare(b.name, 'de')),
+)
 
 const sortierung = useTableSort<Artikel, SortKey>({
   defaultKey: 'titel',
@@ -82,6 +93,10 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
         <option v-for="opt in statusOptionen" :key="opt.value" :value="opt.value">
           {{ t(opt.labelKey) }}
         </option>
+      </select>
+      <select v-model="filterStandort" @change="applyFilter">
+        <option value="">{{ t('view.artikel.filter.standortAlle') }}</option>
+        <option v-for="s in standortOptionen" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
     </div>
 

@@ -5,6 +5,7 @@ export default {
       dashboard: 'Dashboard',
       artikel: 'Items',
       buchungen: 'Transactions',
+      scan: 'Scan',
       standorte: 'Locations',
       einstellungen: 'Settings',
     },
@@ -23,6 +24,8 @@ export default {
         typAlle: '- all -',
         status: 'Status',
         statusAlle: 'all',
+        standort: 'Location',
+        standortAlle: 'all locations',
       },
       status: {
         verfuegbar: 'available',
@@ -213,6 +216,18 @@ export default {
       ja: 'Yes',
       nein: 'No',
       optional: '(optional)',
+    },
+    passwortAendern: {
+      h1Erzwungen: 'Set new password',
+      h1Frei: 'Change password',
+      hintErzwungen:
+        'Your password was reset by the admin. Please pick a new one — you are good to go.',
+      aktuellesPw: 'Current password',
+      neuesPw: 'New password (≥ 8 characters, at least 1 digit, 1 letter)',
+      neuesPwPatternTitel: 'At least 8 characters, with at least 1 digit and 1 letter',
+      neuesPwBestaetigen: 'Confirm new password',
+      fehlerPwStimmtNicht: 'New passwords do not match.',
+      speichernLaufend: 'Saving …',
     },
   },
   auth: {
