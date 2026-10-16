@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, nextTick } from 'vue'
-import { useRoute, RouterLink } from 'vue-router'
+import { onMounted, ref, watch, nextTick, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
 import type { Artikel } from '../db/types'
@@ -8,6 +8,7 @@ import JsBarcode from 'jsbarcode'
 
 const { t } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const artikelStore = useArtikelStore()
 
 const barcodeEl = ref<SVGSVGElement | null>(null)
@@ -19,10 +20,26 @@ const fehler = ref('')
 const laufend = ref(false)
 
 const formate = [
-  { wert: 'CODE128' as const, label: t('view.barcode.formatCode128') },
-  { wert: 'EAN13' as const, label: t('view.barcode.formatEAN13') },
-  { wert: 'CODE39' as const, label: t('view.barcode.formatCode39') },
+  {
+    wert: 'CODE128' as const,
+    label: t('view.barcode.formatCode128'),
+    hint: t('view.barcode.hintCode128'),
+  },
+  {
+    wert: 'EAN13' as const,
+    label: t('view.barcode.formatEAN13'),
+    hint: t('view.barcode.hintEAN13'),
+  },
+  {
+    wert: 'CODE39' as const,
+    label: t('view.barcode.formatCode39'),
+    hint: t('view.barcode.hintCode39'),
+  },
 ]
+
+const formatHint = computed(() => formate.find((f) => f.wert === format.value)?.hint ?? '')
+
+const barcodeRendert = computed(() => anzeigen.value && !!barcodeWert.value.trim())
 
 function artikelOptionen(): Artikel[] {
   return artikelStore.artikel
@@ -109,13 +126,19 @@ async function speichernAmArtikel(): Promise<void> {
 function drucken(): void {
   window.print()
 }
+
+function abbrechen(): void {
+  void router.push('/einstellungen')
+}
 </script>
 
 <template>
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.barcode.h1') }}</h1>
-      <RouterLink to="/einstellungen" class="btn">{{ t('common.abbrechen') }}</RouterLink>
+      <button type="button" class="btn" @click="abbrechen">
+        {{ t('common.abbrechen') }}
+      </button>
     </header>
 
     <div class="card">
@@ -151,6 +174,7 @@ function drucken(): void {
               {{ f.label }}
             </option>
           </select>
+          <small class="hint">{{ formatHint }}</small>
         </label>
 
         <div class="form-actions">
@@ -162,7 +186,7 @@ function drucken(): void {
           >
             {{ t('view.barcode.zuArtikelSpeichern') }}
           </button>
-          <button type="button" :disabled="!anzeigen || laufend" @click="drucken">
+          <button type="button" :disabled="!barcodeRendert || laufend" @click="drucken">
             {{ t('view.barcode.drucken') }}
           </button>
           <span v-if="laufend" class="hint">{{ t('view.barcode.speichert') }}…</span>
@@ -171,7 +195,7 @@ function drucken(): void {
       </form>
     </div>
 
-    <div v-if="anzeigen" class="card barcode-vorschau">
+    <div class="card barcode-vorschau">
       <svg ref="barcodeEl"></svg>
     </div>
   </section>
@@ -185,6 +209,16 @@ function drucken(): void {
 }
 .btn {
   margin-left: auto;
+  background: transparent;
+  border: 1px solid var(--border, #ccc);
+  color: var(--text, #000);
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font: inherit;
+}
+.btn:hover {
+  background: var(--hover, #f5f5f5);
 }
 .barcode-vorschau {
   display: flex;
@@ -193,6 +227,7 @@ function drucken(): void {
   border: 1px dashed var(--border, #ccc);
   border-radius: 0.5rem;
   background: #fff;
+  min-height: 120px;
 }
 .fehler {
   color: var(--error, #c00);
