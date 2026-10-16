@@ -168,24 +168,30 @@ const repoUrl = 'https://github.com/icem0/castel'
 const versionString = `castel v${version} (commit ${commit}, branch ${branch}, built ${buildDateFormatiert}) · MIT · ${repoUrl}`
 
 const copyStatus = ref<'idle' | 'ok' | 'fehler'>('idle')
+const copyErrorStatus = ref<'idle' | 'ok' | 'fehler'>('idle')
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+let copyErrorResetTimer: ReturnType<typeof setTimeout> | null = null
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+  } else {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'absolute'
+    ta.style.left = '-9999px'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    if (!ok) throw new Error('execCommand(copy) fehlgeschlagen')
+  }
+}
 
 async function copyVersion(): Promise<void> {
   try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(versionString)
-    } else {
-      const ta = document.createElement('textarea')
-      ta.value = versionString
-      ta.setAttribute('readonly', '')
-      ta.style.position = 'absolute'
-      ta.style.left = '-9999px'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      document.body.removeChild(ta)
-      if (!ok) throw new Error('execCommand(copy) fehlgeschlagen')
-    }
+    await copyToClipboard(versionString)
     copyStatus.value = 'ok'
   } catch {
     copyStatus.value = 'fehler'
@@ -193,6 +199,39 @@ async function copyVersion(): Promise<void> {
     if (copyResetTimer !== null) clearTimeout(copyResetTimer)
     copyResetTimer = setTimeout(() => {
       copyStatus.value = 'idle'
+    }, 2000)
+  }
+}
+
+function buildErrorText(): string {
+  const f = sync.status.lastFailure
+  const parts: string[] = []
+  if (sync.status.lastError) parts.push(`Letzter Fehler: ${sync.status.lastError}`)
+  if (f) {
+    parts.push(`Diagnose: ${f.message}`)
+    if (f.source) parts.push(`Schritt: ${f.source}`)
+    if (f.status !== null) parts.push(`HTTP: ${f.status}`)
+    if (f.code) parts.push(`Code: ${f.code}`)
+    if (f.rejectedItems > 0) parts.push(`Abgelehnt: ${f.rejectedItems}`)
+    for (const e of f.sampleErrors) {
+      if (e.stack) parts.push(`Stack: ${e.stack}`)
+      if (e.payload !== undefined) parts.push(`Payload: ${JSON.stringify(e.payload)}`)
+    }
+  }
+  return parts.join('\n') + `\n\nVersion: v${version}`
+}
+
+async function copyError(): Promise<void> {
+  try {
+    const text = buildErrorText()
+    await copyToClipboard(text)
+    copyErrorStatus.value = 'ok'
+  } catch {
+    copyErrorStatus.value = 'fehler'
+  } finally {
+    if (copyErrorResetTimer !== null) clearTimeout(copyErrorResetTimer)
+    copyErrorResetTimer = setTimeout(() => {
+      copyErrorStatus.value = 'idle'
     }, 2000)
   }
 }
@@ -672,17 +711,125 @@ function formatRelativ(iso: string | null): string {
             </span>
           </dd>
         </div>
-        <div v-if="sync.status.lastError">
+        <div v-if="sync.status.lastError" class="flex items-center gap-2">
           <dt>Letzter Fehler</dt>
           <dd class="wert-fehler">{{ lastErrorMitVersion }}</dd>
+          <button
+            type="button"
+            class="sync-diag-copy"
+            :title="copyErrorStatus === 'ok' ? 'Kopiert' : 'Fehler in die Zwischenablage kopieren'"
+            :aria-label="
+              copyErrorStatus === 'ok' ? 'Kopiert' : 'Sync-Fehler in die Zwischenablage kopieren'
+            "
+            @click="copyError"
+          >
+            <svg
+              v-if="copyErrorStatus === 'idle'"
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <svg
+              v-else-if="copyErrorStatus === 'ok'"
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <svg
+              v-else
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </button>
         </div>
       </dl>
 
       <div v-if="sync.status.lastFailure" class="sync-diag-block wert-fehler" role="alert">
         <strong>Diagnose</strong>
-        <p v-if="sync.status.lastFailure.message" class="sync-diag-message">
-          {{ sync.status.lastFailure.message }}
-        </p>
+        <div class="flex items-center gap-2">
+          <p v-if="sync.status.lastFailure.message" class="sync-diag-message">
+            {{ sync.status.lastFailure.message }}
+          </p>
+          <button
+            type="button"
+            class="sync-diag-copy"
+            :title="
+              copyErrorStatus === 'ok' ? 'Kopiert' : 'Diagnose in die Zwischenablage kopieren'
+            "
+            :aria-label="
+              copyErrorStatus === 'ok' ? 'Kopiert' : 'Sync-Diagnose in die Zwischenablage kopieren'
+            "
+            @click="copyError"
+          >
+            <svg
+              v-if="copyErrorStatus === 'idle'"
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <svg
+              v-else-if="copyErrorStatus === 'ok'"
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <svg
+              v-else
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </button>
+        </div>
         <dl class="sync-diag">
           <template v-if="sync.status.lastFailure.source">
             <dt>Schritt</dt>
@@ -1621,6 +1768,43 @@ function formatRelativ(iso: string | null): string {
 }
 
 .version-panel .version-actions .copy-btn.state-fehler {
+  color: #e35d6a;
+  border-color: #e35d6a;
+}
+
+.sync-diag-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sync-diag-copy:hover {
+  color: var(--text-strong);
+  border-color: var(--text-muted);
+}
+
+.sync-diag-copy .icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  display: block;
+}
+
+.sync-diag-copy.state-ok {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.sync-diag-copy.state-fehler {
   color: #e35d6a;
   border-color: #e35d6a;
 }
