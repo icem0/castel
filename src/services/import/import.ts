@@ -332,7 +332,13 @@ function mappeArtikelZeile(row: string[], headers: string[], mapping: ArtikelMap
     bestellnummer: feld('bestellnummer') || null,
     barcode: feld('barcode') || null,
     listenpreis: parseIntOrNull(feld('listenpreis')),
-    geaendertAm: parseIsoDatum(feld('geaendertAm')),
+    // Server-Push-Schema verlangt `geaendertAm: string` (kein null). Wenn
+    // die CSV-Spalte fehlt oder leer ist, fallen wir auf `erstelltAm` (=
+    // Import-Zeitpunkt) zurück — semantisch identisch zu einem frisch
+    // angelegten Artikel, der noch nie geaendert wurde. Vorher konnte ein
+    // leerer Wert als `null` durchrutschen und den Server-Push mit
+    // `VALIDATION: expected string, received null` abbrechen lassen.
+    geaendertAm: parseIsoDatum(feld('geaendertAm')) ?? now,
     erstelltAm: now,
   }
 }

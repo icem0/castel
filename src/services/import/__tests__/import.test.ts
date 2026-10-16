@@ -364,6 +364,35 @@ describe('Outbox-Integration', () => {
     const refreshed = await testDb.standorte.get(s.id)
     expect(refreshed?.standard).toBe(true)
   })
+
+  it('geaendertAm fällt auf erstelltAm zurück, wenn die CSV-Spalte fehlt oder leer ist', async () => {
+    // Regression: Server-Schema verlangt `geaendertAm: string` (kein null).
+    // Wenn die Geändert-Spalte fehlt, konnte der Import `null` in den
+    // Outbox-Payload schreiben — der Push brach mit VALIDATION ab.
+    const csv = `ID;Title;Status;Type;Lieferant;VE
+1;Ohne Geaendert-Spalte;verfügbar;Demo;Bosch;1
+2;Mit leerer Geaendert-Spalte;verfügbar;Demo;Bosch;1;`
+    const parsed = parseCsv(csv)
+    const before = jetztIso()
+    await importArtikelAusCsv({
+      rows: parsed.rows,
+      headers: parsed.headers,
+      mapping: defaultArtikelMapping(parsed.headers),
+    })
+    const after = jetztIso()
+
+    const outbox = await testDb.outbox.toArray()
+    const artikelOps = outbox.filter((o) => o.entity === 'artikel' && o.op === 'create')
+    expect(artikelOps).toHaveLength(2)
+    for (const op of artikelOps) {
+      const payload = JSON.parse(op.payload) as { geaendertAm: string; erstelltAm: string }
+      expect(typeof payload.geaendertAm).toBe('string')
+      // Fallback muss zwischen before/after liegen (= erstelltAm).
+      expect(payload.geaendertAm >= before).toBe(true)
+      expect(payload.geaendertAm <= after).toBe(true)
+      expect(payload.geaendertAm).toBe(payload.erstelltAm)
+    }
+  })
 })
 
 describe('Dezimalwerte in Stammdaten', () => {
