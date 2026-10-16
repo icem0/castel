@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, nextTick, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
 import type { Artikel } from '../db/types'
@@ -8,7 +8,6 @@ import JsBarcode from 'jsbarcode'
 
 const { t } = useI18n()
 const route = useRoute()
-const router = useRouter()
 const artikelStore = useArtikelStore()
 
 const barcodeEl = ref<SVGSVGElement | null>(null)
@@ -126,19 +125,12 @@ async function speichernAmArtikel(): Promise<void> {
 function drucken(): void {
   window.print()
 }
-
-function abbrechen(): void {
-  void router.push('/einstellungen')
-}
 </script>
 
 <template>
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.barcode.h1') }}</h1>
-      <button type="button" class="btn" @click="abbrechen">
-        {{ t('common.abbrechen') }}
-      </button>
     </header>
 
     <div class="card">
@@ -205,20 +197,6 @@ function abbrechen(): void {
 .view-head {
   display: flex;
   align-items: center;
-  gap: 1rem;
-}
-.btn {
-  margin-left: auto;
-  background: transparent;
-  border: 1px solid var(--border, #ccc);
-  color: var(--text, #000);
-  padding: 0.4rem 0.8rem;
-  border-radius: 0.35rem;
-  cursor: pointer;
-  font: inherit;
-}
-.btn:hover {
-  background: var(--hover, #f5f5f5);
 }
 .barcode-vorschau {
   display: flex;
