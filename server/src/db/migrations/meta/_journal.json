@@ -57,6 +57,13 @@
       "when": 1700000007000,
       "tag": "0008_admin_standard_standort_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1700000008000,
+      "tag": "0009_rename_projekte_to_commission",
+      "breakpoints": true
     }
   ]
 }
