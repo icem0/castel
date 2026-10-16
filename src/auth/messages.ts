@@ -27,7 +27,10 @@ const I18N_KEYS: Record<AuthErrorCode, string> = {
   // Passwort falsch"). Die Message kommt vom Server, daher KEINE
   // i18n-Uebersetzung — nur AuthError.message wird durchgereicht.
   'auth.password.change_failed': 'auth.password.change_failed',
-  'auth.unknown': 'auth.error.serverUnreachable',
+  // Server antwortet mit einem Auth-Fehler (z. B. 401 "falsches Passwort").
+  // Message stammt direkt vom Server, daher KEINE i18n-Übersetzung —
+  // AuthError.message wird durchgereicht.
+  'auth.unknown': 'auth.unknown',
 }
 
 export function authFehlerText(e: unknown): string {

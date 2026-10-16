@@ -33,7 +33,7 @@ function setLocale(loc: 'de-DE' | 'en-US'): void {
 // Codes, deren Message direkt vom Server kommt und NICHT ueber i18n
 // uebersetzt wird. Fuer sie gibt es keinen vordefinierten Locale-Text —
 // sie sind semantisch ein "durchreichen wie geliefert".
-const SERVER_SUPPLIED_CODES: AuthErrorCode[] = ['auth.password.change_failed']
+const SERVER_SUPPLIED_CODES: AuthErrorCode[] = ['auth.password.change_failed', 'auth.unknown']
 
 describe('AuthError', () => {
   it('exposes its code', () => {
@@ -133,5 +133,13 @@ describe('authFehlerText (server-supplied messages)', () => {
       new AuthError('auth.password.change_failed', 'Altes Passwort falsch'),
     )
     expect(text).toBe('Altes Passwort falsch')
+  })
+
+  it('forwards the server message for auth.unknown (e.g. 401 wrong password) verbatim', () => {
+    setLocale('de-DE')
+    const text = authFehlerText(
+      new AuthError('auth.unknown', 'E-Mail oder Passwort falsch'),
+    )
+    expect(text).toBe('E-Mail oder Passwort falsch')
   })
 })

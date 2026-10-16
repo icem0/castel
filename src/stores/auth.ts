@@ -98,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
       serverAntwort = await apiFetch<LoginAntwort>('/api/auth/login', {
         method: 'POST',
         body: { email: trimmedEmail, password: passwort },
+        noLogoutOn401: true,
       })
     } catch (e) {
       // Wenn Server sagt "401", ist das ein echter Auth-Fehler — kein Netzwerkproblem.
