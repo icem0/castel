@@ -11,7 +11,7 @@
 import imageCompression from 'browser-image-compression'
 import { getApiBaseUrl } from '../auth/api'
 import { jwtLesen } from '../auth/session'
-import { triggerSyncNow } from './sync/worker'
+import { getSyncStatus, triggerSyncNow } from './sync/worker'
 
 export interface FotoUploadErgebnis {
   id: string
@@ -30,6 +30,15 @@ export async function komprimiereBild(datei: File): Promise<File> {
     useWebWorker: true,
     fileType: 'image/jpeg',
   })
+}
+
+/** Wartet, bis kein Sync mehr läuft (max. timeoutMs), dann retry erlauben. */
+async function waitForSyncIdle(timeoutMs = 15_000): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (getSyncStatus().status !== 'syncing') return
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
 }
 
 export async function ladeFotoHoch(
@@ -56,13 +65,14 @@ export async function ladeFotoHoch(
   let res = await upload()
 
   // Offline-first: Artikel existiert lokal, wurde aber ggf. noch nicht auf
-  // den Server gesynced. Bei ARTIKEL_NOT_FOUND einmalig Sync triggern und
-  // den Upload wiederholen.
+  // den Server gesynced. Bei ARTIKEL_NOT_FOUND Sync triggern, auf Abschluss
+  // warten und Upload wiederholen.
   if (res.status === 404) {
     try {
       const body = await res.json()
       if (body?.code === 'ARTIKEL_NOT_FOUND') {
         await triggerSyncNow({ token: jwtLesen(), apiBase: getApiBaseUrl() })
+        await waitForSyncIdle()
         res = await upload()
       }
     } catch {
