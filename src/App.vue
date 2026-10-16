@@ -338,8 +338,13 @@ const syncZustandLabel = computed((): string => {
 
 const syncZustandTitel = computed(() => {
   const basis = `DB-Sync: ${syncZustandLabel.value}`
-  if (sync.status.lastError) return `${basis} — ${sync.status.lastError}`
+  if (sync.status.lastError) return `${basis} — ${lastErrorMitVersion.value}`
   return basis
+})
+
+const lastErrorMitVersion = computed(() => {
+  if (!sync.status.lastError) return null
+  return `${sync.status.lastError} (v${version})`
 })
 
 function formatIso(iso: string | null): string {
@@ -669,7 +674,7 @@ function formatRelativ(iso: string | null): string {
         </div>
         <div v-if="sync.status.lastError">
           <dt>Letzter Fehler</dt>
-          <dd class="wert-fehler">{{ sync.status.lastError }}</dd>
+          <dd class="wert-fehler">{{ lastErrorMitVersion }}</dd>
         </div>
       </dl>
 
