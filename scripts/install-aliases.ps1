@@ -45,8 +45,7 @@ $existing = Get-Content $PROFILE -Raw -ErrorAction SilentlyContinue
 # Marker pairs to strip from the profile before writing the new block:
 # the current markers plus the legacy markers of the pre-rename install.
 $markerPairs = @(
-    @("# ---- castel helpers", "# ---- /castel helpers"),
-    @("# ---- bma-lager helpers", "# ---- /bma-lager helpers")
+    @("# ---- castel helpers", "# ---- /castel helpers")
 )
 foreach ($pair in $markerPairs) {
     $startMarker = $pair[0]
