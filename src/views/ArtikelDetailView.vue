@@ -186,6 +186,15 @@ watch(
   },
 )
 
+watch(
+  () => barcodeEl.value,
+  (el) => {
+    if (el && artikel.value?.barcode?.trim()) {
+      renderBarcode()
+    }
+  },
+)
+
 onMounted(() => {
   artikelStore.start()
   nextTick(() => renderBarcode())
@@ -415,9 +424,11 @@ onMounted(() => {
 }
 .barcode-row code {
   font-size: 0.9rem;
-  background: var(--surface-muted, #f4f4f4);
+  background: #f4f4f4;
+  color: #11151c;
   padding: 0.15rem 0.4rem;
   border-radius: 0.25rem;
+  border: 1px solid #cbd5e1;
 }
 .header-actions {
   display: flex;

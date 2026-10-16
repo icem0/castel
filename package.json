@@ -1,7 +1,7 @@
 {
   "name": "castel",
   "private": true,
-  "version": "0.3.70",
+  "version": "0.3.71",
   "type": "module",
   "scripts": {
     "dev": "npm run version:write && vite",
