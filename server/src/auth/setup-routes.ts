@@ -13,15 +13,15 @@
 //        und 5 Test-Artikel an — siehe `bootstrapHauptlager`. Beides ist
 //        idempotent: Wenn bereits ein Standard-Standort existiert, wird der
 //        Bootstrap stillschweigend übersprungen.
-//      - Persistiert die gewählte Sprache als `einstellungen`-Eintrag des
-//        Users (pro-User, LWW).
+//      - Persistiert die gewählte Sprache und den per-User-Standard-Standort
+//        (Hauptlager) als `einstellungen`-Eintraege des Users (pro-User, LWW).
 //      - Antwort: UserDto. Login läuft danach normal via /api/auth/login.
 
 import type { FastifyInstance } from 'fastify'
 import argon2 from 'argon2'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { einstellungen, users } from '../db/schema.js'
+import { einstellungen, standorte, users } from '../db/schema.js'
 import { bootstrapHauptlager } from './bootstrap.js'
 import { bootstrapInhalt, setupSchema } from '../domain/validierung.js'
 
@@ -94,7 +94,33 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
         geaendertAm: new Date(),
       })
 
-      return bootstrapHauptlager(tx, inhalt)
+      const bootstrapResult = await bootstrapHauptlager(tx, inhalt)
+
+      // Per-User-Standard-Standort auf das (gerade angelegte oder schon
+      // vorhandene) Hauptlager setzen. Sonst steht im Settings-View-Dropdown
+      // nach dem Setup "noch nicht festgelegt", obwohl das Hauptlager schon
+      // als Standort.standard markiert ist. Wenn der Bootstrap uebersprungen
+      // wurde (Hauptlager existierte schon), schlagen wir den aktuellen
+      // Standard-Standort nach und nehmen dessen ID.
+      let hauptlagerId = bootstrapResult.hauptlagerId
+      if (bootstrapResult.uebersprungen) {
+        const existing = await tx
+          .select({ id: standorte.id })
+          .from(standorte)
+          .where(eq(standorte.standard, true))
+          .limit(1)
+        hauptlagerId = existing[0]?.id
+      }
+      if (hauptlagerId !== undefined) {
+        await tx.insert(einstellungen).values({
+          key: 'standardStandortId',
+          userId: id,
+          value: hauptlagerId,
+          geaendertAm: new Date(),
+        })
+      }
+
+      return bootstrapResult
     })
 
     return reply.code(201).send({

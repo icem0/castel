@@ -50,6 +50,13 @@
       "when": 1700000006000,
       "tag": "0007_einstellungen_user_id_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1700000007000,
+      "tag": "0008_admin_standard_standort_backfill",
+      "breakpoints": true
     }
   ]
 }
