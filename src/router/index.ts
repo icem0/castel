@@ -30,6 +30,7 @@ import LoginView from '../views/LoginView.vue'
 import PasswortAendernView from '../views/PasswortAendernView.vue'
 import UserVerwaltungView from '../views/UserVerwaltungView.vue'
 import BarcodeScanView from '../views/BarcodeScanView.vue'
+import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Auth-Routen (kein Login nötig)
@@ -81,6 +82,11 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/import', name: 'import', component: ImportView, meta: { requiresAdmin: true } },
   { path: '/scan', name: 'scan', component: BarcodeScanView },
+  {
+    path: '/etiketten',
+    name: 'etiketten',
+    component: BarcodeErzeugenView,
+  },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 

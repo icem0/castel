@@ -168,6 +168,22 @@ export default {
       fehlerLeer: 'Name darf nicht leer sein.',
       fehlerDuplikat: 'ist bereits in der Liste.',
     },
+    barcode: {
+      h1: 'Barcode-Etiketten',
+      artikel: 'Artikel',
+      artikelWaehlen: '– Artikel wählen –',
+      wert: 'Barcode-Wert',
+      wertHint:
+        'Z. B. EAN-13, Code128 oder Code39. Leer lassen, um den vorhandenen Barcode des Artikels anzuzeigen.',
+      format: 'Format',
+      formatCode128: 'Code128',
+      formatEAN13: 'EAN-13',
+      formatCode39: 'Code39',
+      zuArtikelSpeichern: 'Am Artikel speichern',
+      drucken: 'Drucken',
+      speichert: 'Speichert',
+      gespeichert: 'Barcode am Artikel gespeichert.',
+    },
     kommissionen: {
       h1: 'Kommissionen',
       hint: 'Reihenfolge = Anzeige-Reihenfolge. Kommissionen erscheinen im Buchungsformular als Projekt-Eintrag.',
@@ -179,7 +195,8 @@ export default {
       leer: 'Keine Kommissionen konfiguriert.',
       anzahlEins: '1 Buchung',
       anzahlViele: '{n} Buchungen',
-      entfernenGenutzt: 'Kommission wird noch in Buchungen verwendet – erst zuordnen oder stornieren',
+      entfernenGenutzt:
+        'Kommission wird noch in Buchungen verwendet – erst zuordnen oder stornieren',
       entfernen: 'Entfernen',
       nachOben: 'nach oben',
       nachUnten: 'nach unten',

@@ -1,7 +1,7 @@
 {
   "name": "castel",
   "private": true,
-  "version": "0.3.19",
+  "version": "0.3.20",
   "type": "module",
   "scripts": {
     "dev": "npm run version:write && vite",
@@ -19,12 +19,13 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@zxing/browser": "^0.2.1",
     "@commitlint/cli": "^19.6.0",
     "@commitlint/config-conventional": "^19.6.0",
+    "@zxing/browser": "^0.2.1",
     "browser-image-compression": "^2.0.2",
     "dexie": "^4.0.10",
     "husky": "^9.1.7",
+    "jsbarcode": "^3.12.3",
     "pinia": "^2.3.0",
     "vue": "^3.5.42",
     "vue-i18n": "^11.0.0",
