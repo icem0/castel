@@ -42,6 +42,8 @@ export default {
         bestandProStandort: 'Bestand pro Standort',
         historie: 'Historie',
         buchen: 'Buchen',
+        bearbeiten: 'Bearbeiten',
+        statusAdminHint: 'Nur Admins dürfen den Status ändern.',
         archivieren: 'Archivieren',
         archivierenFrage: 'Diesen Artikel archivieren?',
         archiviert: 'archiviert',

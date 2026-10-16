@@ -42,6 +42,8 @@ export default {
         bestandProStandort: 'Stock per location',
         historie: 'History',
         buchen: 'Record',
+        bearbeiten: 'Edit',
+        statusAdminHint: 'Only admins can change the status.',
         archivieren: 'Archive',
         archivierenFrage: 'Archive this item?',
         archiviert: 'archived',
