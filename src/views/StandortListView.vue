@@ -11,16 +11,12 @@ interface Form {
   name: string
   typ: StandortTyp
   projekt: string
-  kennzeichen: string
-  standard: boolean
 }
 
 const leeresFormular = (): Form => ({
   name: '',
   typ: 'lager',
   projekt: '',
-  kennzeichen: '',
-  standard: false,
 })
 
 const formularOffen = ref(false)
@@ -46,8 +42,6 @@ async function anlegen(): Promise<void> {
       name: formular.value.name.trim(),
       typ: formular.value.typ,
       projekt: formular.value.projekt.trim() || null,
-      kennzeichen: formular.value.kennzeichen.trim() || null,
-      standard: formular.value.standard,
     })
     formularOffen.value = false
     reset()
@@ -83,6 +77,15 @@ async function wiederherstellen(id: string): Promise<void> {
   }
 }
 
+async function loeschen(id: string): Promise<void> {
+  if (!confirm('Standort unwiderruflich löschen?')) return
+  try {
+    await standortStore.loeschen(id)
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 const typOptionen: StandortTyp[] = ['lager', 'auto', 'baustelle', 'extern']
 const sichtbareStandorte = computed(() => [...standortStore.aktive, ...standortStore.archivierte])
 const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formularOffen.value)
@@ -111,19 +114,9 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
             </option>
           </select>
         </label>
-        <div class="row">
-          <label>
-            <span>{{ t('view.standort.form.projekt') }}</span>
-            <input v-model="formular.projekt" autocomplete="off" :disabled="laufend" />
-          </label>
-          <label>
-            <span>{{ t('view.standort.form.kennzeichen') }}</span>
-            <input v-model="formular.kennzeichen" autocomplete="off" :disabled="laufend" />
-          </label>
-        </div>
-        <label class="check">
-          <input v-model="formular.standard" type="checkbox" :disabled="laufend" />
-          <span>{{ t('view.standort.form.standard') }}</span>
+        <label>
+          <span>{{ t('view.standort.form.kommission') }}</span>
+          <input v-model="formular.projekt" autocomplete="off" :disabled="laufend" />
         </label>
 
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
@@ -150,8 +143,7 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
         <tr>
           <th>{{ t('view.standort.spalten.name') }}</th>
           <th>{{ t('view.standort.spalten.typ') }}</th>
-          <th>{{ t('view.standort.spalten.projekt') }}</th>
-          <th>{{ t('view.standort.spalten.kennzeichen') }}</th>
+          <th>{{ t('view.standort.spalten.kommission') }}</th>
           <th>{{ t('view.standort.spalten.standard') }}</th>
           <th></th>
         </tr>
@@ -163,7 +155,6 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
             <span class="badge">{{ t(`view.standort.typen.${s.typ}`) }}</span>
           </td>
           <td>{{ s.projekt ?? '—' }}</td>
-          <td>{{ s.kennzeichen ?? '—' }}</td>
           <td>
             <span v-if="s.standard" class="badge accent">{{ t('view.common.ja') }}</span>
             <span v-else class="muted">{{ t('view.common.nein') }}</span>
@@ -172,8 +163,11 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
             <button v-if="!s.archiviert && !s.standard" type="button" @click="setStandard(s.id)">
               {{ t('view.standort.spalten.standard') }}
             </button>
-            <button v-if="!s.archiviert" type="button" class="danger" @click="archivieren(s.id)">
+            <button v-if="!s.archiviert" type="button" @click="archivieren(s.id)">
               {{ t('view.artikel.detail.archivieren') }}
+            </button>
+            <button v-if="!s.archiviert" type="button" class="danger" @click="loeschen(s.id)">
+              {{ t('view.standort.loeschen') }}
             </button>
             <button v-else type="button" @click="wiederherstellen(s.id)">
               {{ t('view.standort.wiederherstellen') }}
@@ -186,17 +180,6 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
 </template>
 
 <style scoped>
-.row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.85rem;
-}
-@media (max-width: 540px) {
-  .row {
-    grid-template-columns: 1fr;
-  }
-}
-
 .data tr.archived td {
   color: var(--text-muted, #888);
   text-decoration: line-through;

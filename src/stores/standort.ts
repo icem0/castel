@@ -13,7 +13,6 @@ export interface StandortEingabe {
   name: string
   typ: StandortTyp
   projekt?: string | null
-  kennzeichen?: string | null
   standard?: boolean
 }
 
@@ -65,8 +64,8 @@ export const useStandortStore = defineStore('standort', () => {
       name: e.name,
       typ: e.typ,
       projekt: e.projekt ?? null,
-      kennzeichen: e.kennzeichen ?? null,
-      standard: e.standard ?? false,
+      kennzeichen: null,
+      standard: false,
       archiviert: false,
       geaendertAm: jetztIso(),
       erstelltAm: jetztIso(),
@@ -110,6 +109,13 @@ export const useStandortStore = defineStore('standort', () => {
     if (updated) await queueOp('standort', 'update', updated)
   }
 
+  async function loeschen(id: string): Promise<void> {
+    const existing = await getDb().standorte.get(id)
+    if (!existing) return
+    await getDb().standorte.delete(id)
+    await queueOp('standort', 'delete', existing)
+  }
+
   return {
     standorte,
     aktive,
@@ -124,5 +130,6 @@ export const useStandortStore = defineStore('standort', () => {
     setStandard,
     archivieren,
     wiederherstellen,
+    loeschen,
   }
 })

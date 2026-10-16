@@ -118,8 +118,7 @@ export default {
       spalten: {
         name: 'Name',
         typ: 'Typ',
-        projekt: 'Projekt',
-        kennzeichen: 'Kennzeichen',
+        kommission: 'Kommission',
         standard: 'Standard',
       },
       typen: {
@@ -131,12 +130,11 @@ export default {
       form: {
         name: 'Name',
         typ: 'Typ',
-        projekt: 'Projekt',
-        kennzeichen: 'Kennzeichen',
-        standard: 'als Standard-Standort',
+        kommission: 'Kommission',
         speichern: 'Speichern',
         abbrechen: 'Abbrechen',
       },
+      loeschen: 'Löschen',
       wiederherstellen: 'Wiederherstellen',
       leer: 'Noch keine Standorte.',
     },
