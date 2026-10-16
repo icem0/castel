@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
@@ -7,7 +7,9 @@ import { useStandortStore } from '../stores/standort'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
+import { useSettingsStore } from '../stores/settings'
 import type { Artikel, ArtikelStatus, Buchung } from '../db/types'
+import JsBarcode from 'jsbarcode'
 import FotoUpload from './components/FotoUpload.vue'
 
 const { t } = useI18n()
@@ -18,6 +20,9 @@ const standortStore = useStandortStore()
 const buchungStore = useBuchungStore()
 const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
+const settings = useSettingsStore()
+
+const barcodeEl = ref<SVGSVGElement | null>(null)
 
 const artikelId = computed<string>(() => String(route.params.id ?? ''))
 const artikel = computed<Artikel | undefined>(() => artikelStore.byId(artikelId.value))
@@ -142,6 +147,49 @@ async function bearbeitenSpeichern(): Promise<void> {
 function formatDatum(iso: string): string {
   return new Date(iso).toLocaleString()
 }
+
+const barcodeTyp = computed(() => settings.settings.barcodeTyp)
+
+function renderBarcode(): void {
+  if (!barcodeEl.value) return
+  const wert = artikel.value?.barcode?.trim()
+  if (!wert) {
+    barcodeEl.value.innerHTML = ''
+    return
+  }
+  try {
+    barcodeEl.value.innerHTML = ''
+    JsBarcode(barcodeEl.value, wert, {
+      format: barcodeTyp.value,
+      width: 2,
+      height: 50,
+      displayValue: false,
+      fontSize: 12,
+      margin: 5,
+    })
+  } catch (_e) {
+    barcodeEl.value.innerHTML = ''
+  }
+}
+
+watch(
+  () => artikel.value?.barcode,
+  () => {
+    nextTick(() => renderBarcode())
+  },
+)
+
+watch(
+  () => barcodeTyp.value,
+  () => {
+    nextTick(() => renderBarcode())
+  },
+)
+
+onMounted(() => {
+  artikelStore.start()
+  nextTick(() => renderBarcode())
+})
 </script>
 
 <template>
@@ -196,8 +244,9 @@ function formatDatum(iso: string): string {
         </div>
         <div v-if="artikel.barcode">
           <dt>{{ t('view.artikel.form.barcode') }}</dt>
-          <dd>
+          <dd class="barcode-row">
             <code>{{ artikel.barcode }}</code>
+            <svg ref="barcodeEl"></svg>
           </dd>
         </div>
         <div v-if="artikel.listenpreis != null">
@@ -358,6 +407,18 @@ function formatDatum(iso: string): string {
 </template>
 
 <style scoped>
+.barcode-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.barcode-row code {
+  font-size: 0.9rem;
+  background: var(--surface-muted, #f4f4f4);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.25rem;
+}
 .header-actions {
   display: flex;
   gap: 0.4rem;

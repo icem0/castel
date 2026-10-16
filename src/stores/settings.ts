@@ -21,6 +21,7 @@ import { queueOp } from '../services/sync/worker'
 import type { Einstellung } from '../db/types'
 
 export type Sprache = 'de' | 'en'
+export type BarcodeTyp = 'CODE128' | 'EAN13' | 'CODE39'
 
 export interface Settings {
   sprache: Sprache
@@ -31,6 +32,8 @@ export interface Settings {
   kommissionen: string[]
   /** Firmenzeichen, nur von Admins konfigurierbar. */
   companyName: string
+  /** Barcode-Format für die Artikel-Detail-Ansicht (nur Admins). */
+  barcodeTyp: BarcodeTyp
 }
 
 const DEFAULTS: Settings = {
@@ -39,9 +42,10 @@ const DEFAULTS: Settings = {
   artikelTypen: ['Zubehör', 'Verbrauchsmaterial'],
   kommissionen: [],
   companyName: '',
+  barcodeTyp: 'CODE128',
 }
 
-const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName'])
+const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
 const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId'])
 const GLOBAL_INDEX = ''
 
@@ -100,12 +104,18 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
   const companyNameRow = byKey.get('companyName')
   const companyName = companyNameRow?.value ?? DEFAULTS.companyName
 
+  const barcodeTypRow = byKey.get('barcodeTyp')
+  const barcodeTypRaw = (barcodeTypRow?.value ?? DEFAULTS.barcodeTyp) as BarcodeTyp
+  const barcodeTyp: BarcodeTyp =
+    barcodeTypRaw === 'EAN13' || barcodeTypRaw === 'CODE39' ? barcodeTypRaw : DEFAULTS.barcodeTyp
+
   return {
     sprache,
     standardStandortId,
     artikelTypen: typen,
     kommissionen,
     companyName,
+    barcodeTyp,
   }
 }
 
@@ -191,6 +201,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('kommissionen', JSON.stringify(typen))
   }
 
+  async function setBarcodeTyp(typ: BarcodeTyp): Promise<void> {
+    await setKey('barcodeTyp', typ)
+  }
+
   // Hilfsfunktion: legt eine UUID-basierte ID an (für Outbox-Einträge).
   void neueUuid
 
@@ -204,5 +218,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setStandardStandort,
     setArtikelTypen,
     setKommissionen,
+    setBarcodeTyp,
   }
 })

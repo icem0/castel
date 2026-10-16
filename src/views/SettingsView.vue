@@ -5,6 +5,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { useStandortStore } from '../stores/standort'
 import { useAuthStore } from '../stores/auth'
+import type { BarcodeTyp } from '../stores/settings'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -14,14 +15,15 @@ const auth = useAuthStore()
 
 const sprache = ref(settings.settings.sprache)
 const standardId = ref<string>(settings.settings.standardStandortId ?? '')
-// firmaName: lokale Eingabe. Sobald der User das Feld beruehrt hat, halten
-// wir den lokalen Wert bis zum naechsten Mount — egal ob das Feld gerade
-// focussiert ist oder nicht. Ein liveQuery-Echo (z. B. vom Speichern der
-// Sprache oder einem Sync-Push im selben Tick) wuerde sonst den gerade
-// getippten Wert mit dem alten Store-Wert ueberschreiben, bevor der
-// eigene setKey ueberhaupt zurueckgekommen ist.
 const firmaName = ref<string>(settings.settings.companyName ?? '')
 const firmaNameVomUser = ref(false)
+const barcodeTyp = ref<BarcodeTyp>(settings.settings.barcodeTyp)
+
+const barcodeFormate = [
+  { wert: 'CODE128' as BarcodeTyp, label: t('view.barcode.formatCode128') },
+  { wert: 'EAN13' as BarcodeTyp, label: t('view.barcode.formatEAN13') },
+  { wert: 'CODE39' as BarcodeTyp, label: t('view.barcode.formatCode39') },
+]
 
 watch(
   () => settings.settings,
@@ -31,6 +33,7 @@ watch(
     if (!firmaNameVomUser.value) {
       firmaName.value = s.companyName ?? ''
     }
+    barcodeTyp.value = s.barcodeTyp
   },
 )
 
@@ -47,6 +50,7 @@ async function speichern(): Promise<void> {
     await settings.setStandardStandort(standardId.value || null)
     if (auth.istAdmin) {
       await settings.setKey('companyName', firmaName.value)
+      await settings.setBarcodeTyp(barcodeTyp.value)
     }
     statusmeldung.value = t('view.settings.gespeichert')
     if (statusTimer !== null) clearTimeout(statusTimer)
@@ -103,6 +107,15 @@ onBeforeUnmount(() => {
             :placeholder="t('view.settings.companyNameHint')"
             @input="firmaNameVomUser = true"
           />
+        </label>
+        <label v-if="auth.istAdmin">
+          <span>{{ t('view.settings.barcodeTyp') }}</span>
+          <select v-model="barcodeTyp" :disabled="laufend">
+            <option v-for="f in barcodeFormate" :key="f.wert" :value="f.wert">
+              {{ f.label }}
+            </option>
+          </select>
+          <small class="hint">{{ t('view.settings.barcodeTypHint') }}</small>
         </label>
 
         <div class="form-actions">

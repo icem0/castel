@@ -149,6 +149,8 @@ export default {
       speichern: 'Save',
       gespeichert: 'saved.',
       nichtGelegt: 'not set',
+      barcodeTyp: 'Barcode format',
+      barcodeTypHint: 'Used to render the barcode in the item detail view.',
     },
     artikelTypen: {
       h1: 'Item types',
