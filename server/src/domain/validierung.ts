@@ -90,7 +90,7 @@ export const buchungSchema = z.object({
 // artikelTypen) werden in der DB gespiegelt. Whitelist der erlaubten
 // Keys — alles andere wird vom Server abgelehnt.
 
-export const EINSTELLUNG_KEYS = ['sprache', 'standardStandortId', 'artikelTypen', 'companyName'] as const
+export const EINSTELLUNG_KEYS = ['sprache', 'standardStandortId', 'artikelTypen', 'kommissionen', 'companyName'] as const
 export type EinstellungKey = (typeof EINSTELLUNG_KEYS)[number]
 
 export const einstellungSchema = z.object({

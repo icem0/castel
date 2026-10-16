@@ -150,6 +150,24 @@ describe('pushPayloadSchema — einstellung', () => {
     expect(r.success).toBe(false)
   })
 
+  it('akzeptiert gültigen upsert auf globalen Key "kommissionen"', () => {
+    const r = pushPayloadSchema.safeParse({
+      ops: [
+        {
+          op: 'upsert',
+          entity: 'einstellung',
+          payload: {
+            key: 'kommissionen',
+            userId: null,
+            value: '["Alpha","Bravo"]',
+            geaendertAm: '2025-04-14T11:00:00.000Z',
+          },
+        },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
   it('lehnt andere Ops als upsert ab (Settings sind nur upsert)', () => {
     const r = pushPayloadSchema.safeParse({
       ops: [
