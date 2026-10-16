@@ -10,6 +10,7 @@
 import { getDb } from '../../db/database'
 import type { Artikel, Buchung } from '../../db/types'
 import { neueUuid, jetztIso } from '../../domain/ids'
+import { ImportValidierungError } from '../../domain/errors'
 import { queueOp } from '../sync/worker'
 import type { ArtikelMapping, WarenMapping } from './mapping'
 import {
@@ -20,6 +21,7 @@ import {
   parseIntOrNull,
   parseIsoDatum,
 } from './mapping'
+import { validiereArtikelDaten, validiereWarenDaten } from './validierung'
 
 export interface ImportBericht {
   artikelAngelegt: number
@@ -93,6 +95,21 @@ async function stelleHauptLagerSicher(name: string): Promise<string> {
 
 /** Importiert nur Artikel-Stammdaten aus einer Lager-CSV. */
 export async function importArtikelAusCsv(e: ArtikelImportEingabe): Promise<ImportBericht> {
+  // Pre-Flight: Dry-Run ueber jede Zeile. Wenn ein Wert zu einem
+  // ungueltigen Outbox-Payload fuehren wuerde (z. B. ein nicht
+  // parsebares geaendertAm, ein leerer Status, eine Dezimal-Menge),
+  // brechen wir hier ab, BEVOR wir die Dexie-Transaktion starten —
+  // sonst wuerde der Server-Push spaeter mit `VALIDATION` abbrechen
+  // und der User haette einen halben Import-Zustand, der nur durch
+  // DB-Reset aufzuraeumen ist.
+  const datenPruefung = validiereArtikelDaten(e.mapping, e.rows, e.headers)
+  if (!datenPruefung.ok) {
+    throw new ImportValidierungError(
+      `Lager-CSV: ${datenPruefung.probleme.length} Daten-Problem(e) — Import abgebrochen.`,
+      datenPruefung.probleme,
+    )
+  }
+
   const db = getDb()
   const bericht: ImportBericht = {
     artikelAngelegt: 0,
@@ -136,6 +153,15 @@ export async function importArtikelAusCsv(e: ArtikelImportEingabe): Promise<Impo
 
 /** Importiert nur Waren-Buchungen. Artikel müssen bereits existieren. */
 export async function importWarenAusCsv(e: WarenImportEingabe): Promise<ImportBericht> {
+  // Pre-Flight (siehe importArtikelAusCsv).
+  const datenPruefung = validiereWarenDaten(e.mapping, e.rows, e.headers)
+  if (!datenPruefung.ok) {
+    throw new ImportValidierungError(
+      `Warenfluss-CSV: ${datenPruefung.probleme.length} Daten-Problem(e) — Import abgebrochen.`,
+      datenPruefung.probleme,
+    )
+  }
+
   const db = getDb()
   const bericht: ImportBericht = {
     artikelAngelegt: 0,
@@ -205,6 +231,32 @@ export interface ImportEingabe {
  * Wenn beide leer sind, ist der Aufruf ein No-op und liefert leeren Bericht.
  */
 export async function importAusCsv(e: ImportEingabe): Promise<ImportBericht> {
+  // Pre-Flight (siehe importArtikelAusCsv). Beide Pipelines
+  // (Stammdaten + Bewegungen) werden getrennt geprueft, damit die
+  // Fehlermeldung eindeutig zuordnet, welche CSV schuld ist.
+  if (e.artikel) {
+    const artikelPruefung = validiereArtikelDaten(
+      e.artikel.mapping,
+      e.artikel.rows,
+      e.artikel.headers,
+    )
+    if (!artikelPruefung.ok) {
+      throw new ImportValidierungError(
+        `Lager-CSV: ${artikelPruefung.probleme.length} Daten-Problem(e) — Import abgebrochen.`,
+        artikelPruefung.probleme,
+      )
+    }
+  }
+  if (e.waren) {
+    const warenPruefung = validiereWarenDaten(e.waren.mapping, e.waren.rows, e.waren.headers)
+    if (!warenPruefung.ok) {
+      throw new ImportValidierungError(
+        `Warenfluss-CSV: ${warenPruefung.probleme.length} Daten-Problem(e) — Import abgebrochen.`,
+        warenPruefung.probleme,
+      )
+    }
+  }
+
   const db = getDb()
   const bericht: ImportBericht = {
     artikelAngelegt: 0,

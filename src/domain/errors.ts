@@ -80,3 +80,20 @@ export class MindestbestandWarnung extends BuchungsError {
     )
   }
 }
+
+/**
+ * Wird vom CSV-Import geworfen, wenn die Pre-Flight-Daten-Validierung
+ * Zeilen findet, die der Server-Push-Schema ablehnen würde (z. B. ein
+ * nicht-parsebares `geaendertAm`, ein unbekannter `status`, eine
+ * Dezimal-Menge, …). `probleme` ist die Liste der betroffenen Zeilen,
+ * sodass die View dem User eine Zeile-fuer-Zeile-Fehlermeldung anzeigen
+ * kann, statt nur eine generische `Error.message` zu zeigen.
+ */
+export class ImportValidierungError extends BuchungsError {
+  constructor(
+    message: string,
+    public readonly probleme: ReadonlyArray<{ zeile: number; spalte?: string; meldung: string }>,
+  ) {
+    super(message, 'IMPORT_VALIDIERUNG')
+  }
+}

@@ -15,9 +15,12 @@ import {
 } from '../services/import/mapping'
 import {
   validiereArtikelMapping,
+  validiereWarenDaten,
   validiereWarenMapping,
+  validiereArtikelDaten,
   type ValidierungsErgebnis,
 } from '../services/import/validierung'
+import { ImportValidierungError } from '../domain/errors'
 import {
   importArtikelAusCsv,
   importWarenAusCsv,
@@ -135,19 +138,59 @@ async function onWarenDateiChange(e: Event): Promise<void> {
 function validieren(): void {
   validierung.value = { lager: null, waren: null }
   if (lagerParsed.value) {
-    validierung.value.lager = validiereArtikelMapping(
+    // Mapping-Vollstaendigkeit (Pflichtfelder gemappt? Werte befüllt?).
+    const mapping = validiereArtikelMapping(
       lagerMapping.value,
       lagerParsed.value.rows,
       lagerParsed.value.headers,
     )
+    // Daten-Trockenlauf: wuerde der Server-Push diese Zeilen ablehnen?
+    // Pro Zeile gemappte Felder werden normalisiert und auf
+    // Server-Schema-Konformitaet geprueft. Probleme werden in der
+    // gleichen Validierungs-UI angezeigt, damit der User beides auf
+    // einen Blick sieht.
+    const daten = validiereArtikelDaten(
+      lagerMapping.value,
+      lagerParsed.value.rows,
+      lagerParsed.value.headers,
+    )
+    validierung.value.lager = mergeErgebnisse(mapping, daten)
   }
   if (warenParsed.value) {
-    validierung.value.waren = validiereWarenMapping(
+    const mapping = validiereWarenMapping(
       warenMapping.value,
       warenParsed.value.rows,
       warenParsed.value.headers,
     )
+    const daten = validiereWarenDaten(
+      warenMapping.value,
+      warenParsed.value.rows,
+      warenParsed.value.headers,
+    )
+    validierung.value.waren = mergeErgebnisse(mapping, daten)
   }
+}
+
+function mergeErgebnisse(a: ValidierungsErgebnis, b: ValidierungsErgebnis): ValidierungsErgebnis {
+  return { ok: a.ok && b.ok, probleme: [...a.probleme, ...b.probleme] }
+}
+
+/**
+ * Extrahiert eine sinnvolle Fehlermeldung aus einer Exception.
+ * `String(e)` wuerde `"Error: <name>"` produzieren, weil JS-Error-
+ * Klassen ihren Namen voranstellen — fuer `ImportValidierungError`
+ * ist die generische Message schon sprechend, fuer andere Fehler
+ * (Dexie, Server, …) wollen wir nur die message, nicht den Klassen-
+ * namen.
+ */
+function fehlermeldung(e: unknown): string {
+  if (e instanceof ImportValidierungError) {
+    return e.message
+  }
+  if (e instanceof Error) {
+    return e.message
+  }
+  return String(e)
 }
 
 // Sobald Dateien geladen sind oder das Mapping sich ändert, automatisch validieren.
@@ -190,7 +233,7 @@ async function importNurArtikel(): Promise<void> {
       mapping: lagerMapping.value,
     })
   } catch (e) {
-    fehler.value = String(e)
+    fehler.value = fehlermeldung(e)
   } finally {
     laufend.value = false
   }
@@ -208,7 +251,7 @@ async function importNurWaren(): Promise<void> {
       hauptLagerName: 'Hauptlager',
     })
   } catch (e) {
-    fehler.value = String(e)
+    fehler.value = fehlermeldung(e)
   } finally {
     laufend.value = false
   }

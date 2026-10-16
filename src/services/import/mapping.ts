@@ -121,13 +121,32 @@ export function normalizeWarenTyp(raw: string): 'einlagerung' | 'entnahme' | 'um
   return 'entnahme'
 }
 
-/** SharePoint-ISO oder leer → ISO-String. */
+/**
+ * SharePoint-ISO oder leer → ISO-String.
+ * Akzeptiert zusaetzlich gaengige deutsche bzw. europaeische
+ * Datums-/Zeit-Formate, weil SharePoint-Listen in DE-Lokalen Spalten
+ * wie `15.02.2025` oder `15.02.2025 10:00` liefern, die JS-`Date`
+ * nicht direkt parsen kann. Wir versuchen erst ISO, dann DD.MM.YYYY
+ * (mit optionaler Uhrzeit), und fallen sonst auf null zurueck.
+ */
 export function parseIsoDatum(raw: string): string | null {
   const trimmed = raw.trim()
   if (!trimmed) return null
-  const d = new Date(trimmed)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString()
+
+  // 1) Direkter ISO-Parse (YYYY-MM-DD, mit/ohne T, mit TZ).
+  const direct = new Date(trimmed)
+  if (!Number.isNaN(direct.getTime())) return direct.toISOString()
+
+  // 2) DD.MM.YYYY oder DD.MM.YYYY HH:mm (SharePoint-DE).
+  const de = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/.exec(trimmed)
+  if (de) {
+    const [, dd, mm, yyyy, hh = '0', min = '0'] = de
+    // Monat ist 0-basiert in JS-Date.
+    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), Number(hh), Number(min))
+    if (!Number.isNaN(d.getTime())) return d.toISOString()
+  }
+
+  return null
 }
 
 /**

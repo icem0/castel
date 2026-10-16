@@ -12,8 +12,9 @@ import type {
 } from '../../../db/types'
 import { jetztIso, neueUuid } from '../../../domain/ids'
 import { parseCsv } from '../csv-parser'
-import { defaultArtikelMapping, defaultWarenMapping } from '../mapping'
-import { validiereArtikelMapping } from '../validierung'
+import { defaultArtikelMapping, defaultWarenMapping, parseIsoDatum } from '../mapping'
+import { validiereArtikelMapping, validiereArtikelDaten, validiereWarenDaten } from '../validierung'
+import { ImportValidierungError } from '../../../domain/errors'
 import { importArtikelAusCsv, importAusCsv, importWarenAusCsv } from '../import'
 import { exportVollBackup, backupAlsText, restoreBackup, type Backup } from '../export'
 
@@ -54,6 +55,34 @@ describe('parseCsv', () => {
     const parsed = parseCsv('"a","b"\n" 1 "," 2 "\n"3","4"')
     expect(parsed.rows[0]?.[0]).toBe('1')
     expect(parsed.rows[0]?.[1]).toBe('2')
+  })
+})
+
+describe('parseIsoDatum', () => {
+  it('akzeptiert ISO-Strings (mit und ohne Zeit)', () => {
+    expect(parseIsoDatum('2025-01-15T10:00:00Z')).toBe('2025-01-15T10:00:00.000Z')
+    expect(parseIsoDatum('2025-01-15')).toBe('2025-01-15T00:00:00.000Z')
+  })
+
+  it('akzeptiert deutsches DD.MM.YYYY', () => {
+    // Der exakte UTC-Wert haengt von der Test-Laufzeit-TZ ab (CET
+    // vs CEST). Wir vergleichen deshalb den per `new Date(...,
+    // local-args)`-Konstruktion des gleichen Datums — der
+    // `parseIsoDatum`-Wert muss identisch sein, was die Logik unab-
+    // haengig von der Testmaschine pruefbar macht.
+    const expected = new Date(2025, 1, 15).toISOString()
+    expect(parseIsoDatum('15.02.2025')).toBe(expected)
+  })
+
+  it('akzeptiert deutsches DD.MM.YYYY HH:mm', () => {
+    const expected = new Date(2025, 1, 15, 10, 30).toISOString()
+    expect(parseIsoDatum('15.02.2025 10:30')).toBe(expected)
+  })
+
+  it('liefert null fuer leeren oder unparsebaren Input', () => {
+    expect(parseIsoDatum('')).toBeNull()
+    expect(parseIsoDatum('   ')).toBeNull()
+    expect(parseIsoDatum('kein datum')).toBeNull()
   })
 })
 
@@ -217,7 +246,7 @@ describe('importWarenAusCsv (nur Bewegungen)', () => {
     expect(ms400MitProjekt).toBeDefined()
   })
 
-  it('lehnt Dezimalmengen als Konflikt ab (Server-Schema: int)', async () => {
+  it('lehnt Dezimalmengen als Validierungsfehler ab (Pre-Flight blockt den ganzen Import)', async () => {
     const lager = parseCsv(LAGER_CSV)
     await importArtikelAusCsv({
       rows: lager.rows,
@@ -227,14 +256,14 @@ describe('importWarenAusCsv (nur Bewegungen)', () => {
     const csv = `Entnahme;Projekt-AA-SA-Nummer;Artikel;Menge;Erstellt;Erstellt-von;Entnommen aus;Kommentar
 Einlagerung;;MS 400;2,5;02.01.2025 08:30;alex;Hauptlager;dezimal`
     const waren = parseCsv(csv)
-    const bericht = await importWarenAusCsv({
-      rows: waren.rows,
-      headers: waren.headers,
-      mapping: defaultWarenMapping(waren.headers),
-      hauptLagerName: 'Hauptlager',
-    })
-    expect(bericht.buchungenAngelegt).toBe(0)
-    expect(bericht.konflikte).toHaveLength(1)
+    await expect(
+      importWarenAusCsv({
+        rows: waren.rows,
+        headers: waren.headers,
+        mapping: defaultWarenMapping(waren.headers),
+        hauptLagerName: 'Hauptlager',
+      }),
+    ).rejects.toBeInstanceOf(ImportValidierungError)
     expect(await testDb.buchungen.toArray()).toHaveLength(0)
   })
 })
@@ -558,5 +587,190 @@ describe('exportVollBackup / restoreBackup', () => {
     await expect(
       restoreBackup({ ...backup, schema: 'castel-backup-99' } as Backup),
     ).rejects.toThrow(/Unbekanntes Backup-Schema/)
+  })
+})
+
+// ---------- Daten-Validierung (Pre-Flight pro Zeile) ----------
+//
+// Spiegel der Server-Schema-Anforderungen: liefert die CSV Werte, die
+// der Push-Schema ablehnen wuerde, schlaegt die Validierung an, BEVOR
+// wir in die Dexie-Transaktion gehen. Verhindert genau den Push-400,
+// der durch `geaendertAm: null` oder Dezimalmengen ausgeloest wird.
+
+describe('validiereArtikelDaten', () => {
+  it('meldet unbekannten status-Wert pro Zeile', () => {
+    const csv = `Title;Type;Status
+A;Demo;verfuegbar
+B;Demo;kaputt
+C;Demo;reserviert
+`
+    const parsed = parseCsv(csv)
+    const r = validiereArtikelDaten(
+      defaultArtikelMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+    expect(r.ok).toBe(false)
+    expect(r.probleme).toHaveLength(1)
+    expect(r.probleme[0]?.meldung).toContain('"kaputt"')
+    expect(r.probleme[0]?.meldung).toContain('Zeile 3')
+  })
+
+  it('meldet nicht-parsebares geaendertAm nur, wenn die Spalte gemappt ist', () => {
+    const csv = `Title;Type;Geändert
+A;Demo;kein datum
+B;Demo;01.02.2025
+`
+    const parsed = parseCsv(csv)
+    const r = validiereArtikelDaten(
+      defaultArtikelMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+    expect(r.ok).toBe(false)
+    expect(r.probleme[0]?.meldung).toContain('kein datum')
+  })
+
+  it('meldet verpackungseinheit = 0 oder negativ', () => {
+    const csv = `Title;Type;VE
+A;Demo;0
+B;Demo;-3
+C;Demo;1
+`
+    const parsed = parseCsv(csv)
+    const r = validiereArtikelDaten(
+      defaultArtikelMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+    expect(r.ok).toBe(false)
+    expect(r.probleme).toHaveLength(2)
+    expect(r.probleme[0]?.meldung).toContain('muss > 0')
+  })
+
+  it('ist ok, wenn die problematischen Spalten gar nicht gemappt sind', () => {
+    // CSV ohne Geaendert-Spalte: das ist der Normalfall, wenn der
+    // SharePoint-Export die Spalte weggelassen hat. Pre-Flight soll
+    // NICHT meckern — der Import faellt auf erstelltAm zurueck.
+    const csv = `Title;Type
+A;Demo
+`
+    const parsed = parseCsv(csv)
+    const r = validiereArtikelDaten(
+      defaultArtikelMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+    expect(r.ok).toBe(true)
+  })
+})
+
+describe('validiereWarenDaten', () => {
+  it('meldet Dezimalmengen und Null', () => {
+    const csv = `Entnahme;Artikel;Menge
+Einlagerung;MS 400;2,5
+Einlagerung;MS 400;0
+`
+    const parsed = parseCsv(csv)
+    const r = validiereWarenDaten(defaultWarenMapping(parsed.headers), parsed.rows, parsed.headers)
+    expect(r.ok).toBe(false)
+    expect(r.probleme.some((p) => p.meldung.includes('2,5'))).toBe(true)
+    expect(r.probleme.some((p) => p.meldung.includes('darf nicht 0'))).toBe(true)
+  })
+
+  it('meldet unbekannten Buchungstyp', () => {
+    const csv = `Entnahme;Artikel;Menge
+Verkauf;MS 400;1
+`
+    const parsed = parseCsv(csv)
+    const r = validiereWarenDaten(defaultWarenMapping(parsed.headers), parsed.rows, parsed.headers)
+    expect(r.ok).toBe(false)
+    expect(r.probleme[0]?.meldung).toContain('Verkauf')
+  })
+
+  it('meldet nicht-parsebares erstelltAm', () => {
+    const csv = `Entnahme;Artikel;Menge;Erstellt
+Entnahme;MS 400;1;kein datum
+`
+    const parsed = parseCsv(csv)
+    const r = validiereWarenDaten(defaultWarenMapping(parsed.headers), parsed.rows, parsed.headers)
+    expect(r.ok).toBe(false)
+    expect(r.probleme[0]?.meldung).toContain('erstelltAm')
+  })
+})
+
+describe('Import wirft ImportValidierungError bei Daten-Problemen', () => {
+  it('importArtikelAusCsv: abgebrochen, kein Artikel in DB, Outbox leer', async () => {
+    const csv = `Title;Type;Status
+A;Demo;quatsch
+B;Demo;reserviert
+`
+    const parsed = parseCsv(csv)
+    await expect(
+      importArtikelAusCsv({
+        rows: parsed.rows,
+        headers: parsed.headers,
+        mapping: defaultArtikelMapping(parsed.headers),
+      }),
+    ).rejects.toBeInstanceOf(ImportValidierungError)
+    expect(await testDb.artikel.toArray()).toEqual([])
+    expect(await testDb.outbox.toArray()).toEqual([])
+  })
+
+  it('importWarenAusCsv: abgebrochen bei Dezimalmenge, keine Buchung geschrieben', async () => {
+    // Erst Artikel anlegen — ohne Pre-Flight-Blocker.
+    const lager = parseCsv(LAGER_CSV)
+    await importArtikelAusCsv({
+      rows: lager.rows,
+      headers: lager.headers,
+      mapping: defaultArtikelMapping(lager.headers),
+    })
+    // Outbox leeren, damit nur die Waren-Import-Outbox-Items geprueft
+    // werden — die zwei Artikel-Items aus dem Pre-Step sollen hier
+    // nicht stören.
+    await testDb.outbox.clear()
+
+    const csv = `Entnahme;Artikel;Menge
+Entnahme;MS 400;3,5
+`
+    const parsed = parseCsv(csv)
+    await expect(
+      importWarenAusCsv({
+        rows: parsed.rows,
+        headers: parsed.headers,
+        mapping: defaultWarenMapping(parsed.headers),
+        hauptLagerName: 'Hauptlager',
+      }),
+    ).rejects.toBeInstanceOf(ImportValidierungError)
+    // Wichtig: kein Hauptlager, keine Buchung, kein Outbox-Item. Vorher
+    // (ohne Pre-Flight) hatte `stelleHauptLagerSicher` schon im Outbox
+    // gelandet, BEVOR die Validierung lief — der Outbox-Standort-Op
+    // blieb dann als Geist zurueck, obwohl der eigentliche Import
+    // fehlschlug. Pre-Flight loest das, weil die Transaktion NIE startet.
+    expect(await testDb.buchungen.toArray()).toEqual([])
+    expect(await testDb.standorte.toArray()).toEqual([])
+    expect(await testDb.outbox.toArray()).toEqual([])
+  })
+
+  it('ImportValidierungError enthaelt die Problemliste', async () => {
+    const csv = `Title;Type;Status
+A;Demo;quatsch
+B;Demo;Mist
+`
+    const parsed = parseCsv(csv)
+    try {
+      await importArtikelAusCsv({
+        rows: parsed.rows,
+        headers: parsed.headers,
+        mapping: defaultArtikelMapping(parsed.headers),
+      })
+      throw new Error('expected throw')
+    } catch (e) {
+      expect(e).toBeInstanceOf(ImportValidierungError)
+      const err = e as ImportValidierungError
+      expect(err.probleme).toHaveLength(2)
+      expect(err.probleme[0]?.zeile).toBe(0)
+      expect(err.probleme[0]?.meldung).toContain('Zeile 2')
+    }
   })
 })
