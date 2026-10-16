@@ -819,6 +819,17 @@ label.check {
   display: none !important;
 }
 
+/* Mobile: etwas kompakter, damit der Inhalt auf schmale Geräte passt,
+   ohne dass der Browser herauszoomt oder 10–20 % zu groß rendert. */
+@media (max-width: 720px) {
+  html {
+    font-size: 13px;
+  }
+  .view {
+    padding: 0.85rem 0.7rem 1.25rem;
+  }
+}
+
 /* ============================================================
    Responsive Layout-Shifts
    ============================================================ */
