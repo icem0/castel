@@ -45,59 +45,46 @@ Mobile-First-Lager für Werkstatt und Baustelle. Funktioniert offline, synct wen
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Installation (nur Docker Compose)
 
-### Empfohlener Weg: Docker Compose
-
-Die Images `castel-api` und `castel-pwa` werden direkt von GitHub Container Registry (GHCR) bezogen — kein lokaler Build nötig.
+Voraussetzung: Docker und Docker Compose sind installiert. Keine weiteren Tools (Node, npm, …) nötig.
 
 ```bash
 # 1) Repo klonen
 git clone https://github.com/icem0/castel.git /opt/castel
 cd /opt/castel
 
-# 2) .env kopieren und anpassen (mindestens DB_PASSWORD und JWT_SECRET setzen)
+# 2) .env kopieren und anpassen
 cp .env.example .env
 $EDITOR .env
+
+# Mindestens ausfüllen:
+#   DB_PASSWORD      — starkes Datenbank-Passwort
+#   JWT_SECRET       — geheimer Schlüssel für JWT (mind. 32 Zeichen)
+#   PWA_PORT         — Port für die PWA (Default: 4280)
 
 # 3) Erste Migration ausführen
 docker compose --profile migrate up
 
-# 4) Stack starten (zieht Images von GHCR)
+# 4) Stack starten (zieht die fertigen Images automatisch)
 docker compose up -d
 
-# 5) Im Browser /login aufrufen — der erste Admin wird per Setup-Formular angelegt,
-#    sobald die users-Tabelle leer ist.
+# 5) Im Browser aufrufen
+#    http://localhost:4280   (oder der in PWA_PORT gesetzte Port)
+#    Beim ersten Login wird der erste Admin-User per Setup-Formular angelegt.
 
-# 6) Updates nach neuen Releases
+# 6) (Optional) Tunnel einrichten, damit castel von außen erreichbar ist
+#    z. B. Cloudflare Tunnel, ngrok oder ein eigener Reverse-Proxy auf
+#    localhost:<PWA_PORT> leiten.
+```
+
+Die PWA läuft danach unter `http://localhost:<PWA_PORT>` (Default: `4280`). Die API wird intern über den PWA-Container proxied und benötigt keinen eigenen Port am Host.
+
+Updates erfolgen mit:
+
+```bash
 git pull origin main
 docker compose pull && docker compose up -d
-```
-
-→ PWA unter `http://localhost:4280`, API intern unter Port `3000` (über PWA-nginx proxied).  
-Für direkte API-Zugriffe (z. B. CLI, curl) den auskommentierten `ports:`-Block beim `api`-Service in `docker-compose.yml` aktivieren (`4242:3000`).
-
-> 💡 Für private GHCR-Pakete braucht der Deployer einen GitHub-PAT mit Scope `read:packages` (`docker login ghcr.io` oder Arcane `POST /container-registries`). Siehe Deployment → Private GHCR-Pakete.
-
-### Voraussetzungen
-
-- Docker + Docker Compose
-- Optional: Node ≥ 22 (nur für lokale Entwicklung ohne Docker)
-
-### Alternativ: Frontend allein (Dev, ohne Backend)
-
-```bash
-npm install
-npm run dev
-# → http://localhost:5173
-```
-
-### Alternativ: Backend lokal mit embedded Postgres (für Tests)
-
-```bash
-cd server
-npm install
-node scripts/smoke-server.mjs
 ```
 
 ---
@@ -162,72 +149,43 @@ Jede Buchung hat eine unveränderliche `id` (UUID) und `erstelltAm`-Zeitstempel.
 
 ## 🌍 Deployment
 
-### Docker-Compose (Production)
-
-Die Container `castel-api` (Port 4242) und `castel-pwa` (Port 4280) werden **direkt am Host exponiert**. TLS, Domain und Firewall kümmerst du **extern** — z. B. mit nginx, Caddy, Traefik oder einem Cloud-Loadbalancer, der auf 4242/4280 proxied. In diesem Repo wird kein Reverse-Proxy mitgeliefert.
-
-**Default-Workflow: clone + `.env` + `docker compose up -d` reicht.** Die Images werden direkt von GitHub Container Registry bezogen — `docker-compose.yml` referenziert sie hartkodiert als `ghcr.io/icem0/castel-api:latest` bzw. `…-pwa:latest` (für `migrate` wird dasselbe API-Image mit anderem Entrypoint verwendet). Der CI-Workflow [`.github/workflows/build-and-push.yml`](./.github/workflows/build-and-push.yml) baut und pusht diese Tags bei jedem Merge auf `main`.
+Die fertigen Images (`castel-api`, `castel-pwa`) werden direkt von GitHub Container Registry bezogen — kein lokaler Build, kein GHCR-Login nötig (die Pakete sind öffentlich).
 
 ```bash
 # 1) Repo klonen
 git clone https://github.com/icem0/castel.git /opt/castel
 cd /opt/castel
 
-# 2) .env ausfüllen
+# 2) .env kopieren und anpassen
 cp .env.example .env
-$EDITOR .env   # DB-Password, JWT-Secret, Domain-Configs
+$EDITOR .env
 
-# 3) Initial: Migration
+# Mindestens ausfüllen: DB_PASSWORD und JWT_SECRET
+
+# 3) Erste Migration ausführen
 docker compose --profile migrate up
 
-# 4) Stack hochfahren (zieht Images von GHCR, startet den Stack)
+# 4) Stack starten
 docker compose up -d
 
-# 5) Im Browser /login aufrufen — der erste Admin wird per Setup-Formular angelegt.
+# 5) PWA im Browser aufrufen: http://localhost:4280
+#    Beim ersten Login wird der erste Admin-User per Setup-Formular angelegt.
 
-# 6) Update-Workflow nach jedem neuen Release
-cd /opt/castel
+# 6) Updates
 git pull origin main
-docker compose pull && docker compose up -d   # zieht neue :latest-Tags, startet neu
+docker compose pull && docker compose up -d
 ```
 
-Fertig. Funktioniert auf einer frischen Maschine, in Arcane, Coolify oder bare Docker gleichermaßen — es wird **kein** GHCR-Login, **kein** vorheriger Build und **kein** Source-Workspace im Deployer benötigt.
+### Was du zusätzlich brauchst
 
-### Voraussetzung: GHCR-Images existieren
+- **Tunnel / Reverse-Proxy**: Damit castel von außerhalb des lokalen Netzwerks erreichbar ist, stellst du vor den Stack einen Tunnel oder Reverse-Proxy (z. B. Cloudflare Tunnel, ngrok, nginx, Caddy), der auf `localhost:<PWA_PORT>` (Default: `4280`) proxied. Das ist nicht Teil dieses Repos.
+- **TLS/HTTPS**: Für Produktivbetrieb im Internet brauchst du einen TLS-Proxy vor dem Stack.
 
-Die Tags `ghcr.io/icem0/castel-api:latest` und `…-pwa:latest` müssen in GHCR vorhanden sein. Sie werden vom CI-Workflow automatisch bei jedem Push auf `main` erzeugt und überschrieben. Für einen frischen Fork muss also zuerst einmal `main` gepusht werden (oder ein Maintainer mit Package-Schreibrechten), bevor der Deployer ziehen kann.
+### Was hier nicht enthalten ist
 
-### Private GHCR-Pakete
-
-Sind die GHCR-Pakete privat (Default für neue Repos), braucht der Deployer einen GitHub-Personal-Access-Token mit Scope `read:packages`:
-
-- **Bare Docker / Coolify**: `echo $TOKEN | docker login ghcr.io -u $USER --password-stdin` vor `docker compose pull`.
-- **Arcane**: Container-Registry einmalig per `POST /container-registries` mit dem PAT hinterlegen — danach zieht der Deployer transparent.
-
-Für **öffentliche** Pakete reicht kein Token. Die Images dieses Repos werden vom CI-Workflow per `PATCH /user/packages/container/{pkg}` explizit auf `public` gesetzt; der Status lässt sich unter `https://github.com/icem0?tab=packages` prüfen.
-
-### Was hier **nicht** enthalten ist
-
-- **Kein Reverse-Proxy** (Caddy, nginx, Traefik, …) — du nutzt deinen eigenen vor dem Stack
-- **Kein Cloudflare-Tunnel** — wenn du den willst, läuft er als eigener Container/Service auf deinem Host, separat von diesem Compose
-- **Keine TLS-Terminierung** — wenn der Stack direkt ins Internet zeigt, brauchst du dringend einen TLS-Proxy davor
-
-### TLS / HTTPS vor dem Stack
-
-Der einfachste Weg ist ein einzelner nginx auf dem Host (nicht in diesem Compose):
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name castel.example.com;
-    ssl_certificate /etc/letsencrypt/live/.../fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/.../privkey.pem;
-
-    location /api/ { proxy_pass http://127.0.0.1:4242; }
-    location /fotos/ { proxy_pass http://127.0.0.1:4242; }
-    location / { proxy_pass http://127.0.0.1:4280; }
-}
-```
+- Kein Reverse-Proxy (nginx, Caddy, Traefik, …) — du nutzt deinen eigenen vor dem Stack
+- Kein Cloudflare-Tunnel — läuft separat auf deinem Host, falls gewünscht
+- Keine TLS-Terminierung — bei direktem Internet-Zugang dringend einen TLS-Proxy davor schalten
 
 ---
 
