@@ -41,7 +41,7 @@ Mobile-First-Lager für Werkstatt und Baustelle. Funktioniert offline, synct wen
 
 **Frontend (PWA):** Vue 3 · Vite · TypeScript · Pinia · Dexie · Vue I18n · Workbox · ZXing  
 **Backend:** Node 22 · Fastify · Drizzle ORM · Postgres 16 · argon2 · JWT  
-**DevOps:** Docker · Docker Compose · GitHub Actions → GitHub Container Registry (GHCR)
+**DevOps:** Docker · Docker Compose · GitHub Actions
 
 ---
 
@@ -219,7 +219,7 @@ castel/
 │   ├── Dockerfile            # API-Container
 │   └── .env.example
 ├── docs/                     # Deployment, API, Operations
-├── .github/workflows/        # CI: Lint, Test, Build, Push zu GHCR
+├── .github/workflows/        # CI
 ├── Dockerfile.pwa            # PWA-Container (nginx)
 ├── nginx-pwa.conf            # nginx-Konfig
 ├── docker-compose.yml        # Komplette Prod-Stack (PWA + API + DB, direkt am Host)
