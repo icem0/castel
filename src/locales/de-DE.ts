@@ -186,7 +186,7 @@ export default {
       hintEAN13: 'Genau 13 Ziffern.',
       hintCode39: 'A–Z, 0–9 und - . $ / + % Leerzeichen.',
       zuArtikelSpeichern: 'Am Artikel speichern',
-      drucken: 'Drucken',
+      bildSpeichern: 'Bild speichern',
       speichert: 'Speichert',
       gespeichert: 'Barcode am Artikel gespeichert.',
     },

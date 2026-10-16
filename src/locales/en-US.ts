@@ -185,7 +185,7 @@ export default {
       hintEAN13: 'Exactly 13 digits.',
       hintCode39: 'A–Z, 0–9 and - . $ / + % space.',
       zuArtikelSpeichern: 'Save to item',
-      drucken: 'Print',
+      bildSpeichern: 'Save image',
       speichert: 'Saving',
       gespeichert: 'Barcode saved to item.',
     },

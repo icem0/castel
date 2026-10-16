@@ -122,8 +122,43 @@ async function speichernAmArtikel(): Promise<void> {
   }
 }
 
-function drucken(): void {
-  window.print()
+async function bildSpeichern(): Promise<void> {
+  if (!barcodeEl.value) return
+  const svg = barcodeEl.value.cloneNode(true) as SVGSVGElement
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  const serializer = new XMLSerializer()
+  const svgString = serializer.serializeToString(svg)
+  const blob = new Blob([svgString], { type: 'image/svg+xml' })
+  const url = URL.createObjectURL(blob)
+
+  const width =
+    parseInt(svg.getAttribute('width') ?? '') ||
+    barcodeEl.value.clientWidth ||
+    400
+  const height =
+    parseInt(svg.getAttribute('height') ?? '') ||
+    barcodeEl.value.clientHeight ||
+    100
+
+  const img = new Image()
+  img.onload = () => {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(img, 0, 0, width, height)
+      const pngUrl = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.download = `barcode-${barcodeWert.value.trim() || 'etikett'}.png`
+      a.href = pngUrl
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
+    URL.revokeObjectURL(url)
+  }
+  img.src = url
 }
 </script>
 
@@ -178,8 +213,8 @@ function drucken(): void {
           >
             {{ t('view.barcode.zuArtikelSpeichern') }}
           </button>
-          <button type="button" :disabled="!barcodeRendert || laufend" @click="drucken">
-            {{ t('view.barcode.drucken') }}
+          <button type="button" :disabled="!barcodeRendert || laufend" @click="bildSpeichern">
+            {{ t('view.barcode.bildSpeichern') }}
           </button>
           <span v-if="laufend" class="hint">{{ t('view.barcode.speichert') }}…</span>
           <span v-if="fehler" class="hint fehler">{{ fehler }}</span>
