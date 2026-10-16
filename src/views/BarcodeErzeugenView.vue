@@ -131,14 +131,8 @@ async function bildSpeichern(): Promise<void> {
   const blob = new Blob([svgString], { type: 'image/svg+xml' })
   const url = URL.createObjectURL(blob)
 
-  const width =
-    parseInt(svg.getAttribute('width') ?? '') ||
-    barcodeEl.value.clientWidth ||
-    400
-  const height =
-    parseInt(svg.getAttribute('height') ?? '') ||
-    barcodeEl.value.clientHeight ||
-    100
+  const width = parseInt(svg.getAttribute('width') ?? '') || barcodeEl.value.clientWidth || 400
+  const height = parseInt(svg.getAttribute('height') ?? '') || barcodeEl.value.clientHeight || 100
 
   const img = new Image()
   img.onload = () => {
