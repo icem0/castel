@@ -148,8 +148,6 @@ function formatDatum(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-const barcodeTyp = computed(() => settings.settings.barcodeTyp)
-
 function renderBarcode(): void {
   if (!barcodeEl.value) return
   const wert = artikel.value?.barcode?.trim()
@@ -160,7 +158,7 @@ function renderBarcode(): void {
   try {
     barcodeEl.value.innerHTML = ''
     JsBarcode(barcodeEl.value, wert, {
-      format: barcodeTyp.value,
+      format: settings.settings.barcodeTyp,
       width: 2,
       height: 50,
       displayValue: false,
@@ -180,7 +178,7 @@ watch(
 )
 
 watch(
-  () => barcodeTyp.value,
+  () => settings.settings.barcodeTyp,
   () => {
     nextTick(() => renderBarcode())
   },
