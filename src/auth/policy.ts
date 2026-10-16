@@ -14,7 +14,7 @@ const GROSSBUCHSTABEN = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const ZIFFERN = '0123456789'
 const SONDERZEICHEN = '!@#$%^&*()-_=+[]{}|;:,.<>?/~`'
 
-const ALLE_ZEICHEN = KLEINBUCHSTABEN + GROSSBUCHSTABEN + ZIFFERN + SONDERZEICHEN
+const BUCHSTABEN_UND_ZIFFERN = KLEINBUCHSTABEN + GROSSBUCHSTABEN + ZIFFERN
 const ZIFFERN_ODER_SONDER = ZIFFERN + SONDERZEICHEN
 
 function zufallsIndex(obergrenzeExklusiv: number): number {
@@ -42,7 +42,7 @@ export function generiereEinmalpasswort(laenge = MIN_PASSWORT_LAENGE): string {
   zeichen.push(zufallsZeichen(ZIFFERN_ODER_SONDER))
 
   while (zeichen.length < laenge) {
-    zeichen.push(zufallsZeichen(ALLE_ZEICHEN))
+    zeichen.push(zufallsZeichen(BUCHSTABEN_UND_ZIFFERN))
   }
 
   // Fisher-Yates mischen, damit das garantierte Zeichen nicht an Position 0 bleibt
