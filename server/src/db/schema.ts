@@ -15,8 +15,8 @@ import {
   boolean,
   jsonb,
   index,
+  unique,
   uniqueIndex,
-  primaryKey,
 } from 'drizzle-orm/pg-core'
 
 // ---------- User / Auth ----------
@@ -225,7 +225,12 @@ export const auditLog = pgTable(
  * Benutzer- und Konfigurations-Einstellungen (Cross-Device-Sync).
  * - user_id IS NULL  → global (z. B. artikelTypen, vom Admin gepflegt)
  * - user_id = <id>   → pro User (z. B. sprache, standardStandortId)
- * Primary Key (key, user_id) — jede Variante ist eindeutig.
+ *
+ * user_id ist bewusst kein Primärschlüssel-Bestandteil: PostgreSQL verbietet
+ * NULL-Werte in PK-Spalten, globale Einstellungen nutzen aber user_id = NULL.
+ * Eindeutigkeit wird stattdessen über Unique-Indizes auf (key, user_id)
+ * (plus einen partiellen Unique-Index für globals, user_id IS NULL)
+ * sichergestellt — siehe Migration 0005 / 0007.
  */
 export const einstellungen = pgTable(
   'einstellungen',
@@ -236,7 +241,7 @@ export const einstellungen = pgTable(
     geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.key, t.userId] }),
+    unique('einstellungen_key_userid_idx').on(t.key, t.userId),
     index('einstellungen_user_idx').on(t.userId),
     index('einstellungen_geaendert_am_idx').on(t.geaendertAm),
   ],
