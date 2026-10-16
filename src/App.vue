@@ -420,13 +420,16 @@ function formatRelativ(iso: string | null): string {
       <div class="brand">
         <img src="/castel-logo.png" alt="" class="brand-logo" width="32" height="32" />
         <strong>{{
-          settings.settings.companyName ? `${settings.settings.companyName} @ castel` : t('app.title')
+          settings.settings.companyName
+            ? `${settings.settings.companyName} @ castel`
+            : t('app.title')
         }}</strong>
       </div>
       <nav>
         <RouterLink to="/">{{ t('app.nav.dashboard') }}</RouterLink>
         <RouterLink to="/artikel">{{ t('app.nav.artikel') }}</RouterLink>
         <RouterLink to="/buchungen">{{ t('app.nav.buchungen') }}</RouterLink>
+        <RouterLink to="/scan" class="scan-link">{{ t('app.nav.scan') }}</RouterLink>
       </nav>
       <div class="header-right">
         <div
@@ -1001,6 +1004,22 @@ function formatRelativ(iso: string | null): string {
 .app-header nav a.router-link-active {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.app-header nav a.scan-link {
+  background: var(--accent-bg);
+  color: var(--accent);
+  margin-left: 0.5rem;
+}
+
+.app-header nav a.scan-link:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+
+.app-header nav a.scan-link.router-link-active {
+  background: var(--accent);
+  color: white;
 }
 
 .header-right {
@@ -1613,6 +1632,13 @@ main {
 }
 :root[data-layout='mobile'] .version-badge {
   display: none;
+}
+
+:root[data-layout='mobile'] .sync-panel,
+:root[data-layout='mobile'] .version-panel {
+  left: 1rem;
+  right: 1rem;
+  width: auto;
 }
 
 :root[data-layout='mobile'] .bottom-nav {
