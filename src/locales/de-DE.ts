@@ -39,6 +39,7 @@ export default {
         typ: 'Typ',
         bestand: 'Bestand',
         status: 'Status',
+        foto: 'Foto',
       },
       leer: 'Keine Artikel gefunden.',
       detail: {

@@ -39,6 +39,7 @@ export default {
         typ: 'Type',
         bestand: 'Stock',
         status: 'Status',
+        foto: 'Photo',
       },
       leer: 'No items found.',
       detail: {

@@ -11,6 +11,7 @@
 import imageCompression from 'browser-image-compression'
 import { getApiBaseUrl } from '../auth/api'
 import { jwtLesen } from '../auth/session'
+import { triggerSyncNow } from './sync/worker'
 
 export interface FotoUploadErgebnis {
   id: string
@@ -37,18 +38,38 @@ export async function ladeFotoHoch(
   originalFilename?: string,
 ): Promise<FotoUploadErgebnis> {
   const komprimiert = await komprimiereBild(datei)
-  const formData = new FormData()
   const filename = originalFilename ?? `foto-${Date.now()}.jpg`
-  formData.append('foto', komprimiert, filename)
 
-  const url = `${getApiBaseUrl()}/api/fotos/upload/${artikelId}`
-  const token = jwtLesen()
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-    credentials: 'include',
-  })
+  const upload = async (): Promise<Response> => {
+    const formData = new FormData()
+    formData.append('foto', komprimiert, filename)
+    const url = `${getApiBaseUrl()}/api/fotos/upload/${artikelId}`
+    const token = jwtLesen()
+    return fetch(url, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+      credentials: 'include',
+    })
+  }
+
+  let res = await upload()
+
+  // Offline-first: Artikel existiert lokal, wurde aber ggf. noch nicht auf
+  // den Server gesynced. Bei ARTIKEL_NOT_FOUND einmalig Sync triggern und
+  // den Upload wiederholen.
+  if (res.status === 404) {
+    try {
+      const body = await res.json()
+      if (body?.code === 'ARTIKEL_NOT_FOUND') {
+        await triggerSyncNow({ token: jwtLesen(), apiBase: getApiBaseUrl() })
+        res = await upload()
+      }
+    } catch {
+      // JSON nicht parsebar -> Fallthrough zur normalen Fehlerbehandlung
+    }
+  }
+
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(`Upload fehlgeschlagen (${res.status}): ${text}`)
