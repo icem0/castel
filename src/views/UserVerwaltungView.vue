@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useUserStore } from '../stores/users'
-import { MIN_PASSWORT_LAENGE } from '../auth/policy'
+import { MIN_PASSWORT_LAENGE, generiereEinmalpasswort } from '../auth/policy'
 import type { UserRolle } from '../db/types'
 
 const auth = useAuthStore()
@@ -15,6 +15,11 @@ const passwort = ref('')
 const rolle = ref<UserRolle>('user')
 const fehler = ref('')
 const laufend = ref(false)
+
+type ResetAnzeige = { id: string; email: string; passwort: string }
+const resetAnzeige = ref<ResetAnzeige | null>(null)
+const kopiert = ref(false)
+let kopiertTimer: ReturnType<typeof setTimeout> | null = null
 
 const aktiveAdminAnzahl = computed(
   () => userStore.users.filter((u) => u.rolle === 'admin' && u.aktiv).length,
@@ -81,13 +86,42 @@ async function rolleAendern(id: string, neueRolle: UserRolle): Promise<void> {
 }
 
 async function passwortZuruecksetzen(id: string): Promise<void> {
-  const neuesPasswort = prompt(`Neues Passwort eingeben (≥ ${MIN_PASSWORT_LAENGE} Zeichen):`)
-  if (!neuesPasswort) return
+  const u = userStore.users.find((x) => x.id === id)
+  if (!u) return
+  const neuesPasswort = generiereEinmalpasswort()
   try {
     await auth.setzePasswortFuer(id, neuesPasswort)
-    alert('Passwort gesetzt. Der Benutzer muss es beim nächsten Login ändern.')
+    resetAnzeige.value = { id: u.id, email: u.email, passwort: neuesPasswort }
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
+  }
+}
+
+async function kopiereEinmalpasswort(): Promise<void> {
+  const pw = resetAnzeige.value?.passwort
+  if (!pw) return
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(pw)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = pw
+      ta.setAttribute('readonly', '')
+      ta.style.position = 'absolute'
+      ta.style.left = '-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (!ok) throw new Error('execCommand(copy) fehlgeschlagen')
+    }
+    kopiert.value = true
+    if (kopiertTimer !== null) clearTimeout(kopiertTimer)
+    kopiertTimer = setTimeout(() => {
+      kopiert.value = false
+    }, 2000)
+  } catch {
+    alert('Kopieren in die Zwischenablage fehlgeschlagen.')
   }
 }
 
@@ -203,5 +237,133 @@ function formatDatum(iso: string | null): string {
       </tbody>
     </table>
     <p v-else class="empty-state">Noch keine Benutzer angelegt oder Backend nicht erreichbar.</p>
+
+    <div
+      v-if="resetAnzeige"
+      class="reset-dialog"
+      role="dialog"
+      aria-modal="true"
+      @click.self="resetAnzeige = null"
+    >
+      <div class="reset-dialog-card">
+        <h2>Einmalpasswort für {{ resetAnzeige.email }}</h2>
+        <p class="reset-hint">Einmal kopieren und dem Benutzer mitteilen.</p>
+        <div class="reset-code-row">
+          <span class="reset-code" :title="resetAnzeige.passwort">{{ resetAnzeige.passwort }}</span>
+          <button
+            type="button"
+            class="copy-btn"
+            :title="kopiert ? 'Kopiert' : 'Einmalpasswort kopieren'"
+            :aria-label="kopiert ? 'Kopiert' : 'Einmalpasswort in die Zwischenablage kopieren'"
+            @click="kopiereEinmalpasswort"
+          >
+            <svg
+              class="icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="reset-actions">
+          <button type="button" class="text-btn" @click="resetAnzeige = null">Schließen</button>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
+
+<style scoped>
+.reset-dialog {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 50;
+}
+.reset-dialog-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: min(420px, 92vw);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.reset-dialog-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+.reset-hint {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.reset-code-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.reset-code {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+  background: #f3f4f6;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  flex: 1;
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  user-select: all;
+}
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.copy-btn:hover {
+  color: var(--text-strong);
+  border-color: var(--text-strong);
+}
+.copy-btn .icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  display: block;
+}
+.reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.text-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  color: var(--text-strong);
+  cursor: pointer;
+}
+.text-btn:hover {
+  background: #f3f4f6;
+}
+</style>
