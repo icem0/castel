@@ -1,7 +1,7 @@
 {
   "name": "castel-server",
   "private": true,
-  "version": "0.3.54",
+  "version": "0.3.55",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -37,6 +37,6 @@
     "embedded-postgres": "^18.4.0-beta.17",
     "tsx": "^4.19.2",
     "typescript": "~5.9.3",
-    "vitest": "^2.1.8"
+    "vitest": "^5.0.4"
   }
 }

@@ -527,7 +527,7 @@ async function resolveUmlagerungPaar(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     for (const op of ops) {
-      await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx as unknown as PostgresJsDatabase<typeof schema>)
+  await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx as PostgresJsDatabase<typeof schema>)
     }
   })
 }
