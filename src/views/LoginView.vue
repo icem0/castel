@@ -224,7 +224,7 @@ async function copyVersion(): Promise<void> {
     <div class="card login-card">
       <div class="brand">
         <img src="/castel-logo.png" alt="" width="48" height="48" />
-        <h1>{{ settings.settings.companyName || 'castel' }}</h1>
+        <h1>{{ settings.settings.companyName ? `${settings.settings.companyName} @ castel` : 'castel' }}</h1>
       </div>
 
       <!-- Lade-Zustand -->

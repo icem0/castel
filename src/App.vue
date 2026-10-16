@@ -420,7 +420,7 @@ function formatRelativ(iso: string | null): string {
       <div class="brand">
         <img src="/castel-logo.png" alt="" class="brand-logo" width="32" height="32" />
         <strong>{{
-          settings.settings.companyName ? settings.settings.companyName : t('app.title')
+          settings.settings.companyName ? `${settings.settings.companyName} @ castel` : t('app.title')
         }}</strong>
       </div>
       <nav>
