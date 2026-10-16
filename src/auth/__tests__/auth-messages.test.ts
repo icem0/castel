@@ -137,9 +137,7 @@ describe('authFehlerText (server-supplied messages)', () => {
 
   it('forwards the server message for auth.unknown (e.g. 401 wrong password) verbatim', () => {
     setLocale('de-DE')
-    const text = authFehlerText(
-      new AuthError('auth.unknown', 'E-Mail oder Passwort falsch'),
-    )
+    const text = authFehlerText(new AuthError('auth.unknown', 'E-Mail oder Passwort falsch'))
     expect(text).toBe('E-Mail oder Passwort falsch')
   })
 })

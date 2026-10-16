@@ -224,7 +224,11 @@ async function copyVersion(): Promise<void> {
     <div class="card login-card">
       <div class="brand">
         <img src="/castel-logo.png" alt="" width="48" height="48" />
-        <h1>{{ settings.settings.companyName ? `${settings.settings.companyName} @ castel` : 'castel' }}</h1>
+        <h1>
+          {{
+            settings.settings.companyName ? `${settings.settings.companyName} @ castel` : 'castel'
+          }}
+        </h1>
       </div>
 
       <!-- Lade-Zustand -->
@@ -470,6 +474,7 @@ async function copyVersion(): Promise<void> {
 .dev-reset-hinweis {
   position: fixed;
   top: 2.7rem;
+  left: 0.75rem;
   right: 0.75rem;
   max-width: 22rem;
   background: rgba(255, 122, 0, 0.12);
@@ -533,8 +538,9 @@ async function copyVersion(): Promise<void> {
   position: fixed;
   bottom: 3rem;
   right: 1rem;
-  width: 22rem;
-  max-width: calc(100vw - 2rem);
+  left: 1rem;
+  width: auto;
+  max-width: 22rem;
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border-strong);

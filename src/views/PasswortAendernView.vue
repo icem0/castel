@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { authFehlerText } from '../auth/messages'
 
 const router = useRouter()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const altes = ref('')
 const neues = ref('')
@@ -18,7 +20,7 @@ const erzwingt = computed(() => auth.mussPasswortAendern)
 async function speichern(): Promise<void> {
   fehler.value = ''
   if (neues.value !== neues2.value) {
-    fehler.value = 'Neue Passwörter stimmen nicht überein.'
+    fehler.value = t('view.passwortAendern.fehlerPwStimmtNicht')
     return
   }
   laufend.value = true
@@ -39,15 +41,16 @@ async function speichern(): Promise<void> {
 <template>
   <section class="login">
     <div class="card login-card">
-      <h1>{{ erzwingt ? 'Neues Passwort setzen' : 'Passwort ändern' }}</h1>
+      <h1>
+        {{ erzwingt ? t('view.passwortAendern.h1Erzwungen') : t('view.passwortAendern.h1Frei') }}
+      </h1>
       <p v-if="erzwingt" class="hint hint-warn">
-        Dein Passwort wurde vom Admin zurückgesetzt. Bitte vergib gleich ein neues — damit bist du
-        startklar.
+        {{ t('view.passwortAendern.hintErzwungen') }}
       </p>
 
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
         <label v-if="!erzwingt">
-          <span>Aktuelles Passwort</span>
+          <span>{{ t('view.passwortAendern.aktuellesPw') }}</span>
           <input
             v-model="altes"
             type="password"
@@ -58,7 +61,7 @@ async function speichern(): Promise<void> {
           />
         </label>
         <label>
-          <span>Neues Passwort (≥ 8 Zeichen, mind. 1 Ziffer, 1 Buchstabe)</span>
+          <span>{{ t('view.passwortAendern.neuesPw') }}</span>
           <input
             v-model="neues"
             type="password"
@@ -66,13 +69,13 @@ async function speichern(): Promise<void> {
             required
             minlength="8"
             pattern="(?=.*\d)(?=.*[A-Za-z]).{8,}"
-            :title="'Mindestens 8 Zeichen, davon mindestens 1 Ziffer und 1 Buchstabe'"
+            :title="t('view.passwortAendern.neuesPwPatternTitel')"
             :autofocus="erzwingt ? true : undefined"
             :disabled="laufend"
           />
         </label>
         <label>
-          <span>Neues Passwort bestätigen</span>
+          <span>{{ t('view.passwortAendern.neuesPwBestaetigen') }}</span>
           <input
             v-model="neues2"
             type="password"
@@ -84,9 +87,11 @@ async function speichern(): Promise<void> {
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
         <div class="form-actions">
           <button type="submit" class="primary" :disabled="laufend">
-            {{ laufend ? 'Speichere …' : 'Speichern' }}
+            {{ laufend ? t('view.passwortAendern.speichernLaufend') : t('view.common.speichern') }}
           </button>
-          <RouterLink v-if="!erzwingt" to="/einstellungen" class="btn">Abbrechen</RouterLink>
+          <RouterLink v-if="!erzwingt" to="/einstellungen" class="btn">
+            {{ t('view.common.abbrechen') }}
+          </RouterLink>
         </div>
       </form>
     </div>
