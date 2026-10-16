@@ -10,15 +10,15 @@
 import { getDb } from '../../db/database'
 import type { Artikel, Buchung } from '../../db/types'
 import { neueUuid, jetztIso } from '../../domain/ids'
+import { queueOp } from '../sync/worker'
 import type { ArtikelMapping, WarenMapping } from './mapping'
 import {
   normalizeArtikelStatus,
   normalizeNachbestellHinweis,
   normalizeWarenTyp,
-  parseFloatOrNull,
   parseInt0,
+  parseIntOrNull,
   parseIsoDatum,
-  parseMenge,
 } from './mapping'
 
 export interface ImportBericht {
@@ -49,7 +49,9 @@ export interface WarenImportEingabe {
 
 /**
  * Stellt sicher, dass der Haupt-Standort existiert und als Standard markiert ist.
- * Erwartet, innerhalb einer bereits laufenden `db.transaction('rw', [..., db.standorte, ...])` aufgerufen zu werden.
+ * Erwartet, innerhalb einer bereits laufenden `db.transaction('rw', [db.standorte, db.outbox, db.auditLog])` aufgerufen zu werden.
+ * Enqueued die nötigen `create`/`update`-Ops in die Outbox, damit der Server-
+ * Sync den Standort mitbekommt.
  */
 async function stelleHauptLagerSicher(name: string): Promise<string> {
   const db = getDb()
@@ -57,7 +59,10 @@ async function stelleHauptLagerSicher(name: string): Promise<string> {
   const vorhanden = await db.standorte.where('name').equals(name).first()
   if (vorhanden) {
     if (!vorhanden.standard) {
-      await db.standorte.update(vorhanden.id, { standard: true })
+      const now = jetztIso()
+      await db.standorte.update(vorhanden.id, { standard: true, geaendertAm: now })
+      const refreshed = await db.standorte.get(vorhanden.id)
+      if (refreshed) await queueOp('standort', 'update', refreshed)
     }
     return vorhanden.id
   }
@@ -82,6 +87,7 @@ async function stelleHauptLagerSicher(name: string): Promise<string> {
     daten: JSON.stringify(neu),
     zeit: jetztIso(),
   })
+  await queueOp('standort', 'create', neu)
   return neu.id
 }
 
@@ -94,7 +100,7 @@ export async function importArtikelAusCsv(e: ArtikelImportEingabe): Promise<Impo
     konflikte: [],
   }
 
-  await db.transaction('rw', [db.artikel, db.auditLog], async () => {
+  await db.transaction('rw', [db.artikel, db.outbox, db.auditLog], async () => {
     for (let i = 0; i < e.rows.length; i++) {
       const row = e.rows[i]
       if (!row) continue
@@ -109,6 +115,7 @@ export async function importArtikelAusCsv(e: ArtikelImportEingabe): Promise<Impo
       }
       await db.artikel.add(a)
       bericht.artikelAngelegt += 1
+      await queueOp('artikel', 'create', a)
     }
 
     await db.auditLog.add({
@@ -136,48 +143,53 @@ export async function importWarenAusCsv(e: WarenImportEingabe): Promise<ImportBe
     konflikte: [],
   }
 
-  await db.transaction('rw', [db.artikel, db.standorte, db.buchungen, db.auditLog], async () => {
-    const fallbackStandortId = await stelleHauptLagerSicher(e.hauptLagerName)
+  await db.transaction(
+    'rw',
+    [db.artikel, db.standorte, db.buchungen, db.outbox, db.auditLog],
+    async () => {
+      const fallbackStandortId = await stelleHauptLagerSicher(e.hauptLagerName)
 
-    const artikelByTitle = new Map<string, ArtikelCacheEintrag>()
-    const alle = await db.artikel.toArray()
-    for (const a of alle) {
-      const eintrag: ArtikelCacheEintrag = {
-        id: a.id,
-        sharePointId: a.sharePointId,
-        titelLower: a.titel.toLowerCase(),
+      const artikelByTitle = new Map<string, ArtikelCacheEintrag>()
+      const alle = await db.artikel.toArray()
+      for (const a of alle) {
+        const eintrag: ArtikelCacheEintrag = {
+          id: a.id,
+          sharePointId: a.sharePointId,
+          titelLower: a.titel.toLowerCase(),
+        }
+        artikelByTitle.set(eintrag.titelLower, eintrag)
       }
-      artikelByTitle.set(eintrag.titelLower, eintrag)
-    }
 
-    for (let i = 0; i < e.rows.length; i++) {
-      const row = e.rows[i]
-      if (!row) continue
-      const b = mappeWarenZeile(row, e.headers, e.mapping, artikelByTitle, fallbackStandortId)
-      if (!b) {
-        const titelRaw = (() => {
-          const h = e.headers.find((x) => e.mapping[x] === 'artikelTitle')
-          return h ? (row[e.headers.indexOf(h)] ?? '').trim() : ''
-        })()
-        bericht.konflikte.push(`Zeile ${i + 2}: Artikel "${titelRaw}" nicht gefunden.`)
-        continue
+      for (let i = 0; i < e.rows.length; i++) {
+        const row = e.rows[i]
+        if (!row) continue
+        const b = mappeWarenZeile(row, e.headers, e.mapping, artikelByTitle, fallbackStandortId)
+        if (!b) {
+          const titelRaw = (() => {
+            const h = e.headers.find((x) => e.mapping[x] === 'artikelTitle')
+            return h ? (row[e.headers.indexOf(h)] ?? '').trim() : ''
+          })()
+          bericht.konflikte.push(`Zeile ${i + 2}: Artikel "${titelRaw}" nicht gefunden.`)
+          continue
+        }
+        await db.buchungen.add(b)
+        bericht.buchungenAngelegt += 1
+        await queueOp('buchung', 'create', b)
       }
-      await db.buchungen.add(b)
-      bericht.buchungenAngelegt += 1
-    }
 
-    await db.auditLog.add({
-      id: neueUuid(),
-      aktion: 'csv-import.waren',
-      entitaet: 'buchung',
-      entitaetId: 'batch',
-      daten: JSON.stringify({
-        buchungenAngelegt: bericht.buchungenAngelegt,
-        konflikte: bericht.konflikte.length,
-      }),
-      zeit: jetztIso(),
-    })
-  })
+      await db.auditLog.add({
+        id: neueUuid(),
+        aktion: 'csv-import.waren',
+        entitaet: 'buchung',
+        entitaetId: 'batch',
+        daten: JSON.stringify({
+          buchungenAngelegt: bericht.buchungenAngelegt,
+          konflikte: bericht.konflikte.length,
+        }),
+        zeit: jetztIso(),
+      })
+    },
+  )
 
   return bericht
 }
@@ -201,88 +213,96 @@ export async function importAusCsv(e: ImportEingabe): Promise<ImportBericht> {
   }
   if (!e.artikel && !e.waren) return bericht
 
-  await db.transaction('rw', [db.artikel, db.standorte, db.buchungen, db.auditLog], async () => {
-    let fallbackStandortId: string | null = null
-    if (e.waren) {
-      fallbackStandortId = await stelleHauptLagerSicher(e.waren.hauptLagerName)
-    }
+  await db.transaction(
+    'rw',
+    [db.artikel, db.standorte, db.buchungen, db.outbox, db.auditLog],
+    async () => {
+      let fallbackStandortId: string | null = null
+      if (e.waren) {
+        fallbackStandortId = await stelleHauptLagerSicher(e.waren.hauptLagerName)
+      }
 
-    const artikelByTitle = new Map<string, ArtikelCacheEintrag>()
+      const artikelByTitle = new Map<string, ArtikelCacheEintrag>()
 
-    if (e.artikel) {
-      for (let i = 0; i < e.artikel.rows.length; i++) {
-        const row = e.artikel.rows[i]
-        if (!row) continue
-        const a: Artikel = mappeArtikelZeile(row, e.artikel.headers, e.artikel.mapping)
-        const existierend =
-          a.sharePointId != null
-            ? await db.artikel.where('sharePointId').equals(a.sharePointId).first()
-            : await db.artikel.where('titel').equals(a.titel).first()
-        if (existierend) {
-          bericht.konflikte.push(`Artikel "${a.titel}" existiert bereits (Zeile ${i + 2}).`)
-          continue
+      if (e.artikel) {
+        for (let i = 0; i < e.artikel.rows.length; i++) {
+          const row = e.artikel.rows[i]
+          if (!row) continue
+          const a: Artikel = mappeArtikelZeile(row, e.artikel.headers, e.artikel.mapping)
+          const existierend =
+            a.sharePointId != null
+              ? await db.artikel.where('sharePointId').equals(a.sharePointId).first()
+              : await db.artikel.where('titel').equals(a.titel).first()
+          if (existierend) {
+            bericht.konflikte.push(`Artikel "${a.titel}" existiert bereits (Zeile ${i + 2}).`)
+            continue
+          }
+          await db.artikel.add(a)
+          bericht.artikelAngelegt += 1
+          await queueOp('artikel', 'create', a)
+          const eintrag: ArtikelCacheEintrag = {
+            id: a.id,
+            sharePointId: a.sharePointId,
+            titelLower: a.titel.toLowerCase(),
+          }
+          artikelByTitle.set(eintrag.titelLower, eintrag)
         }
-        await db.artikel.add(a)
-        bericht.artikelAngelegt += 1
+      }
+
+      const vorhandene = await db.artikel.toArray()
+      for (const a of vorhandene) {
         const eintrag: ArtikelCacheEintrag = {
           id: a.id,
           sharePointId: a.sharePointId,
           titelLower: a.titel.toLowerCase(),
         }
-        artikelByTitle.set(eintrag.titelLower, eintrag)
-      }
-    }
-
-    const vorhandene = await db.artikel.toArray()
-    for (const a of vorhandene) {
-      const eintrag: ArtikelCacheEintrag = {
-        id: a.id,
-        sharePointId: a.sharePointId,
-        titelLower: a.titel.toLowerCase(),
-      }
-      if (!artikelByTitle.has(eintrag.titelLower)) {
-        artikelByTitle.set(eintrag.titelLower, eintrag)
-      }
-    }
-
-    if (e.waren && fallbackStandortId) {
-      for (let i = 0; i < e.waren.rows.length; i++) {
-        const row = e.waren.rows[i]
-        if (!row) continue
-        const b = mappeWarenZeile(
-          row,
-          e.waren.headers,
-          e.waren.mapping,
-          artikelByTitle,
-          fallbackStandortId,
-        )
-        if (!b) {
-          const titelRaw = (() => {
-            if (!e.waren) return ''
-            const h = e.waren.headers.find((x) => e.waren && e.waren.mapping[x] === 'artikelTitle')
-            return h ? (row[e.waren.headers.indexOf(h)] ?? '').trim() : ''
-          })()
-          bericht.konflikte.push(`Zeile ${i + 2}: Artikel "${titelRaw}" nicht gefunden.`)
-          continue
+        if (!artikelByTitle.has(eintrag.titelLower)) {
+          artikelByTitle.set(eintrag.titelLower, eintrag)
         }
-        await db.buchungen.add(b)
-        bericht.buchungenAngelegt += 1
       }
-    }
 
-    await db.auditLog.add({
-      id: neueUuid(),
-      aktion: 'csv-import.kombi',
-      entitaet: 'artikel',
-      entitaetId: 'batch',
-      daten: JSON.stringify({
-        artikelAngelegt: bericht.artikelAngelegt,
-        buchungenAngelegt: bericht.buchungenAngelegt,
-        konflikte: bericht.konflikte.length,
-      }),
-      zeit: jetztIso(),
-    })
-  })
+      if (e.waren && fallbackStandortId) {
+        for (let i = 0; i < e.waren.rows.length; i++) {
+          const row = e.waren.rows[i]
+          if (!row) continue
+          const b = mappeWarenZeile(
+            row,
+            e.waren.headers,
+            e.waren.mapping,
+            artikelByTitle,
+            fallbackStandortId,
+          )
+          if (!b) {
+            const titelRaw = (() => {
+              if (!e.waren) return ''
+              const h = e.waren.headers.find(
+                (x) => e.waren && e.waren.mapping[x] === 'artikelTitle',
+              )
+              return h ? (row[e.waren.headers.indexOf(h)] ?? '').trim() : ''
+            })()
+            bericht.konflikte.push(`Zeile ${i + 2}: Artikel "${titelRaw}" nicht gefunden.`)
+            continue
+          }
+          await db.buchungen.add(b)
+          bericht.buchungenAngelegt += 1
+          await queueOp('buchung', 'create', b)
+        }
+      }
+
+      await db.auditLog.add({
+        id: neueUuid(),
+        aktion: 'csv-import.kombi',
+        entitaet: 'artikel',
+        entitaetId: 'batch',
+        daten: JSON.stringify({
+          artikelAngelegt: bericht.artikelAngelegt,
+          buchungenAngelegt: bericht.buchungenAngelegt,
+          konflikte: bericht.konflikte.length,
+        }),
+        zeit: jetztIso(),
+      })
+    },
+  )
 
   return bericht
 }
@@ -305,11 +325,13 @@ function mappeArtikelZeile(row: string[], headers: string[], mapping: ArtikelMap
     typ: feld('typ'),
     lieferant: feld('lieferant') || null,
     verpackungseinheit: parseInt0(feld('verpackungseinheit')) || 1,
-    mindestbestand: parseFloatOrNull(feld('mindestbestand')),
+    // Server-Schema verlangt z.number().int() — parseIntOrNull liefert
+    // null bei Dezimalwerten, statt still zu runden.
+    mindestbestand: parseIntOrNull(feld('mindestbestand')),
     nachbestellHinweis: normalizeNachbestellHinweis(feld('nachbestellHinweis')),
     bestellnummer: feld('bestellnummer') || null,
     barcode: feld('barcode') || null,
-    listenpreis: parseFloatOrNull(feld('listenpreis')),
+    listenpreis: parseIntOrNull(feld('listenpreis')),
     geaendertAm: parseIsoDatum(feld('geaendertAm')),
     erstelltAm: now,
   }
@@ -335,8 +357,11 @@ function mappeWarenZeile(
   if (!eintrag) return null
 
   const typ = normalizeWarenTyp(feld('typ'))
-  const mengeRaw = parseMenge(feld('menge'))
-  if (!Number.isFinite(mengeRaw) || mengeRaw === 0) return null
+  // Server-Schema (z.number().int()) lehnt Dezimalmengen ab — parseIntOrNull
+  // liefert null bei Nachkommastellen, und der Caller behandelt null als
+  // ungültige Zeile (Konflikt-Report).
+  const mengeRaw = parseIntOrNull(feld('menge'))
+  if (mengeRaw === null || mengeRaw === 0) return null
   const mengeVorzeichen = typ === 'entnahme' ? -Math.abs(mengeRaw) : Math.abs(mengeRaw)
 
   return {
@@ -347,7 +372,11 @@ function mappeWarenZeile(
     typ,
     menge: mengeVorzeichen,
     paarId: null,
-    projekt: feld('projekt') || null,
+    // 'commission' ist der WarenFeld, auf den die SharePoint-Spalten
+    // "Projekt-AA-SA-Nummer" / "projekt" gemappt werden. Ein feld('projekt')
+    // würde nie matchen (kein WarenFeld heißt so) und stillschweigend
+    // null liefern — Datenverlust.
+    projekt: feld('commission') || null,
     erstelltAm: parseIsoDatum(feld('erstelltAm')) ?? jetztIso(),
     clientEingabeAm: jetztIso(),
     erstelltVon: feld('erstelltVon') || 'csv-import',

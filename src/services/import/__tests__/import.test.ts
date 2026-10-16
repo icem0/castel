@@ -10,6 +10,7 @@ import type {
   Projekt,
   Standort,
 } from '../../../db/types'
+import { jetztIso, neueUuid } from '../../../domain/ids'
 import { parseCsv } from '../csv-parser'
 import { defaultArtikelMapping, defaultWarenMapping } from '../mapping'
 import { validiereArtikelMapping } from '../validierung'
@@ -195,6 +196,47 @@ describe('importWarenAusCsv (nur Bewegungen)', () => {
     expect(bericht.konflikte).toHaveLength(1)
     expect(bericht.konflikte[0]).toContain('NICHT-VORHANDEN')
   })
+
+  it('uebernimmt das projekt-Feld aus der commission-Spalte', async () => {
+    const lager = parseCsv(LAGER_CSV)
+    await importArtikelAusCsv({
+      rows: lager.rows,
+      headers: lager.headers,
+      mapping: defaultArtikelMapping(lager.headers),
+    })
+    const waren = parseCsv(WAREN_CSV)
+    const bericht = await importWarenAusCsv({
+      rows: waren.rows,
+      headers: waren.headers,
+      mapping: defaultWarenMapping(waren.headers),
+      hauptLagerName: 'Hauptlager',
+    })
+    expect(bericht.buchungenAngelegt).toBe(3)
+    const buchungen = await testDb.buchungen.toArray()
+    const ms400MitProjekt = buchungen.find((b) => b.projekt === '220405' && b.typ === 'entnahme')
+    expect(ms400MitProjekt).toBeDefined()
+  })
+
+  it('lehnt Dezimalmengen als Konflikt ab (Server-Schema: int)', async () => {
+    const lager = parseCsv(LAGER_CSV)
+    await importArtikelAusCsv({
+      rows: lager.rows,
+      headers: lager.headers,
+      mapping: defaultArtikelMapping(lager.headers),
+    })
+    const csv = `Entnahme;Projekt-AA-SA-Nummer;Artikel;Menge;Erstellt;Erstellt-von;Entnommen aus;Kommentar
+Einlagerung;;MS 400;2,5;02.01.2025 08:30;alex;Hauptlager;dezimal`
+    const waren = parseCsv(csv)
+    const bericht = await importWarenAusCsv({
+      rows: waren.rows,
+      headers: waren.headers,
+      mapping: defaultWarenMapping(waren.headers),
+      hauptLagerName: 'Hauptlager',
+    })
+    expect(bericht.buchungenAngelegt).toBe(0)
+    expect(bericht.konflikte).toHaveLength(1)
+    expect(await testDb.buchungen.toArray()).toHaveLength(0)
+  })
 })
 
 describe('importAusCsv (kombiniert)', () => {
@@ -237,6 +279,120 @@ describe('importAusCsv (kombiniert)', () => {
   it('akzeptiert leere Eingabe und liefert leeren Bericht', async () => {
     const bericht = await importAusCsv({})
     expect(bericht).toEqual({ artikelAngelegt: 0, buchungenAngelegt: 0, konflikte: [] })
+  })
+})
+
+describe('Outbox-Integration', () => {
+  it('importArtikelAusCsv enqueued jeden neuen Artikel als create-Op', async () => {
+    const lager = parseCsv(LAGER_CSV)
+    await importArtikelAusCsv({
+      rows: lager.rows,
+      headers: lager.headers,
+      mapping: defaultArtikelMapping(lager.headers),
+    })
+    const outbox = await testDb.outbox.toArray()
+    const artikelOps = outbox.filter((o) => o.entity === 'artikel' && o.op === 'create')
+    expect(artikelOps).toHaveLength(2)
+    expect(artikelOps.every((o) => o.syncedAt === null)).toBe(true)
+    const payloads = artikelOps.map((o) => JSON.parse(o.payload) as { titel: string })
+    expect(payloads.map((p) => p.titel).sort()).toEqual(['BX-SOL-CT-W', 'MS 400'])
+  })
+
+  it('importWarenAusCsv enqueued Buchungen und das Hauptlager', async () => {
+    const lager = parseCsv(LAGER_CSV)
+    await importArtikelAusCsv({
+      rows: lager.rows,
+      headers: lager.headers,
+      mapping: defaultArtikelMapping(lager.headers),
+    })
+    const waren = parseCsv(WAREN_CSV)
+    await importWarenAusCsv({
+      rows: waren.rows,
+      headers: waren.headers,
+      mapping: defaultWarenMapping(waren.headers),
+      hauptLagerName: 'Hauptlager',
+    })
+    const outbox = await testDb.outbox.toArray()
+    const buchungOps = outbox.filter((o) => o.entity === 'buchung' && o.op === 'create')
+    expect(buchungOps).toHaveLength(3)
+    const standortOps = outbox.filter((o) => o.entity === 'standort' && o.op === 'create')
+    expect(standortOps).toHaveLength(1)
+    const standortPayload = JSON.parse(standortOps[0]!.payload) as {
+      name: string
+      standard: boolean
+    }
+    expect(standortPayload.name).toBe('Hauptlager')
+    expect(standortPayload.standard).toBe(true)
+  })
+
+  it('zweiter Waren-Import findet das Hauptlager und enqueued nur ein update', async () => {
+    // Erstes Hauptlager manuell anlegen (nicht standard).
+    const s: Standort = {
+      id: neueUuid(),
+      name: 'Hauptlager',
+      typ: 'lager',
+      projekt: null,
+      kennzeichen: null,
+      standard: false,
+      archiviert: false,
+      geaendertAm: jetztIso(),
+      erstelltAm: jetztIso(),
+    }
+    await testDb.standorte.add(s)
+    // Outbox leeren, damit nur die Import-Outbox-Items gezaehlt werden.
+    await testDb.outbox.clear()
+
+    const lager = parseCsv(LAGER_CSV)
+    await importArtikelAusCsv({
+      rows: lager.rows,
+      headers: lager.headers,
+      mapping: defaultArtikelMapping(lager.headers),
+    })
+    const waren = parseCsv(WAREN_CSV)
+    await importWarenAusCsv({
+      rows: waren.rows,
+      headers: waren.headers,
+      mapping: defaultWarenMapping(waren.headers),
+      hauptLagerName: 'Hauptlager',
+    })
+
+    const outbox = await testDb.outbox.toArray()
+    const standortCreates = outbox.filter((o) => o.entity === 'standort' && o.op === 'create')
+    const standortUpdates = outbox.filter((o) => o.entity === 'standort' && o.op === 'update')
+    expect(standortCreates).toHaveLength(0)
+    expect(standortUpdates).toHaveLength(1)
+    const refreshed = await testDb.standorte.get(s.id)
+    expect(refreshed?.standard).toBe(true)
+  })
+})
+
+describe('Dezimalwerte in Stammdaten', () => {
+  it('parst mindestbestand und listenpreis als int (Dezimal -> null)', async () => {
+    const csv = `ID;Title;Bestand-min;Listenpreis
+1;Mit Komma;2,5;12,99
+2;Ganzzahlig;20;459
+3;Mit Tausender;1.234;1.299,00
+4;Leer;;
+`
+    const parsed = parseCsv(csv)
+    await importArtikelAusCsv({
+      rows: parsed.rows,
+      headers: parsed.headers,
+      mapping: defaultArtikelMapping(parsed.headers),
+    })
+    const artikel = await testDb.artikel.toArray()
+    const mitKomma = artikel.find((a) => a.titel === 'Mit Komma')
+    expect(mitKomma?.mindestbestand).toBeNull()
+    expect(mitKomma?.listenpreis).toBeNull()
+    const ganzzahlig = artikel.find((a) => a.titel === 'Ganzzahlig')
+    expect(ganzzahlig?.mindestbestand).toBe(20)
+    expect(ganzzahlig?.listenpreis).toBe(459)
+    const mitTausender = artikel.find((a) => a.titel === 'Mit Tausender')
+    expect(mitTausender?.mindestbestand).toBe(1234)
+    expect(mitTausender?.listenpreis).toBe(1299)
+    const leer = artikel.find((a) => a.titel === 'Leer')
+    expect(leer?.mindestbestand).toBeNull()
+    expect(leer?.listenpreis).toBeNull()
   })
 })
 

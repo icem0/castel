@@ -121,11 +121,6 @@ export function normalizeWarenTyp(raw: string): 'einlagerung' | 'entnahme' | 'um
   return 'entnahme'
 }
 
-/** SharePoint-Menge (kann „5,5" mit Komma sein) → JS-Number. */
-export function parseMenge(raw: string): number {
-  return Number(raw.replace(/\./g, '').replace(',', '.'))
-}
-
 /** SharePoint-ISO oder leer → ISO-String. */
 export function parseIsoDatum(raw: string): string | null {
   const trimmed = raw.trim()
@@ -135,15 +130,23 @@ export function parseIsoDatum(raw: string): string | null {
   return d.toISOString()
 }
 
+/**
+ * Parst SharePoint-Ganzzahlen (akzeptiert deutsches Komma-Format).
+ * Liefert `null`, wenn der Wert leer ist, keine Zahl enthält oder Nachkomma-
+ * stellen hat — das Sync-Schema (server `z.number().int()`) lehnt
+ * Dezimalwerte ohnehin ab, also fail-fast hier ist ehrlicher als
+ * stilles Runden.
+ */
+export function parseIntOrNull(raw: string): number | null {
+  const t = raw.trim()
+  if (!t) return null
+  const n = Number(t.replace(/\./g, '').replace(',', '.'))
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null
+  return n
+}
+
 export function parseInt0(raw: string): number {
   const t = raw.trim()
   if (!t) return 0
   return Number.parseInt(t, 10) || 0
-}
-
-export function parseFloatOrNull(raw: string): number | null {
-  const t = raw.trim()
-  if (!t) return null
-  const n = Number(t.replace(/\./g, '').replace(',', '.'))
-  return Number.isFinite(n) ? n : null
 }
