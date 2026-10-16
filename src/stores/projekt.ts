@@ -23,7 +23,7 @@ export const useProjektStore = defineStore('projekt', () => {
     subscription = liveQuery(() =>
       // Indexierter Zugriff auf `archiviert` (Dexie v1+).
       // IndexedDB speichert booleans als 0/1 — `equals(0)` = `false`.
-      getDb().projekte.where('archiviert').equals(0).toArray(),
+      getDb().commission.where('archiviert').equals(0).toArray(),
     ).subscribe({
       next: (rows) => {
         projekte.value = rows
@@ -56,16 +56,16 @@ export const useProjektStore = defineStore('projekt', () => {
       geaendertAm: now,
       erstelltAm: now,
     }
-    await getDb().projekte.add(p)
-    await queueOp('projekt', 'create', p)
+    await getDb().commission.add(p)
+    await queueOp('kommission', 'create', p)
     return p
   }
 
   async function archivieren(id: string): Promise<void> {
     const now = jetztIso()
-    await getDb().projekte.update(id, { archiviert: true, geaendertAm: now })
-    const updated = await getDb().projekte.get(id)
-    if (updated) await queueOp('projekt', 'update', updated)
+    await getDb().commission.update(id, { archiviert: true, geaendertAm: now })
+    const updated = await getDb().commission.get(id)
+    if (updated) await queueOp('kommission', 'update', updated)
   }
 
   return { projekte, geladen, start, stop, byNummer, anlegen, archivieren }

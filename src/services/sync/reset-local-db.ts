@@ -35,7 +35,7 @@ export interface ResetLocalDbResult {
   pulled: {
     artikel: number
     standorte: number
-    projekte: number
+    commission: number
     buchungen: number
     einstellungen: number
   }
@@ -57,11 +57,11 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
 
   await db.transaction(
     'rw',
-    [db.artikel, db.standorte, db.projekte, db.buchungen, db.einstellungen],
+    [db.artikel, db.standorte, db.commission, db.buchungen, db.einstellungen],
     async () => {
       if (data.artikel.length > 0) await db.artikel.bulkPut(data.artikel)
       if (data.standorte.length > 0) await db.standorte.bulkPut(data.standorte)
-      if (data.projekte.length > 0) await db.projekte.bulkPut(data.projekte)
+      if (data.commission.length > 0) await db.commission.bulkPut(data.commission)
       if (data.buchungen.length > 0) {
         // Buchungen: nur inserten, unbekannte IDs (Append-Only-Semantik).
         const existing = await db.buchungen.bulkGet(data.buchungen.map((b) => b.id))
@@ -166,7 +166,7 @@ export async function resetLocalDbAndPull(opts: {
     pulled: {
       artikel: data.artikel.length,
       standorte: data.standorte.length,
-      projekte: data.projekte.length,
+      commission: data.commission.length,
       buchungen: data.buchungen.length,
       einstellungen: data.einstellungen.length,
     },

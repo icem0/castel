@@ -115,7 +115,7 @@ export const standorte = pgTable(
 )
 
 export const projekte = pgTable(
-  'projekte',
+  'commission',
   {
     id: text('id').primaryKey(),
     nummer: text('nummer').notNull(),
@@ -125,10 +125,10 @@ export const projekte = pgTable(
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
   },
   (t) => [
-    uniqueIndex('projekte_nummer_idx').on(t.nummer),
-    index('projekte_archiviert_idx').on(t.archiviert),
+    uniqueIndex('commission_nummer_idx').on(t.nummer),
+    index('commission_archiviert_idx').on(t.archiviert),
     // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
-    index('projekte_geaendert_am_idx').on(t.geaendertAm),
+    index('commission_geaendert_am_idx').on(t.geaendertAm),
   ],
 )
 
@@ -207,7 +207,7 @@ export const auditLog = pgTable(
     id: text('id').primaryKey(),
     aktion: text('aktion').notNull(),
     entitaet: text('entitaet', {
-      enum: ['artikel', 'standort', 'buchung', 'projekt', 'foto', 'user', 'einstellung'],
+      enum: ['artikel', 'standort', 'buchung', 'kommission', 'foto', 'user', 'einstellung'],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),
     benutzerId: text('benutzer_id'),

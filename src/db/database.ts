@@ -28,7 +28,7 @@ export class CastelDb extends Dexie {
   artikel!: Table<Artikel, string>
   standorte!: Table<Standort, string>
   buchungen!: Table<Buchung, string>
-  projekte!: Table<Projekt, string>
+  commission!: Table<Projekt, string>
   einstellungen!: Table<Einstellung, [string, string]>
   auditLog!: Table<AuditLogEintrag, string>
   /** Sync-Que: jede Schreiboperation landet hier, bis sie zum Server gepusht ist. */
@@ -43,7 +43,7 @@ export class CastelDb extends Dexie {
       standorte: 'id, name, typ, archiviert',
       buchungen:
         'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId',
-      projekte: 'id, nummer, archiviert',
+      commission: 'id, nummer, archiviert',
       einstellungen: 'key',
       auditLog: 'id, aktion, entitaet, entitaetId, zeit',
     })
@@ -55,7 +55,7 @@ export class CastelDb extends Dexie {
       standorte: 'id, name, typ, archiviert',
       buchungen:
         'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId',
-      projekte: 'id, nummer, archiviert',
+      commission: 'id, nummer, archiviert',
       einstellungen: 'key',
       auditLog: 'id, aktion, entitaet, entitaetId, zeit',
     })
@@ -66,7 +66,7 @@ export class CastelDb extends Dexie {
       standorte: 'id, name, typ, archiviert',
       buchungen:
         'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-      projekte: 'id, nummer, archiviert',
+      commission: 'id, nummer, archiviert',
       einstellungen: 'key',
       auditLog: 'id, aktion, entitaet, entitaetId, zeit',
       outbox: 'id, entity, syncedAt, createdAt',
@@ -82,7 +82,7 @@ export class CastelDb extends Dexie {
         standorte: 'id, name, typ, archiviert',
         buchungen:
           'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-        projekte: 'id, nummer, archiviert',
+        commission: 'id, nummer, archiviert',
         einstellungen: 'key',
         auditLog: 'id, aktion, entitaet, entitaetId, zeit',
         outbox: 'id, entity, syncedAt, createdAt',
@@ -127,7 +127,7 @@ export class CastelDb extends Dexie {
         standorte: 'id, name, typ, archiviert',
         buchungen:
           'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-        projekte: 'id, nummer, archiviert',
+        commission: 'id, nummer, archiviert',
         // alte `einstellungen`-Tabelle fehlt absichtlich → Dexie droppt sie
         // neue Tabelle mit Compound-PK — temporärer Name, in v6 umbenannt
         einstellungen2: '[key+userId], key, userId',
@@ -171,7 +171,7 @@ export class CastelDb extends Dexie {
         standorte: 'id, name, typ, archiviert',
         buchungen:
           'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-        projekte: 'id, nummer, archiviert',
+        commission: 'id, nummer, archiviert',
         einstellungen: '[key+userId], key, userId',
         auditLog: 'id, aktion, entitaet, entitaetId, zeit',
         outbox: 'id, entity, syncedAt, createdAt',
@@ -197,7 +197,7 @@ export class CastelDb extends Dexie {
         standorte: 'id, name, typ, archiviert',
         buchungen:
           'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-        projekte: 'id, nummer, archiviert',
+        commission: 'id, nummer, archiviert',
         einstellungen: '[key+userId], key, userId',
         auditLog: 'id, aktion, entitaet, entitaetId, zeit',
         outbox: 'id, entity, syncedAt, createdAt, quarantinedAt',
@@ -223,7 +223,7 @@ export class CastelDb extends Dexie {
         standorte: 'id, name, typ, archiviert',
         buchungen:
           'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-        projekte: 'id, nummer, archiviert',
+        commission: 'id, nummer, archiviert',
         einstellungen: '[key+userId], key, userId',
         auditLog: 'id, aktion, entitaet, entitaetId, zeit',
         outbox: 'id, entity, syncedAt, createdAt, quarantinedAt',
@@ -252,7 +252,7 @@ export class CastelDb extends Dexie {
         standorte: 'id, name, typ, archiviert, standard',
         buchungen:
           'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
-        projekte: 'id, nummer, archiviert',
+        commission: 'id, nummer, archiviert',
         einstellungen: '[key+userId], key, userId',
         auditLog: 'id, aktion, entitaet, entitaetId, zeit',
         outbox: 'id, entity, syncedAt, createdAt, quarantinedAt',

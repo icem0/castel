@@ -215,7 +215,7 @@ describe('applySnapshot mit einstellungen', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [olderEinstellung, newerEinstellung],
           }),
@@ -232,7 +232,7 @@ describe('applySnapshot mit einstellungen', () => {
         return new Response(
           JSON.stringify({
             serverTime,
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )

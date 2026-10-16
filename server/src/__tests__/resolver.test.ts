@@ -193,7 +193,7 @@ describe('Resolver — Stammdaten-Insert normalisiert ISO-Strings auf Date', () 
         },
         {
           op: 'create',
-          entity: 'projekt',
+          entity: 'kommission',
           payload: {
             id: 'p-1',
             nummer: 'PRJ-001',

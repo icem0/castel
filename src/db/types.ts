@@ -104,7 +104,7 @@ export interface Einstellung {
 export interface AuditLogEintrag {
   id: string
   aktion: string
-  entitaet: 'artikel' | 'standort' | 'buchung' | 'projekt' | 'einstellung'
+  entitaet: 'artikel' | 'standort' | 'buchung' | 'kommission' | 'einstellung'
   entitaetId: string
   daten: string // JSON-serialisiert
   zeit: Iso
@@ -128,7 +128,8 @@ export interface BuchungsEingabe {
 
 // ---------- Sync (PLAN §4.7–4.9) ----------
 
-export type OutboxEntity = 'artikel' | 'buchung' | 'standort' | 'projekt' | 'foto' | 'einstellung'
+export type OutboxEntity =
+  'artikel' | 'buchung' | 'standort' | 'kommission' | 'foto' | 'einstellung'
 export type OutboxOp = 'create' | 'update' | 'delete' | 'upload' | 'upsert'
 
 export interface OutboxEintrag {

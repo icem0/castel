@@ -771,9 +771,9 @@ function formatRelativ(iso: string | null): string {
                 server: sync.status.serverCounts?.standorte,
               },
               {
-                name: 'Projekte',
-                local: sync.status.localCounts?.projekte,
-                server: sync.status.serverCounts?.projekte,
+                name: 'Kommissionen',
+                local: sync.status.localCounts?.commission,
+                server: sync.status.serverCounts?.commission,
               },
               {
                 name: 'Buchungen',

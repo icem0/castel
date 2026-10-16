@@ -81,7 +81,7 @@ describe('resetLocalDbAndPull', () => {
       since: '',
       artikel: [artikelAnlage(serverId1, 'server-a'), artikelAnlage(serverId2, 'server-b')],
       standorte: [standortAnlage(standortId, 'Hauptlager')],
-      projekte: [],
+      commission: [],
       buchungen: [],
       einstellungen: [
         {
@@ -161,7 +161,7 @@ describe('resetLocalDbAndPull', () => {
             since: '',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),

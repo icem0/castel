@@ -28,7 +28,7 @@ export type WarenFeld =
   | 'menge'
   | 'kommentar'
   | 'mitteilungAn'
-  | 'projekt'
+  | 'kommission'
   | 'artikelTitle'
   | 'typ'
   | 'standortName'
@@ -77,7 +77,7 @@ export function defaultWarenMapping(headers: string[]): WarenMapping {
     else if (key === 'kommentar') map[h] = 'kommentar'
     else if (key === 'mitteilungan') map[h] = 'mitteilungAn'
     else if (key === 'projektaasa' || key === 'projektaasanummer' || key === 'projekt')
-      map[h] = 'projekt'
+      map[h] = 'kommission'
     else if (key === 'artikel' || key === 'artikeltitle') map[h] = 'artikelTitle'
     else if (key === 'entnommenau' || key === 'standort') map[h] = 'standortName'
     else map[h] = null

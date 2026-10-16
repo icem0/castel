@@ -47,7 +47,7 @@ const pushSchema = z.discriminatedUnion('entity', [
   }),
   z.object({
     op: z.enum(['create', 'update', 'delete']),
-    entity: z.literal('projekt'),
+    entity: z.literal('kommission'),
     payload: z.any(),
   }),
   z.object({
@@ -141,7 +141,7 @@ export async function resolvePush(
           case 'standort':
             await resolveStandort(tx, op)
             break
-          case 'projekt':
+          case 'kommission':
             await resolveProjekt(tx, op)
             break
           case 'buchung':
@@ -298,7 +298,7 @@ async function resolveStandort(
 
 async function resolveProjekt(
   tx: Tx,
-  op: Extract<PushOp, { entity: 'projekt' }>,
+  op: Extract<PushOp, { entity: 'kommission' }>,
 ): Promise<void> {
   if (op.op === 'create') {
     const existing = await tx.select().from(projekte).where(eq(projekte.id, op.payload.id)).limit(1)

@@ -43,7 +43,7 @@ const TABLES_IN_TRUNCATE_ORDER = [
   // Master danach
   'artikel',
   'standorte',
-  'projekte',
+  'commission',
   'users',
 ] as const
 

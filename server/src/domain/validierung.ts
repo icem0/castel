@@ -121,7 +121,7 @@ export const pushPayloadSchema = z.object({
         }),
         z.object({
           op: z.enum(['create', 'update', 'delete']),
-          entity: z.literal('projekt'),
+          entity: z.literal('kommission'),
           payload: projektSchema,
         }),
         z.object({

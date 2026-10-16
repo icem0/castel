@@ -17,18 +17,18 @@ export interface Backup {
   artikel: Artikel[]
   standorte: Standort[]
   buchungen: Buchung[]
-  projekte: Projekt[]
+  commission: Projekt[]
   einstellungen: Einstellung[]
   auditLog: AuditLogEintrag[]
 }
 
 export async function exportVollBackup(): Promise<Backup> {
   const db = getDb()
-  const [artikel, standorte, buchungen, projekte, einstellungen, auditLog] = await Promise.all([
+  const [artikel, standorte, buchungen, commission, einstellungen, auditLog] = await Promise.all([
     db.artikel.toArray(),
     db.standorte.toArray(),
     db.buchungen.toArray(),
-    db.projekte.toArray(),
+    db.commission.toArray(),
     db.einstellungen.toArray(),
     db.auditLog.toArray(),
   ])
@@ -38,7 +38,7 @@ export async function exportVollBackup(): Promise<Backup> {
     artikel,
     standorte,
     buchungen,
-    projekte,
+    commission,
     einstellungen,
     auditLog,
   }
@@ -60,18 +60,18 @@ export async function restoreBackup(b: Backup): Promise<void> {
   const db = getDb()
   await db.transaction(
     'rw',
-    [db.artikel, db.standorte, db.buchungen, db.projekte, db.einstellungen, db.auditLog],
+    [db.artikel, db.standorte, db.buchungen, db.commission, db.einstellungen, db.auditLog],
     async () => {
       await db.artikel.clear()
       await db.standorte.clear()
       await db.buchungen.clear()
-      await db.projekte.clear()
+      await db.commission.clear()
       await db.einstellungen.clear()
       await db.auditLog.clear()
       await db.artikel.bulkAdd(b.artikel)
       await db.standorte.bulkAdd(b.standorte)
       await db.buchungen.bulkAdd(b.buchungen)
-      await db.projekte.bulkAdd(b.projekte)
+      await db.commission.bulkAdd(b.commission)
       await db.einstellungen.bulkAdd(b.einstellungen)
       await db.auditLog.bulkAdd(b.auditLog)
     },

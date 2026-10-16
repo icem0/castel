@@ -64,7 +64,7 @@ export function zaehleAbweichungen(l: TableCounts | null, s: TableCounts | null)
   let n = 0
   if (l.artikel !== s.artikel) n++
   if (l.standorte !== s.standorte) n++
-  if (l.projekte !== s.projekte) n++
+  if (l.commission !== s.commission) n++
   if (l.buchungen !== s.buchungen) n++
   return n
 }
@@ -174,7 +174,7 @@ export interface SyncSnapshot {
   since: string
   artikel: Artikel[]
   standorte: Standort[]
-  projekte: Projekt[]
+  commission: Projekt[]
   buchungen: Buchung[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
@@ -198,7 +198,7 @@ export interface PushResult {
 export interface TableCounts {
   artikel: number
   standorte: number
-  projekte: number
+  commission: number
   buchungen: number
 }
 
@@ -404,10 +404,10 @@ async function getLocalCounts(): Promise<TableCounts> {
   const [artikel, standorte, projekte, buchungen] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
-    db.projekte.count(),
+    db.commission.count(),
     db.buchungen.count(),
   ])
-  return { artikel, standorte, projekte, buchungen }
+  return { artikel, standorte, commission: projekte, buchungen }
 }
 
 // ---------- Outbox-Helfer ----------
@@ -581,7 +581,7 @@ async function applySnapshot(snap: SyncSnapshot): Promise<void> {
   const db = getDb()
   await db.transaction(
     'rw',
-    [db.artikel, db.standorte, db.projekte, db.buchungen, db.einstellungen],
+    [db.artikel, db.standorte, db.commission, db.buchungen, db.einstellungen],
     async () => {
       // Artikel
       for (const a of snap.artikel) {
@@ -602,12 +602,12 @@ async function applySnapshot(snap: SyncSnapshot): Promise<void> {
         }
       }
       // Projekte
-      for (const p of snap.projekte) {
-        const existing = await db.projekte.get(p.id)
+      for (const p of snap.commission) {
+        const existing = await db.commission.get(p.id)
         if (!existing) {
-          await db.projekte.add(p)
+          await db.commission.add(p)
         } else if ((p.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
-          await db.projekte.put(p)
+          await db.commission.put(p)
         }
       }
       // Buchungen — append-only, nur insert wenn unbekannt
@@ -836,7 +836,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       // gibt, ist das ein echter Konflikt (LWW) — kein Marker-Problem.
       snap.artikel.length === 0 &&
       snap.standorte.length === 0 &&
-      snap.projekte.length === 0 &&
+      snap.commission.length === 0 &&
       snap.buchungen.length === 0 &&
       snap.einstellungen.length === 0
     ) {

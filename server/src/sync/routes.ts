@@ -10,7 +10,7 @@ import { resolvePush } from './resolver.js'
 async function countRows(db: ReturnType<typeof getDb>): Promise<{
   artikel: number
   standorte: number
-  projekte: number
+  commission: number
   buchungen: number
 }> {
   const [a, s, p, b] = await Promise.all([
@@ -22,7 +22,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   return {
     artikel: a[0]?.c ?? 0,
     standorte: s[0]?.c ?? 0,
-    projekte: p[0]?.c ?? 0,
+    commission: p[0]?.c ?? 0,
     buchungen: b[0]?.c ?? 0,
   }
 }
@@ -66,7 +66,7 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
         since: since.toISOString(),
         artikel: artikelRows,
         standorte: standortRows,
-        projekte: projektRows,
+        commission: projektRows,
         buchungen: buchungRows,
         einstellungen: einstellungRows.map((r) => ({
           key: r.key,

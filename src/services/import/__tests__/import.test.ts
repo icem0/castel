@@ -83,7 +83,7 @@ describe('defaultWarenMapping', () => {
     expect(mapping['Entnahme']).toBe('typ')
     expect(mapping['Artikel']).toBe('artikelTitle')
     expect(mapping['Menge']).toBe('menge')
-    expect(mapping['Projekt-AA-SA-Nummer']).toBe('projekt')
+    expect(mapping['Projekt-AA-SA-Nummer']).toBe('kommission')
   })
 })
 
@@ -318,7 +318,7 @@ describe('exportVollBackup / restoreBackup', () => {
     artikel: [artikel],
     standorte: [standort],
     buchungen: [buchung],
-    projekte: [projekt],
+    commission: [projekt],
     einstellungen: [einstellung],
     auditLog: [audit],
   }
@@ -327,7 +327,7 @@ describe('exportVollBackup / restoreBackup', () => {
     await testDb.artikel.add(artikel)
     await testDb.standorte.add(standort)
     await testDb.buchungen.add(buchung)
-    await testDb.projekte.add(projekt)
+    await testDb.commission.add(projekt)
     await testDb.einstellungen.add(einstellung)
     await testDb.auditLog.add(audit)
 
@@ -336,7 +336,7 @@ describe('exportVollBackup / restoreBackup', () => {
     expect(exp.artikel).toHaveLength(1)
     expect(exp.standorte).toHaveLength(1)
     expect(exp.buchungen).toHaveLength(1)
-    expect(exp.projekte).toHaveLength(1)
+    expect(exp.commission).toHaveLength(1)
     expect(exp.einstellungen).toHaveLength(1)
     expect(exp.auditLog).toHaveLength(1)
     expect(typeof exp.exportiertAm).toBe('string')

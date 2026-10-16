@@ -243,11 +243,11 @@ describe('Sync — Status & Counts', () => {
     expect(st.serverTime).toBeNull()
   })
 
-  it('TableCounts-Form: artikel/standorte/projekte/buchungen', () => {
-    const counts: TableCounts = { artikel: 1, standorte: 2, projekte: 3, buchungen: 4 }
+  it('TableCounts-Form: artikel/standorte/commission/buchungen', () => {
+    const counts: TableCounts = { artikel: 1, standorte: 2, commission: 3, buchungen: 4 }
     expect(counts.artikel).toBe(1)
     expect(counts.standorte).toBe(2)
-    expect(counts.projekte).toBe(3)
+    expect(counts.commission).toBe(3)
     expect(counts.buchungen).toBe(4)
   })
 
@@ -260,10 +260,10 @@ describe('Sync — Status & Counts', () => {
     const lokal = {
       artikel: await getDb().artikel.count(),
       standorte: await getDb().standorte.count(),
-      projekte: await getDb().projekte.count(),
+      commission: await getDb().commission.count(),
       buchungen: await getDb().buchungen.count(),
     }
-    expect(lokal).toEqual({ artikel: 2, standorte: 1, projekte: 0, buchungen: 1 })
+    expect(lokal).toEqual({ artikel: 2, standorte: 1, commission: 0, buchungen: 1 })
   })
 })
 
@@ -301,7 +301,7 @@ describe('Sync — Push-Markierung (Outbox- vs. Payload-IDs)', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -312,7 +312,7 @@ describe('Sync — Push-Markierung (Outbox- vs. Payload-IDs)', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -517,7 +517,7 @@ describe('Sync — Diagnose (lastFailure)', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -528,7 +528,7 @@ describe('Sync — Diagnose (lastFailure)', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -560,7 +560,7 @@ describe('Sync — Diagnose (lastFailure)', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -571,7 +571,7 @@ describe('Sync — Diagnose (lastFailure)', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -674,7 +674,7 @@ describe('Sync — 401 / Auth-Reset', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -685,7 +685,7 @@ describe('Sync — 401 / Auth-Reset', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -842,7 +842,7 @@ describe('Sync — payloadIdFor (Einstellungen haben keine `id`)', () => {
     const { payloadIdFor } = await import('../worker')
     expect(payloadIdFor('artikel', { id: 'a-1', titel: 'x' })).toBe('a-1')
     expect(payloadIdFor('standort', { id: 's-1' })).toBe('s-1')
-    expect(payloadIdFor('projekt', { id: 'p-1' })).toBe('p-1')
+    expect(payloadIdFor('kommission', { id: 'p-1' })).toBe('p-1')
     expect(payloadIdFor('buchung', { id: 'b-1' })).toBe('b-1')
   })
 
@@ -909,7 +909,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -920,7 +920,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -968,7 +968,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -979,7 +979,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -1038,7 +1038,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -1049,7 +1049,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -1114,7 +1114,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
             since: '1970-01-01T00:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -1125,7 +1125,7 @@ describe('Sync — einstellung/upsert End-to-End', () => {
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -1177,7 +1177,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
               since: '2026-10-15T15:00:00.000Z',
               artikel: [],
               standorte: [],
-              projekte: [],
+              commission: [],
               buchungen: [],
               einstellungen: [],
             }),
@@ -1191,7 +1191,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
             since: '1970-01-01T00:00:00.000Z',
             artikel: [a1Server, a2Server],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -1202,7 +1202,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 2, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 2, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -1253,7 +1253,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
             since: '2026-10-15T15:00:00.000Z',
             artikel: [],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -1264,7 +1264,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -1309,7 +1309,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
             since: '2026-10-15T15:00:00.000Z',
             artikel: [server],
             standorte: [],
-            projekte: [],
+            commission: [],
             buchungen: [],
             einstellungen: [],
           }),
@@ -1320,7 +1320,7 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
         return new Response(
           JSON.stringify({
             serverTime: new Date().toISOString(),
-            counts: { artikel: 1, standorte: 0, projekte: 0, buchungen: 0 },
+            counts: { artikel: 1, standorte: 0, commission: 0, buchungen: 0 },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         )
@@ -1344,27 +1344,27 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
     const { zaehleAbweichungen } = await import('../worker')
     expect(
       zaehleAbweichungen(
-        { artikel: 1, standorte: 2, projekte: 3, buchungen: 4 },
-        { artikel: 1, standorte: 2, projekte: 3, buchungen: 4 },
+        { artikel: 1, standorte: 2, commission: 3, buchungen: 4 },
+        { artikel: 1, standorte: 2, commission: 3, buchungen: 4 },
       ),
     ).toBe(0)
     expect(
       zaehleAbweichungen(
-        { artikel: 1, standorte: 2, projekte: 3, buchungen: 4 },
-        { artikel: 0, standorte: 2, projekte: 3, buchungen: 4 },
+        { artikel: 1, standorte: 2, commission: 3, buchungen: 4 },
+        { artikel: 0, standorte: 2, commission: 3, buchungen: 4 },
       ),
     ).toBe(1)
     expect(
       zaehleAbweichungen(
-        { artikel: 1, standorte: 2, projekte: 3, buchungen: 4 },
-        { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 },
+        { artikel: 1, standorte: 2, commission: 3, buchungen: 4 },
+        { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
       ),
     ).toBe(4)
-    expect(zaehleAbweichungen(null, { artikel: 0, standorte: 0, projekte: 0, buchungen: 0 })).toBe(
-      0,
-    )
-    expect(zaehleAbweichungen({ artikel: 1, standorte: 2, projekte: 3, buchungen: 4 }, null)).toBe(
-      0,
-    )
+    expect(
+      zaehleAbweichungen(null, { artikel: 0, standorte: 0, commission: 0, buchungen: 0 }),
+    ).toBe(0)
+    expect(
+      zaehleAbweichungen({ artikel: 1, standorte: 2, commission: 3, buchungen: 4 }, null),
+    ).toBe(0)
   })
 })
