@@ -38,6 +38,7 @@ export default {
         titel: 'Titel',
         typ: 'Typ',
         bestand: 'Bestand',
+        status: 'Status',
       },
       leer: 'Keine Artikel gefunden.',
       detail: {
