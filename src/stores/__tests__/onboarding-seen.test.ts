@@ -5,10 +5,24 @@
 //   - Per-User isoliert: User A "fertig" => User B sieht Tutorial beim Login
 //   - Setzen via setOnboardingSeen(true) => Store reflektiert true
 //   - Zurücksetzen via setOnboardingSeen(false) => Store reflektiert false
+//   - Local-only: kein Outbox-Eintrag, keine Server-Synchronisation
+//     (Server-Whitelist kennt den Key nicht).
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import 'fake-indexeddb/auto'
+
+// `queueOp` mocken, damit wir prüfen können, dass `onboardingSeen`
+// keinen Outbox-Eintrag erzeugt. `vi.hoisted` ist nötig, weil
+// `vi.mock` Factory-Calls an den Anfang der Datei gehoben werden —
+// die Spy-Referenz muss also bereits dort verfügbar sein.
+const { queueOpMock } = vi.hoisted(() => ({
+  queueOpMock: vi.fn(),
+}))
+vi.mock('../../services/sync/worker', () => ({
+  queueOp: queueOpMock,
+}))
+
 import { useSettingsStore } from '../settings'
 import { getDb, resetDbForTests } from '../../db/database'
 import { jetztIso } from '../../domain/ids'
@@ -21,6 +35,7 @@ describe('useSettingsStore — onboardingSeen (Tutorial-Gate)', () => {
     resetDbForTests()
     setActivePinia(createPinia())
     localStorage.removeItem(LS_SESSION)
+    queueOpMock.mockReset()
   })
 
   afterEach(() => {
@@ -135,5 +150,34 @@ describe('useSettingsStore — onboardingSeen (Tutorial-Gate)', () => {
     await new Promise<void>((r) => setTimeout(r, 30))
     expect(store2.settings.onboardingSeen).toBe(true)
     store2.stop()
+  })
+
+  it('onboardingSeen ist local-only: kein Outbox-Eintrag, kein queueOp', async () => {
+    sessionSchreiben({
+      userId: 'user-a',
+      email: 'a@example.com',
+      rolle: 'user',
+      anzeigename: 'A',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+    const store = useSettingsStore()
+    store.start()
+    await new Promise<void>((r) => setTimeout(r, 30))
+
+    await store.setOnboardingSeen(true)
+    await new Promise<void>((r) => setTimeout(r, 30))
+
+    // Persistiert lokal …
+    const row = await getDb().einstellungen.get(['onboardingSeen', 'user-a'])
+    expect(row?.value).toBe('true')
+
+    // … aber kein Server-Sync: keine Outbox-Zeile, kein queueOp-Aufruf.
+    expect(queueOpMock).not.toHaveBeenCalled()
+    const outboxRows = await getDb().outbox.toArray()
+    expect(outboxRows).toHaveLength(0)
+
+    store.stop()
   })
 })
