@@ -15,6 +15,58 @@ export default {
       h1: 'Dashboard',
       leer: 'No data yet. Create a location and an item first.',
     },
+    info: {
+      h1: 'Information',
+      untertitel:
+        'Guides, tips and help for castel. Install the app as a web app on your device so it behaves like a native app.',
+      iosTitel: 'Install web app on iOS (Safari)',
+      iosS1: 'Open this page in Safari on your iPhone or iPad.',
+      iosS2: 'Tap the Share button (square with arrow) at the bottom of the Safari toolbar.',
+      iosS3: 'Scroll down in the share menu and choose "Add to Home Screen".',
+      iosS4: 'Enter a short name (e.g. "castel") and tap "Add".',
+      iosS5:
+        'The castel icon appears on your home screen. Always open the app from there — this is the only way offline mode works reliably.',
+      iosHinweis:
+        'Note: other browsers (Chrome, Firefox) cannot install web apps on iOS. Use Safari.',
+      androidTitel: 'Install web app on Android',
+      androidVariante: 'The steps differ depending on the browser. Pick your default browser:',
+      androidChromeTitel: 'Google Chrome',
+      androidChromeS1: 'Open this page in Chrome and tap the three-dot menu in the top-right.',
+      androidChromeS2: 'Choose "Install app" or "Add to Home Screen".',
+      androidChromeS3:
+        'Confirm with "Install". castel will appear as a standalone app in your app drawer.',
+      androidSamsungTitel: 'Samsung Internet',
+      androidSamsungS1:
+        'Tap the menu icon (three lines) at the bottom-centre and choose "Add page".',
+      androidSamsungS2: 'Choose "Add to Home Screen".',
+      androidSamsungS3: 'Confirm with "Add". castel now lives as an icon on your home screen.',
+      androidFirefoxTitel: 'Mozilla Firefox',
+      androidFirefoxS1: 'Tap the three dots in the top-right and open "Advanced settings".',
+      androidFirefoxS2: 'Choose "Install" and tap "Install".',
+      androidFirefoxS3:
+        'Confirm the installation. Firefox only has limited PWA support — Chrome or Samsung Internet are the better choice.',
+      warumTitel: 'Why install?',
+      warum1:
+        'The web app starts faster and feels like a native app — no address bar, no browser UI.',
+      warum2:
+        'Everything works offline. Transactions are stored locally and synced automatically once you are back online.',
+      warum3:
+        'You get access to the camera for the barcode scanner — only an installed app is allowed to use the camera.',
+      warum4:
+        'Updates are loaded automatically on the next launch — no app store, no manual updates.',
+      problemeTitel: 'Common problems',
+      faq1Frage: 'The install option is missing in the browser.',
+      faq1Antwort:
+        'PWAs must be served over HTTPS. If you open castel over an HTTP address or an insecure connection, browsers will not show the install option. Use the official HTTPS URL.',
+      faq2Frage: 'I cannot find the app after installing.',
+      faq2Antwort:
+        'iOS: check your home screen. Android: open the app drawer (swipe up from the bottom edge of the screen).',
+      faq3Frage: 'Do I have to install the app to use castel?',
+      faq3Antwort:
+        'No — you can use castel as a normal website in the browser. Installing only gives you better offline mode and faster access.',
+      zumDashboard: 'Go to dashboard',
+      onboardingErneut: 'Show tutorial again',
+    },
     artikel: {
       h1: 'Items',
       neu: 'New item',
@@ -250,6 +302,38 @@ export default {
       fehlerPwStimmtNicht: 'New passwords do not match.',
       speichernLaufend: 'Saving …',
     },
+  },
+  onboarding: {
+    titel: 'Getting started with castel',
+    untertitel:
+      'castel runs as a web app. Install it on your device — then it works offline and you have fast access from your home screen.',
+    tab: {
+      ios: 'iOS (Safari)',
+      android: 'Android',
+      desktop: 'Desktop',
+    },
+    ios: {
+      s1: 'Open this page in Safari (not Chrome or Firefox).',
+      s2: 'Tap the Share button (square with arrow) at the bottom.',
+      s3: 'Choose "Add to Home Screen".',
+      s4: 'Enter a name (e.g. "castel") and tap "Add".',
+      s5: 'Always open castel via the new icon on your home screen.',
+    },
+    android: {
+      s1: 'Open this page in Chrome or Samsung Internet.',
+      s2: 'Tap the menu (three dots) and choose "Install app" or "Add to Home Screen".',
+      s3: 'Confirm — castel will appear as an app in your app drawer.',
+    },
+    desktop: {
+      s1: 'Click the install icon in the right side of the address bar.',
+      s2: 'Confirm — castel will open in its own window from now on.',
+    },
+    weiter: 'Next',
+    zurueck: 'Back',
+    fertig: 'Got it',
+    spaeter: 'Later',
+    schliessen: 'Close tutorial',
+    mehrErfahren: 'Learn more (full guide)',
   },
   auth: {
     error: {

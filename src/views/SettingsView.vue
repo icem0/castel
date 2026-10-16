@@ -129,6 +129,11 @@ onBeforeUnmount(() => {
       </form>
     </div>
 
+    <h2>Informationen</h2>
+    <div class="card quick-links">
+      <RouterLink to="/info">Erste Schritte &amp; Web-App installieren</RouterLink>
+    </div>
+
     <h2>Account</h2>
     <div class="card quick-links">
       <div class="readonly">

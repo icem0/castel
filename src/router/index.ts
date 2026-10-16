@@ -31,6 +31,7 @@ import PasswortAendernView from '../views/PasswortAendernView.vue'
 import UserVerwaltungView from '../views/UserVerwaltungView.vue'
 import BarcodeScanView from '../views/BarcodeScanView.vue'
 import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
+import InfoView from '../views/InfoView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Auth-Routen (kein Login nötig)
@@ -62,6 +63,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAdmin: true },
   },
   { path: '/einstellungen', name: 'einstellungen', component: SettingsView },
+  { path: '/info', name: 'info', component: InfoView },
   {
     path: '/einstellungen/user',
     name: 'einstellungen-user',

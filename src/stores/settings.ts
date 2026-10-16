@@ -34,6 +34,12 @@ export interface Settings {
   companyName: string
   /** Barcode-Format für die Artikel-Detail-Ansicht (nur Admins). */
   barcodeTyp: BarcodeTyp
+  /**
+   * Pro User: hat der User das Onboarding-Tutorial ("Erste Schritte") bereits
+   * gesehen / abgeschlossen? Steuert, ob der Tutorial-Modal beim Login
+   * automatisch geöffnet wird. Default: false (Tutorial zeigen).
+   */
+  onboardingSeen: boolean
 }
 
 const DEFAULTS: Settings = {
@@ -43,10 +49,11 @@ const DEFAULTS: Settings = {
   kommissionen: [],
   companyName: '',
   barcodeTyp: 'CODE128',
+  onboardingSeen: false,
 }
 
 const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
-const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId'])
+const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId', 'onboardingSeen'])
 const GLOBAL_INDEX = ''
 
 function scopeForKey(key: string): 'global' | 'user' {
@@ -109,6 +116,9 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
   const barcodeTyp: BarcodeTyp =
     barcodeTypRaw === 'EAN13' || barcodeTypRaw === 'CODE39' ? barcodeTypRaw : DEFAULTS.barcodeTyp
 
+  const onboardingSeenRow = byKey.get('onboardingSeen')
+  const onboardingSeen = onboardingSeenRow?.value === 'true'
+
   return {
     sprache,
     standardStandortId,
@@ -116,6 +126,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     kommissionen,
     companyName,
     barcodeTyp,
+    onboardingSeen,
   }
 }
 
@@ -205,6 +216,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('barcodeTyp', typ)
   }
 
+  async function setOnboardingSeen(seen: boolean): Promise<void> {
+    await setKey('onboardingSeen', seen ? 'true' : 'false')
+  }
+
   // Hilfsfunktion: legt eine UUID-basierte ID an (für Outbox-Einträge).
   void neueUuid
 
@@ -219,5 +234,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setArtikelTypen,
     setKommissionen,
     setBarcodeTyp,
+    setOnboardingSeen,
   }
 })

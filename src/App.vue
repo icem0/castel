@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, watchEffect, computed } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watchEffect, computed, watch } from 'vue'
 import { RouterLink, useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from './stores/settings'
@@ -16,6 +16,7 @@ import { resetLocalDbAndPull } from './services/sync/reset-local-db'
 import { zaehleAbweichungen } from './services/sync/worker'
 import { version, commit, branch, buildDate } from './version'
 import { useDevMode } from './composables/useDevMode'
+import OnboardingTutorial from './components/OnboardingTutorial.vue'
 
 // Responsive Layout-Umschaltung: <html data-layout="mobile|desktop">.
 // CSS nutzt das, um Bottom-Nav, FAB und Mobile-spezifische Helfer zu zeigen/verbergen.
@@ -156,6 +157,48 @@ watchEffect(() => {
     sync.stop()
   }
 })
+
+// ---------- Onboarding-Tutorial ----------
+// Wird genau einmal pro User gezeigt: direkt nach dem Login, solange
+// `settings.settings.onboardingSeen === false`. Der Settings-Store liest
+// den per-User-Marker aus der Dexie-Tabelle (Compound-Key [key+userId]),
+// d.h. jeder User bekommt das Tutorial beim ersten Login — nach dem
+// ersten Schließen (egal welcher Button) wird es nie wieder automatisch
+// geöffnet. Über /info → "Tutorial erneut zeigen" kann der User es
+// jederzeit manuell zurücksetzen.
+const tutorialOffen = ref(false)
+let tutorialTriggeredFor: string | null = null
+
+watch(
+  () => ({
+    istAngemeldet: auth.istAngemeldet,
+    userId: auth.userId,
+    geladen: settings.geladen,
+    gesehen: settings.settings.onboardingSeen,
+  }),
+  ({ istAngemeldet, userId, geladen, gesehen }) => {
+    if (!istAngemeldet) {
+      tutorialOffen.value = false
+      tutorialTriggeredFor = null
+      return
+    }
+    // Erst öffnen, wenn der Settings-Store die per-User-Zeile gelesen
+    // hat. Sonst würden wir bei `onboardingSeen=false` (Default) sofort
+    // feuern, obwohl der echte Wert noch fehlt.
+    if (geladen !== true) return
+    if (gesehen === true) return
+    // Bereits für diesen User geöffnet? Nicht nochmal triggern (z. B.
+    // wenn der User währenddessen zu /info navigiert und zurück).
+    if (tutorialTriggeredFor === userId) return
+    tutorialTriggeredFor = userId
+    // Auf den nächsten Tick warten, damit die Login-Navigation sauber
+    // durchläuft und der Router auf der Ziel-Route sitzt.
+    setTimeout(() => {
+      tutorialOffen.value = true
+    }, 0)
+  },
+  { immediate: true },
+)
 
 function abmelden(): void {
   auth.abmelden()
@@ -553,6 +596,11 @@ function formatRelativ(iso: string | null): string {
     <main>
       <RouterView />
     </main>
+
+    <!-- Onboarding-Tutorial (Modal). Wird pro User genau einmal nach dem
+         ersten Login automatisch geöffnet, solange der per-User-Marker
+         `onboardingSeen` nicht gesetzt ist. -->
+    <OnboardingTutorial :offen="tutorialOffen" @schliessen="tutorialOffen = false" />
 
     <!-- Mobile Bottom-Nav + FAB-Scanner.
          Erscheint nur, wenn data-layout="mobile" gesetzt ist (siehe CSS). -->
@@ -1279,14 +1327,14 @@ function formatRelativ(iso: string | null): string {
 .sync-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   background: var(--bg-input);
   color: var(--text-muted);
   border: 1px solid var(--border-strong);
-  padding: 0.3rem 0.55rem;
+  padding: 0.4rem 0.75rem;
   border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.8rem;
+  font-weight: 600;
   cursor: pointer;
   font-family: inherit;
 }
@@ -1297,60 +1345,90 @@ function formatRelativ(iso: string | null): string {
 }
 
 .sync-dot {
-  width: 0.55rem;
-  height: 0.55rem;
+  width: 1.5rem;
+  height: 1.5rem;
   border-radius: 50%;
   display: inline-block;
   background: var(--text-muted);
+  position: relative;
 }
 .sync-dot.state-synced {
   background: var(--success);
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.15);
+  box-shadow:
+    0 0 0 4px rgba(74, 222, 128, 0.25),
+    0 0 14px 4px rgba(74, 222, 128, 0.55);
 }
 .sync-dot.state-syncing {
-  background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-  animation: pulse 1.4s infinite;
+  background: #fbbf24;
+  box-shadow:
+    0 0 0 4px rgba(251, 191, 36, 0.28),
+    0 0 14px 4px rgba(251, 191, 36, 0.55);
+  animation: syncPulse 1.2s ease-in-out infinite;
 }
 .sync-dot.state-pending,
 .sync-dot.state-stale,
 .sync-dot.state-diverged {
   background: #f59e0b;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+  box-shadow:
+    0 0 0 4px rgba(245, 158, 11, 0.28),
+    0 0 14px 4px rgba(245, 158, 11, 0.55);
+  animation: syncPulse 1.2s ease-in-out infinite;
 }
 .sync-dot.state-offline,
 .sync-dot.state-error,
 .sync-dot.state-origin-unavailable {
   background: var(--danger);
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.15);
+  box-shadow:
+    0 0 0 4px rgba(248, 113, 113, 0.3),
+    0 0 14px 4px rgba(248, 113, 113, 0.6);
 }
 
 .sync-indicator.state-synced {
-  border-color: rgba(74, 222, 128, 0.4);
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(74, 222, 128, 0.08);
+  color: var(--text-strong);
 }
 .sync-indicator.state-syncing {
-  border-color: var(--accent-border);
+  border-color: rgba(251, 191, 36, 0.55);
+  background: rgba(251, 191, 36, 0.1);
+  color: var(--text-strong);
 }
 .sync-indicator.state-pending,
 .sync-indicator.state-stale,
 .sync-indicator.state-diverged {
-  border-color: rgba(245, 158, 11, 0.4);
+  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--text-strong);
 }
 .sync-indicator.state-offline,
 .sync-indicator.state-error,
 .sync-indicator.state-origin-unavailable {
-  border-color: rgba(248, 113, 113, 0.4);
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--text-strong);
 }
 
 .sync-indicator-badge {
   background: #f59e0b;
   color: #1a1206;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  padding: 0.05rem 0.4rem;
+  padding: 0.1rem 0.45rem;
   border-radius: 999px;
-  min-width: 1.4rem;
+  min-width: 1.5rem;
   text-align: center;
+}
+
+@keyframes syncPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 0.85;
+  }
 }
 
 @keyframes pulse {

@@ -15,6 +15,63 @@ export default {
       h1: 'Dashboard',
       leer: 'Noch keine Daten. Lege im Menü "Standorte" und "Artikel" etwas an.',
     },
+    info: {
+      h1: 'Informationen',
+      untertitel:
+        'Anleitungen, Tipps und Hilfe für castel. Installiere die App als Web-App auf deinem Gerät, damit sie sich wie eine native App verhält.',
+      iosTitel: 'Web-App unter iOS (Safari) installieren',
+      iosS1: 'Öffne diese Seite in Safari auf deinem iPhone oder iPad.',
+      iosS2:
+        'Tippe unten in der Safari-Leiste auf den Teilen-Button (Quadrat mit Pfeil nach oben).',
+      iosS3: 'Scrolle im Teilen-Menü nach unten und wähle "Zum Home-Bildschirm".',
+      iosS4: 'Vergib einen kurzen Namen (z. B. "castel") und tippe auf "Hinzufügen".',
+      iosS5:
+        'Das castel-Symbol erscheint auf deinem Home-Bildschirm. Öffne die App immer darüber — nur so funktioniert der Offline-Modus zuverlässig.',
+      iosHinweis:
+        'Hinweis: Andere Browser (Chrome, Firefox) können auf iOS keine Web-Apps installieren. Verwende Safari.',
+      androidTitel: 'Web-App unter Android installieren',
+      androidVariante:
+        'Die Schritte unterscheiden sich je nach Browser. Wähle deinen Standard-Browser:',
+      androidChromeTitel: 'Google Chrome',
+      androidChromeS1:
+        'Öffne diese Seite in Chrome und tippe rechts oben auf das Drei-Punkte-Menü.',
+      androidChromeS2: 'Wähle "App installieren" oder "Zum Startbildschirm hinzufügen".',
+      androidChromeS3:
+        'Bestätige mit "Installieren". castel erscheint als eigenständige App in deiner App-Übersicht.',
+      androidSamsungTitel: 'Samsung Internet',
+      androidSamsungS1:
+        'Tippe unten in der Mitte auf das Menü (drei Striche) und wähle "Seite hinzufügen".',
+      androidSamsungS2: 'Wähle "Zum Startbildschirm".',
+      androidSamsungS3:
+        'Bestätige mit "Hinzufügen". castel liegt jetzt als Symbol auf deinem Startbildschirm.',
+      androidFirefoxTitel: 'Mozilla Firefox',
+      androidFirefoxS1:
+        'Tippe rechts oben auf die drei Punkte und öffne "Erweiterte Einstellungen".',
+      androidFirefoxS2: 'Wähle "Installation" und tippe auf "Installieren".',
+      androidFirefoxS3:
+        'Bestätige die Installation. Firefox unterstützt PWAs allerdings nur eingeschränkt — Chrome oder Samsung Internet sind die bessere Wahl.',
+      warumTitel: 'Warum installieren?',
+      warum1:
+        'Die Web-App startet schneller und fühlt sich an wie eine native App — ohne Adressleiste, ohne Browser-UI.',
+      warum2:
+        'Auch ohne Internet funktioniert alles (offline-fähig). Buchungen werden lokal gespeichert und automatisch synchronisiert, sobald du wieder online bist.',
+      warum3:
+        'Du bekommst Zugriff auf die Kamera für den Barcode-Scanner — nur als installierte App darf castel die Kamera nutzen.',
+      warum4:
+        'Updates werden beim nächsten Start automatisch geladen — kein App-Store, kein Hand-Aufhalten.',
+      problemeTitel: 'Häufige Probleme',
+      faq1Frage: 'Die Installations-Option fehlt im Browser.',
+      faq1Antwort:
+        'PWAs müssen über HTTPS ausgeliefert werden. Wenn du castel über eine HTTP-Adresse oder eine unsichere Verbindung öffnest, zeigen die Browser die Installation nicht an. Verwende die offizielle HTTPS-URL.',
+      faq2Frage: 'Ich finde die App nach der Installation nicht wieder.',
+      faq2Antwort:
+        'Auf iOS: schau auf deinem Home-Bildschirm nach. Auf Android: öffne die App-Übersicht (Wisch vom unteren Bildschirmrand nach oben).',
+      faq3Frage: 'Muss ich die App installieren, um castel zu nutzen?',
+      faq3Antwort:
+        'Nein — du kannst castel auch normal als Webseite im Browser benutzen. Die Installation bietet nur den besseren Offline-Modus und schnelleren Zugriff.',
+      zumDashboard: 'Zum Dashboard',
+      onboardingErneut: 'Tutorial erneut zeigen',
+    },
     artikel: {
       h1: 'Artikel',
       neu: 'Neuer Artikel',
@@ -253,6 +310,38 @@ export default {
       fehlerPwStimmtNicht: 'Neue Passwörter stimmen nicht überein.',
       speichernLaufend: 'Speichere …',
     },
+  },
+  onboarding: {
+    titel: 'Erste Schritte mit castel',
+    untertitel:
+      'castel läuft als Web-App. Installiere sie auf deinem Gerät — dann funktioniert sie auch offline und du hast schnellen Zugriff vom Startbildschirm.',
+    tab: {
+      ios: 'iOS (Safari)',
+      android: 'Android',
+      desktop: 'Desktop',
+    },
+    ios: {
+      s1: 'Öffne diese Seite in Safari (nicht Chrome oder Firefox).',
+      s2: 'Tippe unten auf den Teilen-Button (Quadrat mit Pfeil).',
+      s3: 'Wähle "Zum Home-Bildschirm".',
+      s4: 'Vergib einen Namen (z. B. "castel") und tippe auf "Hinzufügen".',
+      s5: 'Öffne castel immer über das neue Symbol auf dem Home-Bildschirm.',
+    },
+    android: {
+      s1: 'Öffne diese Seite in Chrome oder Samsung Internet.',
+      s2: 'Tippe auf das Menü (drei Punkte) und wähle "App installieren" oder "Zum Startbildschirm hinzufügen".',
+      s3: 'Bestätige — castel erscheint als App in deiner App-Übersicht.',
+    },
+    desktop: {
+      s1: 'Klicke rechts in der Adressleiste auf das Installieren-Symbol.',
+      s2: 'Bestätige — castel öffnet sich künftig in einem eigenen Fenster.',
+    },
+    weiter: 'Weiter',
+    zurueck: 'Zurück',
+    fertig: 'Verstanden',
+    spaeter: 'Später',
+    schliessen: 'Tutorial schließen',
+    mehrErfahren: 'Mehr erfahren (ausführliche Anleitung)',
   },
   auth: {
     error: {
