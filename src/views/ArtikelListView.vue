@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { useArtikelStore } from '../stores/artikel'
@@ -45,6 +45,34 @@ async function ladeThumbnails(): Promise<void> {
 
 onMounted(() => {
   void ladeThumbnails()
+})
+
+// Lightbox: Klick aufs Thumbnail → Bild groß, Klick auf den Backdrop
+// (oder ESC) → zu. State ist nur die URL + der zugehörige Artikel-Titel.
+const lightboxUrl = ref<string | null>(null)
+const lightboxTitel = ref<string>('')
+
+function openLightbox(url: string, titel: string): void {
+  lightboxUrl.value = url
+  lightboxTitel.value = titel
+}
+
+function closeLightbox(): void {
+  lightboxUrl.value = null
+  lightboxTitel.value = ''
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && lightboxUrl.value !== null) {
+    closeLightbox()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
 })
 
 // Buchungs-Lookup für den Standort-Filter bereitstellen.
@@ -170,12 +198,15 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
             {{ bestandStandard(a.id, standardStandort.id) }}
           </td>
           <td v-if="!offline" class="foto-cell" style="width: 44px; text-align: center">
-            <img
+            <button
               v-if="thumbnails.get(a.id)"
-              :src="thumbnails.get(a.id)!.url"
-              :alt="a.titel"
-              class="foto-thumb"
-            />
+              type="button"
+              class="foto-thumb-btn"
+              :aria-label="`Foto ${a.titel} vergroessern`"
+              @click="openLightbox(thumbnails.get(a.id)!.url, a.titel)"
+            >
+              <img :src="thumbnails.get(a.id)!.url" :alt="a.titel" class="foto-thumb" />
+            </button>
           </td>
           <td class="actions-cell">
             <RouterLink :to="`/buchung/neu?artikelId=${a.id}`" class="btn">
@@ -185,6 +216,20 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
         </tr>
       </tbody>
     </table>
+
+    <div
+      v-if="lightboxUrl !== null"
+      class="lightbox-backdrop"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="lightboxTitel"
+      @click="closeLightbox"
+    >
+      <figure class="lightbox-figure" @click.stop>
+        <img :src="lightboxUrl" :alt="lightboxTitel" class="lightbox-img" />
+        <figcaption class="lightbox-caption">{{ lightboxTitel }}</figcaption>
+      </figure>
+    </div>
   </section>
 </template>
 
@@ -214,5 +259,56 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   height: 32px;
   object-fit: cover;
   border-radius: var(--radius-sm);
+}
+
+.foto-thumb-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  display: inline-block;
+  line-height: 0;
+}
+.foto-thumb-btn:hover .foto-thumb,
+.foto-thumb-btn:focus-visible .foto-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+}
+
+.lightbox-figure {
+  margin: 0;
+  max-width: min(90vw, 900px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: default;
+}
+
+.lightbox-img {
+  max-width: 100%;
+  max-height: calc(90vh - 3rem);
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.lightbox-caption {
+  color: white;
+  font-size: 1rem;
+  text-align: center;
 }
 </style>
