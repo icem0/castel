@@ -1,44 +1,30 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, nextTick, computed } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
+import { useSettingsStore } from '../stores/settings'
+import { useBarcodeRender } from '../composables/useBarcodeRender'
 import type { Artikel } from '../db/types'
-import JsBarcode from 'jsbarcode'
 
 const { t } = useI18n()
 const route = useRoute()
 const artikelStore = useArtikelStore()
+const settings = useSettingsStore()
 
-const barcodeEl = ref<SVGSVGElement | null>(null)
 const auswahlArtikel = ref<Artikel | null>(null)
 const barcodeWert = ref('')
-const format = ref<'CODE128' | 'EAN13' | 'CODE39'>('CODE128')
-const anzeigen = ref(false)
-const fehler = ref('')
 const laufend = ref(false)
+const speicherHinweis = ref('')
 
-const formate = [
-  {
-    wert: 'CODE128' as const,
-    label: t('view.barcode.formatCode128'),
-    hint: t('view.barcode.hintCode128'),
-  },
-  {
-    wert: 'EAN13' as const,
-    label: t('view.barcode.formatEAN13'),
-    hint: t('view.barcode.hintEAN13'),
-  },
-  {
-    wert: 'CODE39' as const,
-    label: t('view.barcode.formatCode39'),
-    hint: t('view.barcode.hintCode39'),
-  },
-]
-
-const formatHint = computed(() => formate.find((f) => f.wert === format.value)?.hint ?? '')
-
-const barcodeRendert = computed(() => anzeigen.value && !!barcodeWert.value.trim())
+const barcodeQuelle = computed<string | null | undefined>(() => barcodeWert.value)
+const { el: barcodeEl, fehler: barcodeFehler } = useBarcodeRender(barcodeQuelle, {
+  width: 2,
+  height: 60,
+  displayValue: true,
+  fontSize: 16,
+  margin: 10,
+})
 
 function artikelOptionen(): Artikel[] {
   return artikelStore.artikel
@@ -47,52 +33,11 @@ function artikelOptionen(): Artikel[] {
 function aufArtikelWechseln(): void {
   const a = auswahlArtikel.value
   barcodeWert.value = a?.barcode ?? ''
-  anzeigen.value = false
-  fehler.value = ''
-  renderBarcode()
+  speicherHinweis.value = ''
 }
-
-function renderBarcode(): void {
-  if (!barcodeEl.value) return
-  const wert = barcodeWert.value.trim()
-  if (!wert) {
-    barcodeEl.value.innerHTML = ''
-    anzeigen.value = false
-    return
-  }
-  try {
-    barcodeEl.value.innerHTML = ''
-    JsBarcode(barcodeEl.value, wert, {
-      format: format.value,
-      width: 2,
-      height: 60,
-      displayValue: true,
-      fontSize: 16,
-      margin: 10,
-    })
-    anzeigen.value = true
-    fehler.value = ''
-  } catch (e) {
-    anzeigen.value = false
-    fehler.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
-watch(
-  () => barcodeWert.value,
-  () => {
-    renderBarcode()
-  },
-)
-
-watch(
-  () => format.value,
-  () => {
-    renderBarcode()
-  },
-)
 
 onMounted(() => {
+  settings.start()
   artikelStore.start()
   const queryArtikelId = route.query.artikelId
   if (typeof queryArtikelId === 'string') {
@@ -102,21 +47,20 @@ onMounted(() => {
       barcodeWert.value = a.barcode ?? ''
     }
   }
-  nextTick(() => renderBarcode())
 })
 
 async function speichernAmArtikel(): Promise<void> {
   if (!auswahlArtikel.value) return
   laufend.value = true
-  fehler.value = ''
+  speicherHinweis.value = ''
   try {
     await artikelStore.aktualisieren(auswahlArtikel.value.id, {
       barcode: barcodeWert.value.trim() || null,
     })
-    fehler.value = t('view.barcode.gespeichert')
+    speicherHinweis.value = t('view.barcode.gespeichert')
     auswahlArtikel.value = artikelStore.byId(auswahlArtikel.value.id) ?? null
   } catch (e) {
-    fehler.value = e instanceof Error ? e.message : String(e)
+    speicherHinweis.value = e instanceof Error ? e.message : String(e)
   } finally {
     laufend.value = false
   }
@@ -176,27 +120,16 @@ async function bildSpeichern(): Promise<void> {
 
         <label v-if="auswahlArtikel">
           <span>{{ t('view.barcode.wert') }}</span>
-          <input
-            v-model="barcodeWert"
-            type="text"
-            inputmode="text"
-            :disabled="laufend"
-            @input="renderBarcode"
-          />
+          <input v-model="barcodeWert" type="text" inputmode="text" :disabled="laufend" />
           <small class="hint">
             {{ t('view.barcode.wertHint') }}
           </small>
         </label>
 
-        <label v-if="auswahlArtikel">
-          <span>{{ t('view.barcode.format') }}</span>
-          <select v-model="format" :disabled="laufend">
-            <option v-for="f in formate" :key="f.wert" :value="f.wert">
-              {{ f.label }}
-            </option>
-          </select>
-          <small class="hint">{{ formatHint }}</small>
-        </label>
+        <p v-if="auswahlArtikel" class="hint format-hinweis">
+          {{ t('view.barcode.formatLabel') }}:
+          <strong>{{ settings.settings.barcodeTyp }}</strong>
+        </p>
 
         <div class="form-actions">
           <button
@@ -207,17 +140,18 @@ async function bildSpeichern(): Promise<void> {
           >
             {{ t('view.barcode.zuArtikelSpeichern') }}
           </button>
-          <button type="button" :disabled="!barcodeRendert || laufend" @click="bildSpeichern">
+          <button type="button" :disabled="!barcodeWert.trim() || laufend" @click="bildSpeichern">
             {{ t('view.barcode.bildSpeichern') }}
           </button>
           <span v-if="laufend" class="hint">{{ t('view.barcode.speichert') }}…</span>
-          <span v-if="fehler" class="hint fehler">{{ fehler }}</span>
+          <span v-if="speicherHinweis" class="hint fehler">{{ speicherHinweis }}</span>
         </div>
       </form>
     </div>
 
     <div class="card barcode-vorschau">
       <svg ref="barcodeEl"></svg>
+      <small v-if="barcodeFehler" class="fehler hint">{{ barcodeFehler }}</small>
     </div>
   </section>
 </template>
@@ -229,12 +163,21 @@ async function bildSpeichern(): Promise<void> {
 }
 .barcode-vorschau {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
   padding: 1.5rem;
   border: 1px dashed var(--border, #ccc);
   border-radius: 0.5rem;
   background: #fff;
   min-height: 120px;
+}
+.format-hinweis {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-input, #f4f4f4);
+  border-radius: 0.25rem;
+  border: 1px solid var(--border, #cbd5e1);
 }
 .fehler {
   color: var(--error, #c00);

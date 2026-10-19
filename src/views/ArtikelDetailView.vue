@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, watch, nextTick } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
@@ -7,9 +7,8 @@ import { useStandortStore } from '../stores/standort'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
-import { useSettingsStore } from '../stores/settings'
+import { useBarcodeRender } from '../composables/useBarcodeRender'
 import type { Artikel, ArtikelStatus, Buchung } from '../db/types'
-import JsBarcode from 'jsbarcode'
 import FotoUpload from './components/FotoUpload.vue'
 
 const { t } = useI18n()
@@ -20,9 +19,12 @@ const standortStore = useStandortStore()
 const buchungStore = useBuchungStore()
 const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
-const settings = useSettingsStore()
 
-const barcodeEl = ref<SVGSVGElement | null>(null)
+const barcodeQuelle = computed<string | null | undefined>(() => artikel.value?.barcode)
+const { el: barcodeEl, fehler: barcodeFehler } = useBarcodeRender(barcodeQuelle, {
+  height: 50,
+  displayValue: false,
+})
 
 const artikelId = computed<string>(() => String(route.params.id ?? ''))
 const artikel = computed<Artikel | undefined>(() => artikelStore.byId(artikelId.value))
@@ -176,55 +178,8 @@ function formatDatum(iso: string): string {
   return new Date(iso).toLocaleString()
 }
 
-function renderBarcode(): void {
-  if (!barcodeEl.value) return
-  const wert = artikel.value?.barcode?.trim()
-  if (!wert) {
-    barcodeEl.value.innerHTML = ''
-    return
-  }
-  try {
-    barcodeEl.value.innerHTML = ''
-    JsBarcode(barcodeEl.value, wert, {
-      format: settings.settings.barcodeTyp,
-      width: 2,
-      height: 50,
-      displayValue: false,
-      fontSize: 12,
-      margin: 5,
-    })
-  } catch (_e) {
-    barcodeEl.value.innerHTML = ''
-  }
-}
-
-watch(
-  () => artikel.value?.barcode,
-  () => {
-    nextTick(() => renderBarcode())
-  },
-)
-
-watch(
-  () => settings.settings.barcodeTyp,
-  () => {
-    nextTick(() => renderBarcode())
-  },
-)
-
-watch(
-  () => barcodeEl.value,
-  (el) => {
-    if (el && artikel.value?.barcode?.trim()) {
-      renderBarcode()
-    }
-  },
-)
-
 onMounted(() => {
   artikelStore.start()
-  settings.start()
-  nextTick(() => renderBarcode())
 })
 </script>
 
@@ -294,6 +249,7 @@ onMounted(() => {
           <dd class="barcode-row">
             <code>{{ artikel.barcode }}</code>
             <svg ref="barcodeEl"></svg>
+            <span v-if="barcodeFehler" class="fehler hint">{{ barcodeFehler }}</span>
           </dd>
         </div>
         <div v-if="artikel.listenpreis != null">
