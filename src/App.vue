@@ -183,26 +183,52 @@ watchEffect(() => {
 // beendet und das Modal kommt nie wieder automatisch. Über /info →
 // "Tutorial erneut zeigen" kann der User es jederzeit manuell öffnen;
 // das schreibt NUR `onboardingSeen=false`, nicht `firstLoginDone`.
+//
+// Verhalten nach F5/Refresh: das Modal öffnet frühestens 1,5s nach
+// dem ersten Trigger. In dieser Zeit hat der Server-Pull Zeit, eine
+// eventuelle `firstLoginDone=true` oder `onboardingSeen=true`-Zeile
+// nachzuliefern. Wenn die ankommt, killt sie den Verzögerungs-Timer
+// und das Modal bleibt zu. Wenn nicht, ist der User wirklich Erstnutzer
+// und wir zeigen das Modal.
 const tutorialOffen = ref(false)
 let tutorialTriggeredFor: string | null = null
 let firstLoginDoneMarkerGeschrieben: string | null = null
-const SYNC_FRIST_MS = 4000
-let syncFristTimer: ReturnType<typeof setTimeout> | null = null
+const ONBOARDING_VERZOEGERUNG_MS = 1500
+let verzoegerungsTimer: ReturnType<typeof setTimeout> | null = null
 
+function clearVerzoegerungsTimer(): void {
+  if (verzoegerungsTimer !== null) {
+    clearTimeout(verzoegerungsTimer)
+    verzoegerungsTimer = null
+  }
+}
+
+function starteVerzoegerungsTimer(): void {
+  if (verzoegerungsTimer !== null) return
+  if (tutorialTriggeredFor === auth.userId) return
+  verzoegerungsTimer = setTimeout(() => {
+    verzoegerungsTimer = null
+    pruefeUndOeffneTutorial()
+  }, ONBOARDING_VERZOEGERUNG_MS)
+}
+
+// Öffnet das Modal, falls ALLE Gates passen. Idempotent: ein bereits
+// getriggerter User wird nicht nochmal getriggert.
 function pruefeUndOeffneTutorial(): void {
   const userId = auth.userId
   if (!auth.istAngemeldet) return
   if (settings.geladen !== true) return
-  // Erstnutzer-Gate: sobald `firstLoginDone` true ist, kommt das Modal
-  // nie wieder automatisch. Wenn der User es später nochmal sehen will,
-  // macht er das explizit über /info → "Tutorial erneut zeigen".
-  if (settings.settings.firstLoginDone === true) return
-  // Sicherheits-Check: wenn der Server bereits `onboardingSeen=true`
-  // geliefert hat (oder lokal gesetzt ist), zeigen wir das Modal auch
-  // für Erstnutzer nicht. Ein Erstnutzer kann theoretisch auf Gerät A
-  // das Häkchen 'Tutorial ausblenden' gesetzt haben, bevor er auf
-  // Gerät B zum ersten Mal die App öffnet.
+  // Gate 1: Erstnutzer. Sobald `firstLoginDone` true ist, kommt das
+  // Modal nie wieder automatisch.
+  if (settings.settings.firstLoginDone === true) {
+    clearVerzoegerungsTimer()
+    tutorialOffen.value = false
+    return
+  }
+  // Gate 2: Wenn der Server (oder der User selbst) `onboardingSeen=true`
+  // gesetzt hat, zeigen wir das Modal auch für Erstnutzer nicht.
   if (settings.settings.onboardingSeen === true) {
+    clearVerzoegerungsTimer()
     markiereFirstLoginDone(userId)
     return
   }
@@ -214,14 +240,10 @@ function pruefeUndOeffneTutorial(): void {
   }, 0)
 }
 
-// Sobald wir das Modal einmal gezeigt (oder bewusst ausgelassen) haben,
-// setzen wir den per-User-Marker `firstLoginDone = true`. Damit ist die
-// Erstnutzer-Phase beendet. Idempotent pro User.
 function markiereFirstLoginDone(userId: string | null): void {
   if (userId === null) return
   if (firstLoginDoneMarkerGeschrieben === userId) return
   firstLoginDoneMarkerGeschrieben = userId
-  // Best-effort: Fehler beim Schreiben dürfen das Modal nicht blockieren.
   void settings.setFirstLoginDone(true).catch(() => {
     // bewusst ignorieren
   })
@@ -235,37 +257,32 @@ watch(
     gesehen: settings.settings.onboardingSeen,
     firstLoginDone: settings.settings.firstLoginDone,
   }),
-  ({ istAngemeldet, firstLoginDone }) => {
+  ({ istAngemeldet, firstLoginDone, gesehen }) => {
     if (!istAngemeldet) {
       tutorialOffen.value = false
       tutorialTriggeredFor = null
       firstLoginDoneMarkerGeschrieben = null
-      if (syncFristTimer !== null) {
-        clearTimeout(syncFristTimer)
-        syncFristTimer = null
-      }
+      clearVerzoegerungsTimer()
       return
     }
-    // Wenn die `firstLoginDone`-Zeile ankommt (z. B. durch Server-Pull
-    // auf einem anderen Gerät, oder durch den User-Logout/Login-Zyklus),
-    // schließen wir das Modal sofort. Das ist die wichtigste Bremse.
-    if (firstLoginDone === true) {
+    // Bremse: sobald eines der Flags true wird, ist Schluss — egal
+    // welche Phase wir gerade haben.
+    if (firstLoginDone === true || gesehen === true) {
+      clearVerzoegerungsTimer()
       tutorialOffen.value = false
       return
     }
-    // Den eigentlichen Trigger (mit Sync-Wartezeit) macht der Sync-Status-
-    // Watcher unten. Hier reicht es, den Status zu spiegeln, falls der
-    // Sync schon durch ist, bevor dieser Watcher läuft.
-    pruefeUndOeffneTutorial()
+    if (settings.geladen === true) {
+      starteVerzoegerungsTimer()
+    }
   },
   { immediate: true },
 )
 
-// Sync-Status-Watcher: öffnet das Tutorial erst, wenn der erste Pull
-// gelaufen ist (oder definitiv keiner mehr kommt: offline / error /
-// origin-unavailable). Damit kann der Pull noch eine serverseitig
-// gesetzte `firstLoginDone=true` oder `onboardingSeen=true`-Zeile in
-// Dexie schreiben, BEVOR wir das Modal öffnen.
+// Sync-Status-Watcher: sobald der erste Pull durch ist (oder
+// definitiv keiner mehr kommt), starten wir ggf. den Verzögerungs-Timer
+// für die Modal-Anzeige. Der Timer gibt dem Pull + der Eventual-Check
+// Zeit, sich zu beruhigen.
 watch(
   () => ({
     status: sync.status.status,
@@ -277,23 +294,10 @@ watch(
       status === 'offline' ||
       status === 'origin-unavailable' ||
       status === 'error'
-    if (!syncBereit) {
-      if (syncFristTimer === null) {
-        syncFristTimer = setTimeout(() => {
-          syncFristTimer = null
-          // Frist abgelaufen, ohne dass ein Sync durchlief. Wir geben auf
-          // und zeigen das Modal — schlimmstenfalls sieht der User es
-          // einmal zu viel, aber wir blockieren den Login nicht ewig.
-          pruefeUndOeffneTutorial()
-        }, SYNC_FRIST_MS)
-      }
-      return
+    if (!syncBereit) return
+    if (settings.geladen === true && auth.istAngemeldet) {
+      starteVerzoegerungsTimer()
     }
-    if (syncFristTimer !== null) {
-      clearTimeout(syncFristTimer)
-      syncFristTimer = null
-    }
-    pruefeUndOeffneTutorial()
   },
   { immediate: true },
 )
