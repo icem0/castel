@@ -97,6 +97,7 @@ export const EINSTELLUNG_KEYS = [
   'kommissionen',
   'companyName',
   'barcodeTyp',
+  'onboardingSeen',
 ] as const
 export type EinstellungKey = (typeof EINSTELLUNG_KEYS)[number]
 

@@ -5,17 +5,16 @@
 //   - Per-User isoliert: User A "fertig" => User B sieht Tutorial beim Login
 //   - Setzen via setOnboardingSeen(true) => Store reflektiert true
 //   - Zurücksetzen via setOnboardingSeen(false) => Store reflektiert false
-//   - Local-only: kein Outbox-Eintrag, keine Server-Synchronisation
-//     (Server-Whitelist kennt den Key nicht).
+//   - Cross-Device-Sync: queueOp wird aufgerufen (Outbox-Eintrag), damit der
+//     Server den Wert per LWW an alle Geräte des Users verteilt.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import 'fake-indexeddb/auto'
 
-// `queueOp` mocken, damit wir prüfen können, dass `onboardingSeen`
-// keinen Outbox-Eintrag erzeugt. `vi.hoisted` ist nötig, weil
-// `vi.mock` Factory-Calls an den Anfang der Datei gehoben werden —
-// die Spy-Referenz muss also bereits dort verfügbar sein.
+// `queueOp` mocken, damit wir den Sync-Pfad prüfen können. `vi.hoisted` ist
+// nötig, weil `vi.mock` Factory-Calls an den Anfang der Datei gehoben
+// werden — die Spy-Referenz muss also bereits dort verfügbar sein.
 const { queueOpMock } = vi.hoisted(() => ({
   queueOpMock: vi.fn(),
 }))
@@ -152,7 +151,7 @@ describe('useSettingsStore — onboardingSeen (Tutorial-Gate)', () => {
     store2.stop()
   })
 
-  it('onboardingSeen ist local-only: kein Outbox-Eintrag, kein queueOp', async () => {
+  it('onboardingSeen wird per Outbox zum Server synchronisiert', async () => {
     sessionSchreiben({
       userId: 'user-a',
       email: 'a@example.com',
@@ -173,10 +172,31 @@ describe('useSettingsStore — onboardingSeen (Tutorial-Gate)', () => {
     const row = await getDb().einstellungen.get(['onboardingSeen', 'user-a'])
     expect(row?.value).toBe('true')
 
-    // … aber kein Server-Sync: keine Outbox-Zeile, kein queueOp-Aufruf.
-    expect(queueOpMock).not.toHaveBeenCalled()
-    const outboxRows = await getDb().outbox.toArray()
-    expect(outboxRows).toHaveLength(0)
+    // … und in den Sync-Pfad geschoben: queueOp wird mit dem korrekten
+    // (key, userId, value)-Tripel aufgerufen, damit der Server den Wert
+    // per LWW auf alle Geräte des Users verteilt. Die echte Outbox-Tabelle
+    // bleibt in diesem Unit-Test leer, weil queueOp gemockt ist — der
+    // Mock-Aufruf ist hier die maßgebliche Aussage.
+    expect(queueOpMock).toHaveBeenCalledTimes(1)
+    expect(queueOpMock).toHaveBeenCalledWith(
+      'einstellung',
+      'upsert',
+      expect.objectContaining({
+        key: 'onboardingSeen',
+        userId: 'user-a',
+        value: 'true',
+      }),
+    )
+
+    // Zurücksetzen erzeugt einen zweiten queueOp-Aufruf mit value='false'.
+    await store.setOnboardingSeen(false)
+    await new Promise<void>((r) => setTimeout(r, 30))
+    expect(queueOpMock).toHaveBeenCalledTimes(2)
+    expect(queueOpMock.mock.calls[1]?.[2]).toMatchObject({
+      key: 'onboardingSeen',
+      userId: 'user-a',
+      value: 'false',
+    })
 
     store.stop()
   })

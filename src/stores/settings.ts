@@ -1,16 +1,12 @@
 // Settings-Store: liest die `einstellungen`-Tabelle reaktiv via Dexie liveQuery.
 // Speichert sprache, standardStandortId, artikelTypen, kommissionen, companyName,
-// barcodeTyp.
+// barcodeTyp, onboardingSeen.
 //
-// Ab Dexie v5 sind diese Einstellungen Cross-Device-synchronisiert:
+// Diese Einstellungen sind Cross-Device-synchronisiert:
 //   - artikelTypen, kommissionen, companyName, barcodeTyp → userId = null (global)
-//   - sprache, standardStandortId → userId = <current user>
+//   - sprache, standardStandortId, onboardingSeen → userId = <current user>
 // Beim Setzen wird ein Outbox-Eintrag erzeugt, den der Sync-Worker zum
 // Server pusht. Der Server ist Source of Truth (LWW auf geaendertAm).
-//
-// Ausnahme: onboardingSeen ist rein lokal (Tutorial-Gate pro Gerät).
-// Es liegt ebenfalls in `einstellungen`, wird aber NICHT synchronisiert —
-// siehe LOCAL_ONLY_KEYS.
 //
 // IndexedDB-Konvention: Dexie erlaubt kein `null` in Primary-Key-Komponenten.
 // Wir speichern "global" als userId = '' (leerer String) und übersetzen
@@ -44,9 +40,10 @@ export interface Settings {
    * gesehen / abgeschlossen? Steuert, ob der Tutorial-Modal beim Login
    * automatisch geöffnet wird. Default: false (Tutorial zeigen).
    *
-   * Rein lokal (pro Gerät) — wird NICHT zum Server synchronisiert, weil
-   * das Tutorial auf einem neuen Gerät einmal bewusst gezeigt werden soll
-   * und der Server-Whitelist (EINSTELLUNG_KEYS) den Key nicht enthält.
+   * Cross-Device-synchronisiert (per-User-Key, PK [key+userId]). Einmal auf
+   * einem Gerät abgewählt → auf allen Geräten dieses Users ausgeblendet.
+   * Reset über /info → "Tutorial erneut zeigen" setzt die Zeile auf false
+   * und wird per Sync (LWW) an alle Geräte verteilt.
    */
   onboardingSeen: boolean
 }
@@ -62,17 +59,7 @@ const DEFAULTS: Settings = {
 }
 
 const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
-const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId'])
-/**
- * Local-only keys: liegen in IndexedDB, werden aber NICHT zum Server
- * synchronisiert. `onboardingSeen` ist ein pro-Gerät-Tutorial-Gate;
- * eine globale Synchronisation würde das Tutorial auf frisch
- * synchronisierten Geräten unterdrücken, was für neue User irritierend
- * ist. Wer ein neues Gerät bekommt, sieht das Tutorial einmal — das ist
- * akzeptabel. Server-Whitelist (EINSTELLUNG_KEYS) bleibt absichtlich
- * eng, deshalb darf der Client diese Keys nicht per Outbox pushen.
- */
-const LOCAL_ONLY_KEYS = new Set<string>(['onboardingSeen'])
+const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId', 'onboardingSeen'])
 const GLOBAL_INDEX = ''
 
 function scopeForKey(key: string): 'global' | 'user' {
@@ -185,19 +172,13 @@ export const useSettingsStore = defineStore('settings', () => {
    * Auth-State abgeleitet: global für artikelTypen/kommissionen/companyName,
    * sonst current user. Erzeugt zusätzlich einen Outbox-Eintrag für den
    * Server-Sync.
-   *
-   * Local-only-Keys (siehe LOCAL_ONLY_KEYS) werden nur in IndexedDB
-   * geschrieben — ohne Outbox, ohne Server-Sync.
    */
   async function setKey(key: string, value: string): Promise<void> {
-    if (!PER_USER_KEYS.has(key) && !GLOBAL_KEYS.has(key) && !LOCAL_ONLY_KEYS.has(key)) {
+    if (!PER_USER_KEYS.has(key) && !GLOBAL_KEYS.has(key)) {
       throw new Error(`Unbekannter Einstellungs-Key: ${key}`)
     }
     const scope = scopeForKey(key)
     const session = sessionLesen()
-    // Local-only-Keys laufen wie Per-User-Keys (key+userId als PK), also
-    // brauchen wir auch dort eine gültige User-ID. Vor Login gibt es
-    // keinen User-Context → Schreiben abbrechen.
     const userId: string | null = scope === 'user' ? (session?.userId ?? null) : null
     if (scope === 'user' && userId === null) {
       // Vor Login sollte der User-Key gar nicht geschrieben werden. Wir
@@ -217,11 +198,6 @@ export const useSettingsStore = defineStore('settings', () => {
       geaendertAm,
     }
     await getDb().einstellungen.put(indexedRow)
-    if (LOCAL_ONLY_KEYS.has(key)) {
-      // Bewusst kein queueOp(): der Server kennt diesen Key nicht und
-      // würde den Push mit Validation-400 ablehnen.
-      return
-    }
     const outboxRow: Einstellung = { key, userId, value, geaendertAm }
     await queueOp('einstellung', 'upsert', outboxRow)
   }

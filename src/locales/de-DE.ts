@@ -213,6 +213,9 @@ export default {
       nichtGelegt: 'noch nicht festgelegt',
       barcodeTyp: 'Barcode-Format',
       barcodeTypHint: 'Wird in der Artikel-Detail-Ansicht zur Darstellung des Barcodes verwendet.',
+      onboardingAusblenden: 'Onboarding-Tutorial nicht mehr anzeigen',
+      onboardingAusblendenHint:
+        'Blendet das "Erste Schritte"-Modal bei zukünftigen Logins auf allen Geräten aus. Über "Tutorial erneut zeigen" unter Informationen lässt es sich wieder einschalten.',
     },
     artikelTypen: {
       h1: 'Artikel-Typen',

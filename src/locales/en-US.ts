@@ -208,6 +208,9 @@ export default {
       nichtGelegt: 'not set',
       barcodeTyp: 'Barcode format',
       barcodeTypHint: 'Used to render the barcode in the item detail view.',
+      onboardingAusblenden: 'Hide the onboarding tutorial',
+      onboardingAusblendenHint:
+        'Hides the "Getting started" modal on future logins across all your devices. You can re-enable it via "Show tutorial again" under Information.',
     },
     artikelTypen: {
       h1: 'Item types',
