@@ -152,6 +152,48 @@ export async function fotoRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  // ---------- GET /api/fotos/by-artikel ----------
+  // Liefert für JEDEN Artikel mit mindestens einem Foto genau das erste
+  // (älteste) Foto als Thumbnail-URL. Die PWA lädt das einmal beim Mount
+  // der Artikel-Liste und zeigt pro Zeile das Bild an. Ein Request statt
+  // N — bei 500 Artikeln mit Fotos wäre die per-Artikel-Variante
+  // (/api/fotos/list/:artikelId) sonst einhunderte Roundtrips.
+  //
+  // Implementierung: Wir lesen alle Foto-Zeilen (server-seitig ein Index
+  // auf `fotos.artikel_id` ist vorhanden — `fotos_artikel_idx`), gruppieren
+  // in JS und nehmen pro Gruppe die erste (älteste). Bei wenigen tausend
+  // Fotos ist das schneller und portabler als DISTINCT ON — und die
+  // Sortierung passiert eh einmalig, nicht pro Request.
+  app.get(
+    '/api/fotos/by-artikel',
+    { preHandler: app.requireAuth },
+    async (_req, reply) => {
+      const db = getDb()
+      const rows = await db
+        .select({
+          artikelId: fotos.artikelId,
+          id: fotos.id,
+          pfad: fotos.pfad,
+          erstelltAm: fotos.erstelltAm,
+        })
+        .from(fotos)
+        .orderBy(fotos.artikelId, fotos.erstelltAm)
+      const firstByArtikel = new Map<string, { id: string; url: string }>()
+      for (const r of rows) {
+        if (firstByArtikel.has(r.artikelId)) continue
+        firstByArtikel.set(r.artikelId, {
+          id: r.id,
+          url: `/fotos/${r.pfad}`,
+        })
+      }
+      const out: Array<{ artikelId: string; id: string; url: string }> = []
+      for (const [artikelId, foto] of firstByArtikel) {
+        out.push({ artikelId, ...foto })
+      }
+      return reply.send(out)
+    },
+  )
+
   // ---------- Statische Auslieferung ----------
   // /fotos/* liegt in einer separaten `fotoStaticRoutes`-Funktion, damit
   // es in `index.ts` AUSSERHALB des `requireAuth`-Scopes registriert werden

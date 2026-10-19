@@ -27,6 +27,12 @@ export interface FotoListEintrag {
   url: string
 }
 
+export interface FotoThumbnail {
+  artikelId: string
+  id: string
+  url: string
+}
+
 const MAX_SIZE_MB = 0.32
 const MAX_WIDTH = 1280
 
@@ -122,4 +128,23 @@ export async function loescheFoto(fotoId: string): Promise<void> {
     const text = await res.text().catch(() => '')
     throw new Error(`Löschen fehlgeschlagen (${res.status}): ${text}`)
   }
+}
+
+/**
+ * Liefert pro Artikel mit Foto das erste (älteste) Foto als Thumbnail.
+ * Ein Request für die ganze Tabelle, kein N+1. Leeres Array bei Fehler
+ * oder wenn der Server keine Fotos hat.
+ */
+export async function ladeFotoThumbnails(): Promise<FotoThumbnail[]> {
+  const url = `${getApiBaseUrl()}/api/fotos/by-artikel`
+  const token = jwtLesen()
+  const res = await fetch(url, {
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    credentials: 'include',
+  })
+  if (!res.ok) return []
+  return (await res.json()) as FotoThumbnail[]
 }

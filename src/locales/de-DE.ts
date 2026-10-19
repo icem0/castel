@@ -102,6 +102,7 @@ export default {
         typ: 'Typ',
         bestand: 'Bestand',
         status: 'Status',
+        foto: 'Foto',
       },
       leer: 'Keine Artikel gefunden.',
       detail: {
@@ -288,20 +289,6 @@ export default {
       ja: 'Ja',
       nein: 'Nein',
       optional: '(optional)',
-    },
-    backup: {
-      exportieren: 'Backup exportieren',
-      wiederherstellen: 'Backup wiederherstellen',
-      datei: 'Backup-Datei (.json)',
-      laeuft: 'Stelle wieder her…',
-      bestaetigen:
-        'Ich bestätige, dass alle aktuellen lokalen Daten durch das Backup überschrieben werden.',
-      bestaetigungErforderlich: 'Bitte bestätigen, bevor das Backup wiederhergestellt wird.',
-      fehlerParse: 'Die Datei konnte nicht als JSON gelesen werden.',
-      fehlerSchema: 'Ungültiges Backup (unbekanntes Schema).',
-      fehler: 'Wiederherstellung fehlgeschlagen: {msg}',
-      hinweis:
-        'Wählt eine zuvor exportierte castel-Backup-Datei (.json) aus. Alle bestehenden Daten werden ersetzt.',
     },
     passwortAendern: {
       h1Erzwungen: 'Neues Passwort setzen',
