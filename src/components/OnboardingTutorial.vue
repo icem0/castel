@@ -137,6 +137,8 @@ function plattformLabel(p: Plattform): string {
   if (p === 'android') return t('onboarding.tab.android')
   return t('onboarding.tab.desktop')
 }
+
+console.log('[onboarding] OnboardingTutorial rendert. props.offen =', props.offen)
 </script>
 
 <template>

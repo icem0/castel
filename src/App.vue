@@ -206,8 +206,16 @@ function clearVerzoegerungsTimer(): void {
 function starteVerzoegerungsTimer(): void {
   if (verzoegerungsTimer !== null) return
   if (tutorialTriggeredFor === auth.userId) return
+  console.log('[onboarding] starteVerzoegerungsTimer: 1,5s warten', {
+    istAngemeldet: auth.istAngemeldet,
+    userId: auth.userId,
+    geladen: settings.geladen,
+    onboardingSeen: settings.settings.onboardingSeen,
+    firstLoginDone: settings.settings.firstLoginDone,
+  })
   verzoegerungsTimer = setTimeout(() => {
     verzoegerungsTimer = null
+    console.log('[onboarding] Timer abgelaufen, pruefeUndOeffneTutorial()')
     pruefeUndOeffneTutorial()
   }, ONBOARDING_VERZOEGERUNG_MS)
 }
@@ -216,26 +224,39 @@ function starteVerzoegerungsTimer(): void {
 // getriggerter User wird nicht nochmal getriggert.
 function pruefeUndOeffneTutorial(): void {
   const userId = auth.userId
-  if (!auth.istAngemeldet) return
-  if (settings.geladen !== true) return
-  // Gate 1: Erstnutzer. Sobald `firstLoginDone` true ist, kommt das
-  // Modal nie wieder automatisch.
+  if (!auth.istAngemeldet) {
+    console.log('[onboarding] pruefe: NICHT angemeldet, skip')
+    return
+  }
+  if (settings.geladen !== true) {
+    console.log('[onboarding] pruefe: settings.geladen !== true, skip')
+    return
+  }
   if (settings.settings.firstLoginDone === true) {
+    console.log('[onboarding] pruefe: firstLoginDone=true, blockiere')
     clearVerzoegerungsTimer()
     tutorialOffen.value = false
     return
   }
-  // Gate 2: Wenn der Server (oder der User selbst) `onboardingSeen=true`
-  // gesetzt hat, zeigen wir das Modal auch für Erstnutzer nicht.
   if (settings.settings.onboardingSeen === true) {
+    console.log('[onboarding] pruefe: onboardingSeen=true, blockiere')
     clearVerzoegerungsTimer()
     markiereFirstLoginDone(userId)
     return
   }
-  if (tutorialTriggeredFor === userId) return
+  if (tutorialTriggeredFor === userId) {
+    console.log('[onboarding] pruefe: schon fuer diesen user getriggert, skip')
+    return
+  }
+  console.log('[onboarding] pruefe: ALLE Gates passen, oeffne Modal', {
+    userId,
+    firstLoginDone: settings.settings.firstLoginDone,
+    onboardingSeen: settings.settings.onboardingSeen,
+  })
   tutorialTriggeredFor = userId
   markiereFirstLoginDone(userId)
   setTimeout(() => {
+    console.log('[onboarding] setTimeout 0ms: tutorialOffen.value = true')
     tutorialOffen.value = true
   }, 0)
 }
@@ -258,6 +279,13 @@ watch(
     firstLoginDone: settings.settings.firstLoginDone,
   }),
   ({ istAngemeldet, firstLoginDone, gesehen }) => {
+    console.log('[onboarding] Watcher #1 (settings) feuert', {
+      istAngemeldet,
+      userId: auth.userId,
+      geladen: settings.geladen,
+      gesehen,
+      firstLoginDone,
+    })
     if (!istAngemeldet) {
       tutorialOffen.value = false
       tutorialTriggeredFor = null
@@ -265,9 +293,8 @@ watch(
       clearVerzoegerungsTimer()
       return
     }
-    // Bremse: sobald eines der Flags true wird, ist Schluss — egal
-    // welche Phase wir gerade haben.
     if (firstLoginDone === true || gesehen === true) {
+      console.log('[onboarding] Watcher #1: blockiere (Flag true)')
       clearVerzoegerungsTimer()
       tutorialOffen.value = false
       return
@@ -289,6 +316,10 @@ watch(
     letzterSync: sync.status.lastSyncAt,
   }),
   ({ status, letzterSync }) => {
+    console.log('[onboarding] Watcher #2 (sync) feuert', {
+      status,
+      letzterSync,
+    })
     const syncBereit =
       letzterSync !== null ||
       status === 'offline' ||
