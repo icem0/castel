@@ -1,124 +1,248 @@
 <script setup lang="ts">
 // Admin-View: Backup & Restore.
 //
-// Zeigt die Host-seitigen Befehle zum Erstellen und Einspielen eines
-// Backups, plus Live-Status (Row-Counts, letzter Sync-Force-At) vom
-// Server. Die eigentlichen Skripte (scripts/backup.mjs,
-// scripts/restore.mjs) laufen AUF DEM HOST, nicht im Browser — diese
-// View ist Anleitung + Diagnose, kein Knopf-zu-Knopf-Backup.
-//
-// Voraussetzungen fuer den Admin:
-//   - `pg_dump` und `pg_restore` lokal installiert (Postgres-Client-Tools)
-//   - Zugriff auf den Postgres-Container (DATABASE_URL) und das
-//     `fotos-data`-Volume (FOTOS_DIR)
-//   - Ein gueltiges Admin-JWT (wird beim Login in den Auth-Store
-//     geschrieben, von den Skripten via $ADMIN_TOKEN erwartet)
+// Funktionen:
+//   - "Jetzt Backup herunterladen" -> Server baut on-the-fly ein ZIP
+//     (sync -> pg_dump -Fc -> FOTOS_DIR -> zip -> Stream) und der Browser
+//     speichert es.
+//   - "Jetzt Backup erstellen"     -> legt das ZIP im BACKUP_DIR-Volume ab.
+//   - Schedule-Formular            -> HH:MM (Cronjob) + Anzahl Kopien.
+//   - Liste vorhandener Backups    -> loeschen, herunterladen, restaurieren.
 
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { apiFetch } from '../auth/api'
+import { apiFetch, getApiBaseUrl } from '../auth/api'
+import { jwtLesen } from '../auth/session'
 
 const { t } = useI18n()
 
-interface StatusResponse {
-  serverTime: string
-  counts: { artikel: number; standorte: number; commission: number; buchungen: number }
+interface BackupSettings {
+  schedule: string
+  keepCopies: number
 }
 
-interface ForceAtResponse {
-  forceAt: string | null
+interface BackupDatei {
+  name: string
+  size: number
+  createdAt: string
 }
 
-const counts = ref<StatusResponse['counts'] | null>(null)
-const serverTime = ref<string | null>(null)
-const forceAt = ref<string | null>(null)
-const triggerLaeuft = ref(false)
-const triggerFehler = ref<string | null>(null)
-const triggerErfolg = ref<string | null>(null)
-const ladeFehler = ref<string | null>(null)
+interface BackupListResponse {
+  files: BackupDatei[]
+  dir: string
+}
 
-async function ladeStatus(): Promise<void> {
-  ladeFehler.value = null
+interface RunResponse {
+  filename: string
+  bytes: number
+  size: number
+  geloescht: number
+  total: number
+}
+
+const settings = ref<BackupSettings>({ schedule: '', keepCopies: 7 })
+const files = ref<BackupDatei[]>([])
+const backupDir = ref<string>('')
+
+const laedt = ref(false)
+const speichert = ref(false)
+const fehler = ref<string | null>(null)
+const erfolg = ref<string | null>(null)
+const laufAktion = ref<null | 'download' | 'run' | string>(null)
+
+const letzteRun = ref<RunResponse | null>(null)
+const settingsDirty = ref(false)
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function humanDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('de-DE', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function authHeader(): Record<string, string> {
+  const token = jwtLesen()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+async function fetchStream(url: string, init: RequestInit = {}): Promise<Response> {
+  return await fetch(url, {
+    ...init,
+    headers: { ...init.headers, ...authHeader() },
+    credentials: 'include',
+  })
+}
+
+async function ladeAlles(): Promise<void> {
+  laedt.value = true
+  fehler.value = null
   try {
-    const [status, fa] = await Promise.all([
-      apiFetch<StatusResponse>('/api/sync/status'),
-      apiFetch<ForceAtResponse>('/api/admin/sync/force-at'),
+    const [s, list] = await Promise.all([
+      apiFetch<BackupSettings>('/api/admin/backup/settings'),
+      apiFetch<BackupListResponse>('/api/admin/backup/list'),
     ])
-    counts.value = status.counts
-    serverTime.value = status.serverTime
-    forceAt.value = fa.forceAt
+    settings.value = s
+    settingsDirty.value = false
+    files.value = list.files
+    backupDir.value = list.dir
   } catch (e) {
-    ladeFehler.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
-async function triggerSync(): Promise<void> {
-  triggerLaeuft.value = true
-  triggerFehler.value = null
-  triggerErfolg.value = null
-  try {
-    const r = await apiFetch<{ forceAt: string }>('/api/admin/sync/all', { method: 'POST' })
-    triggerErfolg.value = r.forceAt
-    // Anschliessend Status neu laden, damit die UI den neuen Marker sieht.
-    await ladeStatus()
-  } catch (e) {
-    triggerFehler.value = e instanceof Error ? e.message : String(e)
+    fehler.value = e instanceof Error ? e.message : String(e)
   } finally {
-    triggerLaeuft.value = false
+    laedt.value = false
   }
 }
 
-onMounted(ladeStatus)
+async function speichereSettings(): Promise<void> {
+  speichert.value = true
+  fehler.value = null
+  erfolg.value = null
+  try {
+    const s = await apiFetch<BackupSettings>('/api/admin/backup/settings', {
+      method: 'PUT',
+      body: settings.value,
+    })
+    settings.value = s
+    settingsDirty.value = false
+    erfolg.value = t('view.backup.settingsGespeichert')
+    setTimeout(() => (erfolg.value = null), 2000)
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    speichert.value = false
+  }
+}
 
-// ---------- Copy-Paste-Snippets ----------
-//
-// Diese Bloecke sind als Bash geschrieben. Auf Windows rufen Admins
-// sie typischerweise aus WSL oder Git-Bash auf; native PowerShell-
-// Snippets (Set-Variable / Invoke-WebRequest) wuerden den Scope
-// sprengen. Wer beides braucht: Issue eroeffnen, dann erweitern wir.
+async function backupHerunterladen(): Promise<void> {
+  laufAktion.value = 'download'
+  fehler.value = null
+  erfolg.value = null
+  try {
+    const url = `${getApiBaseUrl()}/api/admin/backup/download`
+    const res = await fetchStream(url, { method: 'POST' })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status}: ${text || res.statusText}`)
+    }
+    const blob = await res.blob()
+    const cd = res.headers.get('Content-Disposition') ?? ''
+    const m = cd.match(/filename="?([^";]+)"?/)
+    const filename = m?.[1] ?? `castel-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(objectUrl)
+    erfolg.value = t('view.backup.downloadErfolg', { filename })
+    setTimeout(() => (erfolg.value = null), 4000)
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    laufAktion.value = null
+  }
+}
 
-const backupSnippet = String.raw`# 1) .env laden (DB_*, JWT_SECRET)
-export $(grep -E '^(DB_|JWT_)' /opt/castel/.env | xargs)
+async function backupErstellen(): Promise<void> {
+  laufAktion.value = 'run'
+  fehler.value = null
+  erfolg.value = null
+  try {
+    const r = await apiFetch<RunResponse>('/api/admin/backup/run', { method: 'POST' })
+    letzteRun.value = r
+    erfolg.value = t('view.backup.runErfolg', { filename: r.filename, geloescht: r.geloescht })
+    setTimeout(() => (erfolg.value = null), 4000)
+    await ladeAlles()
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    laufAktion.value = null
+  }
+}
 
-# 2) Admin-JWT besorgen (Login-Response, JWT-Feld)
-export ADMIN_TOKEN="<jwt eines admin-users>"
+async function dateiLoeschen(name: string): Promise<void> {
+  if (!confirm(t('view.backup.loeschenFrage', { name }))) return
+  fehler.value = null
+  try {
+    await apiFetch(`/api/admin/backup/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    await ladeAlles()
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
-# 3) Volume-Mounts des Servers
-export FOTOS_DIR=/srv/castel/fotos
-export BACKUP_DIR=/srv/castel/backups
-export API_BASE_URL=http://localhost:4280
+async function dateiHerunterladen(name: string): Promise<void> {
+  fehler.value = null
+  try {
+    const url = `${getApiBaseUrl()}/api/admin/backup/file/${encodeURIComponent(name)}`
+    const res = await fetchStream(url)
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`HTTP ${res.status}: ${text || res.statusText}`)
+    }
+    const blob = await res.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = objectUrl
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(objectUrl)
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
-# 4) Backup ziehen
-cd /opt/castel
-node scripts/backup.mjs
-# → [backup] 1/5 Sync-Trigger an Server …
-# → [backup] 2/5 warte auf Sync-Idle …
-# → [backup] 3/5 pg_dump …
-# → [backup] 4/5 fotos …
-# → [backup] 5/5 zip -> /srv/castel/backups/castel-backup-<stamp>.zip`
+async function dateiRestaurieren(name: string): Promise<void> {
+  if (
+    !confirm(
+      t('view.backup.restoreFrage', {
+        name,
+        default: `${name} einspielen? Dies überschreibt alle aktuellen Daten unwiderruflich.`,
+      }),
+    )
+  )
+    return
+  if (
+    !confirm(
+      t('view.backup.restoreFrage2', {
+        default: 'Wirklich? Letzte Chance — der Server muss vorher gestoppt sein!',
+      }),
+    )
+  )
+    return
+  laufAktion.value = name
+  fehler.value = null
+  try {
+    await apiFetch('/api/admin/backup/restore', {
+      method: 'POST',
+      body: { name, confirm: 'yes' },
+    })
+    erfolg.value = t('view.backup.restoreErfolg', { name })
+    setTimeout(() => (erfolg.value = null), 4000)
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    laufAktion.value = null
+  }
+}
 
-const restoreSnippet = String.raw`# 0) VORHER: API stoppen, sonst ueberschreiben sich Resolver und
-#    Restore gegenseitig.
-#      docker compose stop api
+onMounted(ladeAlles)
 
-# 1) .env laden
-export $(grep -E '^DB_' /opt/castel/.env | xargs)
-export FOTOS_DIR=/srv/castel/fotos
-
-# 2) Restore einspielen
-cd /opt/castel
-node scripts/restore.mjs /srv/castel/backups/castel-backup-2026-10-19T…zip
-# → [restore] entpacke …
-# → [restore] manifest: …
-# → [restore] pg_restore …
-# → [restore] Fotos zurueckgespielt
-# → [restore] fertig. API kann jetzt wieder gestartet werden.
-
-# 3) API wieder starten
-#      docker compose start api`
-
-const cronSnippet = String.raw`# /etc/cron.d/castel-backup — taeglich 02:00
-0 2 * * * castel /opt/castel/scripts/castel-backup-cron.sh`
+const scheduleHint = computed(() => {
+  if (settings.value.schedule === '') return t('view.backup.scheduleAus')
+  return t('view.backup.scheduleAn', { zeit: settings.value.schedule })
+})
 </script>
 
 <template>
@@ -128,81 +252,127 @@ const cronSnippet = String.raw`# /etc/cron.d/castel-backup — taeglich 02:00
       <p class="hint">{{ t('view.backup.intro') }}</p>
     </header>
 
-    <h2>{{ t('view.backup.statusH2') }}</h2>
+    <div v-if="fehler" class="card error" role="alert">
+      <strong>{{ t('view.backup.fehler') }}</strong>
+      <p>{{ fehler }}</p>
+    </div>
+    <div v-if="erfolg" class="card success" role="status">{{ erfolg }}</div>
+
+    <h2>{{ t('view.backup.runH2') }}</h2>
     <div class="card">
-      <div v-if="ladeFehler" class="fehler" role="alert">
-        {{ t('view.backup.statusFehler', { msg: ladeFehler }) }}
+      <div class="actions">
+        <button
+          type="button"
+          class="primary"
+          :disabled="laufAktion !== null"
+          @click="backupHerunterladen"
+        >
+          {{
+            laufAktion === 'download'
+              ? t('view.backup.laeuft')
+              : t('view.backup.jetztHerunterladen')
+          }}
+        </button>
+        <button type="button" :disabled="laufAktion !== null" @click="backupErstellen">
+          {{ laufAktion === 'run' ? t('view.backup.laeuft') : t('view.backup.jetztErstellen') }}
+        </button>
+        <button type="button" class="secondary" :disabled="laedt" @click="ladeAlles">
+          {{ t('view.backup.aktualisieren') }}
+        </button>
       </div>
+      <p v-if="letzteRun" class="hint hint-ok">
+        {{
+          t('view.backup.letzterRun', {
+            filename: letzteRun.filename,
+            bytes: humanSize(letzteRun.size),
+            geloescht: letzteRun.geloescht,
+            total: letzteRun.total,
+          })
+        }}
+      </p>
+    </div>
+
+    <h2>{{ t('view.backup.settingsH2') }}</h2>
+    <div class="card">
+      <form class="form" @submit.prevent="speichereSettings">
+        <label>
+          <span>{{ t('view.backup.schedule') }}</span>
+          <input
+            v-model="settings.schedule"
+            type="time"
+            :disabled="speichert"
+            @input="settingsDirty = true"
+          />
+          <small class="hint">{{ scheduleHint }}</small>
+        </label>
+        <label>
+          <span>{{ t('view.backup.keepCopies') }}</span>
+          <input
+            v-model.number="settings.keepCopies"
+            type="number"
+            min="1"
+            max="365"
+            :disabled="speichert"
+            @input="settingsDirty = true"
+          />
+          <small class="hint">{{ t('view.backup.keepCopiesHint') }}</small>
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary" :disabled="speichert || !settingsDirty">
+            {{ speichert ? t('view.backup.laeuft') : t('view.backup.settingsSpeichern') }}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <h2>{{ t('view.backup.listeH2') }}</h2>
+    <div class="card">
+      <p v-if="files.length === 0" class="hint">{{ t('view.backup.listeLeer') }}</p>
       <table v-else class="data">
+        <thead>
+          <tr>
+            <th>{{ t('view.backup.colName') }}</th>
+            <th class="num">{{ t('view.backup.colGroesse') }}</th>
+            <th>{{ t('view.backup.colDatum') }}</th>
+            <th>{{ t('view.backup.colAktionen') }}</th>
+          </tr>
+        </thead>
         <tbody>
-          <tr>
-            <th>{{ t('view.backup.statusArtikel') }}</th>
-            <td class="num">{{ counts?.artikel ?? '–' }}</td>
-          </tr>
-          <tr>
-            <th>{{ t('view.backup.statusStandorte') }}</th>
-            <td class="num">{{ counts?.standorte ?? '–' }}</td>
-          </tr>
-          <tr>
-            <th>{{ t('view.backup.statusKommission') }}</th>
-            <td class="num">{{ counts?.commission ?? '–' }}</td>
-          </tr>
-          <tr>
-            <th>{{ t('view.backup.statusBuchungen') }}</th>
-            <td class="num">{{ counts?.buchungen ?? '–' }}</td>
-          </tr>
-          <tr>
-            <th>{{ t('view.backup.statusForceAt') }}</th>
-            <td>{{ forceAt ?? t('view.backup.statusForceAtNie') }}</td>
-          </tr>
-          <tr v-if="serverTime">
-            <th>{{ t('view.backup.statusServerTime') }}</th>
-            <td>{{ serverTime }}</td>
+          <tr v-for="f in files" :key="f.name">
+            <td class="mono">{{ f.name }}</td>
+            <td class="num">{{ humanSize(f.size) }}</td>
+            <td>{{ humanDate(f.createdAt) }}</td>
+            <td class="row-actions">
+              <button
+                type="button"
+                class="secondary small"
+                :disabled="laufAktion === f.name"
+                @click="dateiHerunterladen(f.name)"
+              >
+                {{ t('view.backup.aktionDownload') }}
+              </button>
+              <button
+                type="button"
+                class="danger small"
+                :disabled="laufAktion === f.name"
+                @click="dateiRestaurieren(f.name)"
+              >
+                {{ t('view.backup.aktionRestore') }}
+              </button>
+              <button
+                type="button"
+                class="secondary small"
+                :disabled="laufAktion === f.name"
+                @click="dateiLoeschen(f.name)"
+              >
+                {{ t('view.backup.aktionLoeschen') }}
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
-
-      <div class="actions">
-        <button type="button" :disabled="triggerLaeuft" @click="triggerSync">
-          {{ triggerLaeuft ? '…' : t('view.backup.triggerSync') }}
-        </button>
-        <button type="button" class="secondary" :disabled="triggerLaeuft" @click="ladeStatus">
-          {{ t('view.backup.aktualisieren') }}
-        </button>
-        <span v-if="triggerErfolg" class="hint hint-ok" role="status">
-          {{ t('view.backup.triggerErfolg', { forceAt: triggerErfolg }) }}
-        </span>
-        <span v-if="triggerFehler" class="hint hint-error" role="alert">
-          {{ t('view.backup.triggerFehler', { msg: triggerFehler }) }}
-        </span>
-      </div>
-    </div>
-
-    <h2>{{ t('view.backup.backupH2') }}</h2>
-    <div class="card">
-      <p>{{ t('view.backup.backupIntro') }}</p>
-      <p class="warn">
-        <strong>{{ t('view.backup.backupVoraussetzungTitel') }}</strong>
-        {{ t('view.backup.backupVoraussetzungBody') }}
-      </p>
-      <pre class="code"><code>{{ backupSnippet }}</code></pre>
-    </div>
-
-    <h2>{{ t('view.backup.restoreH2') }}</h2>
-    <div class="card">
-      <p class="warn">
-        <strong>{{ t('view.backup.restoreWarnungTitel') }}</strong>
-        {{ t('view.backup.restoreWarnungBody') }}
-      </p>
-      <pre class="code"><code>{{ restoreSnippet }}</code></pre>
-    </div>
-
-    <h2>{{ t('view.backup.automatisierungH2') }}</h2>
-    <div class="card">
-      <p>{{ t('view.backup.automatisierungIntro') }}</p>
-      <pre class="code"><code>{{ cronSnippet }}</code></pre>
-      <p class="hint">
-        {{ t('view.backup.automatisierungHint') }}
+      <p v-if="backupDir" class="hint mono backup-dir">
+        {{ t('view.backup.listePfad') }}: <code>{{ backupDir }}</code>
       </p>
     </div>
   </section>
@@ -212,9 +382,37 @@ const cronSnippet = String.raw`# /etc/cron.d/castel-backup — taeglich 02:00
 .view {
   max-width: 1000px;
 }
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 24rem;
+}
+.form label {
+  display: grid;
+  gap: 0.25rem;
+}
+.form input {
+  padding: 0.4rem 0.6rem;
+  font-size: 1em;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 0.3rem;
+  background: var(--input-bg, #fff);
+  color: inherit;
+}
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
 .data {
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.9em;
 }
 .data th,
 .data td {
@@ -225,44 +423,38 @@ const cronSnippet = String.raw`# /etc/cron.d/castel-backup — taeglich 02:00
 .data th {
   font-weight: 500;
   color: var(--text-muted, #666);
-  width: 14rem;
 }
-.data td.num {
-  font-variant-numeric: tabular-nums;
+.data td.num,
+.data th.num {
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.code {
-  background: var(--code-bg, #f5f5f7);
-  padding: 0.75rem 1rem;
-  border-radius: 0.4rem;
-  overflow-x: auto;
+.data td.mono,
+.mono {
   font-family: ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace;
   font-size: 0.85em;
-  line-height: 1.4;
 }
-.code code {
-  white-space: pre;
+.row-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
 }
-.warn {
-  background: var(--warn-bg, #fff7e6);
-  border-left: 3px solid var(--warn-accent, #d4a72c);
+button.small {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.85em;
+}
+.error {
+  border-left: 3px solid var(--err-accent, #b00020);
+  background: var(--err-bg, #fde8e8);
   padding: 0.5rem 0.75rem;
-  margin: 0.5rem 0 1rem;
-  border-radius: 0 0.4rem 0.4rem 0;
 }
-.warn strong {
-  display: block;
-  margin-bottom: 0.2rem;
+.success {
+  border-left: 3px solid var(--ok-accent, #2e7d32);
+  background: var(--ok-bg, #e6f4ea);
+  padding: 0.5rem 0.75rem;
 }
-.fehler {
-  color: var(--err-fg, #b00020);
-  margin-bottom: 0.5rem;
+.backup-dir {
+  margin-top: 0.5rem;
+  word-break: break-all;
 }
 </style>

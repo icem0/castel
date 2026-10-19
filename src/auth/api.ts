@@ -65,7 +65,7 @@ export function setApiBaseUrl(url: string): void {
 }
 
 export interface ApiOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   /** Token, falls nicht aus dem Auth-Store geholt werden soll (für zirkuläre Imports). */
   token?: string | null

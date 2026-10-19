@@ -30,6 +30,11 @@ const schema = z.object({
   FOTOS_MAX_BYTES: z.coerce.number().int().positive().default(524288),
   FOTOS_MAX_PER_ARTIKEL: z.coerce.number().int().positive().default(5),
 
+  // Backups
+  BACKUP_DIR: z.string().default('./var/backups'),
+  BACKUP_SYNC_QUIET_MS: z.coerce.number().int().positive().default(8000),
+  BACKUP_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+
   // Rate-Limit
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_WINDOW: z.string().default('1 minute'),

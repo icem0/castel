@@ -76,16 +76,21 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 
 ## Backup & Restore
 
-- **Server ist Source of Truth, Client ist flüchtig.** Die PWA-IndexedDB wird beim nächsten Online-Sync ohnehin überschrieben. Es gibt **kein** clientseitiges Backup-Feature mehr — `src/services/import/export.ts` ist entfernt, `ImportView` exportiert keine JSON-Backups mehr.
-- **Backup-Skript** `scripts/backup.mjs` läuft auf dem Host (oder einem Rechner mit Zugriff auf Postgres + `fotos-data`-Volume). Reihenfolge:
-  1. `POST /api/admin/sync/all` (admin-only) setzt den `sync.forceAt`-Marker in `einstellungen`.
-  2. Polling auf `GET /api/sync/status`, bis der `buchungen`-Count für `SYNC_QUIET_MS` (Default 8 s) stabil ist.
-  3. `pg_dump -Fc` → `dump.pgdump`.
-  4. `cp -r FOTOS_DIR` → `fotos/`.
-  5. `manifest.json` + ZIP.
-- **Restore-Skript** `scripts/restore.mjs` läuft ebenfalls auf dem Host. KEIN docker-stop im Skript — das ist Admin-Disziplin. Stattdessen prüft das Skript `GET /api/healthz` und bricht ab, wenn die API noch antwortet (Exit 2). Mit `RESTORE_FORCE=1` lässt sich das übersteuern.
-- **Warum Sync-First?** Wenn ein Client offline Daten erfasst hat und der Admin ein Backup fährt, BEVOR der Client wieder online war, fehlen diese Buchungen im Dump. Der `POST /api/admin/sync/all`-Trigger bittet alle verbundenen PWA-Worker, ihre Outbox sofort zu pushen. Der nächste reguläre Sync-Tick (≤ 30 s) erledigt den Rest.
-- **Backup-Manifest** ist Versioniert (`schema: 'castel-backup-1'`). Der Restore verweigert unbekannte Schemata.
+- **Server ist Source of Truth, Client ist flüchtig.** Die PWA-IndexedDB wird beim nächsten Online-Sync ohnehin überschrieben. Es gibt **kein** clientseitiges Backup-Feature — die ganze Backup-/Restore-Logik liegt in der API und im PWA-Admin-UI unter *Einstellungen → Daten → Backup & Restore*.
+- **Alles läuft in-process im API-Service** (kein Host-Skript, kein Cron, kein SSH). Das API-Image bringt `postgresql-client` (für `pg_dump`/`pg_restore`) und `archiver` (npm) mit. Die Volumes `pgdata`, `fotos-data` und `backups-data` sind named Volumes aus `docker-compose.yml`; sie sind vom externen Snapshot/Borg des Deployers unabhängig.
+- **Drei Wege zum Backup** (alle admin-only):
+  1. **Sofort-Download** — `POST /api/admin/backup/download`. Streamt das ZIP als Response.
+  2. **Datei im Server speichern** — `POST /api/admin/backup/run`. Schreibt nach `BACKUP_DIR` (`/var/lib/castel/backups`, Volume `backups-data`).
+  3. **Cronjob** — `GET/PUT /api/admin/backup/settings` (Schedule = HH:MM, Keep-Copies = 1–365). Der Server-Cron (`server/src/admin/backup-cron.ts`) tickt jede Minute und feuert genau einmal pro Tag zur eingestellten Zeit, rotiert nach `keepCopies`.
+- **Ablauf pro Backup** (sync-first):
+  1. `POST /api/admin/sync/all` setzt `sync.forceAt`-Marker in `einstellungen`.
+  2. Polling auf `GET /api/sync/status`, bis `buchungen`-Count für `BACKUP_SYNC_QUIET_MS` (Default 8 s) stabil ist.
+  3. `pg_dump -Fc` → Custom-Format-Dump.
+  4. `FOTOS_DIR` → `fotos/` (Artikel-IDs als Unterordner).
+  5. `manifest.json` (`schema: 'castel-backup-1'`) + ZIP via `archiver`.
+- **Restore**: `POST /api/admin/backup/restore` mit `{ name, confirm: 'yes' }` — der Server entpackt das ZIP in tmpdir, ruft `pg_restore --clean --if-exists --single-transaction` und kopiert die Fotos zurück. **Vorbedingung**: API-Service muss gestoppt sein (Admin-Disziplin, kein Auto-Stop).
+- **Manifest-Schema**: `castel-backup-1`. Unbekannte Schemata werden verweigert.
+- **Defaults** (Migration 0012): `backup.schedule = ''` (aus), `backup.keepCopies = '7'` (eine Woche). ON CONFLICT DO NOTHING — Admin-Settings werden nicht überschrieben.
 
 ## Build & Deployment
 

@@ -152,39 +152,11 @@ Jede Buchung hat eine unveränderliche `id` (UUID) und `erstelltAm`-Zeitstempel.
 
 **Source of truth ist der Server** (Postgres + `fotos-data`-Volume). Der Client ist flüchtig: seine IndexedDB wird beim nächsten Online-Sync ohnehin überschrieben. Backups werden daher serverseitig erzeugt — nicht im Browser.
 
-Die zwei Skripte liegen in `scripts/`:
+**Alles passiert in der Web-Oberfläche** unter *Einstellungen → Daten → Backup & Restore*. Es gibt drei Wege:
 
-| Skript | Aufgabe |
-|---|---|
-| `scripts/backup.mjs` | Sync-Trigger anstoßen, auf Idle warten, `pg_dump` + Fotos kopieren, ZIP schreiben |
-| `scripts/restore.mjs` | ZIP entpacken, `pg_restore` einspielen, Fotos zurückspielen |
-
-### Voraussetzungen
-
-- `pg_dump` und `pg_restore` lokal installiert (Postgres-Client-Tools).
-- Zugriff auf den Postgres-Container (`DATABASE_URL`) und das `fotos-data`-Volume (`FOTOS_DIR`).
-- Ein gültiges Admin-JWT (`ADMIN_TOKEN`).
-
-### Backup
-
-```bash
-# .env muss die üblichen DB-Variablen enthalten (DB_NAME, DB_USER, DB_PASSWORD)
-export $(grep -E '^(DB_|JWT_)' .env | xargs)
-export ADMIN_TOKEN="<jwt eines admin-users>"
-export FOTOS_DIR=/srv/castel/fotos          # Mount des fotos-data-Volumes
-export BACKUP_DIR=/srv/castel/backups       # Zielordner
-export API_BASE_URL=http://localhost:4280   # PWA-Origin (für /api/admin/sync/all)
-
-node scripts/backup.mjs
-# → [backup] 1/5 Sync-Trigger an Server …
-# → [backup] 2/5 warte auf Sync-Idle …
-# → [backup] 3/5 pg_dump …
-# → [backup] 4/5 fotos …
-# → [backup] 5/5 zip -> /srv/castel/backups/castel-backup-2026-10-19T…zip
-# → [backup] fertig: … (412 Buchungen, 28 Foto-Artikel)
-```
-
-Das Skript fordert den Server per `POST /api/admin/sync/all` auf, alle verbundenen PWA-Worker zum sofortigen Pushen zu bewegen, pollt `/api/sync/status` und wartet, bis sich der `buchungen`-Count für `SYNC_QUIET_MS` (Default 8 s) nicht mehr erhöht. Erst dann geht es an `pg_dump` und das Foto-Verzeichnis. So landen ausstehende Client-Outbox-Items im Backup.
+1. **Sofort-Download** — Button "Jetzt als ZIP herunterladen". Der Server triggert intern einen Sync, wartet bis alle Clients gepusht haben, ruft `pg_dump -Fc` auf, packt das `fotos-data`-Volume dazu und streamt das fertige ZIP an den Browser.
+2. **Datei im Server speichern** — Button "Jetzt im Backup-Ordner ablegen". Gleicher Ablauf, das ZIP landet im `backups-data`-Volume (Pfad: `/var/lib/castel/backups`).
+3. **Cronjob** — Einstellungen für *Uhrzeit* (HH:MM, Server-Zeit) und *Anzahl Kopien*. Der Server-Cron feuert einmal täglich zur eingestellten Zeit und rotiert automatisch (älteste ZIPs über `N` hinaus werden gelöscht).
 
 **Reihenfolge im ZIP:**
 
@@ -197,34 +169,13 @@ castel-backup-<stamp>.zip
 
 ### Restore
 
-```bash
-# WICHTIG: vor dem Restore den api-Service stoppen, sonst überschreiben
-# sich Resolver und Restore gegenseitig:
-#   docker compose stop api
+In der Backup-Liste auf den roten "Einspielen"-Button des gewünschten Backups klicken. **Vorher den API-Service stoppen** (`docker compose stop api` o. ä.) — sonst überschreiben sich der laufende Resolver und der Restore gegenseitig. Der Server bietet **keinen** automatischen Service-Stop, das ist Admin-Disziplin.
 
-export $(grep -E '^DB_' .env | xargs)
-export FOTOS_DIR=/srv/castel/fotos
+Nach dem Restore die API wieder starten (`docker compose start api`).
 
-node scripts/restore.mjs /srv/castel/backups/castel-backup-2026-10-19T…zip
-# → [restore] entpacke …
-# → [restore] manifest: …
-# → [restore] pg_restore …
-# → [restore] Fotos zurückgespielt
-# → [restore] fertig. API kann jetzt wieder gestartet werden.
-```
+### Was passiert auf dem Host
 
-Das Skript bricht mit Exit-Code 2 ab, wenn `/api/healthz` noch antwortet — das ist die Aufforderung, den Service vorher zu stoppen. Mit `RESTORE_FORCE=1` lässt sich der Check überschreiben (für Test-Setups, nicht für den Ernstfall).
-
-### Automatisierung
-
-Die Skripte sind bewusst Framework-frei (plain Node + `pg_dump`/`pg_restore` + `zip`). Sie lassen sich direkt per Cron, systemd-Timer oder aus einem Backup-Wrapper-Skript heraus aufrufen. Beispiel:
-
-```bash
-# /etc/cron.d/castel-backup — täglich 02:00
-0 2 * * * castel /opt/castel/scripts/castel-backup-cron.sh
-```
-
-`scripts/castel-backup-cron.sh` ist als Vorlage im Repo (Dummy-Skript, eigene Implementierung).
+Der API-Container bringt `postgresql-client` (für `pg_dump`/`pg_restore`) und `archiver` (npm) mit, alle Backups laufen **in-process** im API-Service. Es ist kein Host-Skript, kein Cron, kein SSH nötig. Die Volumes `pgdata`, `fotos-data` und `backups-data` werden vom Compose-Stack verwaltet — externe Snapshots/Borg-backups der drei Volumes sind davon unabhängig und Sache des Deployers.
 
 ## 📄 Lizenz
 
