@@ -168,6 +168,15 @@ function bestandStandard(artikelId: string, standortId: string): number {
   return buchungStore.getBestand(artikelId, standortId)
 }
 
+function bestandBenotigtAufmerksamkeit(artikelId: string, standortId: string): boolean {
+  const a = artikelStore.byId(artikelId)
+  if (!a) return false
+  const bestand = buchungStore.getBestand(artikelId, standortId)
+  if (bestand < 0) return true
+  if (a.mindestbestand !== null && bestand < a.mindestbestand) return true
+  return false
+}
+
 const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   { value: 'verfuegbar', labelKey: 'view.artikel.status.verfuegbar' },
   { value: 'reserviert', labelKey: 'view.artikel.status.reserviert' },
@@ -230,6 +239,13 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
             :dir="sortierung.sortDir.value"
             @sort="sortierung.onSort"
           />
+          <th
+            v-if="standardStandort"
+            style="width: 44px; text-align: center"
+            :title="t('view.artikel.spalten.aufmerksamkeit')"
+          >
+            ⚠
+          </th>
           <th v-if="!offline" style="width: 44px; text-align: center">
             {{ t('view.artikel.spalten.foto') }}
           </th>
@@ -244,6 +260,18 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
           <td>{{ a.typ }}</td>
           <td v-if="standardStandort" class="num">
             {{ bestandStandard(a.id, standardStandort.id) }}
+          </td>
+          <td
+            v-if="standardStandort"
+            class="attention-cell"
+            style="width: 44px; text-align: center"
+          >
+            <span
+              v-if="bestandBenotigtAufmerksamkeit(a.id, standardStandort.id)"
+              class="attention-badge"
+              :title="t('view.artikel.spalten.aufmerksamkeit')"
+              >⚠</span
+            >
           </td>
           <td v-if="!offline" class="foto-cell" style="width: 44px; text-align: center">
             <button
@@ -382,5 +410,11 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   color: white;
   font-size: 1rem;
   text-align: center;
+}
+
+.attention-badge {
+  display: inline-block;
+  font-size: 1.1rem;
+  line-height: 1;
 }
 </style>

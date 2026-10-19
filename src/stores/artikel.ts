@@ -11,6 +11,7 @@ import { ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
 import type { Artikel, ArtikelStatus, NachbestellHinweis } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
+import { berechneBestand } from '../domain/bestand'
 import { queueOp } from '../services/sync/worker'
 
 export interface ArtikelEingabe {
@@ -123,12 +124,33 @@ export const useArtikelStore = defineStore('artikel', () => {
     await queueOp('artikel', 'delete', a)
   }
 
+  /**
+   * Prüft, ob der aktuelle Bestand eines Artikels an einem Standort unter
+   * 0 oder unter dem Mindestbestand liegt. Liefert `true`, wenn der
+   * Artikel Aufmerksamkeit benötigt (z. B. Inventur / Nachbestellung).
+   * Wird live aus den Buchungen berechnet — verschwindet also automatisch,
+   * sobald eine Einlagerung den Bestand wieder über die Schwelle hebt.
+   */
+  async function standortBestandUnterSchwelle(
+    artikelId: string,
+    standortId: string,
+  ): Promise<boolean> {
+    const a = byId(artikelId)
+    if (!a) return false
+    const rows = await getDb().buchungen.where('artikelId').equals(artikelId).toArray()
+    const bestand = berechneBestand(rows, standortId)
+    if (bestand < 0) return true
+    if (a.mindestbestand !== null && bestand < a.mindestbestand) return true
+    return false
+  }
+
   return {
     artikel,
     geladen,
     start,
     stop,
     byId,
+    standortBestandUnterSchwelle,
     anlegen,
     aktualisieren,
     archivieren,

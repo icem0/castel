@@ -610,18 +610,6 @@ async function resolveBuchungCreate(
   }
   const mindestbestand = a[0]?.mindestbestand ?? null
 
-  // 4) Negativ-Bestand-Check.
-  //    Entnahme: klar.
-  //    Umlagerung: trägt negative Menge am Quellstandort — wenn der
-  //    Bestand dort negativ würde, ist die Umlagerung ungültig.
-  if ((b.typ === 'entnahme' || b.typ === 'umlagerung') && !b.storno) {
-    const aktuell = await berechneBestand(db, b.artikelId, b.standortId)
-    const neuerBestand = aktuell - Math.abs(b.menge)
-    if (neuerBestand < 0) {
-      throw new NegativerBestandError(b.artikelId, b.standortId, aktuell, Math.abs(b.menge))
-    }
-  }
-
   // 5) Insert. Timestamp-Felder muessen als Date an Drizzle gehen (siehe
   //    normalizeBuchungTimestamps-Kommentar).
   await tx

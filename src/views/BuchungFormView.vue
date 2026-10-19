@@ -7,7 +7,11 @@ import { useStandortStore } from '../stores/standort'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
 import type { BuchungsTyp } from '../db/types'
-import { NegativerBestandWarnung, PflichtfeldFehltError } from '../domain/errors'
+import {
+  NegativerBestandWarnung,
+  MindestbestandWarnung,
+  PflichtfeldFehltError,
+} from '../domain/errors'
 import { validiereBuchungsEingabe } from '../domain/buchung-form-validation'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 
@@ -31,6 +35,7 @@ const projekt = ref<string>('')
 const kommentar = ref<string>('')
 const fehler = ref<string>('')
 const warnung = ref<string>('')
+const mindestWarnung = ref<string>('')
 const laufend = ref(false)
 
 onMounted(() => {
@@ -50,6 +55,7 @@ async function speichern(): Promise<void> {
   if (laufend.value) return
   fehler.value = ''
   warnung.value = ''
+  mindestWarnung.value = ''
 
   const eingabe = {
     typ: typ.value,
@@ -89,6 +95,12 @@ async function speichern(): Promise<void> {
       if (res.warnung instanceof NegativerBestandWarnung) {
         warnung.value = t('view.buchung.form.warnNegativ')
       }
+      if (res.mindestbestandWarnung instanceof MindestbestandWarnung) {
+        mindestWarnung.value = t('view.buchung.form.warnMindestbestand', {
+          bestand: res.mindestbestandWarnung.bestand,
+          mindestbestand: res.mindestbestandWarnung.mindestbestand,
+        })
+      }
     } else if (typ.value === 'umlagerung') {
       const res = await buchungStore.mu.umlagerung({
         artikelId: artikelId.value,
@@ -101,6 +113,12 @@ async function speichern(): Promise<void> {
       })
       if (res.warnung instanceof NegativerBestandWarnung) {
         warnung.value = t('view.buchung.form.warnNegativ')
+      }
+      if (res.mindestbestandWarnung instanceof MindestbestandWarnung) {
+        mindestWarnung.value = t('view.buchung.form.warnMindestbestand', {
+          bestand: res.mindestbestandWarnung.bestand,
+          mindestbestand: res.mindestbestandWarnung.mindestbestand,
+        })
       }
     } else if (typ.value === 'inventur') {
       await buchungStore.mu.inventur({
@@ -312,6 +330,7 @@ function typIcon(wert: BuchungsTyp): string {
 
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
         <p v-if="warnung" class="hint hint-warn" role="status">{{ warnung }}</p>
+        <p v-if="mindestWarnung" class="hint hint-warn" role="status">{{ mindestWarnung }}</p>
         <p v-if="standardStandort" class="hint">Standard-Standort: {{ standardStandort.name }}</p>
 
         <!-- Sticky Save-Bar: auf Mobile immer in Daumenreichweite,

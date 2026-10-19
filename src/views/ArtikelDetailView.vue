@@ -366,6 +366,14 @@ onMounted(() => {
       <div v-for="b in bestaende" :key="b.standortId" class="card stat-card">
         <strong>{{ b.menge }}</strong>
         <span>{{ b.name }}</span>
+        <span
+          v-if="
+            b.menge < 0 || (artikel?.mindestbestand !== null && b.menge < artikel.mindestbestand)
+          "
+          class="attention-badge"
+          :title="t('view.artikel.spalten.aufmerksamkeit')"
+          >⚠</span
+        >
       </div>
     </div>
 
@@ -441,5 +449,10 @@ onMounted(() => {
 .stat-card span {
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+.attention-badge {
+  font-size: 1.1rem;
+  line-height: 1;
+  margin-left: 0.4rem;
 }
 </style>

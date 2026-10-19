@@ -23,49 +23,58 @@ const DRIZZLE_NAME = Symbol.for('drizzle:Name')
 function tableId(table: unknown): string | undefined {
   if (!table || typeof table !== 'object') return undefined
   const v = (table as Record<symbol, unknown>)[DRIZZLE_NAME]
-  return typeof v === 'string' ? v : undefined
+  if (typeof v === 'string') return v
+  // Fallback für vitest: das DRIZZLE_NAME-Symbol ist hier nicht immer
+  // auflösbar, drizzle-Tabellen haben aber eine `.name`-Eigenschaft.
+  const t = table as Record<string, unknown>
+  if (typeof t.name === 'string') return t.name
+  return undefined
 }
 
 function isAggregateProjection(projection: unknown): boolean {
   if (!projection || typeof projection !== 'object') return false
   return Object.values(projection as Record<string, unknown>).some((v) => {
-    if (v && typeof v === 'object') {
-      return Object.getPrototypeOf(v)?.constructor?.name === 'SQL'
-    }
-    return false
+    // drizzle `sql()` Aggregate-Projektionen enthalten ein Objekt als
+    // Wert (z. B. `{ total: sql... }`). Dieser Check ist robuster als der
+    // Konstruktor-Name, der je nach Bundler/Transform umbenannt wird.
+    return v !== null && typeof v === 'object' && !Array.isArray(v)
   })
 }
 
 function makeMockDb(state: MockState): unknown {
   let bestandIndex = 0
 
-  const selectFn = (projection: unknown) => ({
-    from: (table: unknown) => {
-      const id = tableId(table)
-      if (id === 'buchungen') {
-        if (isAggregateProjection(projection)) {
-          const wert =
-            state.bestaende[bestandIndex] ?? state.bestaende[bestandIndex - 1] ?? 0
-          bestandIndex++
+  const selectFn = (projection: unknown) => {
+    // Aggregate-Projektion (berechneBestand): gibt den nächsten
+    // konfigurierten `bestaende`-Wert zurück, unabhängig von der Tabelle.
+    if (isAggregateProjection(projection)) {
+      const wert =
+        state.bestaende[bestandIndex] ?? state.bestaende[bestandIndex - 1] ?? 0
+      bestandIndex++
+      return {
+        from: () => ({ where: () => ({ limit: () => Promise.resolve([{ total: wert }]) }) }),
+      }
+    }
+    return {
+      from: (table: unknown) => {
+        const id = tableId(table)
+        if (id === 'buchungen') {
           return {
-            where: () => ({ limit: () => Promise.resolve([{ total: wert }]) }),
+            where: () => ({ limit: () => Promise.resolve(state.buchung.slice(0, 1)) }),
           }
         }
         return {
-          where: () => ({ limit: () => Promise.resolve(state.buchung.slice(0, 1)) }),
+          where: () => ({
+            limit: (n: number) => {
+              if (id === 'artikel') return Promise.resolve(state.artikel.slice(0, n))
+              if (id === 'standorte') return Promise.resolve(state.standort.slice(0, n))
+              return Promise.resolve([])
+            },
+          }),
         }
-      }
-      return {
-        where: () => ({
-          limit: (n: number) => {
-            if (id === 'artikel') return Promise.resolve(state.artikel.slice(0, n))
-            if (id === 'standorte') return Promise.resolve(state.standort.slice(0, n))
-            return Promise.resolve([])
-          },
-        }),
-      }
-    },
-  })
+      },
+    }
+  }
 
   const insertFn = (table: unknown) => {
     const id = tableId(table)
