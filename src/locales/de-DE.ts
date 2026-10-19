@@ -297,6 +297,39 @@ export default {
       nein: 'Nein',
       optional: '(optional)',
     },
+    backup: {
+      h1: 'Backup & Restore',
+      intro:
+        'Source of truth ist der Server (Postgres + Fotos). Der Client ist flüchtig — die IndexedDB wird beim nächsten Online-Sync überschrieben. Backups werden daher serverseitig erzeugt, nicht im Browser.',
+      statusH2: 'Server-Status',
+      statusFehler: 'Status konnte nicht geladen werden: {msg}',
+      statusArtikel: 'Artikel',
+      statusStandorte: 'Standorte',
+      statusKommission: 'Kommissionen',
+      statusBuchungen: 'Buchungen',
+      statusForceAt: 'Letzter Sync-Trigger',
+      statusForceAtNie: 'noch keiner',
+      statusServerTime: 'Server-Zeit',
+      triggerSync: 'Sync jetzt anstoßen',
+      aktualisieren: 'Status aktualisieren',
+      triggerErfolg: 'Sync-Trigger gesetzt: {forceAt}',
+      triggerFehler: 'Sync-Trigger fehlgeschlagen: {msg}',
+      backupH2: 'Backup erstellen',
+      backupIntro:
+        'Die folgenden Befehle laufen auf dem Host, auf dem auch der Postgres-Container läuft. Sie triggern zuerst einen Sync, warten bis alle Clients gepusht haben, und schreiben dann ein ZIP nach BACKUP_DIR.',
+      backupVoraussetzungTitel: 'Voraussetzungen',
+      backupVoraussetzungBody:
+        'pg_dump/pg_restore lokal installiert. Zugriff auf den Postgres-Container (DATABASE_URL) und das fotos-data-Volume (FOTOS_DIR). ADMIN_TOKEN: JWT eines Admin-Users.',
+      restoreH2: 'Restore einspielen',
+      restoreWarnungTitel: 'API vorher stoppen!',
+      restoreWarnungBody:
+        'Vor dem Restore den api-Service stoppen (z. B. `docker compose stop api`), sonst überschreiben sich Resolver und Restore gegenseitig. Das Skript bricht mit Exit 2 ab, wenn /api/healthz noch antwortet.',
+      automatisierungH2: 'Automatisierung',
+      automatisierungIntro:
+        'Die Skripte sind plain Node + pg_dump/pg_restore + zip. Sie lassen sich direkt per Cron, systemd-Timer oder Backup-Wrapper-Skript aufrufen.',
+      automatisierungHint:
+        'Ein eigenes Wrapper-Skript (z. B. scripts/castel-backup-cron.sh) lädt die .env, exportiert die Variablen und ruft backup.mjs auf. Vorlage ist im README dokumentiert.',
+    },
     passwortAendern: {
       h1Erzwungen: 'Neues Passwort setzen',
       h1Frei: 'Passwort ändern',

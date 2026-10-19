@@ -33,6 +33,7 @@ import BarcodeScanView from '../views/BarcodeScanView.vue'
 import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
 import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
+import BackupView from '../views/BackupView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Auth-Routen (kein Login nötig)
@@ -87,6 +88,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/mindestbestand',
     name: 'einstellungen-mindestbestand',
     component: MindestbestandPanelView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/backup',
+    name: 'einstellungen-backup',
+    component: BackupView,
     meta: { requiresAdmin: true },
   },
   { path: '/import', name: 'import', component: ImportView, meta: { requiresAdmin: true } },

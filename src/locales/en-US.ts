@@ -288,6 +288,39 @@ export default {
       nein: 'No',
       optional: '(optional)',
     },
+    backup: {
+      h1: 'Backup & Restore',
+      intro:
+        'The server (Postgres + photos) is the source of truth. The client is transient — its IndexedDB is overwritten on the next online sync. Backups are produced server-side, not in the browser.',
+      statusH2: 'Server status',
+      statusFehler: 'Could not load status: {msg}',
+      statusArtikel: 'Items',
+      statusStandorte: 'Locations',
+      statusKommission: 'Commissions',
+      statusBuchungen: 'Bookings',
+      statusForceAt: 'Last sync trigger',
+      statusForceAtNie: 'never',
+      statusServerTime: 'Server time',
+      triggerSync: 'Trigger sync now',
+      aktualisieren: 'Refresh status',
+      triggerErfolg: 'Sync trigger set: {forceAt}',
+      triggerFehler: 'Sync trigger failed: {msg}',
+      backupH2: 'Create backup',
+      backupIntro:
+        'The commands below run on the host that also runs the Postgres container. They first trigger a sync, wait until all clients have pushed, then write a ZIP into BACKUP_DIR.',
+      backupVoraussetzungTitel: 'Prerequisites',
+      backupVoraussetzungBody:
+        'pg_dump/pg_restore installed locally. Access to the Postgres container (DATABASE_URL) and the fotos-data volume (FOTOS_DIR). ADMIN_TOKEN: JWT of an admin user.',
+      restoreH2: 'Run restore',
+      restoreWarnungTitel: 'Stop the API first!',
+      restoreWarnungBody:
+        'Before the restore, stop the api service (e.g. `docker compose stop api`) — otherwise the resolver and the restore will overwrite each other. The script exits with code 2 if /api/healthz still responds.',
+      automatisierungH2: 'Automation',
+      automatisierungIntro:
+        'The scripts are plain Node + pg_dump/pg_restore + zip. Call them directly from cron, systemd timers, or your own backup wrapper.',
+      automatisierungHint:
+        'A wrapper script (e.g. scripts/castel-backup-cron.sh) loads .env, exports the variables and invokes backup.mjs. The README has a worked example.',
+    },
     passwortAendern: {
       h1Erzwungen: 'Set new password',
       h1Frei: 'Change password',
