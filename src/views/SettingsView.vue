@@ -151,7 +151,7 @@ onBeforeUnmount(() => {
 
     <h2>Daten</h2>
     <div class="card quick-links">
-      <RouterLink to="/import">CSV-Import &amp; Backup</RouterLink>
+      <RouterLink to="/import">CSV-Import</RouterLink>
     </div>
 
     <h2>Stammdaten</h2>

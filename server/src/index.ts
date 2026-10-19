@@ -13,6 +13,7 @@ import { setupRoutes } from './auth/setup-routes.js'
 import { syncRoutes } from './sync/routes.js'
 import { fotoRoutes, fotoStaticRoutes } from './fotos/routes.js'
 import { userRoutes } from './users/routes.js'
+import { adminRoutes } from './admin/routes.js'
 import { devRoutes } from './dev/routes.js'
 import { truncateAllDataTables } from './dev/dev-reset.js'
 import { closeDb } from './db/client.js'
@@ -93,6 +94,7 @@ async function main() {
     await syncRoutes(instance, notificationGateway)
     await userRoutes(instance)
     await fotoRoutes(instance)
+    await adminRoutes(instance)
   })
 
   // DEV_MODE=true: alle Daten-Tabellen leeren, BEVOR der HTTP-Server

@@ -70,6 +70,19 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 - **Keine Secrets im Code.** API-Keys, Tokens, Passwörter und private Konfiguration gehören in `.env` (nicht eingecheckt) oder werden zur Laufzeit vom Benutzer eingegeben.
 - Vor jedem Commit ist zu prüfen, dass keine Credentials versehentlich committet wurden.
 
+## Backup & Restore
+
+- **Server ist Source of Truth, Client ist flüchtig.** Die PWA-IndexedDB wird beim nächsten Online-Sync ohnehin überschrieben. Es gibt **kein** clientseitiges Backup-Feature mehr — `src/services/import/export.ts` ist entfernt, `ImportView` exportiert keine JSON-Backups mehr.
+- **Backup-Skript** `scripts/backup.mjs` läuft auf dem Host (oder einem Rechner mit Zugriff auf Postgres + `fotos-data`-Volume). Reihenfolge:
+  1. `POST /api/admin/sync/all` (admin-only) setzt den `sync.forceAt`-Marker in `einstellungen`.
+  2. Polling auf `GET /api/sync/status`, bis der `buchungen`-Count für `SYNC_QUIET_MS` (Default 8 s) stabil ist.
+  3. `pg_dump -Fc` → `dump.pgdump`.
+  4. `cp -r FOTOS_DIR` → `fotos/`.
+  5. `manifest.json` + ZIP.
+- **Restore-Skript** `scripts/restore.mjs` läuft ebenfalls auf dem Host. KEIN docker-stop im Skript — das ist Admin-Disziplin. Stattdessen prüft das Skript `GET /api/healthz` und bricht ab, wenn die API noch antwortet (Exit 2). Mit `RESTORE_FORCE=1` lässt sich das übersteuern.
+- **Warum Sync-First?** Wenn ein Client offline Daten erfasst hat und der Admin ein Backup fährt, BEVOR der Client wieder online war, fehlen diese Buchungen im Dump. Der `POST /api/admin/sync/all`-Trigger bittet alle verbundenen PWA-Worker, ihre Outbox sofort zu pushen. Der nächste reguläre Sync-Tick (≤ 30 s) erledigt den Rest.
+- **Backup-Manifest** ist Versioniert (`schema: 'castel-backup-1'`). Der Restore verweigert unbekannte Schemata.
+
 ## Build & Deployment
 
 - **Images kommen aus GHCR.** `docker-compose.yml` referenziert `api`, `pwa` und `migrate` hartkodiert als `ghcr.io/icem0/castel-{api,pwa}:latest`. **Kein** `build:`-Block, **kein** Variablen-Override. Deployer ziehen die Images — fertig.
