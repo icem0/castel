@@ -11,10 +11,13 @@
 #
 # Images:
 #   api / pwa / migrate werden direkt von GitHub Container Registry
-#   (GHCR) als `ghcr.io/icem0/castel-{api,pwa}:latest` referenziert.
-#   Der CI-Workflow `.github/workflows/build-and-push.yml` baut und pusht
-#   diese Images bei jedem Push auf `main`. `migrate` ist ein Entry-Point
-#   desselben API-Images.
+#   (GHCR) als `ghcr.io/icem0/castel-{api,pwa}:${IMAGE_TAG:-latest}`
+#   referenziert. IMAGE_TAG wird in der .env gesetzt (siehe .env.example)
+#   und akzeptiert `latest`, eine Semver-Version (z. B. `0.3.0-rc.1`)
+#   oder einen Commit-SHA. Der CI-Workflow
+#   `.github/workflows/build-and-push.yml` baut und pusht diese Images
+#   bei jedem Push auf `main` mit Tag `:latest` UND mit dem Commit-SHA.
+#   `migrate` ist ein Entry-Point desselben API-Images.
 #
 # Start:   docker compose up -d          # zieht Images von GHCR, startet den Stack
 # Update:  docker compose pull && docker compose up -d
@@ -79,7 +82,7 @@ services:
         exec docker-entrypoint.sh postgres $$FLAGS
 
   api:
-    image: ghcr.io/icem0/castel-api:latest
+    image: ghcr.io/icem0/castel-api:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on:
       db:
@@ -106,7 +109,17 @@ services:
     # angewendete SQL-Dateien werden uebersprungen, also kein Risiko.
     # Der separate `migrate`-Profil-Service unten bleibt fuer manuelle
     # Aufrufe erhalten (z. B. CI mit separatem Job).
-    command: ["sh", "-c", "node dist/db/migrate.js && exec node dist/index.js"]
+    command:
+      - "sh"
+      - "-c"
+      - >-
+        T="$${IMAGE_TAG:-latest}";
+        if ! echo "$$T" | grep -Eq '^[a-z0-9][a-z0-9._-]{0,127}$$'; then
+          echo "castel-api: ungueltiger IMAGE_TAG '$$T' -> fallback auf 'latest'";
+          T=latest;
+        fi;
+        echo "castel-api: IMAGE_TAG=$$T";
+        node dist/db/migrate.js && exec node dist/index.js
     volumes:
       - fotos-data:/var/lib/castel/fotos
     healthcheck:
@@ -132,7 +145,7 @@ services:
     networks: [internal]
 
   pwa:
-    image: ghcr.io/icem0/castel-pwa:latest
+    image: ghcr.io/icem0/castel-pwa:${IMAGE_TAG:-latest}
     restart: unless-stopped
     depends_on: [api]
     environment:
@@ -156,7 +169,7 @@ services:
   # Einmaliger Job: Migration ausfuehren.
   # Aufruf: docker compose --profile migrate up
   migrate:
-    image: ghcr.io/icem0/castel-api:latest
+    image: ghcr.io/icem0/castel-api:${IMAGE_TAG:-latest}
     profiles: ["migrate"]
     depends_on:
       db:
