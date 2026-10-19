@@ -98,6 +98,7 @@ export const EINSTELLUNG_KEYS = [
   'companyName',
   'barcodeTyp',
   'onboardingSeen',
+  'firstLoginDone',
 ] as const
 export type EinstellungKey = (typeof EINSTELLUNG_KEYS)[number]
 

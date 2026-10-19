@@ -160,25 +160,32 @@ watchEffect(() => {
 })
 
 // ---------- Onboarding-Tutorial ----------
-// Wird genau einmal pro User gezeigt: direkt nach dem Login, solange
-// `settings.settings.onboardingSeen === false`. Der Settings-Store liest
-// den per-User-Marker aus der Dexie-Tabelle (Compound-Key [key+userId]),
-// d.h. jeder User bekommt das Tutorial beim ersten Login — nach dem
-// ersten Schließen (egal welcher Button) wird es nie wieder automatisch
-// geöffnet. Über /info → "Tutorial erneut zeigen" kann der User es
-// jederzeit manuell zurücksetzen.
+// Wird nur einmal pro Geräte+User-Lifecycle gezeigt — und zwar NUR
+// für Erstnutzer (`settings.settings.firstLoginDone === false`).
 //
-// Wichtig: Wir warten mit dem Trigger, bis der erste Sync-Lauf durch ist
-// (oder fehlgeschlagen ist). Ohne diese Wartezeit würde das Modal
-// erscheinen, sobald `settings.settings.onboardingSeen === false` aus
-// der (noch leeren) Dexie-Tabelle gelesen wird — und der nachfolgende
-// Pull vom Server könnte die Zeile `[onboardingSeen, <userId>] = 'true'`
-// nachliefern, die das Modal dann nicht mehr unterdrücken kann (das
-// Modal ist schon offen). Das war der "kommt immer wieder nach Refresh"-
-// Bug: Cross-Device-Sync ist aktiv, aber der lokale Lese-Zeitpunkt ist
-// vor dem ersten Server-Pull.
+// Zwei Gates, BEIDE müssen passen, damit das Modal aufgeht:
+//
+//  1. Erstnutzer-Gate (`firstLoginDone`): ist die per-User-Zeile
+//     `[firstLoginDone, <userId>] = 'true'` gesetzt, zeigen wir das
+//     Modal NIE mehr automatisch. Das ist die zuverlässige Bremse gegen
+//     das "blitzt kurz auf und ist wieder weg"-Symptom: selbst wenn die
+//     lokale DB die `onboardingSeen=true`-Zeile noch nicht hat (Sync
+//     hängt, IndexedDB leer, Offline-Modus), bleibt das Modal zu.
+//
+//  2. Server-Bestätigung: bei Erstnutzern warten wir zusätzlich auf
+//     den ersten Sync-Lauf (oder eine Frist), bevor wir das Modal
+//     zeigen. Damit kann ein gerade laufender Pull noch eine
+//     `onboardingSeen=true`-Zeile nachliefern.
+//
+// Nach dem ersten Modal-Aufruf — egal ob der User es akzeptiert, später
+// schließt oder einfach wegnavigiert — schreiben wir `firstLoginDone =
+// true` (per-User, cross-device-sync). Damit ist die Erstnutzer-Phase
+// beendet und das Modal kommt nie wieder automatisch. Über /info →
+// "Tutorial erneut zeigen" kann der User es jederzeit manuell öffnen;
+// das schreibt NUR `onboardingSeen=false`, nicht `firstLoginDone`.
 const tutorialOffen = ref(false)
 let tutorialTriggeredFor: string | null = null
+let firstLoginDoneMarkerGeschrieben: string | null = null
 const SYNC_FRIST_MS = 4000
 let syncFristTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -186,12 +193,38 @@ function pruefeUndOeffneTutorial(): void {
   const userId = auth.userId
   if (!auth.istAngemeldet) return
   if (settings.geladen !== true) return
-  if (settings.settings.onboardingSeen === true) return
+  // Erstnutzer-Gate: sobald `firstLoginDone` true ist, kommt das Modal
+  // nie wieder automatisch. Wenn der User es später nochmal sehen will,
+  // macht er das explizit über /info → "Tutorial erneut zeigen".
+  if (settings.settings.firstLoginDone === true) return
+  // Sicherheits-Check: wenn der Server bereits `onboardingSeen=true`
+  // geliefert hat (oder lokal gesetzt ist), zeigen wir das Modal auch
+  // für Erstnutzer nicht. Ein Erstnutzer kann theoretisch auf Gerät A
+  // das Häkchen 'Tutorial ausblenden' gesetzt haben, bevor er auf
+  // Gerät B zum ersten Mal die App öffnet.
+  if (settings.settings.onboardingSeen === true) {
+    markiereFirstLoginDone(userId)
+    return
+  }
   if (tutorialTriggeredFor === userId) return
   tutorialTriggeredFor = userId
+  markiereFirstLoginDone(userId)
   setTimeout(() => {
     tutorialOffen.value = true
   }, 0)
+}
+
+// Sobald wir das Modal einmal gezeigt (oder bewusst ausgelassen) haben,
+// setzen wir den per-User-Marker `firstLoginDone = true`. Damit ist die
+// Erstnutzer-Phase beendet. Idempotent pro User.
+function markiereFirstLoginDone(userId: string | null): void {
+  if (userId === null) return
+  if (firstLoginDoneMarkerGeschrieben === userId) return
+  firstLoginDoneMarkerGeschrieben = userId
+  // Best-effort: Fehler beim Schreiben dürfen das Modal nicht blockieren.
+  void settings.setFirstLoginDone(true).catch(() => {
+    // bewusst ignorieren
+  })
 }
 
 watch(
@@ -200,22 +233,23 @@ watch(
     userId: auth.userId,
     geladen: settings.geladen,
     gesehen: settings.settings.onboardingSeen,
+    firstLoginDone: settings.settings.firstLoginDone,
   }),
-  ({ istAngemeldet, gesehen }) => {
+  ({ istAngemeldet, firstLoginDone }) => {
     if (!istAngemeldet) {
       tutorialOffen.value = false
       tutorialTriggeredFor = null
+      firstLoginDoneMarkerGeschrieben = null
       if (syncFristTimer !== null) {
         clearTimeout(syncFristTimer)
         syncFristTimer = null
       }
       return
     }
-    // Sobald der Wert "true" wird (entweder durch den User selbst, der
-    // das Tutorial schließt, oder durch den Server-Pull), Fenster zu und
-    // Sperre lösen — ein erneutes Anzeigen wäre nur durch explizites
-    // "Tutorial erneut zeigen" gewollt.
-    if (gesehen === true) {
+    // Wenn die `firstLoginDone`-Zeile ankommt (z. B. durch Server-Pull
+    // auf einem anderen Gerät, oder durch den User-Logout/Login-Zyklus),
+    // schließen wir das Modal sofort. Das ist die wichtigste Bremse.
+    if (firstLoginDone === true) {
       tutorialOffen.value = false
       return
     }
@@ -230,8 +264,8 @@ watch(
 // Sync-Status-Watcher: öffnet das Tutorial erst, wenn der erste Pull
 // gelaufen ist (oder definitiv keiner mehr kommt: offline / error /
 // origin-unavailable). Damit kann der Pull noch eine serverseitig
-// gesetzte `onboardingSeen=true`-Zeile in Dexie schreiben, BEVOR wir
-// das Modal öffnen.
+// gesetzte `firstLoginDone=true` oder `onboardingSeen=true`-Zeile in
+// Dexie schreiben, BEVOR wir das Modal öffnen.
 watch(
   () => ({
     status: sync.status.status,

@@ -200,4 +200,103 @@ describe('useSettingsStore — onboardingSeen (Tutorial-Gate)', () => {
 
     store.stop()
   })
+
+  // ---------- firstLoginDone ----------
+  // Der per-User-Marker `firstLoginDone` ist die zuverlässige Bremse
+  // gegen das "Modal blitzt auf und ist sofort wieder weg"-Symptom.
+  // Er wird gesetzt, sobald das Onboarding-Modal einmal gezeigt oder
+  // bewusst ausgelassen wurde, und blockiert Folge-Anzeigen auch dann,
+  // wenn die lokale DB die `onboardingSeen=true`-Zeile noch nicht
+  // vom Server gepullt hat.
+
+  it('Default: firstLoginDone ist false', async () => {
+    sessionSchreiben({
+      userId: 'user-a',
+      email: 'a@example.com',
+      rolle: 'user',
+      anzeigename: 'A',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+    const store = useSettingsStore()
+    store.start()
+    await new Promise<void>((r) => setTimeout(r, 30))
+    expect(store.settings.firstLoginDone).toBe(false)
+    store.stop()
+  })
+
+  it('setFirstLoginDone(true) wird im Store reflektiert und synchronisiert', async () => {
+    sessionSchreiben({
+      userId: 'user-a',
+      email: 'a@example.com',
+      rolle: 'user',
+      anzeigename: 'A',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+    const store = useSettingsStore()
+    store.start()
+    await new Promise<void>((r) => setTimeout(r, 30))
+
+    await store.setFirstLoginDone(true)
+    await new Promise<void>((r) => setTimeout(r, 30))
+
+    expect(store.settings.firstLoginDone).toBe(true)
+    const row = await getDb().einstellungen.get(['firstLoginDone', 'user-a'])
+    expect(row?.value).toBe('true')
+
+    // Cross-Device-Sync: auch dieser Marker wird per LWW verteilt.
+    expect(queueOpMock).toHaveBeenCalledWith(
+      'einstellung',
+      'upsert',
+      expect.objectContaining({
+        key: 'firstLoginDone',
+        userId: 'user-a',
+        value: 'true',
+      }),
+    )
+
+    store.stop()
+  })
+
+  it('Per-User-Isolation: firstLoginDone für user-a blendet nichts für user-b aus', async () => {
+    await getDb().einstellungen.put({
+      key: 'firstLoginDone',
+      userId: 'user-a',
+      value: 'true',
+      geaendertAm: jetztIso(),
+    })
+
+    sessionSchreiben({
+      userId: 'user-b',
+      email: 'b@example.com',
+      rolle: 'user',
+      anzeigename: 'B',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+    const store = useSettingsStore()
+    store.start()
+    await new Promise<void>((r) => setTimeout(r, 30))
+    expect(store.settings.firstLoginDone).toBe(false)
+    store.stop()
+
+    sessionSchreiben({
+      userId: 'user-a',
+      email: 'a@example.com',
+      rolle: 'user',
+      anzeigename: 'A',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+    const store2 = useSettingsStore()
+    store2.start()
+    await new Promise<void>((r) => setTimeout(r, 30))
+    expect(store2.settings.firstLoginDone).toBe(true)
+    store2.stop()
+  })
 })

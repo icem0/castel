@@ -38,7 +38,7 @@ export interface Settings {
   /**
    * Pro User: hat der User das Onboarding-Tutorial ("Erste Schritte") bereits
    * gesehen / abgeschlossen? Steuert, ob der Tutorial-Modal beim Login
-   * automatisch geöffnet wird. Default: false (Tutorial zeigen).
+   * automatisch geöffnet wird.
    *
    * Cross-Device-synchronisiert (per-User-Key, PK [key+userId]). Einmal auf
    * einem Gerät abgewählt → auf allen Geräten dieses Users ausgeblendet.
@@ -46,6 +46,16 @@ export interface Settings {
    * und wird per Sync (LWW) an alle Geräte verteilt.
    */
   onboardingSeen: boolean
+  /**
+   * Pro User: hat der User jemals einen erfolgreichen Login abgeschlossen?
+   * Wird auf `true` gesetzt, sobald das Onboarding-Modal entweder gezeigt
+   * oder bewusst ausgelassen wurde. Dient zusammen mit `onboardingSeen`
+   * als Gate: das Modal wird nur noch für Erstnutzer gezeigt, deren
+   * `firstLoginDone` noch nicht gesetzt ist. Damit verhindern wir, dass
+   * das Modal "aufblitzt", wenn die lokale DB die `onboardingSeen=true`-
+   * Zeile noch nicht vom Server gepullt hat (Race-Condition-Schutz).
+   */
+  firstLoginDone: boolean
 }
 
 const DEFAULTS: Settings = {
@@ -56,10 +66,16 @@ const DEFAULTS: Settings = {
   companyName: '',
   barcodeTyp: 'CODE128',
   onboardingSeen: false,
+  firstLoginDone: false,
 }
 
 const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
-const PER_USER_KEYS = new Set<string>(['sprache', 'standardStandortId', 'onboardingSeen'])
+const PER_USER_KEYS = new Set<string>([
+  'sprache',
+  'standardStandortId',
+  'onboardingSeen',
+  'firstLoginDone',
+])
 const GLOBAL_INDEX = ''
 
 function scopeForKey(key: string): 'global' | 'user' {
@@ -120,10 +136,15 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
   const barcodeTypRow = byKey.get('barcodeTyp')
   const barcodeTypRaw = (barcodeTypRow?.value ?? DEFAULTS.barcodeTyp) as BarcodeTyp
   const barcodeTyp: BarcodeTyp =
-    barcodeTypRaw === 'EAN13' || barcodeTypRaw === 'CODE39' ? barcodeTypRaw : DEFAULTS.barcodeTyp
+    barcodeTypRaw === 'CODE128' || barcodeTypRaw === 'EAN13' || barcodeTypRaw === 'CODE39'
+      ? barcodeTypRaw
+      : DEFAULTS.barcodeTyp
 
   const onboardingSeenRow = byKey.get('onboardingSeen')
   const onboardingSeen = onboardingSeenRow?.value === 'true'
+
+  const firstLoginDoneRow = byKey.get('firstLoginDone')
+  const firstLoginDone = firstLoginDoneRow?.value === 'true'
 
   return {
     sprache,
@@ -133,6 +154,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     companyName,
     barcodeTyp,
     onboardingSeen,
+    firstLoginDone,
   }
 }
 
@@ -226,6 +248,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('onboardingSeen', seen ? 'true' : 'false')
   }
 
+  async function setFirstLoginDone(done: boolean): Promise<void> {
+    await setKey('firstLoginDone', done ? 'true' : 'false')
+  }
+
   // Hilfsfunktion: legt eine UUID-basierte ID an (für Outbox-Einträge).
   void neueUuid
 
@@ -241,5 +267,6 @@ export const useSettingsStore = defineStore('settings', () => {
     setKommissionen,
     setBarcodeTyp,
     setOnboardingSeen,
+    setFirstLoginDone,
   }
 })
