@@ -61,9 +61,13 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
     release-notes braucht, schaut in `git log` (Conventional Commits
     reichen für die Gruppierung).
 - **`build-and-push.yml`** baut das PWA- und API-Image bei Push auf `main`
-  und pusht sie mit Tag `:latest` **und** mit dem SHA-Tag. Frische Images
-  kommen also mit jedem Merge auf `main` — kein zusätzlicher Tag-Trigger
-  mehr nötig.
+  und pusht sie mit Tag `:latest`, `:pre-release` **und** mit dem SHA-Tag.
+  Frische Images kommen also mit jedem Merge auf `main` — kein zusätzlicher
+  Tag-Trigger mehr nötig. `:pre-release` ist ein beweglicher Alias auf den
+  jeweils letzten `main`-Build (derselbe Digest wie `:latest`), gedacht für
+  Stacks, die einen expliziten Pre-Production-Tag referenzieren (z. B.
+  Coolify-/Arcane-Deploys vor dem finalen `latest`-Rollout). Wer ein
+  wirklich eingefrorenes Pre-Release will, pinnt den Commit-SHA.
 
 ## Sicherheit
 
@@ -87,7 +91,7 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 
 - **Images kommen aus GHCR.** `docker-compose.yml` referenziert `api`, `pwa` und `migrate` hartkodiert als `ghcr.io/icem0/castel-{api,pwa}:latest`. **Kein** `build:`-Block, **kein** Variablen-Override. Deployer ziehen die Images — fertig.
 - **`migrate`** ist ein Entry-Point des API-Images (`node dist/db/migrate.js`). Es wird also nicht für jeden Job ein eigenes Image gebaut. Die `api`-Service-Definition startet vor jedem Server-Start automatisch `node dist/db/migrate.js` (idempotent — bereits angewendete Migrationen werden uebersprungen). Den allerersten Admin legt die PWA selbst an, sobald `/api/auth/setup-status` meldet, dass die `users`-Tabelle leer ist. Der `migrate`-Profil-Service bleibt fuer manuelle Aufrufe erhalten (`docker compose --profile migrate run --rm migrate`).
-- **CI-Workflow** `.github/workflows/build-and-push.yml` baut bei Push auf `main` die Images und pusht sie mit Tag `:latest` **und** mit dem SHA-Tag. Bei Pull-Requests wird **nur** gebaut, nicht gepusht (Gate `if: github.event_name != 'pull_request'`). Sichtbarkeit wird per `PATCH /user/packages/container/{pkg}` auf `public` gesetzt.
+- **CI-Workflow** `.github/workflows/build-and-push.yml` baut bei Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** mit dem SHA-Tag. Bei Pull-Requests wird **nur** gebaut, nicht gepusht (Gate `if: github.event_name != 'pull_request'`). Sichtbarkeit wird per `PATCH /user/packages/container/{pkg}` auf `public` gesetzt.
 - **GHCR-Token**: Für private Pakete braucht der Deployer einen GitHub-PAT mit Scope `read:packages`. Bare Docker / Coolify: `docker login ghcr.io`. Arcane: einmalig `POST /container-registries` mit dem PAT. Für öffentliche Pakete reicht kein Token.
 - **GHCR-Visibility-Automation**: `build-and-push.yml` ruft am Ende jedes Jobs `PATCH /user/packages/container/{pkg}` mit `{"visibility":"public"}`. Der automatische `GITHUB_TOKEN` darf das für User-Repos **nicht** (gibt 404). Lösung: klassischen PAT mit Scopes `repo` + `write:packages` unter dem Secret-Namen **`GHCR_ADMIN_TOKEN`** im Repo hinterlegen (`Settings → Secrets and variables → Actions`). Ohne Secret wird der Flip mit `::warning::` übersprungen — das Image wird trotzdem gepusht, das Paket bleibt aber `private`. Für server-seitige Pulls reicht das (Auth gegen `ghcr.io` via `docker login` bzw. Coolify-/Arcane-Registry-Config). Wer das Paket wirklich öffentlich haben will, legt den Secret an, der Flip läuft dann automatisch.
 - **Arcane / Coolify / bare Docker** funktionieren ohne Anpassung — sie alle ziehen `image:`-Referenzen transparent. Der frühere `build:`-Pfad ist absichtlich entfernt.

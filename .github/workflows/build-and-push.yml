@@ -59,6 +59,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/castel-api:latest
+            ghcr.io/${{ github.repository_owner }}/castel-api:pre-release
             ghcr.io/${{ github.repository_owner }}/castel-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -168,6 +169,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/castel-pwa:latest
+            ghcr.io/${{ github.repository_owner }}/castel-pwa:pre-release
             ghcr.io/${{ github.repository_owner }}/castel-pwa:${{ github.sha }}
           # Commit/Branch als Build-Args durchreichen, damit version.ts im
           # Image die echten Werte hat (docker buildx hat kein .git/).
