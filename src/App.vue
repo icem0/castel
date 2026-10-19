@@ -1544,9 +1544,10 @@ function formatRelativ(iso: string | null): string {
   position: fixed;
   top: 4rem;
   right: 1rem;
-  width: 24rem;
+  width: min(34rem, 96vw);
   max-height: calc(100vh - 5rem);
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-card);
   color: var(--text);
   border: 1px solid var(--border-strong);
@@ -1610,16 +1611,27 @@ function formatRelativ(iso: string | null): string {
 }
 
 .sync-panel .meta {
-  grid-template-columns: 1fr;
-  gap: 0.4rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
   margin-bottom: 0.5rem;
+}
+.sync-panel .meta > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 .sync-panel .meta dt {
   font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
 }
 .sync-panel .meta dd {
   font-family: var(--mono);
   font-size: 0.85rem;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .sync-panel .meta .relativ {
   font-family: inherit;
@@ -1646,12 +1658,30 @@ function formatRelativ(iso: string | null): string {
   border-collapse: collapse;
   font-size: 0.82rem;
   margin-bottom: 0.5rem;
+  table-layout: fixed;
 }
 .sync-counts th,
 .sync-counts td {
   text-align: left;
   padding: 0.3rem 0.4rem;
   border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.sync-counts th:nth-child(1),
+.sync-counts td:nth-child(1) {
+  width: 40%;
+}
+.sync-counts th:nth-child(2),
+.sync-counts td:nth-child(2),
+.sync-counts th:nth-child(3),
+.sync-counts td:nth-child(3) {
+  width: 22%;
+  text-align: right;
+}
+.sync-counts th:nth-child(4),
+.sync-counts td:nth-child(4) {
+  width: 16%;
+  text-align: right;
 }
 .sync-counts th {
   font-weight: 600;
@@ -1713,14 +1743,19 @@ function formatRelativ(iso: string | null): string {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.35rem;
 }
 .sync-diag-list li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: baseline;
+  display: block;
   font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.sync-diag-list .mono,
+.sync-diag-list code {
+  display: inline-block;
+  margin-right: 0.3rem;
+  word-break: break-all;
 }
 .sync-diag-list .mono {
   font-family: var(--mono);
@@ -1765,6 +1800,7 @@ function formatRelativ(iso: string | null): string {
 
 .sync-panel-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.75rem;
 }
@@ -2095,6 +2131,17 @@ main {
   }
   .brand {
     flex: 1;
+  }
+  /* Sync-Panel: auf Mobile schmaler, sonst rutscht es aus dem Viewport. */
+  .sync-panel {
+    width: calc(100vw - 1rem);
+    right: 0.5rem;
+    left: 0.5rem;
+    max-width: none;
+  }
+  /* Mindestbestand-Dropdown: bleibt Drop-Down-Logik, schmaler Rand. */
+  .mindestbestand-dropdown {
+    right: -0.5rem;
   }
   .user-email {
     display: none;

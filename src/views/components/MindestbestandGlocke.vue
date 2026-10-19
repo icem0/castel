@@ -189,16 +189,16 @@ function openPanel(): void {
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
-  color: var(--text);
+  color: var(--text-strong);
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
 }
 .mindestbestand-indicator:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.06));
+  background: var(--accent-bg, rgba(0, 0, 0, 0.06));
 }
 .mindestbestand-indicator.aktiv {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.08));
+  background: var(--accent-bg, rgba(0, 0, 0, 0.08));
 }
 .mindestbestand-indicator.hatNeu .mindestbestand-icon {
   animation: glocken-wackel 1.2s ease-in-out infinite;
@@ -211,8 +211,8 @@ function openPanel(): void {
   min-width: 1.1rem;
   height: 1.1rem;
   padding: 0 0.3rem;
-  background: #c0392b;
-  color: white;
+  background: var(--danger, #c0392b);
+  color: #fff;
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 600;
@@ -228,10 +228,12 @@ function openPanel(): void {
   width: min(22rem, 90vw);
   max-height: 24rem;
   overflow-y: auto;
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border-color, #ccc);
+  overflow-x: hidden;
+  background: var(--bg-card, #1a1f29);
+  color: var(--text-strong);
+  border: 1px solid var(--border-strong, #2f374a);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   z-index: 30;
 }
 .mindestbestand-dropdown-head {
@@ -239,7 +241,7 @@ function openPanel(): void {
   align-items: center;
   justify-content: space-between;
   padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid var(--border-color, #eee);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
 }
 .mindestbestand-leer {
   padding: 1rem 0.8rem;
@@ -263,20 +265,29 @@ function openPanel(): void {
   background: transparent;
   text-align: left;
   cursor: pointer;
-  border-bottom: 1px solid var(--border-color, #f0f0f0);
+  color: inherit;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
 }
-.mindestbestand-item:hover {
-  background: var(--hover-bg, rgba(0, 0, 0, 0.04));
+.mindestbestand-item:last-child {
+  border-bottom: none;
+}
+.mindestbestand-item:hover,
+.mindestbestand-item:focus-visible {
+  background: var(--accent-bg, rgba(99, 102, 241, 0.12));
+  outline: none;
 }
 .mindestbestand-item-titel {
   font-weight: 600;
   font-size: 0.95rem;
   grid-column: 1;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
 }
 .mindestbestand-item-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
   grid-column: 1;
+  overflow-wrap: anywhere;
 }
 .mindestbestand-item-zeit {
   color: var(--text-muted);
