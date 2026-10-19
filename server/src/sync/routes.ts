@@ -3,9 +3,17 @@
 import type { FastifyInstance } from 'fastify'
 import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { artikel, buchungen, einstellungen, projekte, standorte } from '../db/schema.js'
+import {
+  artikel,
+  buchungen,
+  einstellungen,
+  mindestbestandEreignisse,
+  projekte,
+  standorte,
+} from '../db/schema.js'
 import { pushPayloadSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { resolvePush } from './resolver.js'
+import type { NotificationGateway } from '../services/notification-gateway.js'
 
 async function countRows(db: ReturnType<typeof getDb>): Promise<{
   artikel: number
@@ -27,9 +35,12 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   }
 }
 
-export async function syncRoutes(app: FastifyInstance): Promise<void> {
-  // ---------- GET /api/sync/snapshot?since=<iso> ----------
-  app.get<{ Querystring: { since?: string } }>(
+export async function syncRoutes(
+  app: FastifyInstance,
+  notificationGateway: NotificationGateway,
+): Promise<void> {
+  // ---------- GET /api/sync/snapshot?since=<iso>&mindestSince=<iso> ----------
+  app.get<{ Querystring: { since?: string; mindestSince?: string } }>(
     '/api/sync/snapshot',
     { preHandler: app.requireAuth },
     async (req, reply) => {
@@ -39,11 +50,18 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
       }
       const since = parsed.data.since ? new Date(parsed.data.since) : new Date(0)
       const sinceIso = since.toISOString()
+      // mindestSince: optionaler Filter für Mindestbestand-Ereignisse.
+      // Default = Anbeginn der Zeit (alle Events). Der Client sendet den
+      // zuletzt gesehenen Event-Timestamp, um nur die Änderungen zu ziehen.
+      const mindestSince = parsed.data.mindestSince
+        ? new Date(parsed.data.mindestSince)
+        : new Date(0)
+      const mindestSinceIso = mindestSince.toISOString()
       const db = getDb()
       const user = req.authUser
       if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
-      const [artikelRows, standortRows, projektRows, buchungRows, einstellungRows] =
+      const [artikelRows, standortRows, projektRows, buchungRows, einstellungRows, eventRows] =
         await Promise.all([
           db.select().from(artikel).where(sql`${artikel.geaendertAm} > ${sinceIso}`),
           db.select().from(standorte).where(sql`${standorte.geaendertAm} > ${sinceIso}`),
@@ -59,11 +77,23 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
                 or(isNull(einstellungen.userId), eq(einstellungen.userId, user.sub)),
               ),
             ),
+          // Mindestbestand-Ereignisse: nach `erstellt_am > mindestSince`.
+          // Max500 — falls die Tabelle groß wird, paginiert der Client
+          // über den Marker `mindestbestand.lastPullAt`.
+          db
+            .select()
+            .from(mindestbestandEreignisse)
+            .where(sql`${mindestbestandEreignisse.erstelltAm} > ${mindestSinceIso}`)
+            .orderBy(sql`${mindestbestandEreignisse.erstelltAm} ASC`)
+            .limit(500),
         ])
 
       return reply.send({
         serverTime: new Date().toISOString(),
         since: since.toISOString(),
+        // mindestSince wird mitgeschickt, damit der Client den Marker
+        // bei Bedarf aktualisieren kann (z. B. nach Pagination).
+        mindestSince: mindestSinceIso,
         artikel: artikelRows,
         standorte: standortRows,
         commission: projektRows,
@@ -73,6 +103,18 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
           userId: r.userId,
           value: r.value,
           geaendertAm: r.geaendertAm.toISOString(),
+        })),
+        // Server-only Felder (zustellung_admin_ids, konsumiert_von_mail)
+        // werden NICHT mit ausgeliefert — die PWA hat damit nichts zu tun.
+        mindestbestandEreignisse: eventRows.map((r) => ({
+          id: r.id,
+          artikelId: r.artikelId,
+          standortId: r.standortId,
+          ausloeserBuchungId: r.ausloeserBuchungId,
+          bestandDanach: r.bestandDanach,
+          mindestbestand: r.mindestbestand,
+          defizit: r.defizit,
+          erstelltAm: r.erstelltAm.toISOString(),
         })),
       })
     },
@@ -107,7 +149,13 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
       if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
       const db = getDb()
-      const result = await resolvePush(db, parsed.data.ops, user.sub, user.rolle)
+      const result = await resolvePush(
+        db,
+        parsed.data.ops,
+        user.sub,
+        user.rolle,
+        notificationGateway,
+      )
 
       return reply.send(result)
     },

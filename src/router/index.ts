@@ -32,6 +32,7 @@ import UserVerwaltungView from '../views/UserVerwaltungView.vue'
 import BarcodeScanView from '../views/BarcodeScanView.vue'
 import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
+import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Auth-Routen (kein Login nötig)
@@ -80,6 +81,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/kommissionen',
     name: 'einstellungen-kommissionen',
     component: KommissionenView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/mindestbestand',
+    name: 'einstellungen-mindestbestand',
+    component: MindestbestandPanelView,
     meta: { requiresAdmin: true },
   },
   { path: '/import', name: 'import', component: ImportView, meta: { requiresAdmin: true } },

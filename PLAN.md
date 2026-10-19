@@ -634,6 +634,7 @@ Test-Setup mit `fake-indexeddb` fürs Frontend und `pg-mem` (oder echtes Test-Po
 22. **User-Verwaltung** — `UserListView`, `POST /api/users`, `PATCH /api/users/:id` (admin-only).
 23. **End-to-End-Test** — Zwei Browser-Fenster mit unterschiedlichen Logins, offline Buchen, online Sync, beide sehen den neuen Bestand.
 24. **Feinschliff** — README mit Setup-Anleitung (Docker + Tunnel), Build/Lint/Tests grün (Frontend **und** Backend), `npm audit` clean.
+25. **Mindestbestand-Push** (PLAN-Update 2026-10-19) — Server-Resolver schreibt `mindestbestand_ereignisse` bei jeder Buchung, die einen Artikel unter seinen Mindestbestand drückt. PWA zeigt die Events im Glocken-Panel (Admin-only) und in `/einstellungen/mindestbestand`. Optionaler SMTP-Notification-Gateway ist als Skeleton vorbereitet (LogNotificationGateway aktiv, SmtpNotificationGateway wirft `not implemented`). Notification-API-Permission wird beim Mount der Glocke einmalig erfragt (nur solange PWA offen — kein Web-Push). Trigger-Regel: "bei jeder Unterschreitung" (User-Entscheidung); Storno/Kommission lösen kein Event aus; Umlagerung prüft nur Quellstandort.
 
 ---
 
@@ -683,19 +684,20 @@ Test-Setup mit `fake-indexeddb` fürs Frontend und `pg-mem` (oder echtes Test-Po
 ### Backend / Multi-User / Sync (neu) — **offen**
 | Schritt | Status | Notiz |
 |---|---|---|
-| Schritt 10 (Backend-Monorepo) | ⏳ offen | Fastify + TS, `server/`-Ordner |
-| Schritt 11 (DB + Migrations) | ⏳ offen | Drizzle + Postgres 16 |
-| Schritt 12 (Auth-Backend) | ⏳ offen | Login/Refresh/Logout, argon2, JWT |
-| Schritt 13 (Bootstrap-Admin) | ⏳ offen | CLI-Script |
-| Schritt 14 (Docker-Compose) | ⏳ offen | `db`, `api`, `pwa`, `caddy` |
-| Schritt 15 (Tunnel) | ⏳ offen | Caddyfile + `cloudflared`-Service |
-| Schritt 16 (PWA-Auth) | ⏳ offen | `LoginView`, `useAuthStore`, Router-Guard |
-| Schritt 17 (Outbox + Sync-Worker) | ⏳ offen | Push/Pull, Backoff |
-| Schritt 18 (Sync-Endpoints) | ⏳ offen | Snapshot + Push |
-| Schritt 19 (Foto-Upload) | ⏳ offen | multipart, Volume-Speicher |
-| Schritt 20 (Barcode-Scan) | ⏳ offen | `BarcodeScanView`, ZXing-Fallback |
-| Schritt 21 (Rollenprüfung) | ⏳ offen | UI + Server |
-| Schritt 22 (User-Verwaltung) | ⏳ offen | `UserListView` |
+| Schritt 10 (Backend-Monorepo) | ✅ fertig | Fastify + TS, `server/`-Ordner |
+| Schritt 11 (DB + Migrations) | ✅ fertig | Drizzle + Postgres 16 |
+| Schritt 12 (Auth-Backend) | ✅ fertig | Login/Refresh/Logout, argon2, JWT |
+| Schritt 13 (Bootstrap-Admin) | ✅ fertig | via PWA-Setup-Formular |
+| Schritt 14 (Docker-Compose) | ✅ fertig | Images aus GHCR, `db`, `api`, `pwa`, `migrate` |
+| Schritt 15 (Tunnel) | ✅ fertig | Caddyfile + `cloudflared` |
+| Schritt 16 (PWA-Auth) | ✅ fertig | LoginView, `useAuthStore`, Router-Guard |
+| Schritt 17 (Outbox + Sync-Worker) | ✅ fertig | Push/Pull, Backoff, Marker |
+| Schritt 18 (Sync-Endpoints) | ✅ fertig | Snapshot + Push + Mindestbestand-Events |
+| Schritt 19 (Foto-Upload) | ✅ fertig | multipart, Volume-Speicher |
+| Schritt 20 (Barcode-Scan) | ✅ fertig | `BarcodeScanView`, ZXing-Fallback |
+| Schritt 21 (Rollenprüfung) | ✅ fertig | UI + Server |
+| Schritt 22 (User-Verwaltung) | ✅ fertig | `UserVerwaltungView` |
+| Schritt 25 (Mindestbestand-Push) | ✅ fertig | Server-Trigger, PWA-Glocke + Panel, Mail-Gateway-Skeleton |
 | Schritt 23 (E2E-Test) | ⏳ offen | zwei Browser, offline + online |
 | Schritt 24 (Feinschliff) | ⏳ offen | README, `npm audit` clean |
 

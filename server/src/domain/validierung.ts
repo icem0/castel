@@ -225,4 +225,12 @@ export function bootstrapInhalt(locale: 'de-DE' | 'en-US'): BootstrapInhalt {
 
 export const snapshotQuerySchema = z.object({
   since: iso.optional(),
+  /**
+   * Optionaler ISO-Timestamp: wenn gesetzt, liefert der Snapshot
+   * zusätzlich alle Mindestbestand-Ereignisse mit
+   * `erstellt_am > mindestSince`. Wird vom Client genutzt, um den
+   * inkrementellen Stand seiner Mindestbestand-Glocke synchron zu
+   * halten. Default = "seit Anbeginn der Zeit" (= alles).
+   */
+  mindestSince: iso.optional(),
 })

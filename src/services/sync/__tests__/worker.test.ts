@@ -1366,3 +1366,148 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
     ).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Mindestbestand-Ereignis-Snapshot
+// ---------------------------------------------------------------------------
+
+describe('Sync — Mindestbestand-Ereignis-Snapshot', () => {
+  it('applySnapshot legt neue Mindestbestand-Ereignisse in Dexie ab', async () => {
+    const { applySnapshot } = await import('../worker')
+    await applySnapshot({
+      serverTime: '2026-04-14T11:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [
+        {
+          id: 'evt-1',
+          artikelId: 'a-1',
+          standortId: 's-1',
+          ausloeserBuchungId: 'b-1',
+          bestandDanach: 2,
+          mindestbestand: 5,
+          defizit: 3,
+          erstelltAm: '2026-04-14T10:30:00.000Z',
+        },
+        {
+          id: 'evt-2',
+          artikelId: 'a-1',
+          standortId: 's-1',
+          ausloeserBuchungId: 'b-2',
+          bestandDanach: 1,
+          mindestbestand: 5,
+          defizit: 4,
+          erstelltAm: '2026-04-14T11:00:00.000Z',
+        },
+      ],
+    })
+    const events = await getDb().mindestbestandEreignisse.orderBy('erstelltAm').toArray()
+    expect(events).toHaveLength(2)
+    expect(events[0]?.id).toBe('evt-1')
+    expect(events[1]?.id).toBe('evt-2')
+  })
+
+  it('applySnapshot ist append-only: doppelte IDs werden überschrieben (id-basiertes put)', async () => {
+    const { applySnapshot } = await import('../worker')
+    await applySnapshot({
+      serverTime: '2026-04-14T11:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [
+        {
+          id: 'evt-1',
+          artikelId: 'a-1',
+          standortId: 's-1',
+          ausloeserBuchungId: 'b-1',
+          bestandDanach: 2,
+          mindestbestand: 5,
+          defizit: 3,
+          erstelltAm: '2026-04-14T10:30:00.000Z',
+        },
+      ],
+    })
+    // Zweiter Snapshot mit gleicher ID, aber anderem Inhalt (z. B. Server
+    // hat den Stand korrigiert). applySnapshot nutzt `put`, also wird
+    // der Eintrag überschrieben.
+    await applySnapshot({
+      serverTime: '2026-04-14T12:00:00.000Z',
+      since: '2026-04-14T11:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [
+        {
+          id: 'evt-1',
+          artikelId: 'a-1',
+          standortId: 's-1',
+          ausloeserBuchungId: 'b-1',
+          bestandDanach: 0,
+          mindestbestand: 5,
+          defizit: 5,
+          erstelltAm: '2026-04-14T10:30:00.000Z',
+        },
+      ],
+    })
+    const events = await getDb().mindestbestandEreignisse.toArray()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.bestandDanach).toBe(0)
+    expect(events[0]?.defizit).toBe(5)
+  })
+
+  it('applySnapshot ohne Events setzt den Marker nicht zurück', async () => {
+    const { applySnapshot } = await import('../worker')
+    await applySnapshot({
+      serverTime: '2026-04-14T11:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [],
+    })
+    const marker = await getDb().einstellungen.get(['mindestbestand.lastPullAt', ''])
+    // Wenn der Snapshot keine Events liefert, bleibt der Marker
+    // uninitialisiert (null). Sonst würden wir potenziell "alle
+    // Events bis zum Snapshot-Time" als gesehen markieren, obwohl
+    // uns noch welche fehlen.
+    expect(marker).toBeUndefined()
+  })
+
+  it('applySnapshot mit Events setzt den mindestbestand.lastPullAt Marker', async () => {
+    const { applySnapshot } = await import('../worker')
+    await applySnapshot({
+      serverTime: '2026-04-14T11:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [
+        {
+          id: 'evt-1',
+          artikelId: 'a-1',
+          standortId: 's-1',
+          ausloeserBuchungId: 'b-1',
+          bestandDanach: 2,
+          mindestbestand: 5,
+          defizit: 3,
+          erstelltAm: '2026-04-14T10:30:00.000Z',
+        },
+      ],
+    })
+    const marker = await getDb().einstellungen.get(['mindestbestand.lastPullAt', ''])
+    expect(marker?.value).toBe('2026-04-14T11:00:00.000Z')
+  })
+})

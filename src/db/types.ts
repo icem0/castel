@@ -106,6 +106,24 @@ export interface AuditLogEintrag {
   zeit: Iso
 }
 
+/**
+ * Mindestbestand-Ereignis (Server-seitig ausgelöst, vom PWA-Snapshot
+ * gezogen). Wird im Glocken-Panel und im Admin-View angezeigt.
+ *
+ * Server-only Felder (`zustellung_admin_ids`, `konsumiert_von_mail`)
+ * werden beim Snapshot-Endpoint NICHT mit ausgeliefert.
+ */
+export interface MindestbestandEreignis {
+  id: string
+  artikelId: string
+  standortId: string
+  ausloeserBuchungId: string
+  bestandDanach: number
+  mindestbestand: number
+  defizit: number
+  erstelltAm: Iso
+}
+
 /** Rolle des eingeloggten Users (Spiegel des Server-Users). */
 export type UserRolle = 'admin' | 'user'
 

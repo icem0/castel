@@ -19,6 +19,7 @@ import type {
   Artikel,
   Buchung,
   Einstellung,
+  MindestbestandEreignis,
   OutboxEintrag,
   OutboxOp,
   Projekt,
@@ -178,6 +179,16 @@ export interface SyncSnapshot {
   buchungen: Buchung[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
+  /**
+   * Mindestbestand-Ereignisse, die der Server-Resolver seit
+   * `mindestSince` ausgelöst hat. Append-only, getrieben vom
+   * Marker `mindestbestand.lastPullAt` in `einstellungen`.
+   */
+  mindestbestandEreignisse: MindestbestandEreignis[]
+  /** Server-Zeitstempel, an dem `mindestbestandEreignisse` gefiltert
+   *  wurde. Wir spiegeln den Wert zurück, damit der Client den
+   *  Marker aktualisieren kann (Pagination-Support). */
+  mindestSince?: string
 }
 
 export interface PushResult {
@@ -334,13 +345,20 @@ function updateStatus(patch: Partial<SyncStatus>): void {
  * Lädt einen Snapshot vom Server. Wird vom regulären Sync-Pfad und vom
  * "Lokale DB löschen"-Flow benutzt — daher exportiert, nicht privat.
  * `since` ist optional: leerer String zieht den kompletten Snapshot.
+ * `mindestSince` filtert zusätzlich `mindestbestandEreignisse`. Default
+ * = "seit Anbeginn der Zeit" (= alle Events).
  */
 export async function fetchSnapshot(
   apiBase: string,
   token: string | null,
   since: string,
+  mindestSince?: string,
 ): Promise<SyncSnapshot> {
-  const url = `${apiBase}/api/sync/snapshot${since ? `?since=${encodeURIComponent(since)}` : ''}`
+  const params = new URLSearchParams()
+  if (since) params.set('since', since)
+  if (mindestSince) params.set('mindestSince', mindestSince)
+  const qs = params.toString()
+  const url = `${apiBase}/api/sync/snapshot${qs ? `?${qs}` : ''}`
   const res = await fetch(url, {
     headers: {
       Accept: 'application/json',
@@ -577,11 +595,18 @@ async function collectStuckItems(limit = 5): Promise<SyncLastFailure['stuckItems
 
 // ---------- Snapshot-Merge ----------
 
-async function applySnapshot(snap: SyncSnapshot): Promise<void> {
+export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
   const db = getDb()
   await db.transaction(
     'rw',
-    [db.artikel, db.standorte, db.commission, db.buchungen, db.einstellungen],
+    [
+      db.artikel,
+      db.standorte,
+      db.commission,
+      db.buchungen,
+      db.einstellungen,
+      db.mindestbestandEreignisse,
+    ],
     async () => {
       // Artikel
       for (const a of snap.artikel) {
@@ -626,6 +651,13 @@ async function applySnapshot(snap: SyncSnapshot): Promise<void> {
           await db.einstellungen.put({ ...e, userId: indexedUserId })
         }
       }
+      // Mindestbestand-Ereignisse — append-only, kein LWW.
+      // Identität = `id` (UUID). Wenn der Server die gleiche UUID nochmal
+      // schickt (z. B. nach `clearLocalDbAndPull`), wird der Eintrag
+      // einfach überschrieben — id-basiertes `put` ist hier ok.
+      for (const e of snap.mindestbestandEreignisse ?? []) {
+        await db.mindestbestandEreignisse.put(e)
+      }
     },
   )
 
@@ -645,6 +677,22 @@ async function applySnapshot(snap: SyncSnapshot): Promise<void> {
     value: snap.serverTime,
     geaendertAm: now,
   })
+  // Marker für Mindestbestand-Ereignis-Snapshot: nur setzen, wenn der
+  // Snapshot auch Events geliefert hat. Sonst würden wir einen
+  // `mindestSince` vom Default-Wert auf den Server-Time setzen, obwohl
+  // wir gar nicht wissen, ob alle bis dahin ausgelösten Events
+  // enthalten waren. Wenn `mindestSince` vom Server nicht
+  // zurückgespielt wird, fallen wir auf `serverTime` zurück — der
+  // Server-Time ist die "sichere" Wahl, weil der Server bei einem
+  // späteren Pull garantiert alle Events >= `serverTime` liefert.
+  if ((snap.mindestbestandEreignisse?.length ?? 0) > 0) {
+    await getDb().einstellungen.put({
+      key: 'mindestbestand.lastPullAt',
+      userId: '',
+      value: snap.mindestSince ?? snap.serverTime,
+      geaendertAm: now,
+    })
+  }
 }
 
 // ---------- Sync-Hauptaufruf ----------
@@ -803,7 +851,17 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     }
 
     // 2) Pull
-    const snap = await fetchSnapshot(apiBase, token, lastPull ?? '1970-01-01T00:00:00.000Z')
+    // Mindestbestand-Marker lesen: Default = "Anbeginn der Zeit" =
+    //    komplettes Event-Set. Der Client schickt seinen letzten
+    //    Event-Timestamp, um nur die Änderungen zu ziehen.
+    const lastMindestPull =
+      (await getDb().einstellungen.get(['mindestbestand.lastPullAt', '']))?.value ?? null
+    const snap = await fetchSnapshot(
+      apiBase,
+      token,
+      lastPull ?? '1970-01-01T00:00:00.000Z',
+      lastMindestPull ?? '1970-01-01T00:00:00.000Z',
+    )
     await applySnapshot(snap)
 
     // 3) Server-Status für Divergenz-Anzeige holen
@@ -856,7 +914,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
         value: '',
         geaendertAm: jetztIso(),
       })
-      const fullSnap = await fetchSnapshot(apiBase, token, '')
+      const fullSnap = await fetchSnapshot(apiBase, token, '', '1970-01-01T00:00:00.000Z')
       await applySnapshot(fullSnap)
       // Counts nach Heilung neu holen.
       try {

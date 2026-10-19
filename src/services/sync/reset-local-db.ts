@@ -146,7 +146,7 @@ export async function resetLocalDbAndPull(opts: {
   // 4) Kompletten Snapshot ziehen (kein `since` → alles). Server-
   //    Snapshot.serverTime ist die Cutoff-Zeit für den nächsten
   //    inkrementellen Sync.
-  const data = await fetchSnapshot(opts.apiBase, opts.token, '')
+  const data = await fetchSnapshot(opts.apiBase, opts.token, '', '1970-01-01T00:00:00.000Z')
 
   // 5) Neue Dexie-Instanz anlegen. Dexie liest das Schema automatisch
   //    aus den .version()-Blöcken, also kein erneutes .stores() nötig.

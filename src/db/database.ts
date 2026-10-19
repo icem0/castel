@@ -2,9 +2,9 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v9 (Index auf `standorte.standard`).
-// Frühere Versionen (v1–v7) sind nur noch für Migration existierender
-// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v8 verwendet.
+// Aktuelles Schema: v10 (Tabelle `mindestbestandEreignisse`).
+// Frühere Versionen (v1–v9) sind nur noch für Migration existierender
+// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v10 verwendet.
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -16,6 +16,7 @@ import type {
   AuditLogEintrag,
   Buchung,
   Einstellung,
+  MindestbestandEreignis,
   OutboxEintrag,
   Projekt,
   Standort,
@@ -33,6 +34,13 @@ export class CastelDb extends Dexie {
   auditLog!: Table<AuditLogEintrag, string>
   /** Sync-Que: jede Schreiboperation landet hier, bis sie zum Server gepusht ist. */
   outbox!: Table<OutboxEintrag, string>
+  /**
+   * Mindestbestand-Ereignisse, vom Server-Resolver ausgelöst. Append-only
+   * (kein Client-Insert). Wird vom Snapshot-Endpoint über `mindestSince`
+   * inkrementell gezogen. Treibt das Glocken-Panel in der AppShell und
+   * den Admin-View `/einstellungen/mindestbestand`.
+   */
+  mindestbestandEreignisse!: Table<MindestbestandEreignis, string>
 
   constructor(name = DB_NAME) {
     super(name)
@@ -260,6 +268,22 @@ export class CastelDb extends Dexie {
       .upgrade(async (_tx) => {
         /* Index wird beim Upgrade automatisch aufgebaut. */
       })
+
+    // v10: Tabelle `mindestbestandEreignisse` (Spiegel der Server-
+    //      Tabelle). Wird vom Snapshot-Endpoint inkrementell über
+    //      `?mindestSince=<iso>` gefüllt — kein Daten-Migration nötig,
+    //      da der Client die Tabelle noch nicht kannte.
+    this.version(10).stores({
+      artikel: 'id, sharePointId, typ, status, titel, barcode',
+      standorte: 'id, name, typ, archiviert, standard',
+      buchungen:
+        'id, artikelId, standortId, standortZielId, typ, erstelltAm, storno, stornoVon, paarId, serverId',
+      commission: 'id, nummer, archiviert',
+      einstellungen: '[key+userId], key, userId',
+      auditLog: 'id, aktion, entitaet, entitaetId, zeit',
+      outbox: 'id, entity, syncedAt, createdAt, quarantinedAt',
+      mindestbestandEreignisse: 'id, artikelId, standortId, erstelltAm',
+    })
   }
 }
 

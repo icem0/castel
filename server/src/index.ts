@@ -16,6 +16,7 @@ import { userRoutes } from './users/routes.js'
 import { devRoutes } from './dev/routes.js'
 import { truncateAllDataTables } from './dev/dev-reset.js'
 import { closeDb } from './db/client.js'
+import { buildNotificationGateway } from './services/notification-gateway.js'
 
 async function main() {
   const app = Fastify({
@@ -64,9 +65,25 @@ async function main() {
   })
 
   // Restliche Routes (mit requireAuth als preHandler)
+  const notificationGateway = buildNotificationGateway({
+    mailEnabled: config.MAIL_ENABLED,
+    smtp: {
+      host: config.MAIL_SMTP_HOST,
+      port: config.MAIL_SMTP_PORT,
+      user: config.MAIL_SMTP_USER,
+      pass: config.MAIL_SMTP_PASS,
+      from: config.MAIL_FROM,
+      dailyDigestHour: config.MAIL_DAILY_DIGEST_HOUR,
+    },
+    logger: app.log,
+  })
+  app.log.info(
+    { gateway: notificationGateway.name, mailEnabled: config.MAIL_ENABLED },
+    'Notification-Gateway initialisiert',
+  )
   await app.register(async (instance) => {
     instance.addHook('preHandler', instance.requireAuth)
-    await syncRoutes(instance)
+    await syncRoutes(instance, notificationGateway)
     await userRoutes(instance)
     await fotoRoutes(instance)
   })

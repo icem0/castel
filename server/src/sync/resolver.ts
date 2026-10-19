@@ -20,14 +20,27 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import * as schema from '../db/schema.js'
-import { artikel, buchungen, einstellungen, projekte, standorte, auditLog } from '../db/schema.js'
+import {
+  artikel,
+  buchungen,
+  einstellungen,
+  mindestbestandEreignisse,
+  projekte,
+  standorte,
+  auditLog,
+} from '../db/schema.js'
 import { berechneBestand } from '../domain/bestand.js'
 import {
   NegativerBestandError,
   UnbekannteReferenzError,
   ValidationError,
 } from '../domain/errors.js'
+import {
+  berechneDefizit,
+  sollteWarnungAusloesen,
+} from '../domain/mindestbestand.js'
 import { applyLastWriterWinsMock } from './__test-helpers__.js'
+import type { NotificationGateway } from '../services/notification-gateway.js'
 
 // ---------- Push-Payload-Type (siehe validierung.ts) ----------
 
@@ -88,8 +101,20 @@ export async function resolvePush(
   ops: ReadonlyArray<PushOp>,
   benutzerId: string,
   benutzerRolle: 'admin' | 'user' = 'user',
+  /**
+   * Optionaler Notification-Gateway. Wird am Ende des Resolver-Laufs
+   * mit allen ausgelösten Mindestbestand-Ereignissen gefüttert.
+   * `undefined` ist erlaubt (Default in den meisten Tests): dann wird
+   * nur die DB-Zeile geschrieben, der Gateway wird nicht aufgerufen.
+   */
+  gateway?: NotificationGateway,
 ): Promise<ResolverResult> {
   const result: ResolverResult = { accepted: [], conflicts: [], errors: [] }
+  /** Sammelt alle in diesem Resolver-Lauf erzeugten Mindestbestand-
+   *  Events. Wird am Ende an `gateway.dispatchMindestbestandEvent`
+   *  durchgereicht (fire-and-forget, damit die Antwort-Latenz nicht
+   *  von externem Versand abhängt). */
+  const events: MindestbestandEreignisRow[] = []
 
   // Phase 1: Umlagerungs-Paare (gleiche paarId) atomar in EINER Transaktion.
   // Einzelne Hälften werden als Conflict markiert (Retry beim nächsten
@@ -120,8 +145,9 @@ export async function resolvePush(
         })
     } else {
       try {
-        await resolveUmlagerungPaar(db, list)
+        const paarEvents = await resolveUmlagerungPaar(db, list)
         for (const op of list) result.accepted.push(op.payload.id)
+        events.push(...paarEvents)
       } catch (err) {
         for (const op of list) pushBuchungsError(result, op.payload.id, err, op)
       }
@@ -133,6 +159,7 @@ export async function resolvePush(
     if (seenIndices.has(i)) continue
     const op = ops[i]!
     try {
+      let buchungsEvent: MindestbestandEreignisRow | null = null
       await db.transaction(async (tx) => {
         switch (op.entity) {
           case 'artikel':
@@ -145,7 +172,7 @@ export async function resolvePush(
             await resolveProjekt(tx, op)
             break
           case 'buchung':
-            await resolveBuchung(tx, op, db)
+            buchungsEvent = await resolveBuchung(tx, op, db)
             break
           case 'einstellung':
             await resolveEinstellung(tx, op, benutzerId, benutzerRolle)
@@ -165,6 +192,7 @@ export async function resolvePush(
 
         result.accepted.push(entitaetId)
       })
+      if (buchungsEvent) events.push(buchungsEvent)
     } catch (err) {
       // Fehler-ID muss mit dem IDENTIFIERS übereinstimmen, den der Client
       // zum Matchen benutzt (Stammdaten: `payload.id`, Einstellungen:
@@ -174,6 +202,14 @@ export async function resolvePush(
       // gepusht bis zur Quarantäne.
       pushBuchungsError(result, entitaetIdFor(op), err, op)
     }
+  }
+
+  // Notification-Gateway: am Ende alle gesammelten Events durchreichen.
+  // Fire-and-forget — wenn der Gateway hängt oder fehlschlägt, darf der
+  // Push-Response nicht blockiert werden. Fehler werden im Gateway selbst
+  // geloggt (siehe `LogNotificationGateway`).
+  if (gateway && events.length > 0) {
+    void Promise.all(events.map((e) => gateway.dispatchMindestbestandEvent(e)))
   }
 
   return result
@@ -443,15 +479,24 @@ interface BuchungPayload {
  * Transaktion. Wird sowohl von `resolveBuchung` (Einzelpush) als auch
  * von `resolveUmlagerungPaar` (atomic Paar-Push) aufgerufen — daher
  * die Trennung von Audit-Log.
+ *
+ * Trigger für Mindestbestand-Ereignisse: nach erfolgreichem Insert wird
+ * der neue Bestand gegen `artikel.mindestbestand` geprüft. Bei
+ * Unterschreitung schreibt der Resolver eine Zeile in
+ * `mindestbestand_ereignisse` — INNERHALB derselben Transaktion, damit
+ * Konsistenz zwischen DB und Event-Zähler gewahrt bleibt. Der
+ * frisch erzeugte Datensatz wird als `MindestbestandEreignisRow`
+ * zurückgegeben, damit `resolvePush` den Notification-Gateway am Ende
+ * füttern kann.
  */
 async function resolveBuchungCreate(
   tx: Tx,
   b: BuchungPayload,
   db: PostgresJsDatabase<typeof schema>,
-): Promise<void> {
+): Promise<MindestbestandEreignisRow | null> {
   // 1) Idempotenz: gleiche ID → 200 duplicate
   const existing = await tx.select().from(buchungen).where(eq(buchungen.id, b.id)).limit(1)
-  if (existing.length > 0) return
+  if (existing.length > 0) return null
 
   // 2) Storno-Idempotenz: zweimal dieselbe Buchung stornieren führt zu
   //    zwei verschiedenen Storno-IDs (verschiedene Outbox-Pushes). Wir
@@ -466,12 +511,16 @@ async function resolveBuchungCreate(
       .where(eq(buchungen.id, b.stornoVon))
       .limit(1)
     if (origRows[0]?.storno === true) {
-      return // doppelter Storno: idempotent no-op
+      return null // doppelter Storno: idempotent no-op
     }
   }
 
-  // 3) Referenz-Check
-  const a = await tx.select({ id: artikel.id }).from(artikel).where(eq(artikel.id, b.artikelId)).limit(1)
+  // 3) Referenz-Check + Mindestbestand laden
+  const a = await tx
+    .select({ id: artikel.id, mindestbestand: artikel.mindestbestand })
+    .from(artikel)
+    .where(eq(artikel.id, b.artikelId))
+    .limit(1)
   if (a.length === 0) throw new UnbekannteReferenzError('artikel', b.artikelId)
   const s = await tx
     .select({ id: standorte.id })
@@ -487,6 +536,7 @@ async function resolveBuchungCreate(
       .limit(1)
     if (s2.length === 0) throw new UnbekannteReferenzError('standort', b.standortZielId)
   }
+  const mindestbestand = a[0]?.mindestbestand ?? null
 
   // 4) Negativ-Bestand-Check.
   //    Entnahme: klar.
@@ -502,34 +552,105 @@ async function resolveBuchungCreate(
 
   // 5) Insert. Timestamp-Felder muessen als Date an Drizzle gehen (siehe
   //    normalizeBuchungTimestamps-Kommentar).
-  await tx.insert(buchungen).values(normalizeBuchungTimestamps(b as unknown as Record<string, unknown>) as never)
+  await tx
+    .insert(buchungen)
+    .values(normalizeBuchungTimestamps(b as unknown as Record<string, unknown>) as never)
+
+  // 6) Mindestbestand-Trigger: nur für Buchungstypen, die den Bestand
+  //    real verändern (also nicht storno, nicht kommission). Inventur
+  //    zählt, weil sie als Differenz kodiert ist und der neue Bestand
+  //    genau `soll` ist (= bestand_davor + differenz). Bei Umlagerung
+  //    betrachten wir nur die Quell-Seite (standortId), nicht das Ziel —
+  //    der Quellbestand sinkt, ein Mindestbestand-Unterschreiten am
+  //    Quellstandort ist das relevante Signal.
+  if (b.typ === 'storno' || b.typ === 'kommission' || b.storno) {
+    return null
+  }
+  const neuerBestand = await berechneBestand(db, b.artikelId, b.standortId)
+  if (!sollteWarnungAusloesen(mindestbestand, neuerBestand)) {
+    return null
+  }
+  // `mindestbestand` ist hier garantiert eine number (sollteWarnungAusloesen
+  // gibt nur dann true zurück, wenn der Wert !== null ist). Der Cast
+  // beruhigt TypeScript.
+  const mindest = mindestbestand as number
+  const eventId = crypto.randomUUID()
+  await tx.insert(mindestbestandEreignisse).values({
+    id: eventId,
+    artikelId: b.artikelId,
+    standortId: b.standortId,
+    ausloeserBuchungId: b.id,
+    bestandDanach: neuerBestand,
+    mindestbestand: mindest,
+    defizit: berechneDefizit(mindest, neuerBestand),
+    erstelltAm: new Date(),
+    zustellungAdminIds: [],
+    konsumiertVonMail: false,
+  })
+  return {
+    id: eventId,
+    artikelId: b.artikelId,
+    standortId: b.standortId,
+    ausloeserBuchungId: b.id,
+    bestandDanach: neuerBestand,
+    mindestbestand: mindest,
+    defizit: berechneDefizit(mindest, neuerBestand),
+    erstelltAm: new Date().toISOString(),
+  }
+}
+
+/**
+ * Internes Row-Format für den Notification-Gateway (siehe
+ * `services/notification-gateway.ts`). Wird in `resolvePush` gesammelt
+ * und am Ende an `gateway.dispatchMindestbestandEvent` weitergereicht.
+ * Wird auch direkt vom Snapshot-Endpoint im Resolver-Pfad erzeugt
+ * (siehe `sync/routes.ts`).
+ */
+export interface MindestbestandEreignisRow {
+  id: string
+  artikelId: string
+  standortId: string
+  ausloeserBuchungId: string
+  bestandDanach: number
+  mindestbestand: number
+  defizit: number
+  erstelltAm: string
 }
 
 async function resolveBuchung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'buchung' }>,
   db: PostgresJsDatabase<typeof schema>,
-): Promise<void> {
+): Promise<MindestbestandEreignisRow | null> {
   if (op.op !== 'create') {
     throw new ValidationError('buchung.op', 'nur "create" erlaubt (append-only)')
   }
-  await resolveBuchungCreate(tx, op.payload as BuchungPayload, db)
+  return resolveBuchungCreate(tx, op.payload as BuchungPayload, db)
 }
 
 /**
  * Pusht ein Umlagerungs-Paar atomar in EINER DB-Transaktion. Beide
  * Hälften werden gemeinsam validiert und eingefügt — entweder beide
- * oder keine.
+ * oder keine. Gibt eine Liste der in dieser Transaktion ausgelösten
+ * Mindestbestand-Ereignisse zurück (typisch 0 oder 1, abhängig vom
+ * Quellbestand).
  */
 async function resolveUmlagerungPaar(
   db: PostgresJsDatabase<typeof schema>,
   ops: ReadonlyArray<Extract<PushOp, { entity: 'buchung' }>>,
-): Promise<void> {
+): Promise<MindestbestandEreignisRow[]> {
+  const events: MindestbestandEreignisRow[] = []
   await db.transaction(async (tx) => {
     for (const op of ops) {
-  await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx as PostgresJsDatabase<typeof schema>)
+      const ev = await resolveBuchungCreate(
+        tx,
+        op.payload as BuchungPayload,
+        tx as PostgresJsDatabase<typeof schema>,
+      )
+      if (ev) events.push(ev)
     }
   })
+  return events
 }
 
 // ---------- Einstellungs-Resolver ----------

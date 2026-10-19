@@ -47,6 +47,24 @@ const schema = z.object({
       const n = v.toLowerCase()
       return n === 'true' || n === '1' || n === 'yes' || n === 'on'
     }),
+
+  // Mail / Notification-Gateway (Vorbereitung für tägliche Sammel-Mail).
+  // MAIL_ENABLED=false (Default) → LogNotificationGateway, kein SMTP,
+  // keine zusätzlichen Dependencies. MAIL_ENABLED=true →
+  // SmtpNotificationGateway (aktuell noch Skeleton/Stub). Die echte
+  // SMTP-Implementierung wird nachgerüstet, sobald die Daily-Digest-
+  // Funktionalität drankommt. Bis dahin dokumentieren die Variablen
+  // den Vertrag, damit das Schema steht.
+  MAIL_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v.toLowerCase() === 'true' || v === '1' || v.toLowerCase() === 'yes'),
+  MAIL_SMTP_HOST: z.string().default(''),
+  MAIL_SMTP_PORT: z.coerce.number().int().positive().default(587),
+  MAIL_SMTP_USER: z.string().default(''),
+  MAIL_SMTP_PASS: z.string().default(''),
+  MAIL_FROM: z.string().default('castel@example.com'),
+  MAIL_DAILY_DIGEST_HOUR: z.coerce.number().int().min(0).max(23).default(7),
 })
 
 const parsed = schema.safeParse(process.env)

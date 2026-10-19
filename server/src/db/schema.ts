@@ -254,3 +254,47 @@ export const einstellungen = pgTable(
  * `buchungen`-Tabellendefinition oben integriert
  * (`buchungen_bestand_idx`).
  */
+
+// ---------- Mindestbestand-Ereignisse (Server-Trigger) ----------
+//
+// Append-only Tabelle: der Sync-Resolver (`sync/resolver.ts`) inserted hier
+// nach jeder akzeptierten Buchung, sobald der neue Bestand am Standort
+// unter den `artikel.mindestbestand` fällt. PWA zieht die Tabelle über den
+// Snapshot-Endpoint, ein lokaler Mirror (`mindestbestandEreignisse` in
+// Dexie) treibt das Glocken-Panel in der AppShell.
+//
+// Die Felder `zustellung_admin_ids` und `konsumiert_von_mail` sind
+// Server-only — sie bereiten den späteren SMTP-Digest-Job vor (tägliche
+// Sammel-Mail an Admins) und werden beim Snapshot-Endpoint NICHT
+// mit ausgeliefert.
+export const mindestbestandEreignisse = pgTable(
+  'mindestbestand_ereignisse',
+  {
+    id: text('id').primaryKey(),
+    artikelId: text('artikel_id')
+      .notNull()
+      .references(() => artikel.id),
+    standortId: text('standort_id')
+      .notNull()
+      .references(() => standorte.id),
+    ausloeserBuchungId: text('ausloeser_buchung_id')
+      .notNull()
+      .references(() => buchungen.id),
+    bestandDanach: integer('bestand_danach').notNull(),
+    mindestbestand: integer('mindestbestand').notNull(),
+    defizit: integer('defizit').notNull(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
+    zustellungAdminIds: text('zustellung_admin_ids').array().notNull().default([]),
+    konsumiertVonMail: boolean('konsumiert_von_mail').notNull().default(false),
+  },
+  (t) => [
+    // Snapshot-Endpoint filtert auf `erstellt_am > since` — Index Pflicht.
+    index('mindestbestand_ereignisse_erstellt_am_idx').on(t.erstelltAm),
+    // Panel-Filter: "alle Events für Artikel X".
+    index('mindestbestand_ereignisse_artikel_standort_idx').on(
+      t.artikelId,
+      t.standortId,
+      t.erstelltAm,
+    ),
+  ],
+)

@@ -17,6 +17,7 @@ import { zaehleAbweichungen } from './services/sync/worker'
 import { version, commit, branch, buildDate } from './version'
 import { useDevMode } from './composables/useDevMode'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
+import MindestbestandGlocke from './views/components/MindestbestandGlocke.vue'
 
 // Responsive Layout-Umschaltung: <html data-layout="mobile|desktop">.
 // CSS nutzt das, um Bottom-Nav, FAB und Mobile-spezifische Helfer zu zeigen/verbergen.
@@ -574,6 +575,7 @@ function formatRelativ(iso: string | null): string {
         >
           {{ versionLabel }}
         </button>
+        <MindestbestandGlocke />
         <button
           type="button"
           class="sync-indicator"
