@@ -84,7 +84,8 @@ watch(
   },
 )
 
-function onInput(): void {
+function onInput(e: Event): void {
+  suche.value = (e.target as HTMLInputElement).value
   offen.value = true
   highlightIndex.value = 0
 }
