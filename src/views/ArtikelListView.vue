@@ -24,6 +24,36 @@ const filterTyp = ref('')
 const filterStatus = ref<'alle' | ArtikelStatus>('verfuegbar')
 const filterStandort = ref('')
 
+// Buchungs-Lookup für den Standort-Filter: wir fragen den BuchungStore
+// direkt, statt eine Lookup-Funktion in den ArtikelStore zu injizieren.
+// Der Filter lebt komplett in dieser View.
+function artikelHatBuchungAufStandort(artikelId: string, standortId: string): boolean {
+  const rows = buchungStore.byArtikel(artikelId)
+  for (const b of rows) {
+    if (b.standortId === standortId) return true
+    if (b.standortZielId === standortId) return true
+  }
+  return false
+}
+
+const gefiltert = computed<Artikel[]>(() => {
+  const sucheLower = suche.value.trim().toLowerCase()
+  const status = filterStatus.value
+  const typ = filterTyp.value
+  const standortId = filterStandort.value
+  return artikelStore.artikel.filter((a) => {
+    if (status !== 'alle' && a.status !== status) return false
+    if (typ && a.typ !== typ) return false
+    if (standortId && !artikelHatBuchungAufStandort(a.id, standortId)) return false
+    if (sucheLower) {
+      const haystack =
+        `${a.titel} ${a.typ} ${a.lieferant ?? ''} ${a.bestellnummer ?? ''}`.toLowerCase()
+      if (!haystack.includes(sucheLower)) return false
+    }
+    return true
+  })
+})
+
 // Foto-Thumbnails: werden beim Mount einmal geladen und in folgenden
 // Situationen neu gefetcht, damit Bild-Zuweisungen, die auf einem anderen
 // Gerät passiert sind, hier sichtbar werden:
@@ -112,20 +142,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
 })
 
-// Buchungs-Lookup für den Standort-Filter bereitstellen.
-// Wird einmal beim Mount verdrahtet, damit `artikelStore.gefiltert`
-// auf den BuchungStore zugreifen kann, ohne ihn selbst zu kennen.
-artikelStore.setBuchungLookup(buchungStore.byArtikel)
-
-function applyFilter(): void {
-  artikelStore.setFilter({
-    suche: suche.value,
-    typ: filterTyp.value || undefined,
-    status: filterStatus.value,
-    standortId: filterStandort.value || undefined,
-  })
-}
-
 type SortKey = 'titel' | 'typ' | 'bestand'
 
 const standardStandort = computed(() => standortStore.standardlager)
@@ -146,7 +162,7 @@ const sortierung = useTableSort<Artikel, SortKey>({
   },
 })
 
-const zeilen = computed(() => sortierung.sortiere(artikelStore.gefiltert))
+const zeilen = computed(() => sortierung.sortiere(gefiltert.value))
 
 function bestandStandard(artikelId: string, standortId: string): number {
   return buchungStore.getBestand(artikelId, standortId)
@@ -170,22 +186,17 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
     </header>
 
     <div class="filter-bar">
-      <input
-        v-model="suche"
-        type="search"
-        :placeholder="t('view.artikel.suche')"
-        @input="applyFilter"
-      />
-      <select v-model="filterTyp" @change="applyFilter">
+      <input v-model="suche" type="search" :placeholder="t('view.artikel.suche')" />
+      <select v-model="filterTyp">
         <option value="">{{ t('view.artikel.filter.typAlle') }}</option>
         <option v-for="typ in alleBenutzten" :key="typ" :value="typ">{{ typ }}</option>
       </select>
-      <select v-model="filterStatus" @change="applyFilter">
+      <select v-model="filterStatus">
         <option v-for="opt in statusOptionen" :key="opt.value" :value="opt.value">
           {{ t(opt.labelKey) }}
         </option>
       </select>
-      <select v-model="filterStandort" @change="applyFilter">
+      <select v-model="filterStandort">
         <option value="">{{ t('view.artikel.filter.standortAlle') }}</option>
         <option v-for="s in standortOptionen" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>

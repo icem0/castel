@@ -1,13 +1,15 @@
 // Artikel-Store: lädt die `artikel`-Tabelle reaktiv via Dexie liveQuery.
-// Stellt Suche/Filter bereit; Mutationen (anlegen/ändern/archivieren) hier,
-// weil Artikel kein Buchungs-Fachobjekt sind und keine Domain-Schicht haben.
-// Schreiboperationen befüllen die Outbox für den Server-Sync.
+// Mutationen (anlegen/ändern/archivieren/löschen) hier, weil Artikel kein
+// Buchungs-Fachobjekt sind und keine Domain-Schicht haben. Schreiboperationen
+// befüllen die Outbox für den Server-Sync.
+// Filter (Suche/Typ/Status/Standort) liegen absichtlich NICHT hier — siehe
+// den Hinweis weiter unten.
 
 import { defineStore } from 'pinia'
 import { liveQuery, type Subscription } from 'dexie'
-import { computed, ref, onScopeDispose } from 'vue'
+import { ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
-import type { Artikel, ArtikelStatus, Buchung, NachbestellHinweis } from '../db/types'
+import type { Artikel, ArtikelStatus, NachbestellHinweis } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
 import { queueOp } from '../services/sync/worker'
 
@@ -27,21 +29,16 @@ export interface ArtikelEingabe {
   listenpreis?: number | null
 }
 
-export interface ArtikelFilter {
-  suche?: string
-  typ?: string
-  status?: ArtikelStatus | 'alle'
-  /** Filtert auf Artikel, zu denen es mindestens eine (aktive oder
-   *  stornierte) Buchung auf diesem Standort gibt — entweder als
-   *  Quell- (`standortId`) oder Ziel-Standort (`standortZielId`,
-   *  z. B. Umlagerungen/Kommissionen). */
-  standortId?: string
-}
+// Hinweis: Filter (Suche/Typ/Status/Standort) leben absichtlich NICHT im
+// Store, sondern nur lokal in der ArtikelListView. Grund war ein Bug, bei
+// dem eine in /artikel gesetzte Filterauswahl die Dashboard-Zählung
+// (`artikelStore.gefiltert.length`) überschrieben hat. Wenn weitere Views
+// dieselbe Filter-Logik brauchen, sollte sie in einen eigenen
+// `useArtikelFilter`-Composable wandern, statt hier wieder global zu werden.
 
 export const useArtikelStore = defineStore('artikel', () => {
   const artikel = ref<Artikel[]>([])
   const geladen = ref(false)
-  const filter = ref<ArtikelFilter>({ status: 'verfuegbar' })
   let subscription: Subscription | null = null
 
   function start() {
@@ -66,45 +63,6 @@ export const useArtikelStore = defineStore('artikel', () => {
 
   function byId(id: string): Artikel | undefined {
     return artikel.value.find((a) => a.id === id)
-  }
-
-  const gefiltert = computed<Artikel[]>(() => {
-    const f = filter.value
-    const suche = (f.suche ?? '').trim().toLowerCase()
-    return artikel.value.filter((a) => {
-      if (f.status && f.status !== 'alle' && a.status !== f.status) return false
-      if (f.typ && a.typ !== f.typ) return false
-      if (f.standortId && !artikelHatBuchungAufStandort(a.id, f.standortId)) return false
-      if (suche) {
-        const haystack =
-          `${a.titel} ${a.typ} ${a.lieferant ?? ''} ${a.bestellnummer ?? ''}`.toLowerCase()
-        if (!haystack.includes(suche)) return false
-      }
-      return true
-    })
-  })
-
-  function setFilter(next: ArtikelFilter): void {
-    filter.value = next
-  }
-
-  /** Buchungs-Lookup für den Standort-Filter. Wird per
-   *  `setBuchungLookup` aus dem View gesetzt, damit der ArtikelStore
-   *  nicht selbst den BuchungStore instanziieren muss. */
-  let buchungLookup: ((artikelId: string) => Buchung[]) | null = null
-
-  function setBuchungLookup(fn: ((artikelId: string) => Buchung[]) | null): void {
-    buchungLookup = fn
-  }
-
-  function artikelHatBuchungAufStandort(artikelId: string, standortId: string): boolean {
-    if (!buchungLookup) return true
-    const rows = buchungLookup(artikelId)
-    for (const b of rows) {
-      if (b.standortId === standortId) return true
-      if (b.standortZielId === standortId) return true
-    }
-    return false
   }
 
   async function anlegen(e: ArtikelEingabe): Promise<Artikel> {
@@ -167,14 +125,10 @@ export const useArtikelStore = defineStore('artikel', () => {
 
   return {
     artikel,
-    gefiltert,
-    filter,
     geladen,
     start,
     stop,
     byId,
-    setFilter,
-    setBuchungLookup,
     anlegen,
     aktualisieren,
     archivieren,

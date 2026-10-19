@@ -11,7 +11,13 @@ const artikelStore = useArtikelStore()
 const buchungStore = useBuchungStore()
 const standortStore = useStandortStore()
 
-const artikelAnzahl = computed(() => artikelStore.gefiltert.length)
+// Dashboard-Zählung ist unabhängig vom Filter der Artikelliste: wir zählen
+// hier alle aktiven Artikel (Status != 'archiviert'), damit der Standort der
+// Übersicht nicht durch eine versehentliche Filterwahl in /artikel
+// verfälscht wird.
+const artikelAnzahl = computed(
+  () => artikelStore.artikel.filter((a) => a.status !== 'archiviert').length,
+)
 const standortAnzahl = computed(() => standortStore.aktive.length)
 const buchungsAnzahl = computed(() => buchungStore.buchungen.length)
 
