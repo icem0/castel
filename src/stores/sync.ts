@@ -51,5 +51,5 @@ export const useSyncStore = defineStore('sync', () => {
     await refreshStatus({ apiBase, token: getToken() })
   }
 
-  return { status, triggering, start, stop, bind, syncNow, refresh }
+  return { status, triggering, start, stop, bind, syncNow, refresh, onSyncStatus }
 })

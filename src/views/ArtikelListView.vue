@@ -24,15 +24,21 @@ const filterTyp = ref('')
 const filterStatus = ref<'alle' | ArtikelStatus>('verfuegbar')
 const filterStandort = ref('')
 
-// Foto-Thumbnails: ein Request pro Mount, gemappt nach artikelId.
-// Leer wenn offline — dann blenden wir die Foto-Spalte aus, damit der
-// User keine kaputten <img>-Requests gegen einen unerreichbaren Server
-// sieht.
+// Foto-Thumbnails: werden beim Mount einmal geladen und in folgenden
+// Situationen neu gefetcht, damit Bild-Zuweisungen, die auf einem anderen
+// Gerät passiert sind, hier sichtbar werden:
+//   - Browser feuert 'online'-Event (war kurz offline)
+//   - Tab wird wieder sichtbar (visibilitychange)
+//   - Sync-Worker hat einen Pull abgeschlossen (status: syncing → idle)
+// Damit wirkt jede Foto-Zuweisung server-weit, nicht pro Gerät.
 const thumbnails = ref<Map<string, FotoThumbnail>>(new Map())
 const offline = computed(() => sync.status.status === 'offline')
 
+let ladeThumbnailsInFlight = false
 async function ladeThumbnails(): Promise<void> {
   if (offline.value) return
+  if (ladeThumbnailsInFlight) return
+  ladeThumbnailsInFlight = true
   try {
     const liste = await ladeFotoThumbnails()
     const m = new Map<string, FotoThumbnail>()
@@ -40,11 +46,42 @@ async function ladeThumbnails(): Promise<void> {
     thumbnails.value = m
   } catch {
     // still ok — Spalte wird ohne Thumbs gerendert
+  } finally {
+    ladeThumbnailsInFlight = false
+  }
+}
+
+function onOnline(): void {
+  void ladeThumbnails()
+}
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') {
+    void ladeThumbnails()
+  }
+}
+
+// Sync-Worker beobachten: nach jedem erfolgreichen Pull (status: syncing →
+// idle) refreshen. So sehen wir Bild-Änderungen, die ein anderes Gerät
+// gerade per Push an den Server geschickt hat, beim nächsten Render-Frame.
+let letzterStatus: string | null = null
+function onSyncStatus(next: { status: string }): void {
+  const war = letzterStatus
+  letzterStatus = next.status
+  if (war === 'syncing' && next.status === 'idle') {
+    void ladeThumbnails()
   }
 }
 
 onMounted(() => {
   void ladeThumbnails()
+  window.addEventListener('online', onOnline)
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  sync.onSyncStatus(onSyncStatus)
+  letzterStatus = sync.status.status
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('online', onOnline)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 // Lightbox: Klick aufs Thumbnail → Bild groß, Klick auf den Backdrop
@@ -259,6 +296,7 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   height: 32px;
   object-fit: cover;
   border-radius: var(--radius-sm);
+  display: block;
 }
 
 .foto-thumb-btn {
@@ -266,9 +304,10 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   border: none;
   padding: 0;
   margin: 0;
-  cursor: pointer;
+  cursor: zoom-in;
   display: inline-block;
   line-height: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 .foto-thumb-btn:hover .foto-thumb,
 .foto-thumb-btn:focus-visible .foto-thumb {
@@ -276,21 +315,38 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   outline-offset: 1px;
 }
 
+/* Mobile: größere Tap-Targets (Apple HIG: mind. 44×44px) */
+@media (max-width: 720px) {
+  .foto-thumb {
+    width: 44px;
+    height: 44px;
+  }
+  .foto-cell {
+    padding: 4px !important;
+  }
+}
+
 .lightbox-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
   cursor: zoom-out;
+  -webkit-tap-highlight-color: transparent;
+  /* iOS-Safari: dvh nutzt die "Dynamic Viewport Height" (berücksichtigt
+     URL-Bar); fallback vh für ältere Browser. */
+  height: 100vh;
+  height: 100dvh;
 }
 
 .lightbox-figure {
   margin: 0;
-  max-width: min(90vw, 900px);
-  max-height: 90vh;
+  max-width: 95vw;
+  max-height: 95vh;
+  max-height: 95dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -300,10 +356,15 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
 
 .lightbox-img {
   max-width: 100%;
-  max-height: calc(90vh - 3rem);
+  max-height: calc(95vh - 3rem);
+  max-height: calc(95dvh - 3rem);
   object-fit: contain;
   border-radius: var(--radius-sm);
   background: var(--bg-input);
+  /* Mobile: verhindert Pull-to-refresh und Pinch-Zoom-Drift, während die
+     Lightbox offen ist. */
+  touch-action: none;
+  -webkit-user-drag: none;
 }
 
 .lightbox-caption {

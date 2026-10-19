@@ -6,8 +6,11 @@
 // Offline-Verhalten: ist der Sync-Worker im Status "offline", wird die
 // Sektion komplett ausgeblendet — damit der User keine kaputten Bild-Links
 // sieht, wenn der Server nicht erreichbar ist.
+//
+// Lightbox: Klick aufs Thumbnail → Bild groß, Klick auf den Backdrop oder
+// ESC → zu. Funktioniert auch auf Mobile (Touch via Vue @click).
 
-import { onMounted, ref, computed } from 'vue'
+import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
 import {
   ladeFotoHoch,
   ladeFotoListe,
@@ -79,6 +82,33 @@ async function entfernen(id: string): Promise<void> {
     loeschenId.value = null
   }
 }
+
+// Lightbox
+const lightboxUrl = ref<string | null>(null)
+const lightboxTitel = ref<string>('')
+
+function openLightbox(url: string): void {
+  lightboxUrl.value = url
+}
+
+function closeLightbox(): void {
+  lightboxUrl.value = null
+  lightboxTitel.value = ''
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && lightboxUrl.value !== null) {
+    closeLightbox()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>
@@ -87,7 +117,14 @@ async function entfernen(id: string): Promise<void> {
     <div v-if="initialLaden" class="muted">Lade…</div>
     <div v-else class="vorschau">
       <div v-for="f in liste" :key="f.id" class="thumb">
-        <img :src="f.url" alt="" />
+        <button
+          type="button"
+          class="thumb-btn"
+          :aria-label="`Foto vergroessern`"
+          @click="openLightbox(f.url)"
+        >
+          <img :src="f.url" alt="" />
+        </button>
         <button
           type="button"
           class="remove-btn"
@@ -113,6 +150,16 @@ async function entfernen(id: string): Promise<void> {
     />
     <p v-if="fehler" class="fehler">{{ fehler }}</p>
     <p class="hint">Foto per Kamera oder Datei-Auswahl hinzufügen.</p>
+
+    <div
+      v-if="lightboxUrl !== null"
+      class="lightbox-backdrop"
+      role="dialog"
+      aria-modal="true"
+      @click="closeLightbox"
+    >
+      <img :src="lightboxUrl" alt="" class="lightbox-img" @click.stop />
+    </div>
   </section>
 </template>
 
@@ -139,10 +186,27 @@ async function entfernen(id: string): Promise<void> {
   background: var(--bg-input);
 }
 
-.thumb img {
+.thumb-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: zoom-in;
+  display: block;
+  width: 100%;
+  height: 100%;
+  line-height: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.thumb-btn img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.thumb-btn:hover img,
+.thumb-btn:focus-visible img {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .remove-btn {
@@ -158,6 +222,7 @@ async function entfernen(id: string): Promise<void> {
   font-size: 1rem;
   cursor: pointer;
   line-height: 1;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .add-btn {
@@ -169,6 +234,7 @@ async function entfernen(id: string): Promise<void> {
   color: var(--text-muted);
   font-size: 0.9rem;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .add-btn:hover:not(:disabled) {
@@ -186,5 +252,31 @@ async function entfernen(id: string): Promise<void> {
   color: var(--text-muted);
   font-size: 0.8rem;
   margin: 0;
+}
+
+.lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+  -webkit-tap-highlight-color: transparent;
+  /* iOS-Safari: full-height fixed element trotz URL-Bar */
+  height: 100vh;
+  height: 100dvh;
+}
+
+.lightbox-img {
+  max-width: 95vw;
+  max-height: 95vh;
+  max-height: 95dvh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  cursor: default;
+  /* verhindert Pull-to-refresh auf Mobile, während Lightbox offen ist */
+  touch-action: none;
 }
 </style>
