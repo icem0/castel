@@ -1,12 +1,14 @@
-// Foto-Service für die PWA: lädt Bilder zum Server.
+// Foto-Service für die PWA: lädt Bilder zum Server und löscht sie dort.
 //
 // Workflow:
 //   1. Datei aus <input type=file capture> empfangen
 //   2. clientseitig komprimieren (browser-image-compression)
 //   3. Multipart-Upload an POST /api/fotos/upload/:artikelId
-//   4. Server liefert URL → in artikel.fotoUrls speichern
+//   4. Server liefert URL → in der `fotos`-Tabelle ist das die Source-of-Truth
 //
-// Offline: Base64-Repräsentation in IndexedDB, beim nächsten Sync hochladen.
+// Fotos leben nur auf dem Server. Die PWA lädt die Liste bei Bedarf frisch
+// per `ladeFotoListe`. Es gibt keine lokale Caching- oder Outbox-Pfad für
+// Foto-URLs — offline ist die Foto-Sektion ausgeblendet.
 
 import imageCompression from 'browser-image-compression'
 import { getApiBaseUrl } from '../auth/api'
@@ -18,6 +20,11 @@ export interface FotoUploadErgebnis {
   url: string
   contentType: string
   groesse: number
+}
+
+export interface FotoListEintrag {
+  id: string
+  url: string
 }
 
 const MAX_SIZE_MB = 0.32
@@ -88,9 +95,7 @@ export async function ladeFotoHoch(
 }
 
 /** Liest die Bild-Liste eines Artikels vom Server. */
-export async function ladeFotoListe(
-  artikelId: string,
-): Promise<Array<{ id: string; url: string }>> {
+export async function ladeFotoListe(artikelId: string): Promise<FotoListEintrag[]> {
   const url = `${getApiBaseUrl()}/api/fotos/list/${artikelId}`
   const token = jwtLesen()
   const res = await fetch(url, {
@@ -101,5 +106,20 @@ export async function ladeFotoListe(
     credentials: 'include',
   })
   if (!res.ok) return []
-  return (await res.json()) as Array<{ id: string; url: string }>
+  return (await res.json()) as FotoListEintrag[]
+}
+
+/** Löscht ein Foto auf dem Server (Admin-only, via JWT-Rolle). */
+export async function loescheFoto(fotoId: string): Promise<void> {
+  const url = `${getApiBaseUrl()}/api/fotos/${fotoId}`
+  const token = jwtLesen()
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
+  })
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Löschen fehlgeschlagen (${res.status}): ${text}`)
+  }
 }

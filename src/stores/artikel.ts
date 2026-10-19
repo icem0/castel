@@ -16,7 +16,6 @@ export interface ArtikelEingabe {
   typ: string
   status?: ArtikelStatus
   sharePointId?: number | null
-  foto?: string | null
   lieferant?: string | null
   verpackungseinheit?: number
   mindestbestand?: number | null
@@ -113,8 +112,6 @@ export const useArtikelStore = defineStore('artikel', () => {
     const a: Artikel = {
       id: neueUuid(),
       sharePointId: e.sharePointId ?? null,
-      foto: e.foto ?? null,
-      fotoUrls: e.foto ? [e.foto] : [],
       titel: e.titel,
       status: e.status ?? 'verfuegbar',
       typ: e.typ,
@@ -131,34 +128,6 @@ export const useArtikelStore = defineStore('artikel', () => {
     await getDb().artikel.add(a)
     await queueOp('artikel', 'create', a)
     return a
-  }
-
-  /** Hängt eine Foto-URL an einen Artikel an (z. B. nach Server-Upload). */
-  async function fotoHinzufuegen(artikelId: string, url: string): Promise<void> {
-    const a = await getDb().artikel.get(artikelId)
-    if (!a) throw new Error(`Artikel ${artikelId} nicht gefunden`)
-    const urls = a.fotoUrls ?? []
-    if (urls.includes(url)) return
-    const updated: Artikel = {
-      ...a,
-      fotoUrls: [...urls, url],
-      geaendertAm: jetztIso(),
-    }
-    await getDb().artikel.put(updated)
-    await queueOp('artikel', 'update', updated)
-  }
-
-  /** Entfernt eine Foto-URL. */
-  async function fotoEntfernen(artikelId: string, url: string): Promise<void> {
-    const a = await getDb().artikel.get(artikelId)
-    if (!a) return
-    const updated: Artikel = {
-      ...a,
-      fotoUrls: (a.fotoUrls ?? []).filter((u) => u !== url),
-      geaendertAm: jetztIso(),
-    }
-    await getDb().artikel.put(updated)
-    await queueOp('artikel', 'update', updated)
   }
 
   async function aktualisieren(id: string, patch: Partial<Artikel>): Promise<void> {
@@ -190,7 +159,5 @@ export const useArtikelStore = defineStore('artikel', () => {
     anlegen,
     aktualisieren,
     archivieren,
-    fotoHinzufuegen,
-    fotoEntfernen,
   }
 })

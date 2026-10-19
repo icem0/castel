@@ -361,18 +361,8 @@ onMounted(() => {
       </form>
     </div>
 
-    <h2>Fotos</h2>
-    <div class="card">
-      <FotoUpload
-        v-if="artikel"
-        :artikel-id="artikel.id"
-        :model-value="artikel.fotoUrls"
-        @update:model-value="
-          (urls: string[]) => {
-            if (artikel) artikelStore.aktualisieren(artikel.id, { fotoUrls: urls })
-          }
-        "
-      />
+    <div v-if="artikel" class="card">
+      <FotoUpload :artikel-id="artikel.id" />
     </div>
 
     <h2>{{ t('view.artikel.detail.bestandProStandort') }}</h2>

@@ -1,30 +1,49 @@
 <script setup lang="ts">
-// FotoUpload: nimmt <input type=file capture="environment"/> entgegen,
-// komprimiert, lädt hoch, gibt die URL als v-model weiter.
+// FotoUpload: lädt Bilder zum Server und zeigt die Liste der Server-Fotos
+// an. Fotos leben nur auf dem Server (`fotos`-Tabelle ist Source-of-Truth);
+// die PWA lädt die Liste bei Mount frisch und nach jedem Upload/Delete neu.
+//
+// Offline-Verhalten: ist der Sync-Worker im Status "offline", wird die
+// Sektion komplett ausgeblendet — damit der User keine kaputten Bild-Links
+// sieht, wenn der Server nicht erreichbar ist.
 
-import { ref, watch } from 'vue'
-import { ladeFotoHoch } from '../../services/fotos'
+import { onMounted, ref, computed } from 'vue'
+import {
+  ladeFotoHoch,
+  ladeFotoListe,
+  loescheFoto,
+  type FotoListEintrag,
+} from '../../services/fotos'
+import { useSyncStore } from '../../stores/sync'
 
 const props = defineProps<{
   artikelId: string
-  modelValue: string[]
-}>()
-const emit = defineEmits<{
-  'update:modelValue': [urls: string[]]
 }>()
 
 const inputEl = ref<HTMLInputElement | null>(null)
-const ladend = ref(false)
+const liste = ref<FotoListEintrag[]>([])
+const initialLaden = ref(true)
+const uploadLaden = ref(false)
+const loeschenId = ref<string | null>(null)
 const fehler = ref<string | null>(null)
-const previewUrls = ref<string[]>([])
 
-watch(
-  () => props.modelValue,
-  (urls: string[]) => {
-    previewUrls.value = urls ?? []
-  },
-  { immediate: true },
-)
+const sync = useSyncStore()
+const offline = computed(() => sync.status.status === 'offline')
+
+async function ladeListe(): Promise<void> {
+  if (offline.value) return
+  try {
+    liste.value = await ladeFotoListe(props.artikelId)
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    initialLaden.value = false
+  }
+}
+
+onMounted(() => {
+  void ladeListe()
+})
 
 function trigger(): void {
   inputEl.value?.click()
@@ -33,43 +52,54 @@ function trigger(): void {
 async function onChange(e: Event): Promise<void> {
   const files = (e.target as HTMLInputElement).files
   if (!files || files.length === 0) return
-  ladend.value = true
+  uploadLaden.value = true
   fehler.value = null
   try {
-    const neueUrls: string[] = []
     for (const f of Array.from(files)) {
-      const erg = await ladeFotoHoch(props.artikelId, f, f.name)
-      neueUrls.push(erg.url)
+      await ladeFotoHoch(props.artikelId, f, f.name)
     }
-    const aktuell = [...previewUrls.value, ...neueUrls]
-    previewUrls.value = aktuell
-    emit('update:modelValue', aktuell)
+    await ladeListe()
   } catch (err) {
     fehler.value = err instanceof Error ? err.message : String(err)
   } finally {
-    ladend.value = false
+    uploadLaden.value = false
     if (inputEl.value) inputEl.value.value = ''
   }
 }
 
-function entfernen(url: string): void {
-  const aktuell = previewUrls.value.filter((u: string) => u !== url)
-  previewUrls.value = aktuell
-  emit('update:modelValue', aktuell)
+async function entfernen(id: string): Promise<void> {
+  loeschenId.value = id
+  fehler.value = null
+  try {
+    await loescheFoto(id)
+    await ladeListe()
+  } catch (err) {
+    fehler.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    loeschenId.value = null
+  }
 }
 </script>
 
 <template>
-  <div class="foto-upload">
-    <div class="vorschau">
-      <div v-for="url in previewUrls" :key="url" class="thumb">
-        <img :src="url" alt="" />
-        <button type="button" class="remove-btn" aria-label="Entfernen" @click="entfernen(url)">
+  <section v-if="!offline" class="foto-upload">
+    <h2>Fotos</h2>
+    <div v-if="initialLaden" class="muted">Lade…</div>
+    <div v-else class="vorschau">
+      <div v-for="f in liste" :key="f.id" class="thumb">
+        <img :src="f.url" alt="" />
+        <button
+          type="button"
+          class="remove-btn"
+          aria-label="Entfernen"
+          :disabled="loeschenId === f.id"
+          @click="entfernen(f.id)"
+        >
           ×
         </button>
       </div>
-      <button type="button" class="add-btn" :disabled="ladend" @click="trigger">
-        {{ ladend ? 'Lädt …' : '+ Foto' }}
+      <button type="button" class="add-btn" :disabled="uploadLaden" @click="trigger">
+        {{ uploadLaden ? 'Lädt …' : '+ Foto' }}
       </button>
     </div>
     <input
@@ -83,7 +113,7 @@ function entfernen(url: string): void {
     />
     <p v-if="fehler" class="fehler">{{ fehler }}</p>
     <p class="hint">Foto per Kamera oder Datei-Auswahl hinzufügen.</p>
-  </div>
+  </section>
 </template>
 
 <style scoped>
@@ -91,6 +121,7 @@ function entfernen(url: string): void {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
 .vorschau {

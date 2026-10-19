@@ -128,9 +128,6 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
             :dir="sortierung.sortDir.value"
             @sort="sortierung.onSort"
           />
-          <th style="width: 44px; text-align: center">
-            {{ t('view.artikel.spalten.foto') }}
-          </th>
           <th></th>
         </tr>
       </thead>
@@ -142,14 +139,6 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
           <td>{{ a.typ }}</td>
           <td v-if="standardStandort" class="num">
             {{ bestandStandard(a.id, standardStandort.id) }}
-          </td>
-          <td class="foto-cell" style="width: 44px; text-align: center">
-            <img
-              v-if="a.fotoUrls?.[0] || a.foto"
-              :src="a.fotoUrls?.[0] ?? a.foto ?? undefined"
-              :alt="a.titel"
-              class="foto-thumb"
-            />
           </td>
           <td class="actions-cell">
             <RouterLink :to="`/buchung/neu?artikelId=${a.id}`" class="btn">
@@ -181,12 +170,5 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
 .actions-cell {
   flex-wrap: wrap;
   gap: 0.3rem;
-}
-
-.foto-thumb {
-  width: 32px;
-  height: 32px;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
 }
 </style>

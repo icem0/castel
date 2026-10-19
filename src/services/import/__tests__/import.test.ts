@@ -458,8 +458,6 @@ describe('exportVollBackup / restoreBackup', () => {
   const artikel: Artikel = {
     id: 'a1',
     sharePointId: 1,
-    foto: null,
-    fotoUrls: [],
     titel: 'MS 400',
     status: 'verfuegbar',
     typ: 'Alarmierung',

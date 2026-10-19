@@ -14,10 +14,6 @@ export type BuchungsTyp =
 export interface Artikel {
   id: string
   sharePointId: number | null
-  /** Legacy-Einzelfoto (CSV-Import). Neu: Array fotoUrls. */
-  foto: string | null
-  /** Liste der synchronisierten Bild-URLs. */
-  fotoUrls: string[]
   titel: string
   status: ArtikelStatus
   typ: string

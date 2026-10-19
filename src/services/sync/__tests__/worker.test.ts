@@ -32,8 +32,6 @@ function artikelAnlage(id: string, titel: string): Artikel {
   return {
     id,
     sharePointId: null,
-    foto: null,
-    fotoUrls: [],
     titel,
     status: 'verfuegbar',
     typ: 'Test',

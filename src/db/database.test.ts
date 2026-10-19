@@ -11,8 +11,6 @@ function buildArtikel(barcode: string | null): Artikel {
   return {
     id: neueUuid(),
     sharePointId: null,
-    foto: null,
-    fotoUrls: [],
     titel: 'Testartikel',
     status: 'verfuegbar',
     typ: 'Test',

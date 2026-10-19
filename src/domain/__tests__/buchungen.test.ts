@@ -36,8 +36,6 @@ async function seedArtikel(
   const artikel: Artikel = {
     id,
     sharePointId: null,
-    foto: null,
-    fotoUrls: [],
     titel: name,
     status: 'verfuegbar',
     typ: 'Test',

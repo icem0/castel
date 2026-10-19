@@ -366,12 +366,9 @@ function mappeArtikelZeile(row: string[], headers: string[], mapping: ArtikelMap
     if (!h) return ''
     return row[headers.indexOf(h)] ?? ''
   }
-  const foto = feld('foto') || null
   return {
     id: neueUuid(),
     sharePointId: parseInt0(feld('sharePointId')) || null,
-    foto,
-    fotoUrls: foto ? [foto] : [],
     titel: feld('titel'),
     status: normalizeArtikelStatus(feld('status')),
     typ: feld('typ'),
