@@ -71,6 +71,12 @@ export default {
         'Nein — du kannst castel auch normal als Webseite im Browser benutzen. Die Installation bietet nur den besseren Offline-Modus und schnelleren Zugriff.',
       zumDashboard: 'Zum Dashboard',
       onboardingErneut: 'Tutorial erneut zeigen',
+      onboardingAusblenden: 'Onboarding-Tutorial nicht mehr anzeigen',
+      onboardingAusblendenHint:
+        'Blendet das "Erste Schritte"-Modal bei zukünftigen Logins auf allen Geräten aus. Über "Tutorial erneut zeigen" unten lässt es sich jederzeit wieder einschalten.',
+      onboardingStatusAn: 'Status: aktiv — das Tutorial wird beim nächsten Login gezeigt.',
+      onboardingStatusAus:
+        'Status: ausgeblendet — das Tutorial wird beim nächsten Login nicht mehr gezeigt.',
     },
     artikel: {
       h1: 'Artikel',
@@ -212,9 +218,6 @@ export default {
       nichtGelegt: 'noch nicht festgelegt',
       barcodeTyp: 'Barcode-Format',
       barcodeTypHint: 'Wird in der Artikel-Detail-Ansicht zur Darstellung des Barcodes verwendet.',
-      onboardingAusblenden: 'Onboarding-Tutorial nicht mehr anzeigen',
-      onboardingAusblendenHint:
-        'Blendet das "Erste Schritte"-Modal bei zukünftigen Logins auf allen Geräten aus. Über "Tutorial erneut zeigen" unter Informationen lässt es sich wieder einschalten.',
     },
     artikelTypen: {
       h1: 'Artikel-Typen',

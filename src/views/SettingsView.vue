@@ -18,8 +18,6 @@ const standardId = ref<string>(settings.settings.standardStandortId ?? '')
 const firmaName = ref<string>(settings.settings.companyName ?? '')
 const firmaNameVomUser = ref(false)
 const barcodeTyp = ref<BarcodeTyp>(settings.settings.barcodeTyp)
-const onboardingAusblenden = ref<boolean>(settings.settings.onboardingSeen)
-const onboardingVomUser = ref(false)
 
 const barcodeFormate = [
   { wert: 'CODE128' as BarcodeTyp, label: t('view.barcode.formatCode128') },
@@ -36,9 +34,6 @@ watch(
       firmaName.value = s.companyName ?? ''
     }
     barcodeTyp.value = s.barcodeTyp
-    if (!onboardingVomUser.value) {
-      onboardingAusblenden.value = s.onboardingSeen
-    }
   },
 )
 
@@ -57,10 +52,6 @@ async function speichern(): Promise<void> {
       await settings.setKey('companyName', firmaName.value)
       await settings.setBarcodeTyp(barcodeTyp.value)
     }
-    if (onboardingVomUser.value) {
-      await settings.setOnboardingSeen(onboardingAusblenden.value)
-    }
-    onboardingVomUser.value = false
     statusmeldung.value = t('view.settings.gespeichert')
     if (statusTimer !== null) clearTimeout(statusTimer)
     statusTimer = setTimeout(() => {
@@ -107,16 +98,6 @@ onBeforeUnmount(() => {
             <option v-for="s in standorte" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </label>
-        <label class="check">
-          <input
-            v-model="onboardingAusblenden"
-            type="checkbox"
-            :disabled="laufend"
-            @change="onboardingVomUser = true"
-          />
-          <span>{{ t('view.settings.onboardingAusblenden') }}</span>
-        </label>
-        <small class="hint">{{ t('view.settings.onboardingAusblendenHint') }}</small>
         <label v-if="auth.istAdmin">
           <span>{{ t('view.settings.companyName') }}</span>
           <input

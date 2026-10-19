@@ -2,8 +2,14 @@
 // "Informationen"-Rubrik: enthält die Anleitung zum Einrichten der PWA
 // unter iOS und Android. Bewusst statisch und ohne Live-Data — soll
 // auch offline / ohne Sync funktionieren.
+//
+// Oben auf der Seite steht zusätzlich die Onboarding-Toggle-Karte:
+// - aktueller Status (aktiv = wird beim Login gezeigt, aus = nicht)
+// - Checkbox zum Ein-/Aus-Schalten, wirkt sofort (per User, Cross-Device-Sync)
+// - Button "Tutorial jetzt zeigen" zum manuellen Öffnen, falls man es
+//   doch nochmal sehen will
 
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
@@ -11,6 +17,28 @@ import { useSettingsStore } from '../stores/settings'
 const { t } = useI18n()
 const router = useRouter()
 const settings = useSettingsStore()
+
+const speichernPending = ref(false)
+let speichernResetTimer: ReturnType<typeof setTimeout> | null = null
+
+function markiereSpeichern(): void {
+  speichernPending.value = true
+  if (speichernResetTimer !== null) clearTimeout(speichernResetTimer)
+  speichernResetTimer = setTimeout(() => {
+    speichernPending.value = false
+    speichernResetTimer = null
+  }, 1500)
+}
+
+async function setzeOnboarding(naechsterWert: boolean): Promise<void> {
+  try {
+    await settings.setOnboardingSeen(naechsterWert)
+    markiereSpeichern()
+  } catch {
+    // bewusst ignorieren — Settings-Store wirft nur bei unbekanntem Key,
+    // was hier nicht passieren kann
+  }
+}
 
 // Akkordeon-State: jede Sektion ist einklappbar. iOS/Android standard-
 // mäßig offen, "Warum installieren?" eingeklappt — damit der Nutzer
@@ -26,10 +54,13 @@ function toggle(key: 'ios' | 'android' | 'warum' | 'probleme'): void {
   offen.value[key] = !offen.value[key]
 }
 
-function zeigeErsteSchritteNochmal(): void {
+const onboardingAus = computed(() => settings.settings.onboardingSeen === true)
+
+async function zeigeErsteSchritteNochmal(): Promise<void> {
   // Marker zurücksetzen, damit App.vue das Tutorial beim nächsten
   // Login / Reload wieder automatisch öffnet.
-  void settings.setOnboardingSeen(false)
+  await settings.setOnboardingSeen(false)
+  markiereSpeichern()
 }
 
 function zumDashboard(): void {
@@ -43,6 +74,34 @@ function zumDashboard(): void {
       <h1>{{ t('view.info.h1') }}</h1>
       <p class="hint">{{ t('view.info.untertitel') }}</p>
     </header>
+
+    <div class="card onboarding-card">
+      <div class="onboarding-status" :class="{ aus: onboardingAus }">
+        <span class="onboarding-dot" aria-hidden="true"></span>
+        <span class="onboarding-status-text">
+          {{
+            onboardingAus ? t('view.info.onboardingStatusAus') : t('view.info.onboardingStatusAn')
+          }}
+        </span>
+      </div>
+
+      <label class="check onboarding-toggle">
+        <input
+          type="checkbox"
+          :checked="onboardingAus"
+          :disabled="speichernPending"
+          @change="(e) => setzeOnboarding((e.target as HTMLInputElement).checked)"
+        />
+        <span>{{ t('view.info.onboardingAusblenden') }}</span>
+      </label>
+      <p class="hint">{{ t('view.info.onboardingAusblendenHint') }}</p>
+
+      <div class="onboarding-actions">
+        <button type="button" :disabled="speichernPending" @click="zeigeErsteSchritteNochmal">
+          {{ t('view.info.onboardingErneut') }}
+        </button>
+      </div>
+    </div>
 
     <div class="card">
       <button type="button" class="acc-head" :aria-expanded="offen.ios" @click="toggle('ios')">
@@ -148,6 +207,60 @@ function zumDashboard(): void {
 </template>
 
 <style scoped>
+.onboarding-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-left: 4px solid var(--accent);
+}
+.onboarding-card .onboarding-status.aus {
+  border-left-color: var(--text-muted);
+}
+.onboarding-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.onboarding-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--bg-card);
+}
+.onboarding-status.aus .onboarding-dot {
+  background: var(--text-muted);
+}
+.onboarding-toggle {
+  margin-top: 0.25rem;
+}
+.onboarding-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+.onboarding-actions button {
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.onboarding-actions button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.onboarding-actions button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--text-strong);
+}
+
 .acc-head {
   width: 100%;
   display: flex;

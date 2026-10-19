@@ -167,8 +167,32 @@ watchEffect(() => {
 // ersten Schließen (egal welcher Button) wird es nie wieder automatisch
 // geöffnet. Über /info → "Tutorial erneut zeigen" kann der User es
 // jederzeit manuell zurücksetzen.
+//
+// Wichtig: Wir warten mit dem Trigger, bis der erste Sync-Lauf durch ist
+// (oder fehlgeschlagen ist). Ohne diese Wartezeit würde das Modal
+// erscheinen, sobald `settings.settings.onboardingSeen === false` aus
+// der (noch leeren) Dexie-Tabelle gelesen wird — und der nachfolgende
+// Pull vom Server könnte die Zeile `[onboardingSeen, <userId>] = 'true'`
+// nachliefern, die das Modal dann nicht mehr unterdrücken kann (das
+// Modal ist schon offen). Das war der "kommt immer wieder nach Refresh"-
+// Bug: Cross-Device-Sync ist aktiv, aber der lokale Lese-Zeitpunkt ist
+// vor dem ersten Server-Pull.
 const tutorialOffen = ref(false)
 let tutorialTriggeredFor: string | null = null
+const SYNC_FRIST_MS = 4000
+let syncFristTimer: ReturnType<typeof setTimeout> | null = null
+
+function pruefeUndOeffneTutorial(): void {
+  const userId = auth.userId
+  if (!auth.istAngemeldet) return
+  if (settings.geladen !== true) return
+  if (settings.settings.onboardingSeen === true) return
+  if (tutorialTriggeredFor === userId) return
+  tutorialTriggeredFor = userId
+  setTimeout(() => {
+    tutorialOffen.value = true
+  }, 0)
+}
 
 watch(
   () => ({
@@ -177,26 +201,65 @@ watch(
     geladen: settings.geladen,
     gesehen: settings.settings.onboardingSeen,
   }),
-  ({ istAngemeldet, userId, geladen, gesehen }) => {
+  ({ istAngemeldet, gesehen }) => {
     if (!istAngemeldet) {
       tutorialOffen.value = false
       tutorialTriggeredFor = null
+      if (syncFristTimer !== null) {
+        clearTimeout(syncFristTimer)
+        syncFristTimer = null
+      }
       return
     }
-    // Erst öffnen, wenn der Settings-Store die per-User-Zeile gelesen
-    // hat. Sonst würden wir bei `onboardingSeen=false` (Default) sofort
-    // feuern, obwohl der echte Wert noch fehlt.
-    if (geladen !== true) return
-    if (gesehen === true) return
-    // Bereits für diesen User geöffnet? Nicht nochmal triggern (z. B.
-    // wenn der User währenddessen zu /info navigiert und zurück).
-    if (tutorialTriggeredFor === userId) return
-    tutorialTriggeredFor = userId
-    // Auf den nächsten Tick warten, damit die Login-Navigation sauber
-    // durchläuft und der Router auf der Ziel-Route sitzt.
-    setTimeout(() => {
-      tutorialOffen.value = true
-    }, 0)
+    // Sobald der Wert "true" wird (entweder durch den User selbst, der
+    // das Tutorial schließt, oder durch den Server-Pull), Fenster zu und
+    // Sperre lösen — ein erneutes Anzeigen wäre nur durch explizites
+    // "Tutorial erneut zeigen" gewollt.
+    if (gesehen === true) {
+      tutorialOffen.value = false
+      return
+    }
+    // Den eigentlichen Trigger (mit Sync-Wartezeit) macht der Sync-Status-
+    // Watcher unten. Hier reicht es, den Status zu spiegeln, falls der
+    // Sync schon durch ist, bevor dieser Watcher läuft.
+    pruefeUndOeffneTutorial()
+  },
+  { immediate: true },
+)
+
+// Sync-Status-Watcher: öffnet das Tutorial erst, wenn der erste Pull
+// gelaufen ist (oder definitiv keiner mehr kommt: offline / error /
+// origin-unavailable). Damit kann der Pull noch eine serverseitig
+// gesetzte `onboardingSeen=true`-Zeile in Dexie schreiben, BEVOR wir
+// das Modal öffnen.
+watch(
+  () => ({
+    status: sync.status.status,
+    letzterSync: sync.status.lastSyncAt,
+  }),
+  ({ status, letzterSync }) => {
+    const syncBereit =
+      letzterSync !== null ||
+      status === 'offline' ||
+      status === 'origin-unavailable' ||
+      status === 'error'
+    if (!syncBereit) {
+      if (syncFristTimer === null) {
+        syncFristTimer = setTimeout(() => {
+          syncFristTimer = null
+          // Frist abgelaufen, ohne dass ein Sync durchlief. Wir geben auf
+          // und zeigen das Modal — schlimmstenfalls sieht der User es
+          // einmal zu viel, aber wir blockieren den Login nicht ewig.
+          pruefeUndOeffneTutorial()
+        }, SYNC_FRIST_MS)
+      }
+      return
+    }
+    if (syncFristTimer !== null) {
+      clearTimeout(syncFristTimer)
+      syncFristTimer = null
+    }
+    pruefeUndOeffneTutorial()
   },
   { immediate: true },
 )
