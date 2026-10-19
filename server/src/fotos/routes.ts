@@ -153,8 +153,28 @@ export async function fotoRoutes(app: FastifyInstance): Promise<void> {
   )
 
   // ---------- Statische Auslieferung ----------
-  // Wir liefern /fotos/* aus FOTOS_DIR. Sicherheitscheck: Pfad darf nicht
-  // nach oben wandern (Path-Traversal).
+  // /fotos/* liegt in einer separaten `fotoStaticRoutes`-Funktion, damit
+  // es in `index.ts` AUSSERHALB des `requireAuth`-Scopes registriert werden
+  // kann. <img src="/fotos/...">-Requests vom Browser haben keinen
+  // Authorization-Header, der Hook würde sonst 401 werfen und die Bilder
+  // blieben unsichtbar (broken-image-Icon).
+  //
+  // Vor jedem Listing: 404 (keine Directory-Listings)
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.url.startsWith('/fotos/') && req.url.endsWith('/')) {
+      return reply.code(404).send({ code: 'NOT_FOUND' })
+    }
+  })
+}
+
+/**
+ * Statische Auslieferung der hochgeladenen Bilder unter `/fotos/*` — ohne
+ * Auth. Muss in `index.ts` VOR dem `requireAuth`-preHandler-Block
+ * registriert werden, weil <img>-Tags keinen Authorization-Header
+ * mitschicken. Path-Traversal ist über `resolvePath(config.FOTOS_DIR)`
+ * als root ausgeschlossen.
+ */
+export async function fotoStaticRoutes(app: FastifyInstance): Promise<void> {
   const root = resolvePath(config.FOTOS_DIR)
   await app.register(fastifyStatic, {
     root,
@@ -163,12 +183,5 @@ export async function fotoRoutes(app: FastifyInstance): Promise<void> {
     constraints: {},
     // Serve ohne Index für Verzeichnisse
     index: [],
-  })
-
-  // Vor jedem Listing: 404 (keine Directory-Listings)
-  app.addHook('onRequest', async (req, reply) => {
-    if (req.url.startsWith('/fotos/') && req.url.endsWith('/')) {
-      return reply.code(404).send({ code: 'NOT_FOUND' })
-    }
   })
 }

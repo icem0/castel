@@ -11,7 +11,7 @@ import { registerRateLimit } from './auth/rate-limit.js'
 import { authRoutes } from './auth/routes.js'
 import { setupRoutes } from './auth/setup-routes.js'
 import { syncRoutes } from './sync/routes.js'
-import { fotoRoutes } from './fotos/routes.js'
+import { fotoRoutes, fotoStaticRoutes } from './fotos/routes.js'
 import { userRoutes } from './users/routes.js'
 import { devRoutes } from './dev/routes.js'
 import { truncateAllDataTables } from './dev/dev-reset.js'
@@ -81,6 +81,13 @@ async function main() {
     { gateway: notificationGateway.name, mailEnabled: config.MAIL_ENABLED },
     'Notification-Gateway initialisiert',
   )
+
+  // /fotos/* statische Auslieferung — OHNE Auth. <img src> schickt
+  // keinen Authorization-Header, also muss der Handler vor dem
+  // requireAuth-Hook registriert sein, sonst gibt's 401 auf jedem
+  // Bild-Request.
+  await fotoStaticRoutes(app)
+
   await app.register(async (instance) => {
     instance.addHook('preHandler', instance.requireAuth)
     await syncRoutes(instance, notificationGateway)
