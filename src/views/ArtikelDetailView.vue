@@ -62,6 +62,34 @@ async function archivieren(): Promise<void> {
   }
 }
 
+// ---------- Löschen (Admin) ----------
+
+const loeschenLaufend = ref(false)
+const loeschenFehler = ref('')
+const hatBuchungen = computed<boolean>(() =>
+  artikel.value ? buchungStore.byArtikel(artikel.value.id).length > 0 : false,
+)
+const kannLoeschen = computed<boolean>(
+  () => auth.istAdmin && !hatBuchungen.value && !loeschenLaufend.value,
+)
+
+async function loeschen(): Promise<void> {
+  if (!artikel.value || !kannLoeschen.value) return
+  if (!confirm(t('view.artikel.detail.loeschenFrage'))) return
+  loeschenLaufend.value = true
+  loeschenFehler.value = ''
+  try {
+    await artikelStore.loeschen(artikel.value.id)
+    void router.push('/artikel')
+  } catch (e) {
+    loeschenFehler.value = t('view.artikel.detail.loeschenFehler', {
+      msg: e instanceof Error ? e.message : String(e),
+    })
+  } finally {
+    loeschenLaufend.value = false
+  }
+}
+
 // ---------- Bearbeiten ----------
 
 interface BearbeitungsForm {
@@ -226,11 +254,22 @@ onMounted(() => {
           >
             {{ archivLaufend ? '…' : t('view.artikel.detail.archivieren') }}
           </button>
+          <button
+            v-if="auth.istAdmin"
+            type="button"
+            class="danger"
+            :disabled="!kannLoeschen"
+            :title="hatBuchungen ? t('view.artikel.detail.loeschenHatBuchungen') : undefined"
+            @click="loeschen"
+          >
+            {{ loeschenLaufend ? '…' : t('view.artikel.detail.loeschen') }}
+          </button>
         </template>
       </div>
     </header>
 
     <p v-if="archivFehler" class="fehler" role="alert">{{ archivFehler }}</p>
+    <p v-if="loeschenFehler" class="fehler" role="alert">{{ loeschenFehler }}</p>
 
     <div v-if="!bearbeitet" class="card">
       <dl class="meta">

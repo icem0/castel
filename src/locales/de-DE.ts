@@ -115,6 +115,12 @@ export default {
         archivieren: 'Archivieren',
         archivierenFrage: 'Diesen Artikel archivieren?',
         archiviert: 'archiviert',
+        loeschen: 'Löschen',
+        loeschenAdminHint: 'Nur Admins dürfen Artikel löschen.',
+        loeschenFrage: 'Diesen Artikel unwiderruflich löschen? Alle Fotos werden mit entfernt.',
+        loeschenHatBuchungen:
+          'Löschen nicht möglich — der Artikel hat bereits Buchungen. Erst alle Buchungen stornieren.',
+        loeschenFehler: 'Löschen fehlgeschlagen: {msg}',
       },
       form: {
         h1: 'Neuer Artikel',
@@ -218,7 +224,8 @@ export default {
       gespeichert: 'gespeichert.',
       nichtGelegt: 'noch nicht festgelegt',
       barcodeTyp: 'Barcode-Format',
-      barcodeTypHint: 'Wird in der Artikel-Detail-Ansicht zur Darstellung des Barcodes verwendet.',
+      barcodeTypHint:
+        'Gilt als Standard für alle Barcode-Darstellungen (Artikel-Detail, Etiketten-Druck).',
     },
     artikelTypen: {
       h1: 'Artikel-Typen',

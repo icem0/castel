@@ -76,3 +76,24 @@ export class NotFoundError extends DomainError {
     super('NOT_FOUND', `${resource} ${id} nicht gefunden`)
   }
 }
+
+/** Löschen nicht möglich, weil andere Zeilen noch referenzieren.
+ *  Wird vom Resolver geworfen, wenn z. B. ein Artikel noch Buchungen
+ *  hat und deshalb nicht entfernt werden darf. Spiegel der
+ *  `HARD_QUARANTINE_CODES` im PWA-Worker — der Client legt das Item
+ *  sofort still und zeigt dem User den Grund. */
+export class HatAbhaengigkeitenError extends DomainError {
+  constructor(
+    public readonly resource: string,
+    public readonly id: string,
+    public readonly abhaengigkeiten: Array<{ entity: string; anzahl: number }>,
+  ) {
+    const detail = abhaengigkeiten
+      .map((a) => `${a.anzahl} ${a.entity}`)
+      .join(', ')
+    super(
+      'HAS_DEPENDENCIES',
+      `${resource} ${id} kann nicht gelöscht werden, da noch referenziert: ${detail}`,
+    )
+  }
+}

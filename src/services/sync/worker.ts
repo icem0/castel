@@ -38,7 +38,7 @@ const RETRY_AFTER_CAP_MS = 5 * 60_000
 /** Anzahl Fehlversuche, nach denen ein Outbox-Item stillgelegt wird. */
 const QUARANTINE_THRESHOLD = 5
 /** Server-Codes, die ein Item sofort stilllegen (kein Retry hilft). */
-const HARD_QUARANTINE_CODES = new Set(['UNKNOWN_REFERENCE', 'BEREITS_STORNIED'])
+const HARD_QUARANTINE_CODES = new Set(['UNKNOWN_REFERENCE', 'BEREITS_STORNIED', 'HAS_DEPENDENCIES'])
 
 // ---------- Backoff (rein, ohne Side-Effects → testbar) ----------
 

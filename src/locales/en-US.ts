@@ -109,6 +109,12 @@ export default {
         archivieren: 'Archive',
         archivierenFrage: 'Archive this item?',
         archiviert: 'archived',
+        loeschen: 'Delete',
+        loeschenAdminHint: 'Only admins can delete items.',
+        loeschenFrage: 'Delete this item permanently? All photos will be removed as well.',
+        loeschenHatBuchungen:
+          'Cannot delete — this item already has transactions. Cancel them first.',
+        loeschenFehler: 'Delete failed: {msg}',
       },
       form: {
         h1: 'New item',
@@ -212,7 +218,7 @@ export default {
       gespeichert: 'saved.',
       nichtGelegt: 'not set',
       barcodeTyp: 'Barcode format',
-      barcodeTypHint: 'Used to render the barcode in the item detail view.',
+      barcodeTypHint: 'Default for all barcode renderings (item detail, label printing).',
     },
     artikelTypen: {
       h1: 'Item types',

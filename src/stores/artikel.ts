@@ -146,6 +146,25 @@ export const useArtikelStore = defineStore('artikel', () => {
     await queueOp('artikel', 'update', updated)
   }
 
+  /**
+   * Löscht einen Artikel unwiderruflich. Voraussetzung: keine Buchungen
+   * und keine Mindestbestand-Ereignisse verweisen auf ihn. Die Prüfung
+   * übernimmt der Server (`HAS_DEPENDENCIES`); die UI deaktiviert den
+   * Button vorsorglich, sobald `byArtikel(id).length > 0` ist. Der
+   * Outbox-Op wird ohne Payload gespeichert — die Identität ist die
+   * `artikel.id` (siehe `payloadIdFor`). Falls der Server das Löschen
+   * ablehnt, landet das Item in der Quarantäne.
+   */
+  async function loeschen(id: string): Promise<void> {
+    const a = await getDb().artikel.get(id)
+    if (!a) return
+    await getDb().artikel.delete(id)
+    // Foto-Mirror brauchen wir nicht — Fotos leben nur auf dem Server
+    // (siehe Fotos-Upload-Kommentar im FotoUpload.vue). Audit-Log
+    // ebenfalls nur lokal; für Diagnose reichen die Server-Logs.
+    await queueOp('artikel', 'delete', a)
+  }
+
   return {
     artikel,
     gefiltert,
@@ -159,5 +178,6 @@ export const useArtikelStore = defineStore('artikel', () => {
     anlegen,
     aktualisieren,
     archivieren,
+    loeschen,
   }
 })

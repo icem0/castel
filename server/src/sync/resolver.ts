@@ -16,7 +16,7 @@
 //
 // Alles in einer DB-Transaktion pro Push-Batch.
 
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, count, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import * as schema from '../db/schema.js'
@@ -31,6 +31,7 @@ import {
 } from '../db/schema.js'
 import { berechneBestand } from '../domain/bestand.js'
 import {
+  HatAbhaengigkeitenError,
   NegativerBestandError,
   UnbekannteReferenzError,
   ValidationError,
@@ -255,7 +256,11 @@ function pushBuchungsError(
       message: err.message,
       currentBestand: err.aktuellerBestand,
     })
-  } else if (err instanceof UnbekannteReferenzError || err instanceof ValidationError) {
+  } else if (
+    err instanceof UnbekannteReferenzError ||
+    err instanceof ValidationError ||
+    err instanceof HatAbhaengigkeitenError
+  ) {
     result.errors.push({
       id,
       code: err.code,
@@ -295,6 +300,28 @@ export class ConflictError extends Error {
   }
 }
 
+/**
+ * Pure-Funktion: prüft eine Liste von FK-Counts und wirft
+ * `HatAbhaengigkeitenError`, wenn mindestens ein Eintrag > 0 ist.
+ * Wird sowohl von `resolveArtikel` als auch `resolveStandort` benutzt,
+ * um die Delete-Logik (vor und nach einem SELECT-Block) identisch zu
+ * halten — und damit sie ohne DB in Unit-Tests prüfbar ist.
+ */
+export interface AbhaengigkeitCount {
+  entity: string
+  anzahl: number
+}
+
+export function assertKeineAbhaengigkeiten(
+  resource: string,
+  id: string,
+  counts: ReadonlyArray<AbhaengigkeitCount>,
+): void {
+  const vorhandene = counts.filter((c) => c.anzahl > 0)
+  if (vorhandene.length === 0) return
+  throw new HatAbhaengigkeitenError(resource, id, vorhandene)
+}
+
 // ---------- Stammdaten-Resolver ----------
 
 type Tx = Parameters<Parameters<PostgresJsDatabase<typeof schema>['transaction']>[0]>[0]
@@ -311,8 +338,32 @@ async function resolveArtikel(
     } else {
       await tx.insert(artikel).values(normalizeStammdatenTimestamps(op.payload) as never)
     }
-  } else if (op.op === 'update' || op.op === 'delete') {
+  } else if (op.op === 'update') {
     await applyLastWriterWins(tx, artikel, op.payload)
+  } else if (op.op === 'delete') {
+    // Löschen ist nur erlaubt, solange keine referenzierenden Zeilen mehr
+    // existieren. `buchungen.artikel_id` und `mindestbestand_ereignisse.
+    // artikel_id` referenzieren `artikel.id` ohne ON DELETE CASCADE —
+    // Postgres würde den DELETE sonst mit FK-Fehler abbrechen. Wir
+    // prüfen vorab und werfen `HAS_DEPENDENCIES`, damit der Client
+    // den Outbox-Eintrag quarantinieren und den User informieren kann.
+    // Fotos hängen mit `ON DELETE CASCADE` an `artikel` und werden
+    // automatisch mit aufgeräumt.
+    const [bRes, eRes] = await Promise.all([
+      tx
+        .select({ c: count() })
+        .from(buchungen)
+        .where(eq(buchungen.artikelId, op.payload.id)),
+      tx
+        .select({ c: count() })
+        .from(mindestbestandEreignisse)
+        .where(eq(mindestbestandEreignisse.artikelId, op.payload.id)),
+    ])
+    assertKeineAbhaengigkeiten('artikel', op.payload.id, [
+      { entity: 'buchungen', anzahl: Number(bRes[0]?.c ?? 0) },
+      { entity: 'mindestbestand_ereignisse', anzahl: Number(eRes[0]?.c ?? 0) },
+    ])
+    await tx.delete(artikel).where(eq(artikel.id, op.payload.id))
   }
 }
 
@@ -327,8 +378,25 @@ async function resolveStandort(
     } else {
       await tx.insert(standorte).values(normalizeStammdatenTimestamps(op.payload) as never)
     }
-  } else {
+  } else if (op.op === 'update') {
     await applyLastWriterWins(tx, standorte, op.payload)
+  } else if (op.op === 'delete') {
+    // `buchungen.standort_id` und `buchungen.standort_ziel_id` referenzieren
+    // `standorte.id` ohne ON DELETE CASCADE — vorher prüfen.
+    const [qRes, zRes] = await Promise.all([
+      tx
+        .select({ c: count() })
+        .from(buchungen)
+        .where(eq(buchungen.standortId, op.payload.id)),
+      tx
+        .select({ c: count() })
+        .from(buchungen)
+        .where(eq(buchungen.standortZielId, op.payload.id)),
+    ])
+    assertKeineAbhaengigkeiten('standort', op.payload.id, [
+      { entity: 'buchungen', anzahl: Number(qRes[0]?.c ?? 0) + Number(zRes[0]?.c ?? 0) },
+    ])
+    await tx.delete(standorte).where(eq(standorte.id, op.payload.id))
   }
 }
 
@@ -343,8 +411,12 @@ async function resolveProjekt(
     } else {
       await tx.insert(projekte).values(normalizeStammdatenTimestamps(op.payload) as never)
     }
-  } else {
+  } else if (op.op === 'update') {
     await applyLastWriterWins(tx, projekte, op.payload)
+  } else if (op.op === 'delete') {
+    // Projekte sind reine Bezeichnung in Buchungen (TEXT-Spalte `projekt`),
+    // keine FK. Löschen ist immer erlaubt, sobald der Datensatz existiert.
+    await tx.delete(projekte).where(eq(projekte.id, op.payload.id))
   }
 }
 
