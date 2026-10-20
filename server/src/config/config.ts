@@ -26,12 +26,12 @@ const schema = z.object({
   CORS_ORIGIN: z.string().url().default('http://localhost:5173'),
 
   // Fotos
-  FOTOS_DIR: z.string().default('./var/fotos'),
+  FOTOS_DIR: z.string().default('/var/lib/castel/fotos'),
   FOTOS_MAX_BYTES: z.coerce.number().int().positive().default(524288),
   FOTOS_MAX_PER_ARTIKEL: z.coerce.number().int().positive().default(5),
 
   // Backups
-  BACKUP_DIR: z.string().default('./var/backups'),
+  BACKUP_DIR: z.string().default('/var/lib/castel/backups'),
   BACKUP_SYNC_QUIET_MS: z.coerce.number().int().positive().default(8000),
   BACKUP_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
 
