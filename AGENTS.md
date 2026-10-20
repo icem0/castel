@@ -94,6 +94,12 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 
 ## Build & Deployment
 
+- **CI-Build wird automatisch ausgelöst.** Der GitHub-Workflow `.github/workflows/build-and-push.yml` baut bei jedem Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** dem SHA-Tag. Der Agent startet den CI-Build **nicht manuell** — ein Push auf `main` reicht.
+- **Nach dem Push erst warten, dann deployen.** Der neue Image-Tag ist erst verfügbar, wenn `build-and-push.yml` durchgelaufen ist (typisch 1–2 min). Erst dann:
+  ```bash
+  docker compose pull
+  docker compose up -d
+  ```
 - **Images kommen aus GHCR.** `docker-compose.yml` referenziert `api`, `pwa` und `migrate` hartkodiert als `ghcr.io/icem0/castel-{api,pwa}:latest`. **Kein** `build:`-Block, **kein** Variablen-Override. Deployer ziehen die Images — fertig.
 - **`migrate`** ist ein Entry-Point des API-Images (`node dist/db/migrate.js`). Es wird also nicht für jeden Job ein eigenes Image gebaut. Die `api`-Service-Definition startet vor jedem Server-Start automatisch `node dist/db/migrate.js` (idempotent — bereits angewendete Migrationen werden uebersprungen). Den allerersten Admin legt die PWA selbst an, sobald `/api/auth/setup-status` meldet, dass die `users`-Tabelle leer ist. Der `migrate`-Profil-Service bleibt fuer manuelle Aufrufe erhalten (`docker compose --profile migrate run --rm migrate`).
 - **CI-Workflow** `.github/workflows/build-and-push.yml` baut bei Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** mit dem SHA-Tag. Bei Pull-Requests wird **nur** gebaut, nicht gepusht (Gate `if: github.event_name != 'pull_request'`). Sichtbarkeit wird per `PATCH /user/packages/container/{pkg}` auf `public` gesetzt.
