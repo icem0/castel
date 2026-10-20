@@ -103,6 +103,7 @@ export default {
         bestand: 'Bestand',
         status: 'Status',
         foto: 'Foto',
+        aufmerksamkeit: 'Aufmerksamkeit benötigt',
       },
       leer: 'Keine Artikel gefunden.',
       detail: {
@@ -175,7 +176,9 @@ export default {
         kommentar: 'Kommentar',
         speichern: 'Speichern',
         abbrechen: 'Abbrechen',
-        warnNegativ: 'Achtung: Bestand kleiner als benötigte Menge. Trotzdem fortfahren?',
+        warnNegativ: 'Warnung: Bestand wäre negativ. Es wird trotzdem gebucht.',
+        warnMindestbestand:
+          'Warnung: Bestand {bestand} unterschreitet Mindestbestand {mindestbestand}.',
       },
     },
     kommission: {

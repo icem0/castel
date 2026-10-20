@@ -97,6 +97,7 @@ export default {
         bestand: 'Stock',
         status: 'Status',
         foto: 'Photo',
+        aufmerksamkeit: 'Attention needed',
       },
       leer: 'No items found.',
       detail: {
@@ -169,7 +170,8 @@ export default {
         kommentar: 'Comment',
         speichern: 'Save',
         abbrechen: 'Cancel',
-        warnNegativ: 'Warning: stock is below required quantity. Continue?',
+        warnNegativ: 'Warning: stock would go negative. Booking is still recorded.',
+        warnMindestbestand: 'Warning: stock {bestand} falls below minimum stock {mindestbestand}.',
       },
     },
     kommission: {
