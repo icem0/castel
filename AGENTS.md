@@ -68,6 +68,11 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
   Stacks, die einen expliziten Pre-Production-Tag referenzieren (z. B.
   Coolify-/Arcane-Deploys vor dem finalen `latest`-Rollout). Wer ein
   wirklich eingefrorenes Pre-Release will, pinnt den Commit-SHA.
+- **Pre-Release-Build auslösen**: Ein beliebiger Commit auf `main` löst den
+  Build aus. Der Husky-`pre-commit`-Hook bumpt automatisch die Patch-Version
+  in beiden `package.json` (0.4.13 → 0.4.14). Für einen reinen
+  Versions-Bump ohne Sach-Änderung:
+  `npm run version:bump && git commit -m "chore(release): version bump" && git push`
 
 ## Sicherheit
 
