@@ -49,6 +49,17 @@ jobs:
 
       - name: Test
         working-directory: server
+        # The server's config module validates required env vars at import
+        # time and calls process.exit(1) when one is missing. Any test that
+        # (transitively) imports it needs these placeholders — they are
+        # never connected to: tests that need a database skip themselves
+        # via describe.skipIf(!process.env.DATABASE_URL). The DB values here
+        # are deliberately unroutable so an accidental real connection fails
+        # loudly instead of hitting a developer's local Postgres.
+        env:
+          DATABASE_URL: postgres://castel:castel@127.0.0.1:1/castel
+          JWT_SECRET: ci-placeholder-secret-at-least-32-characters
+          DATANORM_DIR: /tmp/castel-ci-datanorm
         run: npm run test:run
 
       - name: Build image

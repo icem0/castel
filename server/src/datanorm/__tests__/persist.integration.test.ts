@@ -17,7 +17,15 @@ import { sammleDatanorm } from '../parse-pass1.js'
 import { persistiereArtikel } from '../persist.js'
 import { BEISPIEL_V5, BEISPIEL_V5_MIT_DELETE, datei, aV5 } from './fixtures.js'
 
-const HAT_DB = Boolean(process.env.DATABASE_URL)
+/**
+ * Integration tests need a real migrated Postgres.
+ *
+ * Opt-in via `CASTEL_TEST_DB=1` plus a reachable `DATABASE_URL`. Plain
+ * `DATABASE_URL` is deliberately NOT enough: CI sets a placeholder URL to
+ * satisfy the config validation on import, and without this guard every CI
+ * run would fail with ECONNREFUSED instead of skipping the DB suites.
+ */
+const HAT_DB = process.env['CASTEL_TEST_DB'] === '1' && Boolean(process.env['DATABASE_URL'])
 
 let lieferantId = ''
 

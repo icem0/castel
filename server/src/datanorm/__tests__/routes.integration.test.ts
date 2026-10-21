@@ -17,7 +17,13 @@ import { datanormRoutes } from '../routes.js'
 import { resetProgressRegistry } from '../progress.js'
 import { BEISPIEL_V5, datei } from './fixtures.js'
 
-const HAT_DB = Boolean(process.env.DATABASE_URL)
+/**
+ * Requires a real migrated Postgres.
+ *
+ * Opt-in via `CASTEL_TEST_DB=1` — see the note in
+ * persist.integration.test.ts for why bare DATABASE_URL is not sufficient.
+ */
+const HAT_DB = process.env['CASTEL_TEST_DB'] === '1' && Boolean(process.env['DATABASE_URL'])
 
 let app: FastifyInstance
 let lieferantId = ''
