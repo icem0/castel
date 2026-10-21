@@ -254,11 +254,12 @@ function pruefeUndOeffneTutorial(): void {
     onboardingSeen: settings.settings.onboardingSeen,
   })
   tutorialTriggeredFor = userId
+  // Erst das Modal öffnen, DANN den Marker schreiben. Wuerden wir den
+  // Marker zuerst schreiben, feuert Watcher #1 sofort (firstLoginDone=true)
+  // und setzt tutorialOffen wieder auf false — das Modal blinkt auf und
+  // ist sofort weg, bevor der User es sieht.
+  tutorialOffen.value = true
   markiereFirstLoginDone(userId)
-  setTimeout(() => {
-    console.log('[onboarding] setTimeout 0ms: tutorialOffen.value = true')
-    tutorialOffen.value = true
-  }, 0)
 }
 
 function markiereFirstLoginDone(userId: string | null): void {
@@ -278,7 +279,7 @@ watch(
     gesehen: settings.settings.onboardingSeen,
     firstLoginDone: settings.settings.firstLoginDone,
   }),
-  ({ istAngemeldet, firstLoginDone, gesehen }) => {
+  ({ istAngemeldet, userId, firstLoginDone, gesehen }) => {
     console.log('[onboarding] Watcher #1 (settings) feuert', {
       istAngemeldet,
       userId: auth.userId,
@@ -294,6 +295,9 @@ watch(
       return
     }
     if (firstLoginDone === true || gesehen === true) {
+      // Nicht schliessen, wenn wir gerade dieses Modal fuer diesen User
+      // oeffnen (das Flag wird erst nach dem Oeffnen geschrieben).
+      if (tutorialTriggeredFor === userId) return
       console.log('[onboarding] Watcher #1: blockiere (Flag true)')
       clearVerzoegerungsTimer()
       tutorialOffen.value = false
