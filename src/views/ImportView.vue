@@ -1,43 +1,31 @@
 <script setup lang="ts">
-// CSV-Import-Wizard gemäß PLAN §11.
+// CSV-Import-Wizard für Artikel-Stammdaten.
 // Schritt 1: Datei wählen → Schritt 2: Mapping → Schritt 3: Validierung → Schritt 4: Import.
+// Bewegungen/Buchungen werden NICHT importiert — sie entstehen in der App.
 
 import { ref, computed, watch } from 'vue'
 import { parseCsv, type ParsedCsv } from '../services/import/csv-parser'
 import {
+  ARTIKEL_FELD_BESCHREIBUNG,
   defaultArtikelMapping,
-  defaultWarenMapping,
   type ArtikelFeld,
   type ArtikelMapping,
-  type WarenFeld,
-  type WarenMapping,
 } from '../services/import/mapping'
 import {
   validiereArtikelMapping,
-  validiereWarenDaten,
-  validiereWarenMapping,
   validiereArtikelDaten,
   type ValidierungsErgebnis,
 } from '../services/import/validierung'
 import { ImportValidierungError } from '../domain/errors'
-import {
-  importArtikelAusCsv,
-  importWarenAusCsv,
-  type ImportBericht,
-} from '../services/import/import'
+import { importArtikelAusCsv, type ImportBericht } from '../services/import/import'
 
 // Schritt 1
-const lagerDatei = ref<File | null>(null)
-const warenDatei = ref<File | null>(null)
+const datei = ref<File | null>(null)
 
-const lagerParsed = ref<ParsedCsv | null>(null)
-const warenParsed = ref<ParsedCsv | null>(null)
-const lagerMapping = ref<ArtikelMapping>({})
-const warenMapping = ref<WarenMapping>({})
+const parsed = ref<ParsedCsv | null>(null)
+const mapping = ref<ArtikelMapping>({})
 
-const validierung = ref<{ lager: ValidierungsErgebnis | null; waren: ValidierungsErgebnis | null }>(
-  { lager: null, waren: null },
-)
+const validierung = ref<ValidierungsErgebnis | null>(null)
 const bericht = ref<ImportBericht | null>(null)
 const laufend = ref(false)
 const fehler = ref('')
@@ -57,98 +45,43 @@ const artikelFeldOptionen: ArtikelFeld[] = [
   'listenpreis',
   'geaendertAm',
 ]
-const warenFeldOptionen: WarenFeld[] = [
-  'typ',
-  'erstelltAm',
-  'erstelltVon',
-  'menge',
-  'kommentar',
-  'mitteilungAn',
-  'commission',
-  'artikelTitle',
-  'standortName',
-]
 
-async function onLagerDateiChange(e: Event): Promise<void> {
+async function onDateiChange(e: Event): Promise<void> {
   const file = (e.target as HTMLInputElement).files?.[0] ?? null
-  lagerDatei.value = file
+  datei.value = file
   if (!file) return
   try {
     const text = await file.text()
-    const parsed = parseCsv(text)
-    if (parsed.headers.length === 0) {
-      fehler.value = 'Lager.csv: keine Spalten erkannt. Ist die Datei eine CSV?'
-      lagerDatei.value = null
-      lagerParsed.value = null
+    const parsedCsv = parseCsv(text)
+    if (parsedCsv.headers.length === 0) {
+      fehler.value = 'CSV-Datei: keine Spalten erkannt. Ist die Datei eine CSV?'
+      datei.value = null
+      parsed.value = null
       return
     }
-    lagerParsed.value = parsed
-    lagerMapping.value = defaultArtikelMapping(parsed.headers)
+    parsed.value = parsedCsv
+    mapping.value = defaultArtikelMapping(parsedCsv.headers)
     bericht.value = null
     fehler.value = ''
   } catch (err) {
-    fehler.value = `Lager.csv konnte nicht gelesen werden: ${
+    fehler.value = `CSV-Datei konnte nicht gelesen werden: ${
       err instanceof Error ? err.message : String(err)
     }`
-    lagerDatei.value = null
-    lagerParsed.value = null
-  }
-}
-
-async function onWarenDateiChange(e: Event): Promise<void> {
-  const file = (e.target as HTMLInputElement).files?.[0] ?? null
-  warenDatei.value = file
-  if (!file) return
-  try {
-    const text = await file.text()
-    const parsed = parseCsv(text)
-    if (parsed.headers.length === 0) {
-      fehler.value = 'Warenfluss.csv: keine Spalten erkannt. Ist die Datei eine CSV?'
-      warenDatei.value = null
-      warenParsed.value = null
-      return
-    }
-    warenParsed.value = parsed
-    warenMapping.value = defaultWarenMapping(parsed.headers)
-    bericht.value = null
-    fehler.value = ''
-  } catch (err) {
-    fehler.value = `Warenfluss.csv konnte nicht gelesen werden: ${
-      err instanceof Error ? err.message : String(err)
-    }`
-    warenDatei.value = null
-    warenParsed.value = null
+    datei.value = null
+    parsed.value = null
   }
 }
 
 function validieren(): void {
-  validierung.value = { lager: null, waren: null }
-  if (lagerParsed.value) {
-    const mapping = validiereArtikelMapping(
-      lagerMapping.value,
-      lagerParsed.value.rows,
-      lagerParsed.value.headers,
-    )
-    const daten = validiereArtikelDaten(
-      lagerMapping.value,
-      lagerParsed.value.rows,
-      lagerParsed.value.headers,
-    )
-    validierung.value.lager = mergeErgebnisse(mapping, daten)
-  }
-  if (warenParsed.value) {
-    const mapping = validiereWarenMapping(
-      warenMapping.value,
-      warenParsed.value.rows,
-      warenParsed.value.headers,
-    )
-    const daten = validiereWarenDaten(
-      warenMapping.value,
-      warenParsed.value.rows,
-      warenParsed.value.headers,
-    )
-    validierung.value.waren = mergeErgebnisse(mapping, daten)
-  }
+  validierung.value = null
+  if (!parsed.value) return
+  const mappingCheck = validiereArtikelMapping(
+    mapping.value,
+    parsed.value.rows,
+    parsed.value.headers,
+  )
+  const datenCheck = validiereArtikelDaten(mapping.value, parsed.value.rows, parsed.value.headers)
+  validierung.value = mergeErgebnisse(mappingCheck, datenCheck)
 }
 
 function mergeErgebnisse(a: ValidierungsErgebnis, b: ValidierungsErgebnis): ValidierungsErgebnis {
@@ -166,59 +99,32 @@ function fehlermeldung(e: unknown): string {
 }
 
 watch(
-  () => [lagerParsed.value, warenParsed.value, lagerMapping.value, warenMapping.value],
+  () => [parsed.value, mapping.value],
   () => validieren(),
   { deep: true },
 )
 
-const lagerOk = computed(() => {
-  const v = validierung.value.lager
-  return v ? v.ok : false
-})
-
-const warenOk = computed(() => {
-  const v = validierung.value.waren
+const validOk = computed(() => {
+  const v = validierung.value
   return v ? v.ok : false
 })
 
 const importHinweis = computed<string>(() => {
   const v = validierung.value
-  const teile: string[] = []
-  if (!v.lager) teile.push('Lager: nicht geprüft')
-  else if (!v.lager.ok) teile.push(`Lager: ${v.lager.probleme.length} Problem(e)`)
-  if (!v.waren) teile.push('Warenfluss: nicht geprüft')
-  else if (!v.waren.ok) teile.push(`Warenfluss: ${v.waren.probleme.length} Problem(e)`)
-  if (teile.length === 0) return ''
-  return 'Validierung – ' + teile.join(' · ')
+  if (!v) return 'Validierung: nicht geprüft'
+  if (v.ok) return ''
+  return `Validierung: ${v.probleme.length} Problem(e)`
 })
 
-async function importNurArtikel(): Promise<void> {
-  if (!lagerParsed.value) return
+async function importAusfuehren(): Promise<void> {
+  if (!parsed.value) return
   laufend.value = true
   fehler.value = ''
   try {
     bericht.value = await importArtikelAusCsv({
-      rows: lagerParsed.value.rows,
-      headers: lagerParsed.value.headers,
-      mapping: lagerMapping.value,
-    })
-  } catch (e) {
-    fehler.value = fehlermeldung(e)
-  } finally {
-    laufend.value = false
-  }
-}
-
-async function importNurWaren(): Promise<void> {
-  if (!warenParsed.value) return
-  laufend.value = true
-  fehler.value = ''
-  try {
-    bericht.value = await importWarenAusCsv({
-      rows: warenParsed.value.rows,
-      headers: warenParsed.value.headers,
-      mapping: warenMapping.value,
-      hauptLagerName: 'Hauptlager',
+      rows: parsed.value.rows,
+      headers: parsed.value.headers,
+      mapping: mapping.value,
     })
   } catch (e) {
     fehler.value = fehlermeldung(e)
@@ -231,23 +137,15 @@ async function importNurWaren(): Promise<void> {
 <template>
   <section class="view">
     <h1>Daten-Import</h1>
-    <p>Import aus SharePoint-CSVs (Lager + Warenfluss).</p>
+    <p>Import von Artikel-Stammdaten aus einer CSV-Datei.</p>
 
-    <h2>1. Dateien wählen</h2>
+    <h2>1. Datei wählen</h2>
     <div class="row">
       <label>
-        <span>Lager.csv</span>
-        <input type="file" accept=".csv,text/csv" @change="onLagerDateiChange" />
-        <small v-if="lagerDatei" class="hint hint-ok">
-          ✓ {{ lagerDatei.name }} ({{ lagerParsed?.rowCount ?? 0 }} Zeilen)
-        </small>
-        <small v-else class="hint hint-warn">noch nicht geladen</small>
-      </label>
-      <label>
-        <span>Warenfluss.csv</span>
-        <input type="file" accept=".csv,text/csv" @change="onWarenDateiChange" />
-        <small v-if="warenDatei" class="hint hint-ok">
-          ✓ {{ warenDatei.name }} ({{ warenParsed?.rowCount ?? 0 }} Zeilen)
+        <span>CSV-Datei</span>
+        <input type="file" accept=".csv,text/csv" @change="onDateiChange" />
+        <small v-if="datei" class="hint hint-ok">
+          ✓ {{ datei.name }} ({{ parsed?.rowCount ?? 0 }} Zeilen)
         </small>
         <small v-else class="hint hint-warn">noch nicht geladen</small>
       </label>
@@ -255,91 +153,70 @@ async function importNurWaren(): Promise<void> {
 
     <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
 
-    <div v-if="lagerParsed" class="card">
-      <h2>2a. Mapping Lager</h2>
+    <div v-if="parsed" class="card">
+      <h2>2. Mapping</h2>
+      <p class="hint">
+        Ordne jede Spalte der CSV einem Dexie-Feld zu oder wähle
+        <em>— ignorieren —</em>. Spalten ohne Mapping werden nicht importiert.
+      </p>
       <table class="data">
         <thead>
           <tr>
-            <th>Spalte</th>
+            <th>CSV-Spalte</th>
             <th>Dexie-Feld</th>
+            <th>Format &amp; Bedeutung</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="h in lagerParsed.headers" :key="h">
+          <tr v-for="h in parsed.headers" :key="h">
             <td>{{ h }}</td>
             <td>
-              <select v-model="lagerMapping[h]">
+              <select v-model="mapping[h]">
                 <option :value="null">— ignorieren —</option>
                 <option v-for="f in artikelFeldOptionen" :key="f" :value="f">{{ f }}</option>
               </select>
             </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div v-if="warenParsed" class="card">
-      <h2>2b. Mapping Warenfluss</h2>
-      <table class="data">
-        <thead>
-          <tr>
-            <th>Spalte</th>
-            <th>Dexie-Feld</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="h in warenParsed.headers" :key="h">
-            <td>{{ h }}</td>
-            <td>
-              <select v-model="warenMapping[h]">
-                <option :value="null">— ignorieren —</option>
-                <option v-for="f in warenFeldOptionen" :key="f" :value="f">{{ f }}</option>
-              </select>
+            <td class="beschreibung">
+              <template v-if="mapping[h] && mapping[h]">
+                <div class="format">
+                  {{ ARTIKEL_FELD_BESCHREIBUNG[mapping[h] as ArtikelFeld].format }}
+                </div>
+                <div class="bedeutung">
+                  {{ ARTIKEL_FELD_BESCHREIBUNG[mapping[h] as ArtikelFeld].bedeutung }}
+                </div>
+              </template>
+              <span v-else class="muted">Spalte wird ignoriert</span>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div v-if="lagerParsed || warenParsed" class="actions" :aria-busy="laufend || undefined">
+    <div v-if="parsed" class="actions" :aria-busy="laufend || undefined">
       <button
         type="button"
-        :disabled="!lagerOk || laufend"
+        :disabled="!validOk || laufend"
         class="primary"
-        @click="importNurArtikel"
+        @click="importAusfuehren"
       >
         {{ laufend ? 'Importiere…' : 'Artikel importieren' }}
       </button>
-      <button type="button" :disabled="!warenOk || laufend" class="primary" @click="importNurWaren">
-        {{ laufend ? 'Importiere…' : 'Buchungen importieren' }}
-      </button>
       <button type="button" :disabled="laufend" @click="validieren">Erneut validieren</button>
-      <p v-if="!(lagerOk && warenOk)" class="hint hint-warn">{{ importHinweis }}</p>
+      <p v-if="!validOk" class="hint hint-warn">{{ importHinweis }}</p>
     </div>
 
-    <div v-if="validierung.lager || validierung.waren" class="validation">
+    <div v-if="validierung" class="validation">
       <h2>3. Validierungs-Report</h2>
-      <div v-if="validierung.lager">
-        <h3>Lager</h3>
-        <p v-if="validierung.lager.ok">✓ OK</p>
-        <ul v-else>
-          <li v-for="(p, i) in validierung.lager.probleme" :key="i">{{ p.meldung }}</li>
-        </ul>
-      </div>
-      <div v-if="validierung.waren">
-        <h3>Warenfluss</h3>
-        <p v-if="validierung.waren.ok">✓ OK</p>
-        <ul v-else>
-          <li v-for="(p, i) in validierung.waren.probleme" :key="i">{{ p.meldung }}</li>
-        </ul>
-      </div>
+      <p v-if="validierung.ok">✓ OK — alle Zeilen sehen importierbar aus.</p>
+      <ul v-else>
+        <li v-for="(p, i) in validierung.probleme" :key="i">{{ p.meldung }}</li>
+      </ul>
     </div>
 
     <div v-if="bericht" class="report">
       <h2>4. Ergebnis</h2>
       <ul>
         <li>Artikel angelegt: {{ bericht.artikelAngelegt }}</li>
-        <li>Buchungen angelegt: {{ bericht.buchungenAngelegt }}</li>
         <li v-if="bericht.konflikte.length">
           Konflikte: {{ bericht.konflikte.length }}
           <ul>
@@ -370,6 +247,21 @@ async function importNurWaren(): Promise<void> {
 }
 .mapping {
   margin: 1rem 0;
+}
+.beschreibung {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+.beschreibung .format {
+  color: var(--fg);
+  font-weight: 500;
+}
+.beschreibung .bedeutung {
+  margin-top: 0.15rem;
+}
+.beschreibung .muted {
+  color: var(--fg-muted);
+  font-style: italic;
 }
 .validation,
 .report {

@@ -1,24 +1,18 @@
-// Tests für den CSV-Import-Pfad.
+// Tests für den CSV-Import-Pfad (Artikel-Stammdaten).
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import { CastelDb, setDb } from '../../../db/database'
-import type { Standort } from '../../../db/types'
-import { jetztIso, neueUuid } from '../../../domain/ids'
+import { jetztIso } from '../../../domain/ids'
 import { parseCsv } from '../csv-parser'
-import { defaultArtikelMapping, defaultWarenMapping, parseIsoDatum } from '../mapping'
-import { validiereArtikelMapping, validiereArtikelDaten, validiereWarenDaten } from '../validierung'
+import { defaultArtikelMapping, parseIsoDatum } from '../mapping'
+import { validiereArtikelMapping, validiereArtikelDaten } from '../validierung'
 import { ImportValidierungError } from '../../../domain/errors'
-import { importArtikelAusCsv, importAusCsv, importWarenAusCsv } from '../import'
+import { importArtikelAusCsv } from '../import'
 
-// Mini-Fixtures (Test-Plan §12): repräsentieren einen SharePoint-Export.
+// Mini-Fixture (Test-Plan §12): repräsentiert einen CSV-Export von Artikel-Stammdaten.
 const LAGER_CSV = `ID;Foto;Title;Status;Type;Lieferant;VE;Bestand-min;Nachbestellung;Bestellnr.;Listenpreis;Geändert
 1;https://example.com/ms400.jpg;MS 400;verfügbar;Alarmierung;Bosch;1;20;bald;MS400;1299,00;01.01.2025
 2;https://example.com/bx.jpg;BX-SOL-CT-W;verfügbar;Brandmelder;Bosch;1;10;;BXSOL;459,50;15.02.2025`
-
-const WAREN_CSV = `Entnahme;Projekt-AA-SA-Nummer;Artikel;Menge;Erstellt;Erstellt-von;Entnommen aus;Kommentar
-Einlagerung;220405;MS 400;10;02.01.2025 08:30;alex;Hauptlager;Wareneingang
-Entnahme;220405;MS 400;3;03.01.2025 09:15;alex;Bauer Pro;für Projekt
-Einlagerung;;BX-SOL-CT-W;5;16.02.2025 10:00;alex;Hauptlager;`
 
 let testDb: CastelDb
 
@@ -98,17 +92,6 @@ describe('defaultArtikelMapping', () => {
   })
 })
 
-describe('defaultWarenMapping', () => {
-  it('mappt Entnahme/Artikel/Menge', () => {
-    const parsed = parseCsv(WAREN_CSV)
-    const mapping = defaultWarenMapping(parsed.headers)
-    expect(mapping['Entnahme']).toBe('typ')
-    expect(mapping['Artikel']).toBe('artikelTitle')
-    expect(mapping['Menge']).toBe('menge')
-    expect(mapping['Projekt-AA-SA-Nummer']).toBe('commission')
-  })
-})
-
 describe('Validierung', () => {
   it('akzeptiert vollständiges Artikel-Mapping', () => {
     const parsed = parseCsv(LAGER_CSV)
@@ -131,7 +114,7 @@ describe('Validierung', () => {
 })
 
 describe('importArtikelAusCsv (nur Stammdaten)', () => {
-  it('legt Artikel aus der Lager-CSV an, ohne Waren-Buchungen zu erzeugen', async () => {
+  it('legt Artikel aus der CSV an und schreibt keine Buchungen oder Standorte', async () => {
     const lager = parseCsv(LAGER_CSV)
     const artikelMap = defaultArtikelMapping(lager.headers)
     const bericht = await importArtikelAusCsv({
@@ -145,7 +128,6 @@ describe('importArtikelAusCsv (nur Stammdaten)', () => {
 
     const artikel = await testDb.artikel.toArray()
     expect(artikel).toHaveLength(2)
-    // Kein Hauptlager angelegt – das ist Aufgabe des Waren-Imports.
     expect(await testDb.standorte.toArray()).toEqual([])
     expect(await testDb.buchungen.toArray()).toEqual([])
   })
@@ -170,139 +152,6 @@ describe('importArtikelAusCsv (nur Stammdaten)', () => {
   })
 })
 
-describe('importWarenAusCsv (nur Bewegungen)', () => {
-  it('legt Hauptlager und Buchungen an, sofern die Artikel existieren', async () => {
-    // Artikel zuerst separat anlegen.
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    // Dann Waren importieren.
-    const waren = parseCsv(WAREN_CSV)
-    const bericht = await importWarenAusCsv({
-      rows: waren.rows,
-      headers: waren.headers,
-      mapping: defaultWarenMapping(waren.headers),
-      hauptLagerName: 'Hauptlager',
-    })
-    expect(bericht.buchungenAngelegt).toBe(3)
-    expect(bericht.konflikte).toEqual([])
-
-    const standorte = await testDb.standorte.toArray()
-    expect(standorte.some((s) => s.standard && s.name === 'Hauptlager')).toBe(true)
-  })
-
-  it('meldet unbekannte Artikel als Konflikt, schreibt den Rest', async () => {
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    const waren = parseCsv(WAREN_CSV)
-    // Eine zusätzliche Zeile mit unbekanntem Artikel.
-    const plusUnbekannt = [
-      ...waren.rows,
-      ['Entnahme', '999', 'NICHT-VORHANDEN', '1', '03.01.2025 09:15', 'alex', 'Hauptlager', ''],
-    ]
-    const bericht = await importWarenAusCsv({
-      rows: plusUnbekannt,
-      headers: waren.headers,
-      mapping: defaultWarenMapping(waren.headers),
-      hauptLagerName: 'Hauptlager',
-    })
-    expect(bericht.buchungenAngelegt).toBe(3)
-    expect(bericht.konflikte).toHaveLength(1)
-    expect(bericht.konflikte[0]).toContain('NICHT-VORHANDEN')
-  })
-
-  it('uebernimmt das projekt-Feld aus der commission-Spalte', async () => {
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    const waren = parseCsv(WAREN_CSV)
-    const bericht = await importWarenAusCsv({
-      rows: waren.rows,
-      headers: waren.headers,
-      mapping: defaultWarenMapping(waren.headers),
-      hauptLagerName: 'Hauptlager',
-    })
-    expect(bericht.buchungenAngelegt).toBe(3)
-    const buchungen = await testDb.buchungen.toArray()
-    const ms400MitProjekt = buchungen.find((b) => b.projekt === '220405' && b.typ === 'entnahme')
-    expect(ms400MitProjekt).toBeDefined()
-  })
-
-  it('lehnt Dezimalmengen als Validierungsfehler ab (Pre-Flight blockt den ganzen Import)', async () => {
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    const csv = `Entnahme;Projekt-AA-SA-Nummer;Artikel;Menge;Erstellt;Erstellt-von;Entnommen aus;Kommentar
-Einlagerung;;MS 400;2,5;02.01.2025 08:30;alex;Hauptlager;dezimal`
-    const waren = parseCsv(csv)
-    await expect(
-      importWarenAusCsv({
-        rows: waren.rows,
-        headers: waren.headers,
-        mapping: defaultWarenMapping(waren.headers),
-        hauptLagerName: 'Hauptlager',
-      }),
-    ).rejects.toBeInstanceOf(ImportValidierungError)
-    expect(await testDb.buchungen.toArray()).toHaveLength(0)
-  })
-})
-
-describe('importAusCsv (kombiniert)', () => {
-  it('legt Artikel an und der Bestand ist Summe der Buchungen', async () => {
-    const lager = parseCsv(LAGER_CSV)
-    const waren = parseCsv(WAREN_CSV)
-    const bericht = await importAusCsv({
-      artikel: {
-        rows: lager.rows,
-        headers: lager.headers,
-        mapping: defaultArtikelMapping(lager.headers),
-      },
-      waren: {
-        rows: waren.rows,
-        headers: waren.headers,
-        mapping: defaultWarenMapping(waren.headers),
-        hauptLagerName: 'Hauptlager',
-      },
-    })
-    expect(bericht.artikelAngelegt).toBe(2)
-    expect(bericht.buchungenAngelegt).toBe(3)
-    expect(bericht.konflikte).toEqual([])
-
-    const artikel = await testDb.artikel.toArray()
-    expect(artikel).toHaveLength(2)
-    const ms400 = artikel.find((a) => a.titel === 'MS 400')
-    expect(ms400?.status).toBe('verfuegbar')
-
-    if (ms400) {
-      const buchungen = await testDb.buchungen.where('artikelId').equals(ms400.id).toArray()
-      const summe = buchungen.filter((b) => !b.storno).reduce((s, b) => s + b.menge, 0)
-      // 1 Einlagerung +10, 1 Entnahme -3 = 7.
-      expect(summe).toBe(7)
-    }
-
-    const standorte = await testDb.standorte.toArray()
-    expect(standorte.some((s) => s.standard && s.name === 'Hauptlager')).toBe(true)
-  })
-
-  it('akzeptiert leere Eingabe und liefert leeren Bericht', async () => {
-    const bericht = await importAusCsv({})
-    expect(bericht).toEqual({ artikelAngelegt: 0, buchungenAngelegt: 0, konflikte: [] })
-  })
-})
-
 describe('Outbox-Integration', () => {
   it('importArtikelAusCsv enqueued jeden neuen Artikel als create-Op', async () => {
     const lager = parseCsv(LAGER_CSV)
@@ -317,73 +166,6 @@ describe('Outbox-Integration', () => {
     expect(artikelOps.every((o) => o.syncedAt === null)).toBe(true)
     const payloads = artikelOps.map((o) => JSON.parse(o.payload) as { titel: string })
     expect(payloads.map((p) => p.titel).sort()).toEqual(['BX-SOL-CT-W', 'MS 400'])
-  })
-
-  it('importWarenAusCsv enqueued Buchungen und das Hauptlager', async () => {
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    const waren = parseCsv(WAREN_CSV)
-    await importWarenAusCsv({
-      rows: waren.rows,
-      headers: waren.headers,
-      mapping: defaultWarenMapping(waren.headers),
-      hauptLagerName: 'Hauptlager',
-    })
-    const outbox = await testDb.outbox.toArray()
-    const buchungOps = outbox.filter((o) => o.entity === 'buchung' && o.op === 'create')
-    expect(buchungOps).toHaveLength(3)
-    const standortOps = outbox.filter((o) => o.entity === 'standort' && o.op === 'create')
-    expect(standortOps).toHaveLength(1)
-    const standortPayload = JSON.parse(standortOps[0]!.payload) as {
-      name: string
-      standard: boolean
-    }
-    expect(standortPayload.name).toBe('Hauptlager')
-    expect(standortPayload.standard).toBe(true)
-  })
-
-  it('zweiter Waren-Import findet das Hauptlager und enqueued nur ein update', async () => {
-    // Erstes Hauptlager manuell anlegen (nicht standard).
-    const s: Standort = {
-      id: neueUuid(),
-      name: 'Hauptlager',
-      typ: 'lager',
-      projekt: null,
-      kennzeichen: null,
-      standard: false,
-      archiviert: false,
-      geaendertAm: jetztIso(),
-      erstelltAm: jetztIso(),
-    }
-    await testDb.standorte.add(s)
-    // Outbox leeren, damit nur die Import-Outbox-Items gezaehlt werden.
-    await testDb.outbox.clear()
-
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    const waren = parseCsv(WAREN_CSV)
-    await importWarenAusCsv({
-      rows: waren.rows,
-      headers: waren.headers,
-      mapping: defaultWarenMapping(waren.headers),
-      hauptLagerName: 'Hauptlager',
-    })
-
-    const outbox = await testDb.outbox.toArray()
-    const standortCreates = outbox.filter((o) => o.entity === 'standort' && o.op === 'create')
-    const standortUpdates = outbox.filter((o) => o.entity === 'standort' && o.op === 'update')
-    expect(standortCreates).toHaveLength(0)
-    expect(standortUpdates).toHaveLength(1)
-    const refreshed = await testDb.standorte.get(s.id)
-    expect(refreshed?.standard).toBe(true)
   })
 
   it('geaendertAm fällt auf erstelltAm zurück, wenn die CSV-Spalte fehlt oder leer ist', async () => {
@@ -521,40 +303,6 @@ A;Demo
   })
 })
 
-describe('validiereWarenDaten', () => {
-  it('meldet Dezimalmengen und Null', () => {
-    const csv = `Entnahme;Artikel;Menge
-Einlagerung;MS 400;2,5
-Einlagerung;MS 400;0
-`
-    const parsed = parseCsv(csv)
-    const r = validiereWarenDaten(defaultWarenMapping(parsed.headers), parsed.rows, parsed.headers)
-    expect(r.ok).toBe(false)
-    expect(r.probleme.some((p) => p.meldung.includes('2,5'))).toBe(true)
-    expect(r.probleme.some((p) => p.meldung.includes('darf nicht 0'))).toBe(true)
-  })
-
-  it('meldet unbekannten Buchungstyp', () => {
-    const csv = `Entnahme;Artikel;Menge
-Verkauf;MS 400;1
-`
-    const parsed = parseCsv(csv)
-    const r = validiereWarenDaten(defaultWarenMapping(parsed.headers), parsed.rows, parsed.headers)
-    expect(r.ok).toBe(false)
-    expect(r.probleme[0]?.meldung).toContain('Verkauf')
-  })
-
-  it('meldet nicht-parsebares erstelltAm', () => {
-    const csv = `Entnahme;Artikel;Menge;Erstellt
-Entnahme;MS 400;1;kein datum
-`
-    const parsed = parseCsv(csv)
-    const r = validiereWarenDaten(defaultWarenMapping(parsed.headers), parsed.rows, parsed.headers)
-    expect(r.ok).toBe(false)
-    expect(r.probleme[0]?.meldung).toContain('erstelltAm')
-  })
-})
-
 describe('Import wirft ImportValidierungError bei Daten-Problemen', () => {
   it('importArtikelAusCsv: abgebrochen, kein Artikel in DB, Outbox leer', async () => {
     const csv = `Title;Type;Status
@@ -570,41 +318,6 @@ B;Demo;reserviert
       }),
     ).rejects.toBeInstanceOf(ImportValidierungError)
     expect(await testDb.artikel.toArray()).toEqual([])
-    expect(await testDb.outbox.toArray()).toEqual([])
-  })
-
-  it('importWarenAusCsv: abgebrochen bei Dezimalmenge, keine Buchung geschrieben', async () => {
-    // Erst Artikel anlegen — ohne Pre-Flight-Blocker.
-    const lager = parseCsv(LAGER_CSV)
-    await importArtikelAusCsv({
-      rows: lager.rows,
-      headers: lager.headers,
-      mapping: defaultArtikelMapping(lager.headers),
-    })
-    // Outbox leeren, damit nur die Waren-Import-Outbox-Items geprueft
-    // werden — die zwei Artikel-Items aus dem Pre-Step sollen hier
-    // nicht stören.
-    await testDb.outbox.clear()
-
-    const csv = `Entnahme;Artikel;Menge
-Entnahme;MS 400;3,5
-`
-    const parsed = parseCsv(csv)
-    await expect(
-      importWarenAusCsv({
-        rows: parsed.rows,
-        headers: parsed.headers,
-        mapping: defaultWarenMapping(parsed.headers),
-        hauptLagerName: 'Hauptlager',
-      }),
-    ).rejects.toBeInstanceOf(ImportValidierungError)
-    // Wichtig: kein Hauptlager, keine Buchung, kein Outbox-Item. Vorher
-    // (ohne Pre-Flight) hatte `stelleHauptLagerSicher` schon im Outbox
-    // gelandet, BEVOR die Validierung lief — der Outbox-Standort-Op
-    // blieb dann als Geist zurueck, obwohl der eigentliche Import
-    // fehlschlug. Pre-Flight loest das, weil die Transaktion NIE startet.
-    expect(await testDb.buchungen.toArray()).toEqual([])
-    expect(await testDb.standorte.toArray()).toEqual([])
     expect(await testDb.outbox.toArray()).toEqual([])
   })
 

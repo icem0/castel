@@ -1,9 +1,9 @@
-// Mapping zwischen SharePoint-Spaltennamen und Dexie-Feldern.
-// Beide Quell-CSVs (`Lager`, `Warenfluss`) werden hier beschrieben.
+// Mapping zwischen CSV-Spaltennamen und Dexie-Feldern für den
+// Artikel-Stammdaten-Import.
 
 import type { ArtikelStatus, NachbestellHinweis } from '../../db/types'
 
-/** SharePoint-Spaltenname aus dem Original-Export. */
+/** CSV-Spaltenname aus der gewählten Datei. */
 export type SharePointSpalte = string
 
 /** Dexie-Feld in unserem Datenmodell. */
@@ -22,22 +22,71 @@ export type ArtikelFeld =
   | 'geaendertAm'
   | 'sharePointId'
 
-export type WarenFeld =
-  | 'erstelltAm'
-  | 'erstelltVon'
-  | 'menge'
-  | 'kommentar'
-  | 'mitteilungAn'
-  | 'commission'
-  | 'artikelTitle'
-  | 'typ'
-  | 'standortName'
+/**
+ * Fester Beschreibungstext pro Dexie-Feld für die Mapping-Tabelle.
+ * - `format`: Erwartung an den Wert (Typ + ggf. zulässige Werte)
+ * - `bedeutung`: wozu das Feld in der Domäne dient
+ */
+export const ARTIKEL_FELD_BESCHREIBUNG: Record<ArtikelFeld, { format: string; bedeutung: string }> =
+  {
+    titel: {
+      format: 'Text (Pflicht, nicht leer)',
+      bedeutung: 'Anzeigename des Artikels',
+    },
+    foto: {
+      format: 'Text (Dateiname / URL — optional)',
+      bedeutung: 'Foto zum Artikel',
+    },
+    status: {
+      format: 'Enum: verfuegbar · reserviert · gesperrt · ausgesondert',
+      bedeutung: 'aktueller Lebenszyklus-Status des Artikels',
+    },
+    typ: {
+      format: 'Text (Pflicht, nicht leer)',
+      bedeutung: 'Artikel-Typ / Kategorie',
+    },
+    lieferant: {
+      format: 'Text (optional, sonst leer)',
+      bedeutung: 'Name des Lieferanten',
+    },
+    verpackungseinheit: {
+      format: 'Positive Ganzzahl (Pflicht)',
+      bedeutung: 'Stückzahl pro VPE',
+    },
+    mindestbestand: {
+      format: 'Positive Ganzzahl (optional, sonst leer)',
+      bedeutung: 'Mindestbestand für Nachbestell-Warnung',
+    },
+    nachbestellHinweis: {
+      format: 'Enum: i.O · bald · dringend (sonst leer)',
+      bedeutung: 'Dringlichkeit der Wiederbeschaffung',
+    },
+    bestellnummer: {
+      format: 'Text (optional)',
+      bedeutung: 'Bestellnummer beim Lieferanten',
+    },
+    barcode: {
+      format: 'Text (optional)',
+      bedeutung: 'EAN / Barcode zum Scannen',
+    },
+    listenpreis: {
+      format: 'Ganzzahl in Cent (optional, sonst leer)',
+      bedeutung: 'Listenpreis als Ganzzahl in Cent',
+    },
+    geaendertAm: {
+      format: 'Datum: ISO 8601 oder DD.MM.YYYY[ HH:mm] (optional)',
+      bedeutung: 'Zeitpunkt der letzten Änderung',
+    },
+    sharePointId: {
+      format: 'Ganzzahl (optional)',
+      bedeutung: 'ursprüngliche SharePoint-Listen-ID',
+    },
+  }
 
-/** Mapping-Tabelle: SharePoint-Spalte → Dexie-Feld oder null (ungenutzt). */
+/** Mapping-Tabelle: CSV-Spalte → Dexie-Feld oder null (ungenutzt). */
 export type ArtikelMapping = Partial<Record<SharePointSpalte, ArtikelFeld | null>>
-export type WarenMapping = Partial<Record<SharePointSpalte, WarenFeld | null>>
 
-/** Vorschlag-Heuristik: SharePoint-Header → Dexie-Feld. */
+/** Vorschlag-Heuristik: CSV-Header → Dexie-Feld. */
 export function defaultArtikelMapping(headers: string[]): ArtikelMapping {
   const map: ArtikelMapping = {}
   for (const h of headers) {
@@ -61,25 +110,6 @@ export function defaultArtikelMapping(headers: string[]): ArtikelMapping {
       key === 'geändert'
     )
       map[h] = 'geaendertAm'
-    else map[h] = null
-  }
-  return map
-}
-
-export function defaultWarenMapping(headers: string[]): WarenMapping {
-  const map: WarenMapping = {}
-  for (const h of headers) {
-    const key = h.toLowerCase().replace(/[^a-z0-9äöü]/gi, '')
-    if (key === 'entnahme') map[h] = 'typ'
-    else if (key === 'erstellt') map[h] = 'erstelltAm'
-    else if (key === 'erstelltvon') map[h] = 'erstelltVon'
-    else if (key === 'menge') map[h] = 'menge'
-    else if (key === 'kommentar') map[h] = 'kommentar'
-    else if (key === 'mitteilungan') map[h] = 'mitteilungAn'
-    else if (key === 'projektaasa' || key === 'projektaasanummer' || key === 'projekt')
-      map[h] = 'commission'
-    else if (key === 'artikel' || key === 'artikeltitle') map[h] = 'artikelTitle'
-    else if (key === 'entnommenau' || key === 'standort') map[h] = 'standortName'
     else map[h] = null
   }
   return map
@@ -112,22 +142,14 @@ export function normalizeNachbestellHinweis(raw: string): NachbestellHinweis {
   return null
 }
 
-/** SharePoint-Entnahme-Typ → unser `BuchungsTyp`. */
-export function normalizeWarenTyp(raw: string): 'einlagerung' | 'entnahme' | 'umlagerung' {
-  const k = raw.toLowerCase().trim()
-  if (k.includes('einlager')) return 'einlagerung'
-  if (k.includes('umlager') || k.includes('umlag')) return 'umlagerung'
-  // Standardannahme: „Entnahme" ist die häufigste Bewegung.
-  return 'entnahme'
-}
-
 /**
- * SharePoint-ISO oder leer → ISO-String.
+ * ISO-Datum oder leer → ISO-String.
  * Akzeptiert zusaetzlich gaengige deutsche bzw. europaeische
- * Datums-/Zeit-Formate, weil SharePoint-Listen in DE-Lokalen Spalten
- * wie `15.02.2025` oder `15.02.2025 10:00` liefern, die JS-`Date`
- * nicht direkt parsen kann. Wir versuchen erst ISO, dann DD.MM.YYYY
- * (mit optionaler Uhrzeit), und fallen sonst auf null zurueck.
+ * Datums-/Zeit-Formate (`DD.MM.YYYY` oder `DD.MM.YYYY HH:mm`), weil
+ * SharePoint-Listen in DE-Lokalen Spalten wie `15.02.2025` liefern,
+ * die JS-`Date` nicht direkt parsen kann. Wir versuchen erst ISO,
+ * dann DD.MM.YYYY (mit optionaler Uhrzeit), und fallen sonst auf
+ * null zurueck.
  */
 export function parseIsoDatum(raw: string): string | null {
   const trimmed = raw.trim()
@@ -137,7 +159,7 @@ export function parseIsoDatum(raw: string): string | null {
   const direct = new Date(trimmed)
   if (!Number.isNaN(direct.getTime())) return direct.toISOString()
 
-  // 2) DD.MM.YYYY oder DD.MM.YYYY HH:mm (SharePoint-DE).
+  // 2) DD.MM.YYYY oder DD.MM.YYYY HH:mm.
   const de = /^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?$/.exec(trimmed)
   if (de) {
     const [, dd, mm, yyyy, hh = '0', min = '0'] = de
@@ -150,7 +172,7 @@ export function parseIsoDatum(raw: string): string | null {
 }
 
 /**
- * Parst SharePoint-Ganzzahlen (akzeptiert deutsches Komma-Format).
+ * Parst Ganzzahlen (akzeptiert deutsches Komma-Format).
  * Liefert `null`, wenn der Wert leer ist, keine Zahl enthält oder Nachkomma-
  * stellen hat — das Sync-Schema (server `z.number().int()`) lehnt
  * Dezimalwerte ohnehin ab, also fail-fast hier ist ehrlicher als

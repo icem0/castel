@@ -559,14 +559,13 @@ Datei **nie** committen — siehe §18.4 (Secrets).
 
 ## 11. CSV-Import-Wizard (`src/services/import/`)
 
-Voraussetzung: Du lieferst die vollständigen CSVs (oder Beispieldatensätze).
+Voraussetzung: Du lieferst die vollständige CSV mit Artikel-Stammdaten (oder Beispieldatensätze). Bewegungen/Buchungen werden NICHT importiert — sie werden in der App angelegt.
 
 Flow:
 1. **Datei wählen** → `papaparse` parst (Encoding, `;` vs `,`, Quotes)
 2. **Vorschau** – erste 20 Zeilen, erkannte Spalten
-3. **Mapping-UI** – SharePoint-Spalte → Dexie-Feld
+3. **Mapping-UI** – CSV-Spalte → Dexie-Feld, mit fester dritter Spalte „Format & Bedeutung" pro Feld
 4. **Validierung** – Pflichtfelder, Status/Type-Enum-Mapping, doppelte `sharePointId`
-5. **Bestandsabgleich** – Vorschau-Vergleich `Lager.Bestand` gegen aus dem Warenfluss rekonstruierten Bestand; Konfliktliste zur Klärung
 6. **Atomarer Import** in einer Dexie-Transaktion; bei Fehler vollständiger Rollback
 7. **Ergebnis-Report** – importiert / übersprungen / Konflikte
 
@@ -640,7 +639,7 @@ Test-Setup mit `fake-indexeddb` fürs Frontend und `pg-mem` (oder echtes Test-Po
 
 ## 15. Benötigte Eingaben vom Auftraggeber
 
-- **Vollständige CSVs** `Lager.csv` und `Warenfluss.csv` (oder Beispieldatensätze, falls der Rest nicht herausgegeben werden soll)
+- **Vollständige CSV** mit Artikel-Stammdaten (oder Beispieldatensätze, falls der Rest nicht herausgegeben werden soll)
 - Optional: **Logo/Farbschema** für PWA-Icons, App-Farbe, Splash
 - Optional: echte **Projekt-Stammdatenliste** (oder wachsen sie aus den Buchungen heraus?)
 - **Admin-Credentials** für Erst-Bootstrap (`ADMIN_EMAIL`, `ADMIN_PASSWORD`) — kommen in `.env`, nicht ins Repo
