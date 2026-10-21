@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
+import HerstellerKatalogDrawer, {
+  type UebernahmeFelder,
+} from '../components/HerstellerKatalogDrawer.vue'
 import type { ArtikelStatus } from '../db/types'
 
 const { t } = useI18n()
@@ -41,6 +44,25 @@ const initialForm: Form = (() => {
 const formular = ref<Form>({ ...initialForm })
 const fehler = ref<string>('')
 const laufend = ref(false)
+const drawerOffen = ref(false)
+
+const drawerWerte = computed<UebernahmeFelder>(() => ({
+  titel: formular.value.titel,
+  barcode: formular.value.barcode,
+  bestellnummer: formular.value.bestellnummer,
+  lieferant: formular.value.lieferant,
+  listenpreis: formular.value.listenpreis,
+  verpackungseinheit: formular.value.verpackungseinheit,
+}))
+
+/** Copies the ticked catalogue fields into the form without saving yet. */
+function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
+  if (felder.titel !== undefined) formular.value.titel = felder.titel
+  if (felder.barcode !== undefined) formular.value.barcode = felder.barcode
+  if (felder.bestellnummer !== undefined) formular.value.bestellnummer = felder.bestellnummer
+  if (felder.lieferant !== undefined) formular.value.lieferant = felder.lieferant
+  if (felder.listenpreis !== undefined) formular.value.listenpreis = felder.listenpreis
+}
 
 onMounted(() => {
   // Wenn der Scanner einen Code geliefert hat, im Barcode-Feld
@@ -51,6 +73,9 @@ onMounted(() => {
   const queryBarcode = route.query.barcode
   if (typeof queryBarcode === 'string' && queryBarcode.length > 0) {
     formular.value.barcode = queryBarcode
+    // A scanned EAN is almost always the best search key we will get, so
+    // open the drawer right away with the term already filled in.
+    drawerOffen.value = true
   }
 })
 
@@ -132,6 +157,13 @@ const statusOptionen: ArtikelStatus[] = [
           <span>{{ t('view.artikel.form.lieferant') }}</span>
           <input v-model="formular.lieferant" autocomplete="off" :disabled="laufend" />
         </label>
+
+        <div class="katalog-aktion">
+          <button type="button" class="btn-katalog" :disabled="laufend" @click="drawerOffen = true">
+            {{ t('datanorm.drawer.oeffnen') }}
+          </button>
+          <small class="hint">{{ t('datanorm.drawer.oeffnenHint') }}</small>
+        </div>
         <div class="row">
           <label>
             <span>{{ t('view.artikel.form.ve') }}</span>
@@ -192,10 +224,39 @@ const statusOptionen: ArtikelStatus[] = [
         </div>
       </form>
     </div>
+
+    <HerstellerKatalogDrawer
+      :offen="drawerOffen"
+      :aktuell="drawerWerte"
+      @schliessen="drawerOffen = false"
+      @uebernehmen="felderUebernehmen"
+    />
   </section>
 </template>
 
 <style scoped>
+.katalog-aktion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.btn-katalog {
+  align-self: flex-start;
+  border: 1px dashed var(--border, #d7dde3);
+  background: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  color: var(--accent, #2f6f9f);
+  font-size: 0.9rem;
+}
+.btn-katalog:hover:not(:disabled) {
+  background: #f2f7fb;
+}
+.btn-katalog:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .row {
   display: grid;
   grid-template-columns: 1fr 1fr;
