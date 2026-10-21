@@ -75,7 +75,7 @@ async function schreibeEinstellung(key: string, value: string): Promise<void> {
   await db.execute(sql`
     INSERT INTO einstellungen (key, user_id, value, geaendert_am)
     VALUES (${key}, NULL, ${value}, NOW())
-    ON CONFLICT (key, user_id) DO UPDATE
+    ON CONFLICT (key) WHERE (user_id IS NULL) DO UPDATE
       SET value = EXCLUDED.value,
           geaendert_am = EXCLUDED.geaendert_am
   `)
@@ -98,7 +98,7 @@ export async function triggerSyncForce(): Promise<string> {
   await db.execute(sql`
     INSERT INTO einstellungen (key, user_id, value, geaendert_am)
     VALUES (${FORCE_SYNC_KEY}, NULL, ${now}, NOW())
-    ON CONFLICT (key, user_id) DO UPDATE
+    ON CONFLICT (key) WHERE (user_id IS NULL) DO UPDATE
       SET value = EXCLUDED.value,
           geaendert_am = EXCLUDED.geaendert_am
   `)

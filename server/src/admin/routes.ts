@@ -40,12 +40,13 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       const now = new Date().toISOString()
       // upsert: existierende Zeile aktualisieren, sonst anlegen.
       // Raw-SQL ist hier sauberer als ein Drizzle-Update + Insert-Try,
-      // weil der Compound-Key (key, user_id) wegen user_id = NULL nicht
-      // in ON CONFLICT-Klauseln abgebildet werden kann.
+      // weil user_id = NULL den Compound-Key (key, user_id) in ON CONFLICT
+      // nicht abbildet (NULL gilt als unterschiedlich). Deshalb greifen wir
+      // den Teil-Index einstellungen_key_global_idx (key) WHERE user_id IS NULL.
       await db.execute(sql`
         INSERT INTO einstellungen (key, user_id, value, geaendert_am)
         VALUES (${FORCE_SYNC_KEY}, NULL, ${now}, NOW())
-        ON CONFLICT (key, user_id) DO UPDATE
+        ON CONFLICT (key) WHERE (user_id IS NULL) DO UPDATE
           SET value = EXCLUDED.value,
               geaendert_am = EXCLUDED.geaendert_am
       `)
