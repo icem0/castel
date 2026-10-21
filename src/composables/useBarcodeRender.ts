@@ -69,12 +69,9 @@ export function useBarcodeRender(
     nextTick(render)
   })
 
-  watch(
-    [() => source.value, () => settings.settings.barcodeTyp],
-    () => {
-      nextTick(render)
-    },
-  )
+  watch([() => source.value, () => settings.settings.barcodeTyp], () => {
+    nextTick(render)
+  })
 
   onBeforeUnmount(() => {
     if (el.value) clearSvg(el.value)
