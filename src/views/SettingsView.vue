@@ -147,6 +147,7 @@ onBeforeUnmount(() => {
     <h2 v-if="auth.istAdmin">Administration</h2>
     <div v-if="auth.istAdmin" class="card quick-links">
       <RouterLink to="/einstellungen/user">Benutzer-Verwaltung</RouterLink>
+      <RouterLink to="/einstellungen/entwicklung">Entwicklung</RouterLink>
     </div>
 
     <h2>Daten</h2>

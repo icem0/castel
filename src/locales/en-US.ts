@@ -360,6 +360,40 @@ export default {
       colMindest: 'Min',
       colDefizit: 'Deficit',
     },
+    development: {
+      h1: 'Development',
+      intro:
+        'Tools for developers and administrators. These functions delete data irreversibly — use only in emergencies.',
+      lokalerCache: 'Clear local cache',
+      lokalerCacheHint:
+        'Clears all service-worker caches (app shell, images, etc.) and reloads the app. IndexedDB and login are kept.',
+      cacheFrage: 'Really clear service-worker cache?',
+      cacheDetail:
+        'The app will then reload all files from the server. Your transactions and login are kept. The page will be reloaded.',
+      cacheLeeren: 'Clear cache',
+      leert: 'Clearing cache…',
+      lokaleDB: 'Delete local database',
+      lokaleDBHint:
+        'Clears IndexedDB completely and pulls a fresh snapshot from the server. Local transactions not yet pushed to the server will be lost.',
+      lokaleDBFrage: 'Really delete local database?',
+      lokaleDBDetail:
+        'IndexedDB is cleared and then refilled with a fresh snapshot from the server (items, locations, commissions, transactions, settings).',
+      lokaleDBWarnung: 'Only use if normal sync is stuck or the local DB is corrupt.',
+      lokaleDBLoeschen: 'Delete local DB',
+      loescht: 'Deleting & pulling snapshot…',
+      jaLoeschen: 'Yes, delete & reload',
+      serverDB: 'Clear server database',
+      serverDBHint:
+        'Deletes all domain data on the server (items, locations, transactions, photos, settings, etc.). Users and login are kept.',
+      serverDBFrage: 'Really clear server database?',
+      serverDBDetail:
+        'All items, locations, transactions, photos and settings on the server will be deleted irreversibly.',
+      serverDBWarnung: 'This action cannot be undone. All server-side data will be lost.',
+      serverDBLeeren: 'Clear server DB',
+      leertServer: 'Clearing server database…',
+      jaServerLoeschen: 'Yes, delete server data',
+      serverDbGeloescht: 'Server database cleared.',
+    },
   },
   datanorm: {
     drawer: {

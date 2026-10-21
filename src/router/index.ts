@@ -23,6 +23,7 @@ import BuchungFormView from '../views/BuchungFormView.vue'
 import KommissionView from '../views/KommissionView.vue'
 import StandortListView from '../views/StandortListView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import DevelopmentView from '../views/DevelopmentView.vue'
 import ArtikelTypenView from '../views/ArtikelTypenView.vue'
 import KommissionenView from '../views/KommissionenView.vue'
 import ImportView from '../views/ImportView.vue'
@@ -94,6 +95,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/backup',
     name: 'einstellungen-backup',
     component: BackupView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/entwicklung',
+    name: 'einstellungen-entwicklung',
+    component: DevelopmentView,
     meta: { requiresAdmin: true },
   },
   { path: '/import', name: 'import', component: ImportView, meta: { requiresAdmin: true } },

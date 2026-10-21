@@ -371,6 +371,42 @@ export default {
       colMindest: 'Mindest',
       colDefizit: 'Defizit',
     },
+    development: {
+      h1: 'Entwicklung',
+      intro:
+        'Werkzeuge für Entwickler und Administratoren. Diese Funktionen löschen Daten unwiderruflich — nur im Notfall verwenden.',
+      lokalerCache: 'Lokaler Cache leeren',
+      lokalerCacheHint:
+        'Löscht alle Service-Worker-Caches (App-Shell, Bilder, etc.) und lädt die App neu. IndexedDB und Login bleiben erhalten.',
+      cacheFrage: 'Service-Worker-Cache wirklich leeren?',
+      cacheDetail:
+        'Die App lädt danach alle Dateien neu vom Server. Deine Buchungen und der Login bleiben erhalten. Die Seite wird neu geladen.',
+      cacheLeeren: 'Cache leeren',
+      leert: 'Leere Cache…',
+      lokaleDB: 'Lokale Datenbank löschen',
+      lokaleDBHint:
+        'Leert die IndexedDB komplett und zieht einen frischen Snapshot vom Server. Ausstehende lokale Buchungen, die noch nicht gepusht wurden, gehen verloren.',
+      lokaleDBFrage: 'Lokale Datenbank wirklich löschen?',
+      lokaleDBDetail:
+        'Die IndexedDB wird geleert und anschließend mit einem frischen Snapshot vom Server wieder befüllt (Artikel, Standorte, Projekte, Buchungen, Einstellungen).',
+      lokaleDBWarnung:
+        'Nur verwenden, wenn die normale Synchronisation hängt oder die lokale DB korrupt ist.',
+      lokaleDBLoeschen: 'Lokale DB löschen',
+      loescht: 'Lösche & ziehe Snapshot…',
+      jaLoeschen: 'Ja, löschen & neu laden',
+      serverDB: 'Server-Datenbank leeren',
+      serverDBHint:
+        'Löscht alle Domain-Daten auf dem Server (Artikel, Standorte, Buchungen, Fotos, Einstellungen, etc.). Users und Login bleiben erhalten.',
+      serverDBFrage: 'Server-Datenbank wirklich leeren?',
+      serverDBDetail:
+        'Alle Artikel, Standorte, Buchungen, Fotos und Einstellungen auf dem Server werden unwiderruflich gelöscht.',
+      serverDBWarnung:
+        'Diese Aktion kann nicht rückgängig gemacht werden. Alle serverseitigen Daten gehen verloren.',
+      serverDBLeeren: 'Server-Datenbank leeren',
+      leertServer: 'Leere Server-Datenbank…',
+      jaServerLoeschen: 'Ja, serverseitige Daten löschen',
+      serverDbGeloescht: 'Server-Datenbank wurde geleert.',
+    },
   },
   datanorm: {
     drawer: {

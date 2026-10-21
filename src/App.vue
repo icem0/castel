@@ -11,8 +11,7 @@ import { useAuditStore } from './stores/audit'
 import { useAuthStore } from './stores/auth'
 import { useSyncStore } from './stores/sync'
 import { getApiBaseUrl } from './auth/api'
-import { clearAppCacheAndReload } from './services/sync/clear-cache'
-import { resetLocalDbAndPull } from './services/sync/reset-local-db'
+
 import { zaehleAbweichungen } from './services/sync/worker'
 import { version, commit, branch, buildDate } from './version'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
@@ -440,69 +439,6 @@ async function ladeSyncDetail(): Promise<void> {
 async function manuellSync(): Promise<void> {
   await sync.syncNow(getApiBaseUrl(), () => localStorage.getItem('castel.auth.jwt'))
   await ladeSyncDetail()
-}
-
-// ---------- Cache löschen ----------
-
-type CacheResetPhase = 'idle' | 'bestaetigen' | 'laufend' | 'fehler'
-const cacheResetPhase = ref<CacheResetPhase>('idle')
-const cacheResetFehler = ref<string | null>(null)
-
-function cacheResetFrageStarten(): void {
-  cacheResetPhase.value = 'bestaetigen'
-  cacheResetFehler.value = null
-}
-
-function cacheResetAbbrechen(): void {
-  cacheResetPhase.value = 'idle'
-  cacheResetFehler.value = null
-}
-
-async function cacheResetBestaetigen(): Promise<void> {
-  cacheResetPhase.value = 'laufend'
-  cacheResetFehler.value = null
-  try {
-    await clearAppCacheAndReload()
-    // Erfolg führt zum Reload — wenn nicht, fallen wir zurück in 'idle'.
-    cacheResetPhase.value = 'idle'
-  } catch (e) {
-    cacheResetFehler.value = e instanceof Error ? e.message : String(e)
-    cacheResetPhase.value = 'fehler'
-  }
-}
-
-// ---------- Lokale DB löschen ----------
-
-type DbResetPhase = 'idle' | 'bestaetigen' | 'laufend' | 'fehler'
-const dbResetPhase = ref<DbResetPhase>('idle')
-const dbResetFehler = ref<string | null>(null)
-
-function dbResetFrageStarten(): void {
-  dbResetPhase.value = 'bestaetigen'
-  dbResetFehler.value = null
-}
-
-function dbResetAbbrechen(): void {
-  dbResetPhase.value = 'idle'
-  dbResetFehler.value = null
-}
-
-async function dbResetBestaetigen(): Promise<void> {
-  dbResetPhase.value = 'laufend'
-  dbResetFehler.value = null
-  try {
-    await resetLocalDbAndPull({
-      apiBase: getApiBaseUrl(),
-      token: localStorage.getItem('castel.auth.jwt'),
-    })
-    // Snapshot wurde in die frische DB geschrieben — jetzt neu laden,
-    // damit die Stores (Pinia + liveQuery) die Daten aus der neuen
-    // Instanz lesen.
-    window.location.reload()
-  } catch (e) {
-    dbResetFehler.value = e instanceof Error ? e.message : String(e)
-    dbResetPhase.value = 'fehler'
-  }
 }
 
 const syncZustand = computed<
@@ -1167,85 +1103,7 @@ function formatRelativ(iso: string | null): string {
         >
           {{ sync.triggering ? 'Synchronisiere…' : 'Jetzt synchronisieren' }}
         </button>
-        <button
-          type="button"
-          :disabled="cacheResetPhase === 'laufend'"
-          @click="cacheResetFrageStarten"
-        >
-          Cache leeren
-        </button>
-        <button
-          type="button"
-          :disabled="dbResetPhase === 'laufend' || !online"
-          @click="dbResetFrageStarten"
-        >
-          Lokale DB löschen
-        </button>
         <button type="button" @click="closeSyncPanel">Schließen</button>
-      </div>
-
-      <div v-if="cacheResetPhase !== 'idle'" class="sync-cache-confirm" role="alertdialog">
-        <p>
-          <strong>Service-Worker-Cache wirklich leeren?</strong>
-        </p>
-        <p class="sync-cache-confirm-detail">
-          Die App lädt danach alle Dateien neu vom Server. Deine Buchungen und der Login bleiben
-          erhalten (liegen in der Browser-Datenbank bzw. localStorage). Die Seite wird neu geladen.
-        </p>
-        <p v-if="cacheResetPhase === 'fehler' && cacheResetFehler" class="wert-fehler">
-          {{ cacheResetFehler }}
-        </p>
-        <div class="sync-panel-actions">
-          <button
-            type="button"
-            class="danger"
-            :disabled="cacheResetPhase === 'laufend'"
-            @click="cacheResetBestaetigen"
-          >
-            {{ cacheResetPhase === 'laufend' ? 'Leere Cache…' : 'Ja, leeren' }}
-          </button>
-          <button
-            type="button"
-            :disabled="cacheResetPhase === 'laufend'"
-            @click="cacheResetAbbrechen"
-          >
-            Abbrechen
-          </button>
-        </div>
-      </div>
-
-      <div v-if="dbResetPhase !== 'idle'" class="sync-cache-confirm" role="alertdialog">
-        <p>
-          <strong>Lokale Datenbank wirklich löschen?</strong>
-        </p>
-        <p class="sync-cache-confirm-detail">
-          Die IndexedDB wird komplett geleert und anschließend mit einem frischen Snapshot vom
-          Server wieder befüllt (Artikel, Standorte, Projekte, Buchungen, Einstellungen).
-          Ausstehende lokale Buchungen, die noch nicht zum Server gepusht wurden, gehen dabei
-          verloren. Du bleibst angemeldet (JWT liegt in localStorage). Die Seite wird am Ende neu
-          geladen.
-        </p>
-        <p class="sync-cache-confirm-detail">
-          Benutze das nur, wenn die normale Synchronisation hängt oder die lokale DB korrupt ist.
-        </p>
-        <p v-if="dbResetPhase === 'fehler' && dbResetFehler" class="wert-fehler">
-          {{ dbResetFehler }}
-        </p>
-        <div class="sync-panel-actions">
-          <button
-            type="button"
-            class="danger"
-            :disabled="dbResetPhase === 'laufend'"
-            @click="dbResetBestaetigen"
-          >
-            {{
-              dbResetPhase === 'laufend' ? 'Lösche & ziehe Snapshot…' : 'Ja, löschen & neu laden'
-            }}
-          </button>
-          <button type="button" :disabled="dbResetPhase === 'laufend'" @click="dbResetAbbrechen">
-            Abbrechen
-          </button>
-        </div>
       </div>
     </div>
   </div>

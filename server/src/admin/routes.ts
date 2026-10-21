@@ -72,4 +72,31 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ forceAt })
     },
   )
+
+  // POST /api/admin/db/clear
+  // Admin-only. Leert alle Domain-Datentabellen auf dem Server (Artikel,
+  // Standorte, Buchungen, Fotos, Einstellungen, etc.) aber behält Users
+  // und Refresh-Tokens bei, damit der Admin weiter angemeldet bleibt.
+  app.post(
+    '/api/admin/db/clear',
+    { preHandler: app.requireAdmin },
+    async (_req, reply) => {
+      const db = getDb()
+      await db.execute(sql`BEGIN`)
+      await db.execute(sql`TRUNCATE datanorm_importe`)
+      await db.execute(sql`TRUNCATE datanorm_dateien`)
+      await db.execute(sql`TRUNCATE hersteller_artikel`)
+      await db.execute(sql`TRUNCATE lieferanten`)
+      await db.execute(sql`TRUNCATE mindestbestand_ereignisse`)
+      await db.execute(sql`TRUNCATE audit_log`)
+      await db.execute(sql`TRUNCATE fotos`)
+      await db.execute(sql`TRUNCATE buchungen`)
+      await db.execute(sql`TRUNCATE commission`)
+      await db.execute(sql`TRUNCATE artikel`)
+      await db.execute(sql`TRUNCATE standorte`)
+      await db.execute(sql`TRUNCATE einstellungen`)
+      await db.execute(sql`COMMIT`)
+      return reply.send({ cleared: true })
+    },
+  )
 }
