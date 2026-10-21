@@ -6,6 +6,8 @@
 // Pass 1 cares about: cross-references, D/T descriptions, B records with
 // different v4/v5 semantics, and multi-product P records.
 
+import iconv from 'iconv-lite'
+
 /** Pads/truncates a value to the exact field width (matches slice+trim). */
 export function f(value: string, breite: number): string {
   return value.slice(0, breite).padEnd(breite, ' ')
@@ -94,9 +96,20 @@ export function pEintraege(paare: Array<{ matchcode: string; preis?: string; gue
   return 'P' + slots.join('')
 }
 
-/** Joins records with CRLF, the classic DATANORM line ending. */
+/**
+ * Joins records with CRLF, the classic DATANORM line ending.
+ *
+ * Encodes as CP850, not latin1: DATANORM v4 files are DOS CP850 and the
+ * fixtures contain real German umlauts. latin1 would map 0x81 to a control
+ * character instead of 'ü'.
+ */
 export function datei(zeilen: string[]): Buffer {
-  return Buffer.from(zeilen.join('\r\n') + '\r\n', 'latin1')
+  return iconv.encode(zeilen.join('\r\n') + '\r\n', 'cp850')
+}
+
+/** Same as `datei`, but UTF-8 (for v5 files that ship as UTF-8). */
+export function dateiUtf8(zeilen: string[]): Buffer {
+  return Buffer.from(zeilen.join('\r\n') + '\r\n', 'utf-8')
 }
 
 /** A complete, well-formed v5 catalogue. */
