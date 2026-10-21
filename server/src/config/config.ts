@@ -39,6 +39,44 @@ const schema = z.object({
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_WINDOW: z.string().default('1 minute'),
 
+  // DATANORM-Import (Hersteller-Kataloge).
+  // Die Dateien werden serverseitig aufbewahrt und geparst; die PWA fragt
+  // den Katalog anschliessend on-demand per /api/datanorm/artikel ab.
+  // Hinweis: DATANORM-Dateien sind kein offener Standard und koennen
+  // sehr gross sein (real 1 MB bis mehrere GB). Deshalb streamen wir,
+  // puffern nicht komplett im RAM und haben ein hartes Size-Limit.
+  DATANORM_DIR: z.string().default('/var/lib/castel/datanorm'),
+  // Temporaerer Arbeitsbereich fuer Pass-1-Zwischenspeicher (Disk-Spill
+  // bei sehr grossen Dateien). Default: Betriebssystem-Temp (os.tmpdir()).
+  DATANORM_TMP_DIR: z.string().default(''),
+  // Hartes Limit fuer eine einzelne hochgeladene Datei (Default 500 MB).
+  DATANORM_MAX_FILE_BYTES: z.coerce.number().int().positive().default(524288000),
+  // Ab dieser Record-Zahl wird statt Batch-Upsert der COPY-Pfad
+  // (Staging-Tabelle + INSERT ... SELECT ... ON CONFLICT) genutzt.
+  DATANORM_COPY_THRESHOLD: z.coerce.number().int().positive().default(30000),
+  // In-Memory-Budget fuer Pass 1. Darueber hinaus werden die
+  // Zwischen-Records als JSONL-Chunks auf Platte geschrieben.
+  DATANORM_DISK_SPILL_BYTES: z.coerce.number().int().positive().default(209715200),
+  // True = Parser bricht bei der ersten strukturellen Auffaelligkeit ab.
+  // Default false (tolerant): nur harte Strukturfehler (kein Encoding,
+  // keine A-Saetze) brechen ab, alles andere landet im Import-Report.
+  DATANORM_STRICT_MODE: z
+    .string()
+    .default('false')
+    .transform((v) => {
+      const n = v.toLowerCase()
+      return n === 'true' || n === '1' || n === 'yes' || n === 'on'
+    }),
+  // Obergrenzen fuer gemeldete Parserfehler: Anteil bzw. absolute Zahl
+  // fehlerhafter Zeilen, ab der ein Import als "degraded" markiert wird.
+  DATANORM_MAX_FEHLER_PROZENT: z.coerce.number().min(0).max(100).default(25),
+  DATANORM_MAX_FEHLER_ABSOLUT: z.coerce.number().int().positive().default(100000),
+  // Aufbewahrung der hochgeladenen Originaldateien: Der jeweils JUENGSTE
+  // Eintrag pro Lieferant bleibt immer erhalten, aeltere werden nach
+  // diesem Wert in Tagen geloescht. Die Import-Reports selbst werden
+  // nicht aufgeraeumt (Audit-Spur bleibt vollstaendig).
+  DATANORM_CLEANUP_TAGE: z.coerce.number().int().positive().default(730),
+
   // Development-Modus. Siehe docker-compose.yml (.env DEV_MODE).
   // Steuert u. a. das "DEV MODE"-Badge in der PWA und expose hier den
   // Status ueber /api/dev/status. Akzeptiert 'true'/'false'/'1'/'0'

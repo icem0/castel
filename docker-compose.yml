@@ -100,6 +100,18 @@ services:
       RATE_LIMIT_LOGIN_MAX: ${RATE_LIMIT_LOGIN_MAX:-5}
       RATE_LIMIT_LOGIN_WINDOW: ${RATE_LIMIT_LOGIN_WINDOW:-1 minute}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # DATANORM-Import (Hersteller-Kataloge). Dateien werden hier
+      # abgelegt und beim Upload gestreamt (Hash + Ablage + Parse in
+      # einem Durchgang, kein komplettes Puffern im RAM).
+      DATANORM_DIR: /var/lib/castel/datanorm
+      DATANORM_TMP_DIR: ${DATANORM_TMP_DIR-}
+      DATANORM_MAX_FILE_BYTES: ${DATANORM_MAX_FILE_BYTES:-524288000}
+      DATANORM_COPY_THRESHOLD: ${DATANORM_COPY_THRESHOLD:-30000}
+      DATANORM_DISK_SPILL_BYTES: ${DATANORM_DISK_SPILL_BYTES:-209715200}
+      DATANORM_STRICT_MODE: ${DATANORM_STRICT_MODE:-false}
+      DATANORM_MAX_FEHLER_PROZENT: ${DATANORM_MAX_FEHLER_PROZENT:-25}
+      DATANORM_MAX_FEHLER_ABSOLUT: ${DATANORM_MAX_FEHLER_ABSOLUT:-100000}
+      DATANORM_CLEANUP_TAGE: ${DATANORM_CLEANUP_TAGE:-730}
       # Development mode flag. API exponeert /api/dev/status mit dem
       # Wert. PWA bekommt das gleiche Flag ueber VITE_DEV_MODE (siehe
       # pwa-Service). Im Live-Betrieb DEV_MODE=false setzen.
@@ -122,6 +134,7 @@ services:
         node dist/db/migrate.js && exec node dist/index.js
     volumes:
       - fotos-data:/var/lib/castel/fotos
+      - datanorm-data:/var/lib/castel/datanorm
     healthcheck:
       test:
         [
@@ -188,3 +201,4 @@ networks:
 volumes:
   pgdata:
   fotos-data:
+  datanorm-data:
