@@ -40,6 +40,11 @@ const TABLES_IN_TRUNCATE_ORDER = [
   'audit_log',
   'einstellungen',
   'refresh_tokens',
+  // DATANORM-Katalog (Migration 0013): Reports → Dateien → Artikel → Lieferant
+  'datanorm_importe',
+  'datanorm_dateien',
+  'hersteller_artikel',
+  'lieferanten',
   // Master danach
   'artikel',
   'standorte',

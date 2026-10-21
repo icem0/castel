@@ -11,6 +11,8 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
+  numeric,
   timestamp,
   boolean,
   jsonb,
@@ -18,6 +20,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 // ---------- User / Auth ----------
 
@@ -207,7 +210,18 @@ export const auditLog = pgTable(
     id: text('id').primaryKey(),
     aktion: text('aktion').notNull(),
     entitaet: text('entitaet', {
-      enum: ['artikel', 'standort', 'buchung', 'kommission', 'foto', 'user', 'einstellung'],
+      enum: [
+        'artikel',
+        'standort',
+        'buchung',
+        'kommission',
+        'foto',
+        'user',
+        'einstellung',
+        'lieferant',
+        'hersteller_artikel',
+        'datanorm_import',
+      ],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),
     benutzerId: text('benutzer_id'),
@@ -296,5 +310,171 @@ export const mindestbestandEreignisse = pgTable(
       t.standortId,
       t.erstelltAm,
     ),
+  ],
+)
+
+// ---------- DATANORM / Hersteller-Kataloge ----------
+//
+// DATANORM ist ein Legacy-Stammdatenformat des deutschen Fachgrosshandels
+// (SATZzeichen je Zeile, Feldlayout variiert je Version, v4 in CP850).
+// Die PWA fragt den Katalog on-demand per GET /api/datanorm/artikel ab und
+// übernimmt einzelne Felder in die castel-Artikel — es gibt bewusst KEINEN
+// Foreign Key zwischen beiden Welten und KEINEN Bestands-Import.
+//
+// Siehe `server/src/datanorm/` (Parser + Routen) und Migration 0013.
+
+/**
+ * Lieferant = ein DATANORM-Katalog. Die Identitaet legt der Admin beim Upload
+ * fest (bestehenden Lieferanten waehlen oder neuen anlegen); der V-Satz ist
+ * nur eine Anreicherung. `matchcode` (Lieferanten-Kuerzel aus dem Vorsatz)
+ * ist case-insensitiv eindeutig, damit "MUELLER"/"Mueller" nicht zwei
+ * Lieferanten werden. Auto-angelegte Lieferanten starten `aktiv = false`.
+ */
+export const lieferanten = pgTable(
+  'lieferanten',
+  {
+    id: text('id').primaryKey(),
+    matchcode: text('matchcode'),
+    name: text('name').notNull(),
+    strasse: text('strasse'),
+    plz: text('plz'),
+    ort: text('ort'),
+    land: text('land').default('DE'),
+    telefon: text('telefon'),
+    email: text('email'),
+    ustIdnr: text('ust_idnr'),
+    aktiv: boolean('aktiv').notNull().default(false),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('lieferanten_matchcode_lower_idx').on(sql`LOWER(${t.matchcode})`),
+    index('lieferanten_aktiv_idx').on(t.aktiv),
+    index('lieferanten_geaendert_am_idx').on(t.geaendertAm),
+  ],
+)
+
+/**
+ * Hersteller-Artikel: 1:1-Spiegel eines DATANORM-Katalogs.
+ *
+ * Identitaet ist `(lieferant_id, matchcode)` — die Matchcode ist die
+ * lieferanteneigene Artikelnummer. Preise in Cent (wie `artikel.listenpreis`).
+ *
+ * Mengen-Felder, bewusst getrennt (haeufig vermischt):
+ *   * `mengeneinheit` — Einheit als Text ("Stueck", "m", "kg")
+ *   * `preiseinheit`  — Faktor: "Preis gilt fuer N Einheiten" (v4: nur 1/10/100/1000)
+ *   * `inhalt`        — Menge je verkaufter Einheit (z. B. 12 Stueck/Packung)
+ * castel rechnet NICHT um — der Bestand bleibt in der erfassten Einheit.
+ *
+ * `deaktiviert` setzt ein v5-B-Saetz (Delete-Marker) des Lieferanten. Der
+ * Eintrag bleibt sichtbar ("nicht mehr lieferbar"); castel-Artikel werden
+ * bewusst NICHT angefasst.
+ */
+export const herstellerArtikel = pgTable(
+  'hersteller_artikel',
+  {
+    id: text('id').primaryKey(),
+    lieferantId: text('lieferant_id')
+      .notNull()
+      .references(() => lieferanten.id, { onDelete: 'restrict' }),
+    matchcode: text('matchcode').notNull(),
+    matchcode2: text('matchcode2'),
+    ean: text('ean'),
+    titel: text('titel').notNull(),
+    beschreibung: text('beschreibung'),
+    mengeneinheit: text('mengeneinheit'),
+    preiseinheit: integer('preiseinheit'),
+    inhalt: numeric('inhalt'),
+    warengruppe: text('warengruppe'),
+    preisNettoCent: integer('preis_netto_cent'),
+    preisBruttoCent: integer('preis_brutto_cent'),
+    preisAktionCent: integer('preis_aktion_cent'),
+    gueltigAb: timestamp('gueltig_ab', { withTimezone: true }),
+    steuersatz: numeric('steuersatz'),
+    gewicht: numeric('gewicht'),
+    ersatzMatchcode: text('ersatz_matchcode'),
+    deaktiviert: boolean('deaktiviert').notNull().default(false),
+    deaktiviertAm: timestamp('deaktiviert_am', { withTimezone: true }),
+    deaktiviertGrund: text('deaktiviert_grund'),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('hersteller_artikel_lieferant_matchcode_idx').on(t.lieferantId, t.matchcode),
+    index('hersteller_artikel_lieferant_idx').on(t.lieferantId),
+    index('hersteller_artikel_ean_idx').on(t.ean),
+    index('hersteller_artikel_titel_idx').on(sql`LOWER(${t.titel})`),
+    index('hersteller_artikel_geaendert_am_idx').on(t.geaendertAm),
+  ],
+)
+
+/**
+ * Hochgeladene DATANORM-Originaldatei. `(lieferant_id, datei_hash)` ist
+ * unique — derselbe Upload zweimal wird erkannt und nicht erneut geparst.
+ * `pfad` ist relativ zu `DATANORM_DIR`, damit ein Restore in eine andere
+ * Installation gueltig bleibt. Der Cleanup-Cron loescht aeltere Eintraege,
+ * behaelt aber immer den juengsten pro Lieferant.
+ */
+export const datanormDateien = pgTable(
+  'datanorm_dateien',
+  {
+    id: text('id').primaryKey(),
+    lieferantId: text('lieferant_id')
+      .notNull()
+      .references(() => lieferanten.id, { onDelete: 'cascade' }),
+    pfad: text('pfad').notNull(),
+    originalName: text('original_name').notNull(),
+    byteGroesse: bigint('byte_groesse', { mode: 'number' }).notNull(),
+    dateiHash: text('datei_hash').notNull(),
+    encoding: text('encoding'),
+    versionErkannt: integer('version_erkannt'),
+    abgelegtAm: timestamp('abgelegt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('datanorm_dateien_lieferant_hash_idx').on(t.lieferantId, t.dateiHash),
+    unique('datanorm_dateien_pfad_idx').on(t.pfad),
+    index('datanorm_dateien_abgelegt_am_idx').on(t.abgelegtAm),
+  ],
+)
+
+/**
+ * Import-Report: append-only Audit-Spur, ein Eintrag je Upload-Versuch
+ * (auch bei Fehlern). Wird NIE aufgeraeumt — im Gegensatz zu den Dateien
+ * in `datanorm_dateien`, die der Retention-Cron nach
+ * DATANORM_CLEANUP_TAGE entfernt (juengster pro Lieferant bleibt).
+ *
+ * `fehler_details` (JSONB-Array) ist auf 100 Eintraege gecapped; die
+ * Zaehler oben sind vollstaendig.
+ */
+export const datanormImporte = pgTable(
+  'datanorm_importe',
+  {
+    id: text('id').primaryKey(),
+    lieferantId: text('lieferant_id')
+      .notNull()
+      .references(() => lieferanten.id, { onDelete: 'cascade' }),
+    dateiId: text('datei_id').references(() => datanormDateien.id, { onDelete: 'set null' }),
+    originalDateiname: text('original_dateiname').notNull(),
+    status: text('status', { enum: ['gestartet', 'erfolg', 'teilfehler', 'fehler'] })
+      .notNull()
+      .default('gestartet'),
+    encoding: text('encoding'),
+    versionErkannt: integer('version_erkannt'),
+    artikelAnzahl: integer('artikel_anzahl').notNull().default(0),
+    artikelNeu: integer('artikel_neu').notNull().default(0),
+    artikelAktualisiert: integer('artikel_aktualisiert').notNull().default(0),
+    artikelDeaktiviert: integer('artikel_deaktiviert').notNull().default(0),
+    uebersprungen: integer('uebersprungen').notNull().default(0),
+    fehlerAnzahl: integer('fehler_anzahl').notNull().default(0),
+    fehlerDetails: jsonb('fehler_details').notNull().default([]),
+    metadaten: jsonb('metadaten').notNull().default({}),
+    benutzerId: text('benutzer_id').references(() => users.id, { onDelete: 'set null' }),
+    gestartetAm: timestamp('gestartet_am', { withTimezone: true }).notNull().defaultNow(),
+    beendetAm: timestamp('beendet_am', { withTimezone: true }),
+  },
+  (t) => [
+    index('datanorm_importe_gestartet_am_idx').on(t.gestartetAm),
+    index('datanorm_importe_lieferant_idx').on(t.lieferantId),
+    index('datanorm_importe_status_idx').on(t.status),
   ],
 )
