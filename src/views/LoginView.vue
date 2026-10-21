@@ -5,8 +5,6 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
 import { version, commit, branch, buildDate } from '../version'
-import { useDevMode } from '../composables/useDevMode'
-import { readDevResetMarker, clearDevResetMarker } from '../services/dev-mode-bootstrap'
 import { fuehreSetupDurch } from '../auth/users'
 import { ApiError } from '../auth/api'
 import { authFehlerText } from '../auth/messages'
@@ -15,20 +13,6 @@ const router = useRouter()
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const { t } = useI18n()
-const { active: devModeActive, tooltip: devModeTooltip } = useDevMode()
-
-// Wenn beim Bootstrap ein IndexedDB-Reset stattgefunden hat, zeigen wir
-// hier einen kurzen, dezenten Hinweis. Wird beim ersten Render einmal
-// gelesen und gleich wieder geloescht, damit er nach Login + Reload
-// nicht erneut erscheint.
-const devResetHinweis = ref<string | null>(null)
-const devResetMarker = readDevResetMarker()
-if (devResetMarker) {
-  const zeit = new Date(devResetMarker.at).toLocaleTimeString()
-  devResetHinweis.value = `Lokale Datenbank um ${zeit} zur\u00FCckgesetzt (DEV_MODE).`
-  clearDevResetMarker()
-}
-
 type Modus = 'laden' | 'setup' | 'login'
 
 const modus = ref<Modus>('laden')
@@ -208,19 +192,6 @@ async function copyVersion(): Promise<void> {
 
 <template>
   <section class="login">
-    <div
-      v-if="devModeActive"
-      class="dev-badge"
-      :title="devModeTooltip"
-      aria-label="Development-Modus aktiv"
-    >
-      DEV MODE
-    </div>
-
-    <p v-if="devResetHinweis" class="dev-reset-hinweis" role="status">
-      {{ devResetHinweis }}
-    </p>
-
     <div class="card login-card">
       <div class="brand">
         <img src="/castel-logo.png" alt="" width="48" height="48" />
@@ -469,23 +440,6 @@ async function copyVersion(): Promise<void> {
   box-shadow: 0 0 0 2px rgba(255, 122, 0, 0.25);
   z-index: 60;
   user-select: none;
-}
-
-.dev-reset-hinweis {
-  position: fixed;
-  top: 2.7rem;
-  left: 0.75rem;
-  right: 0.75rem;
-  max-width: 22rem;
-  background: rgba(255, 122, 0, 0.12);
-  color: #ffb86b;
-  border: 1px solid rgba(255, 122, 0, 0.4);
-  padding: 0.4rem 0.7rem;
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  font-family: var(--mono);
-  z-index: 60;
-  margin: 0;
 }
 
 .login-card {

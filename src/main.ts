@@ -6,15 +6,6 @@ import { router } from './router'
 import { i18n, type AppLocale } from './i18n'
 import { useSettingsStore, type Sprache } from './stores/settings'
 import { useAuthStore } from './stores/auth'
-import { runDevModeBootstrap } from './services/dev-mode-bootstrap'
-
-// DEV_MODE-Bootstrap: bei aktivem Development-Modus die lokale IndexedDB
-// droppen, BEVOR irgendein Vue-Store / Sync-Worker / Auth-Check auf die
-// DB zugreift. Sonst synct der Worker die alten lokalen Daten sofort
-// wieder hoch und der Server-Truncate beim Start ist umsonst.
-// Bei DEV_MODE=false ist die Funktion ein No-Op.
-await runDevModeBootstrap()
-
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)

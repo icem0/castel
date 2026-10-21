@@ -77,20 +77,6 @@ const schema = z.object({
   // nicht aufgeraeumt (Audit-Spur bleibt vollstaendig).
   DATANORM_CLEANUP_TAGE: z.coerce.number().int().positive().default(730),
 
-  // Development-Modus. Siehe docker-compose.yml (.env DEV_MODE).
-  // Steuert u. a. das "DEV MODE"-Badge in der PWA und expose hier den
-  // Status ueber /api/dev/status. Akzeptiert 'true'/'false'/'1'/'0'
-  // (case-insensitive). Andere Werte oder nicht gesetzt -> false.
-  // Bewusst locker: ein falsch gesetztes DEV_MODE soll den Server
-  // nicht am Start hindern.
-  DEV_MODE: z
-    .string()
-    .default('false')
-    .transform((v) => {
-      const n = v.toLowerCase()
-      return n === 'true' || n === '1' || n === 'yes' || n === 'on'
-    }),
-
   // Mail / Notification-Gateway (Vorbereitung für tägliche Sammel-Mail).
   // MAIL_ENABLED=false (Default) → LogNotificationGateway, kein SMTP,
   // keine zusätzlichen Dependencies. MAIL_ENABLED=true →

@@ -15,7 +15,6 @@ import { clearAppCacheAndReload } from './services/sync/clear-cache'
 import { resetLocalDbAndPull } from './services/sync/reset-local-db'
 import { zaehleAbweichungen } from './services/sync/worker'
 import { version, commit, branch, buildDate } from './version'
-import { useDevMode } from './composables/useDevMode'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
 import MindestbestandGlocke from './views/components/MindestbestandGlocke.vue'
 
@@ -46,8 +45,6 @@ const projekt = useProjektStore()
 const audit = useAuditStore()
 const auth = useAuthStore()
 const sync = useSyncStore()
-const { active: devModeActive, tooltip: devModeTooltip } = useDevMode()
-
 // Public-Routen zeigen kein Header-Layout.
 const istPublicRoute = computed(() => route.meta.public === true)
 
@@ -656,14 +653,6 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/scan" class="scan-link">{{ t('app.nav.scan') }}</RouterLink>
       </nav>
       <div class="header-right">
-        <div
-          v-if="devModeActive"
-          class="dev-badge"
-          :title="devModeTooltip"
-          aria-label="Development-Modus aktiv"
-        >
-          DEV MODE
-        </div>
         <RouterLink
           to="/einstellungen"
           class="settings-link"
@@ -1367,20 +1356,6 @@ function formatRelativ(iso: string | null): string {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-}
-
-.dev-badge {
-  background: #ff7a00;
-  color: #1a0a00;
-  padding: 0.25rem 0.55rem;
-  border-radius: var(--radius-sm);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  cursor: help;
-  box-shadow: 0 0 0 2px rgba(255, 122, 0, 0.25);
-  user-select: none;
 }
 
 .settings-link {
