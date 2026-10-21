@@ -269,3 +269,28 @@ Build-Status:  verified success | FAILED (<conclusion>) | not pushed | pending v
 - Wird der Auftrag ohne Push abgeschlossen (z. B. weil der User keinen
   Push angefordert hat, oder weil er fehlgeschlagen ist), sagt der Agent
   das **explizit** — Stillschweigen ist nicht zulässig.
+
+## End-of-Run Workflow (jeder Lauf)
+
+Am Ende **jedes** Laufs, in dem Code geändert wurde, gilt folgende
+verbindliche Reihenfolge:
+
+1. **Commit** — nur Dateien, die im aktuellen Auftrag geändert oder
+   angelegt wurden (Conventional Commits, Husky-Hooks beachten).
+2. **Push** — `git push origin <branch>`.
+3. **Remote-SHA prüfen** — `git rev-parse origin/<branch>` muss
+   `git rev-parse HEAD` entsprechen.
+4. **Pflicht-Delay 2 Minuten** — in dieser Zeit wird kein Build-Status
+   abgefragt und kein Erfolg behauptet (der CI-Workflow braucht Zeit,
+   bis der Run in der GitHub-UI existiert).
+5. **Build verifizieren** — `gh run list` / `gh run watch <id> --exit-status`
+   auf `completed success` warten. Steht dort
+   `failure|cancelled|timed_out|startup_failure`, ist der Build
+   **gecrasht**: Ursache mit `gh run view <id> --log-failed` melden und
+   **keinen** Erfolg verbuchen.
+6. **Erfolgsmeldung** — erst nach verifiziertem `completed success` wird
+   Erfolg verbucht und ein Deploy empfohlen.
+   Ohne Schritt 5 gilt der Build als `pending verification`, nicht als
+   Erfolg.
+
+Ein `push` allein ist **nie** ein Erfolgsbeleg.
