@@ -27,6 +27,7 @@ import type {
 } from '../../db/types'
 import { jetztIso, neueUuid } from '../../domain/ids'
 import { setApiBaseUrl } from '../../auth/api'
+import { sessionLesen } from '../../auth/session'
 
 // ---------- Konfiguration ----------
 
@@ -725,6 +726,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
   _running = true
 
   const { token, apiBase } = opts
+  const currentUserId = sessionLesen()?.userId ?? null
   const lastPull = (await getDb().einstellungen.get(['sync.lastPullAt', '']))?.value ?? null
 
   try {
@@ -755,6 +757,33 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
         if (payloadId === null) {
           await markFailed(o.id, 'MISSING_PAYLOAD_ID')
           continue
+        }
+        // Einstellungen pro User dürfen nur vom authentifizierten User
+        // gepusht werden. Eine fremde userId würde vom Server mit
+        // "Eine fremde User-ID ist nicht erlaubt" abgelehnt
+        // (server/src/sync/resolver.ts:resolveEinstellung). Wir pushen
+        // solche Items nicht (vermeidet PARTIAL_REJECTED + Endlos-Retry)
+        // und markieren sie stattdessen lokal als fehlgeschlagen, damit
+        // sie in der Sync-Diagnose sichtbar bleiben und beim nächsten
+        // Login des passenden Users erneut pushbar sind.
+        if (o.entity === 'einstellung') {
+          const p = payload as { key?: unknown; userId?: unknown }
+          const puid = p.userId
+          if (
+            puid !== null &&
+            puid !== undefined &&
+            puid !== '' &&
+            String(puid) !== currentUserId
+          ) {
+            const row = await getDb().outbox.get(o.id)
+            if (row) {
+              await getDb().outbox.put({
+                ...row,
+                lastError: `VALIDATION: einstellung.userId gehört zu einem anderen Nutzer`,
+              })
+            }
+            continue
+          }
         }
         items.push({ outboxId: o.id, payloadId })
         ops.push({ op: o.op, entity: o.entity, payload })

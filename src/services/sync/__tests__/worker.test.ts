@@ -25,6 +25,9 @@ beforeEach(async () => {
   // Name bekommt eine eigene IDBDatabase.
   setDb(new CastelDb(`castel-test-${Math.random().toString(36).slice(2)}`))
   await resetWorkerState()
+  // Jeder Test startet ohne angemeldeten Session-User; Tests, die einen
+  // per-User-Einstellungs-Push simulieren, setzen die Session explizit.
+  localStorage.removeItem('castel.auth.session')
 })
 
 function artikelAnlage(id: string, titel: string): Artikel {
@@ -927,6 +930,12 @@ describe('Sync — einstellung/upsert End-to-End', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
+    // Session-User entspricht der Outbox-userId ('u1'), damit der
+    // per-User-Einstellungs-Push den Fremd-User-Guard passiert.
+    localStorage.setItem(
+      'castel.auth.session',
+      JSON.stringify({ userId: 'u1', email: 'u1@test.local', rolle: 'user' }),
+    )
     const { runSync } = await import('../worker')
     await runSync({ token: null, apiBase: 'http://test.local' })
 
@@ -1056,6 +1065,12 @@ describe('Sync — einstellung/upsert End-to-End', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
+    // Session-User entspricht der Outbox-userId ('u1'), damit der Push
+    // den Guard passiert und der Server-Ablehnungs-Pfad getestet wird.
+    localStorage.setItem(
+      'castel.auth.session',
+      JSON.stringify({ userId: 'u1', email: 'u1@test.local', rolle: 'user' }),
+    )
     const { runSync } = await import('../worker')
     await runSync({ token: null, apiBase: 'http://test.local' })
 
@@ -1066,6 +1081,72 @@ describe('Sync — einstellung/upsert End-to-End', () => {
     expect(remaining[0]?.syncedAt).toBeNull()
     expect(remaining[0]?.lastError).toContain('VALIDATION')
     expect(remaining[0]?.attempts).toBe(1)
+  })
+
+  it('Einstellung mit fremder userId wird nicht an den Server pushed', async () => {
+    // Outbox-Item trägt userId 'u1', es ist aber kein Session-User
+    // angemeldet (currentUserId = null). Der Guard muss das Item lokal
+    // als fehlgeschlagen markieren, OHNE es an den Server zu senden.
+    const e = einstellungPayload('sprache', 'u1', 'en-US')
+    await getDb().outbox.add({
+      id: neueUuid(),
+      entity: 'einstellung',
+      op: 'upsert',
+      payload: JSON.stringify(e),
+      createdAt: jetztIso(),
+      syncedAt: null,
+      attempts: 0,
+      lastError: null,
+      quarantinedAt: null,
+      quarantineReason: null,
+    })
+
+    let pushCalled = false
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.endsWith('/api/sync/push') && init?.method === 'POST') {
+        pushCalled = true
+        return new Response(
+          JSON.stringify({ accepted: ['sprache#u1'], conflicts: [], errors: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      if (url.includes('/api/sync/snapshot')) {
+        return new Response(
+          JSON.stringify({
+            serverTime: new Date().toISOString(),
+            since: '1970-01-01T00:00:00.000Z',
+            artikel: [],
+            standorte: [],
+            commission: [],
+            buchungen: [],
+            einstellungen: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      if (url.endsWith('/api/sync/status')) {
+        return new Response(
+          JSON.stringify({
+            serverTime: new Date().toISOString(),
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response('not found', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    expect(pushCalled).toBe(false)
+    const remaining = await getDb().outbox.toArray()
+    expect(remaining.length).toBe(1)
+    expect(remaining[0]?.syncedAt).toBeNull()
+    expect(remaining[0]?.lastError).toContain('VALIDATION')
+    expect(remaining[0]?.lastError).toContain('einem anderen Nutzer')
   })
 
   it('Einstellungs-Diagnose (stuckItems/quarantinedItems): payloadId ist key#userId, nicht leer', async () => {
@@ -1132,6 +1213,12 @@ describe('Sync — einstellung/upsert End-to-End', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
+    // Session-User entspricht der Outbox-userId ('u1'), damit der Push
+    // den Guard passiert und der Server-Ablehnungs-Pfad getestet wird.
+    localStorage.setItem(
+      'castel.auth.session',
+      JSON.stringify({ userId: 'u1', email: 'u1@test.local', rolle: 'user' }),
+    )
     const { runSync, getSyncStatus } = await import('../worker')
     await runSync({ token: null, apiBase: 'http://test.local' })
 
