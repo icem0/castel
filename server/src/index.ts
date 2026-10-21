@@ -18,6 +18,8 @@ import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
 import { devRoutes } from './dev/routes.js'
 import { truncateAllDataTables } from './dev/dev-reset.js'
+import { datanormRoutes } from './datanorm/routes.js'
+import { starteDatanormCron, stoppeDatanormCron } from './datanorm/cleanup-cron.js'
 import { closeDb } from './db/client.js'
 import { buildNotificationGateway } from './services/notification-gateway.js'
 
@@ -98,6 +100,7 @@ async function main() {
     await fotoRoutes(instance)
     await adminRoutes(instance)
     await backupRoutes(instance)
+    await datanormRoutes(instance)
   })
 
   // DEV_MODE=true: alle Daten-Tabellen leeren, BEVOR der HTTP-Server
@@ -130,6 +133,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     app.log.info(`Signal ${signal} empfangen, fahre herunter …`)
     stoppeBackupCron()
+    stoppeDatanormCron()
     await app.close()
     await closeDb()
     process.exit(0)
@@ -141,6 +145,7 @@ async function main() {
     await app.listen({ port: config.PORT, host: config.HOST })
     app.log.info(`castel-server listening on ${config.HOST}:${config.PORT}`)
     starteBackupCron(app.log)
+    starteDatanormCron(app.log)
   } catch (err) {
     app.log.error(err)
     process.exit(1)
