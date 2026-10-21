@@ -11,7 +11,6 @@
 // creating a single article, so on-demand fetch beats mirroring everything.
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import fastifyMultipart from '@fastify/multipart'
 import { Readable } from 'node:stream'
 import { and, desc, eq, ilike, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
@@ -21,7 +20,6 @@ import {
   herstellerArtikel,
   lieferanten,
 } from '../db/schema.js'
-import { config } from '../config/config.js'
 import { DatanormFehler, importiereDatanorm } from './import-service.js'
 import { istFertig, kanalFuer, letzterFortschritt, meldeFertig, meldeFortschritt } from './progress.js'
 import { raeumeAlteDateien } from './cleanup.js'
@@ -49,17 +47,6 @@ function istGueltigesEncoding(raw: unknown): DatanormEncoding | undefined {
 }
 
 export async function datanormRoutes(app: FastifyInstance): Promise<void> {
-  // Multipart with its own limits. Registering the plugin on the app
-  // instance (not globally) keeps the 4 MB bodyLimit for every other route
-  // while allowing catalogue uploads to be much larger.
-  await app.register(fastifyMultipart, {
-    limits: {
-      fileSize: config.DATANORM_MAX_FILE_BYTES,
-      files: 1,
-      fields: 10,
-    },
-  })
-
   // ---------- GET /api/lieferanten ----------
   // Supplier list for the picker's first step. Returns active suppliers by
   // default; admins can include inactive ones (they may need to re-upload a

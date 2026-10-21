@@ -4,6 +4,7 @@ import Fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
 import fastifyHelmet from '@fastify/helmet'
 import fastifyCookie from '@fastify/cookie'
+import fastifyMultipart from '@fastify/multipart'
 import { config } from './config/config.js'
 import { registerJwt } from './auth/jwt.js'
 import { registerAuthDecorators } from './auth/middleware.js'
@@ -100,6 +101,19 @@ async function main() {
     await fotoRoutes(instance)
     await adminRoutes(instance)
     await backupRoutes(instance)
+  })
+
+  // DATANORM-Routes mit eigenem Multipart-Limit (64 MB für Katalog-Uploads,
+  // getrennt von den 512 kB der Foto-Uploads in fotoRoutes).
+  await app.register(async (instance) => {
+    instance.addHook('preHandler', instance.requireAuth)
+    await instance.register(fastifyMultipart, {
+      limits: {
+        fileSize: config.DATANORM_MAX_FILE_BYTES,
+        files: 1,
+        fields: 10,
+      },
+    })
     await datanormRoutes(instance)
   })
 
