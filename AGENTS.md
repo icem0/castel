@@ -100,7 +100,12 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 ## Build & Deployment
 
 - **CI-Build wird automatisch ausgelöst.** Der GitHub-Workflow `.github/workflows/build-and-push.yml` baut bei jedem Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** dem SHA-Tag. Der Agent startet den CI-Build **nicht manuell** — ein Push auf `main` reicht.
-- **Nach dem Push erst warten, dann deployen.** Der neue Image-Tag ist erst verfügbar, wenn `build-and-push.yml` durchgelaufen ist (typisch 1–2 min). Erst dann:
+- **Jeder Push wird verifiziert (Pflicht, gelernter Fix-Fehler).** Ein `git push` kann scheinbar durchlaufen und trotzdem still scheitern (Timeout, Remote-Ablehnung). Danach IMMER prüfen:
+  ```bash
+  git rev-parse origin/main   # muss == git rev-parse HEAD sein
+  ```
+  Weicht `origin/main` ab, ist der Fix **nicht** auf dem Remote und jeder CI-Build läuft ohne ihn. Erst verifizieren, dann dem User den Deploy empfehlen — niemals den Push nur behaupten.
+- **Nach dem Push erst warten, dann deployen.** Der Agent wartet nach einem Push auf `main`, bis `build-and-push.yml` für den gepushten SHA auf `completed success` steht (`gh run list --limit 5 --workflow build-and-push`, bei Bedarf `gh run watch <id> --exit-status`). Der neue Image-Tag ist erst dann verfügbar (typisch 1–2 min). Erst danach:
   ```bash
   docker compose pull
   docker compose up -d
