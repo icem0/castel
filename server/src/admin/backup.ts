@@ -117,12 +117,32 @@ export interface SyncWaitResult {
   idle: boolean
 }
 
+export interface SyncWaitOpts {
+  /** Ruhe-Fenster ohne neue Buchungen, das als "idle" gilt. */
+  quietMs?: number
+  /** Hartes Zeitlimit fuer die Wartezeit. */
+  timeoutMs?: number
+}
+
+/**
+ * Wartet, bis der buchungen-Count `quietMs` lang stabil bleibt (max.
+ * `timeoutMs`). Default sind die Config-Werte BACKUP_SYNC_QUIET_MS /
+ * BACKUP_SYNC_TIMEOUT_MS (8 s / 120 s) — passend fuer den Cron, der
+ * Zeit hat.
+ *
+ * Die HTTP-Endpunkte (download/run) rufen diese Funktion mit kurzen
+ * Werten auf ({ quietMs: 2000, timeoutMs: 15000 }): Der manuelle Klick
+ * darf den Request nicht minutenlang offen halten — nginx im
+ * PWA-Container killt Proxy-Requests nach 60 s, und der Sync-Worker
+ * der PWA pusht ohnehin alle 30 s von selbst.
+ */
 export async function warteAufSyncIdle(
   log: { info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void },
+  opts?: SyncWaitOpts,
 ): Promise<SyncWaitResult> {
   const start = Date.now()
-  const quietMs = config.BACKUP_SYNC_QUIET_MS
-  const timeoutMs = config.BACKUP_SYNC_TIMEOUT_MS
+  const quietMs = opts?.quietMs ?? config.BACKUP_SYNC_QUIET_MS
+  const timeoutMs = opts?.timeoutMs ?? config.BACKUP_SYNC_TIMEOUT_MS
   let last = await leseBuchungenCount()
   let lastChange = Date.now()
   log.info({ buchungen: last }, '[backup] warte auf sync idle …')

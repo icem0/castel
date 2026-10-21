@@ -89,7 +89,7 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
   3. **Cronjob** — `GET/PUT /api/admin/backup/settings` (Schedule = HH:MM, Keep-Copies = 1–365). Der Server-Cron (`server/src/admin/backup-cron.ts`) tickt jede Minute und feuert genau einmal pro Tag zur eingestellten Zeit, rotiert nach `keepCopies`.
 - **Ablauf pro Backup** (sync-first):
   1. `POST /api/admin/sync/all` setzt `sync.forceAt`-Marker in `einstellungen`.
-  2. Polling auf `GET /api/sync/status`, bis `buchungen`-Count für `BACKUP_SYNC_QUIET_MS` (Default 8 s) stabil ist.
+  2. Polling auf `GET /api/sync/status`, bis `buchungen`-Count stabil ist. **Zwei Zeitfenster**: Die HTTP-Endpoints `download`/`run` warten kurz (2 s Ruhe / 15 s Cap — nginx im PWA-Container killt Proxy-Requests nach 60 s, und der Sync-Worker pusht ohnehin alle 30 s). Der Cron nutzt die vollen Config-Defaults `BACKUP_SYNC_QUIET_MS` (8 s) / `BACKUP_SYNC_TIMEOUT_MS` (120 s).
   3. `pg_dump -Fc` → Custom-Format-Dump.
   4. `FOTOS_DIR` → `fotos/` (Artikel-IDs als Unterordner).
   5. `manifest.json` (`schema: 'castel-backup-1'`) + ZIP via `archiver`.
@@ -117,6 +117,7 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 - **GHCR-Visibility-Automation**: `build-and-push.yml` ruft am Ende jedes Jobs `PATCH /user/packages/container/{pkg}` mit `{"visibility":"public"}`. Der automatische `GITHUB_TOKEN` darf das für User-Repos **nicht** (gibt 404). Lösung: klassischen PAT mit Scopes `repo` + `write:packages` unter dem Secret-Namen **`GHCR_ADMIN_TOKEN`** im Repo hinterlegen (`Settings → Secrets and variables → Actions`). Ohne Secret wird der Flip mit `::warning::` übersprungen — das Image wird trotzdem gepusht, das Paket bleibt aber `private`. Für server-seitige Pulls reicht das (Auth gegen `ghcr.io` via `docker login` bzw. Coolify-/Arcane-Registry-Config). Wer das Paket wirklich öffentlich haben will, legt den Secret an, der Flip läuft dann automatisch.
 - **Arcane / Coolify / bare Docker** funktionieren ohne Anpassung — sie alle ziehen `image:`-Referenzen transparent. Der frühere `build:`-Pfad ist absichtlich entfernt.
 - **Update-Workflow**: `git pull && docker compose pull && docker compose up -d` (nicht `--build` — es gibt nichts Lokales zu bauen).
+- **Deploy-Falle DEV_MODE / DB-Volume-Reset.** Symptom: nach einem Deploy antwortet die API mit `401 USER_INACTIVE` („User ist deaktiviert"), die PWA springt auf den First-Register-Screen. Bedeutung: die `users`-Tabelle ist **leer** — der API-Container hat beim Start truncatiert (`server/src/dev/dev-reset.ts`) oder das DB-Volume wurde zurückgesetzt. Ursachen: `DEV_MODE=true` in der `.env` (jeder Container-Start = TRUNCATE aller Tabellen) oder Override-File / `docker compose down -v` / `castel-restart.ps1` im Livebetrieb. Fix: `DEV_MODE=false` setzen, Stack neu starten, Admin über das Setup-Formular neu anlegen. **Das ist KEIN Backup-Bug** — `POST /api/admin/backup/run` ist nur der erste Request, bei dem der 401 sichtbar wird. Diagnose: `docker compose logs api` nach `[dev-reset] TRUNCATE` durchsuchen.
 - **Lockfiles pro Paket**: `package-lock.json` im Root (PWA), `server/package-lock.json` (API). Beide müssen in ihrem jeweiligen Verzeichnis für `npm ci` liegen — beim CI-Build übernimmt das `working-directory` bzw. `cache-dependency-path`.
 
 ## Lokaler Test-Workflow (Entwickler-PC, optional)

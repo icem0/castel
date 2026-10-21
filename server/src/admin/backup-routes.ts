@@ -30,8 +30,16 @@ import {
   schreibeBackupSettings,
   triggerSyncForce,
   warteAufSyncIdle,
+  type SyncWaitOpts,
 } from './backup.js'
 import { config } from '../config/config.js'
+
+// Kurzes Sync-Wait fuer die interaktiven HTTP-Endpunkte: Der manuelle
+// Klick darf den Request nicht minutenlang offen halten — nginx im
+// PWA-Container killt Proxy-Requests nach 60 s Default-Timeout, und
+// der Sync-Worker der PWA pusht ohnehin alle 30 s von selbst. Der
+// Cron (backup-cron.ts) nutzt die langen Config-Defaults.
+const SYNC_WAIT_HTTP: SyncWaitOpts = { quietMs: 2000, timeoutMs: 15000 }
 
 const settingsSchema = z.object({
   schedule: z.string(),
@@ -112,7 +120,7 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: app.requireAdmin },
     async (_req, reply) => {
       const forceAt = await triggerSyncForce()
-      const wait = await warteAufSyncIdle(app.log)
+      const wait = await warteAufSyncIdle(app.log, SYNC_WAIT_HTTP)
       const pgDump = pgDumpStream(config.DATABASE_URL)
       const zip = new PassThrough()
       const filename = `castel-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
@@ -144,7 +152,7 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
     async (_req, reply) => {
       await ensureBackupDir()
       const forceAt = await triggerSyncForce()
-      const wait = await warteAufSyncIdle(app.log)
+      const wait = await warteAufSyncIdle(app.log, SYNC_WAIT_HTTP)
       const pgDump = pgDumpStream(config.DATABASE_URL)
       const stamp = new Date().toISOString().replace(/[:.]/g, '-')
       const filename = `castel-backup-${stamp}.zip`
