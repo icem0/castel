@@ -105,11 +105,22 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
   git rev-parse origin/main   # muss == git rev-parse HEAD sein
   ```
   Weicht `origin/main` ab, ist der Fix **nicht** auf dem Remote und jeder CI-Build läuft ohne ihn. Erst verifizieren, dann dem User den Deploy empfehlen — niemals den Push nur behaupten.
-- **Nach dem Push erst warten, dann deployen.** Der Agent wartet nach einem Push auf `main`, bis `build-and-push.yml` für den gepushten SHA auf `completed success` steht (`gh run list --limit 5 --workflow build-and-push`, bei Bedarf `gh run watch <id> --exit-status`). Der neue Image-Tag ist erst dann verfügbar (typisch 1–2 min). Erst danach:
-  ```bash
-  docker compose pull
-  docker compose up -d
-  ```
+- **Pflicht-Wartephase nach dem Push (2 min Delay, dann Build-Erfolg prüfen — Pflicht, gelernter Fix-Fehler).** Ein Build bricht mitunter ab, obwohl `git push` sauber durchlief und `origin/main == HEAD` gilt. Wer den Status zu früh abfragt, sieht einen noch nicht gestarteten oder gerade laufenden Workflow und meldet fälschlich Erfolg. Deshalb gilt nach jedem Push auf `main` **exakt diese Reihenfolge**:
+  1. `git rev-parse origin/main` — muss `git rev-parse HEAD` entsprechen (siehe oben).
+  2. **Delay abwarten: 2 Minuten.** Der Workflow braucht nach dem Push-Event Zeit, bis der Run in der GitHub-UI überhaupt existiert. In dieser Zeit wird **kein** Status abgefragt und **kein** Erfolg behauptet. In PowerShell: `Start-Sleep -Seconds 120`.
+  3. **Build-Erfolg verifizieren.** Der Agent MUSS den Lauf-Status für den gepushten SHA per `gh` prüfen und auf **`completed success`** warten:
+     ```bash
+     gh run list --limit 5 --workflow build-and-push --json databaseId,headSha,status,conclusion
+     gh run watch <id> --exit-status   # blockiert bis Ende
+     ```
+     Steht dort `conclusion: failure`, `cancelled`, `timed_out` oder `startup_failure`, ist der Build **gecrasht**: Der Agent meldet das **explizit** mit `gh run view <id> --log-failed` (Ursache) und **verbucht KEINEN Erfolg**. Ein Fix wird erst nach `new commit + push` erneut verifiziert.
+  4. **Erst danach** wird Erfolg verbucht und der Deploy empfohlen:
+     ```bash
+     docker compose pull
+     docker compose up -d
+     ```
+  Ohne Schritt 3 (verifizierter `completed success`) gilt der Build als **fehlgeschlagen**, nicht als „läuft noch". Ein „ich habe gepusht, der Build läuft" ohne spätere Verifikation ist eine Falschaussage gegenüber dem User.
+- **Nach dem Push erst warten, dann deployen.** Der neue Image-Tag ist erst verfügbar, wenn der Build für den gepushten SHA erfolgreich durchgelaufen ist (Schritt 3 oben). Erst danach:
 - **Images kommen aus GHCR.** `docker-compose.yml` referenziert `api`, `pwa` und `migrate` hartkodiert als `ghcr.io/icem0/castel-{api,pwa}:latest`. **Kein** `build:`-Block, **kein** Variablen-Override. Deployer ziehen die Images — fertig.
 - **`migrate`** ist ein Entry-Point des API-Images (`node dist/db/migrate.js`). Es wird also nicht für jeden Job ein eigenes Image gebaut. Die `api`-Service-Definition startet vor jedem Server-Start automatisch `node dist/db/migrate.js` (idempotent — bereits angewendete Migrationen werden uebersprungen). Den allerersten Admin legt die PWA selbst an, sobald `/api/auth/setup-status` meldet, dass die `users`-Tabelle leer ist. Der `migrate`-Profil-Service bleibt fuer manuelle Aufrufe erhalten (`docker compose --profile migrate run --rm migrate`).
 - **CI-Workflow** `.github/workflows/build-and-push.yml` baut bei Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** mit dem SHA-Tag. Bei Pull-Requests wird **nur** gebaut, nicht gepusht (Gate `if: github.event_name != 'pull_request'`). Sichtbarkeit wird per `PATCH /user/packages/container/{pkg}` auf `public` gesetzt.
@@ -175,10 +186,25 @@ Richtige Sequenz:
 
 ```
 git push
-# Push-Output liefert keinen SHA — wir holen ihn selbst:
+# 1) Remote-SHA gegen HEAD pruefen (siehe Build-&-Deployment)
+git rev-parse origin/main
+# 2) Pflicht-Delay 2 min — der Workflow-Existiert erst nach dem Push-Event.
+#    In dieser Zeit KEIN Status abfragen, KEINEN Erfolg behaupten.
+Start-Sleep -Seconds 120
+# 3) Build auf 'completed success' verifizieren (sonst: FAILED melden)
+gh run list --limit 5 --workflow build-and-push --json databaseId,headSha,status,conclusion
+gh run watch <id> --exit-status
+# 4) Erst jetzt deployen
 $env:SHA = git rev-parse HEAD
 pwsh ./scripts/castel-restart.ps1 -WaitForSha $env:SHA -WaitTimeoutSec 300
 ```
+
+Schritt 2 ist nicht optional: Wer sofort `gh run list` abfragt, sieht einen
+noch nicht gestarteten Lauf und meldet fälschlich Erfolg. Schritt 3 ist erst
+nach dem Delay sinnvoll — davor existiert der Run unter Umständen gar nicht.
+Ein gecrashter Build (`conclusion: failure|cancelled|timed_out|startup_failure`)
+wird mit `gh run view <id> --log-failed` als Ursache gemeldet, **nicht**
+kaschiert.
 
 `castel-restart.ps1 -WaitForSha <sha>` pollt das GHCR-Registry-HTTP-API
 für **beide** Images (api + pwa) und startet erst, wenn beide Manifeste
@@ -215,10 +241,20 @@ in der letzten Antwort des Agents an den User. Das Format ist verbindlich:
 ```
 Commit-Status: committed <hash> | not committed | partially committed
 Push-Status:   pushed to origin/<branch> | not pushed | rejected (<Grund>)
+Build-Status:  verified success | FAILED (<conclusion>) | not pushed | pending verification
 ```
 
 **Regeln:**
 
+- `Build-Status` wird **nie** ohne die Verifikation aus dem Build-&-Deployment-
+  Abschnitt gefüllt. Ohne den 2-Minuten-Delay + `gh run watch` auf
+  `completed success` gilt der Build als `pending verification` — nicht als
+  Erfolg. Ein gecrashter Build wird als `FAILED (<conclusion>)` gemeldet, mit
+  Ursache aus `gh run view <id> --log-failed`, und **nicht** durch einen
+  weiteren Commit kaschiert, sondern offen benannt.
+- Ein `push` allein ist **nie** ein Erfolgsbeleg. Wer `pushed` meldet, ohne
+  `Build-Status: verified success` (oder `not pushed`) anzugeben, hat gegen
+  diese Regel verstoßen.
 - Der Agent committed und pusht **nur Dateien, die im aktuellen Auftrag
   geändert oder angelegt wurden**. Dateien mit Pre-existing-Modifikationen
   (z. B. aus einer früheren, nicht abgeschlossenen Sitzung) werden **nicht
