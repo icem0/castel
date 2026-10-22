@@ -234,6 +234,27 @@ Container, der in der Restart-Schleife haengt (`pull` macht bei
 Siehe `README.md` → „Installation (nur Docker Compose)" für die Erstinstallation
 (inkl. `.env`); `docker-compose.override.yml` ist lokal und nicht eingecheckt.
 
+## Agent-Umgebung (Container)
+
+- **Git-Zugang**: Ein Fine-grained PAT von `icem0` liegt in `~/.git-credentials`
+  (chmod 600, `credential.helper store` in der Repo-Git-Config). `git fetch`/
+  `git push` laufen damit ohne Prompt. Der Token-Wert selbst darf **niemals**
+  in Dateien, Commits oder GitHub-Actions-Secrets landen — ein PAT mit
+  Code-Schreibrecht im eigenen Repo als Secret ist ein Zirkelschluss.
+- **Kein `gh` im Container**: Build-Verifikation statt `gh run list` über die
+  GitHub-API (Token aus `~/.git-credentials`):
+  `GET https://api.github.com/repos/icem0/castel/actions/runs?head=<full-sha>`.
+  Die API antwortet pretty-printed — grep-Muster müssen das Leerzeichen nach
+  dem Doppelpunkt berücksichtigen (`"status": "completed"`).
+- **GHCR**: Beide Pakete (`castel-api`, `castel-pwa`) sind aktuell `public` —
+  Pull ohne Login, `GHCR_ADMIN_TOKEN` ist derzeit nicht gesetzt und nicht
+  nötig (der Visibility-Flip im Workflow bleibt optional).
+- **Node/npm**: im Container via `apk add nodejs npm` installiert. Server-Tests
+  brauchen eine `.env` in Root **und** in `server/` (nur `DATABASE_URL` und
+  `JWT_SECRET` ≥ 32 Zeichen sind Pflicht; sonst beendet
+  `server/src/config/config.ts` den Prozess mit Exit 1). Beide `.env`-Dateien
+  sind gitignored.
+
 ## Finetuning-Runden — Abschluss-Status
 
 Jede Finetuning-Runde (Bereich 1–N) endet mit einem klaren **Commit-und-Push-Status**
