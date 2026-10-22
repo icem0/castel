@@ -316,6 +316,31 @@ let _status: SyncStatus = {
   lastFailure: null,
 }
 let _intervalHandle: ReturnType<typeof setInterval> | null = null
+/**
+ * Refs to the event listeners registered by `startSyncWorker`. Null before
+ * `start`, null again after `stop` — prevents double registration when
+ * `startSyncWorker` is called repeatedly (App.vue's `watchEffect`).
+ */
+let _onlineHandler: (() => void) | null = null
+let _visibilityHandler: (() => void) | null = null
+/** Handle of the boot tick (`setTimeout(tick, 2_000)`) from startSyncWorker. */
+let _bootHandle: ReturnType<typeof setTimeout> | null = null
+/**
+ * `true` while the worker is stopped. `tick` checks this flag so an
+ * `online`/`visibilitychange` event that is still queued after
+ * `stopSyncWorker()` cannot start a sync. Critical for the "delete local
+ * DB" flow: a sync there would immediately reopen and refill the database
+ * that was just wiped.
+ */
+let _paused = false
+/**
+ * Hard latch: while set, `startSyncWorker()` ignores every call. Required
+ * for the admin "delete local DB" flow — App.vue's `watchEffect` calls
+ * `sync.start()` on every reactivity change and would otherwise revive
+ * the worker in the middle of the reset. Cleared by a page reload (or by
+ * `_resetSyncForTests()`).
+ */
+let _suspended = false
 let _running = false
 /** Anzahl der aufeinanderfolgenden Fehlversuche (für Backoff). */
 let _consecutiveFailures = 0
@@ -722,6 +747,10 @@ async function maybeQuarantine(
 }
 
 export async function runSync(opts: { token: string | null; apiBase: string }): Promise<void> {
+  // While the worker is stopped (e.g. during the admin local-DB reset) NO
+  // sync may run — it would immediately reopen the freshly wiped IndexedDB
+  // and partly refill it.
+  if (_paused) return
   if (_running) return
   _running = true
 
@@ -1153,11 +1182,14 @@ export interface WorkerOptions {
 
 export function startSyncWorker(opts: WorkerOptions): void {
   if (_intervalHandle) return
+  if (_suspended) return
+  _paused = false
   setApiBaseUrl(opts.apiBase)
   _onAuthRevoked = opts.onAuthRevoked ?? null
   const intervalMs = (opts.intervalSek ?? 30) * 1000
 
   const tick = () => {
+    if (_paused) return
     if (_running) return
     // Respektiere Backoff: wenn der letzte Lauf ein `nextRetryAt` gesetzt
     // hat, das in der Zukunft liegt, überspringen wir den Tick.
@@ -1170,27 +1202,64 @@ export function startSyncWorker(opts: WorkerOptions): void {
   _intervalHandle = setInterval(tick, intervalMs)
 
   // Online-Event: Retry sofort versuchen, wenn der Origin wieder da ist.
-  window.addEventListener('online', () => {
+  _onlineHandler = () => {
     if (_status.status === 'offline' || _status.status === 'origin-unavailable') {
       // Backoff zurücksetzen, damit wir nicht erst auf den nächsten Tick warten.
       _consecutiveFailures = 0
       updateStatus({ nextRetryAt: null })
     }
     tick()
-  })
-  document.addEventListener('visibilitychange', () => {
+  }
+  window.addEventListener('online', _onlineHandler)
+  _visibilityHandler = () => {
     if (document.visibilityState === 'visible') tick()
-  })
+  }
+  document.addEventListener('visibilitychange', _visibilityHandler)
 
   // Initial-Push nach kurzer Verzögerung (App-Boot)
-  setTimeout(tick, 2_000)
+  _bootHandle = setTimeout(tick, 2_000)
 }
 
+/**
+ * Stops the worker completely: interval, boot timer AND the
+ * `online`/`visibilitychange` listeners are removed.
+ *
+ * Removing the listeners is essential — a lingering `visibilitychange`
+ * (tab switch during an admin reset) would otherwise start a sync that
+ * immediately reopens and refills the database that was just wiped.
+ * `_paused` is the additional hard latch: even an already-queued event can
+ * no longer trigger a sync.
+ */
 export function stopSyncWorker(): void {
   if (_intervalHandle) {
     clearInterval(_intervalHandle)
     _intervalHandle = null
   }
+  if (_bootHandle !== null) {
+    clearTimeout(_bootHandle)
+    _bootHandle = null
+  }
+  if (_onlineHandler) {
+    window.removeEventListener('online', _onlineHandler)
+    _onlineHandler = null
+  }
+  if (_visibilityHandler) {
+    document.removeEventListener('visibilitychange', _visibilityHandler)
+    _visibilityHandler = null
+  }
+  _paused = true
+}
+
+/**
+ * Same as `stopSyncWorker()`, plus a latch that blocks
+ * `startSyncWorker()`. Meant for operations that need the local DB
+ * exclusively (admin local-database reset): while the latch is set the
+ * worker does not restart even if the app kicks it again. The latch is
+ * only released by a page reload.
+ */
+export function suspendSyncWorker(): void {
+  stopSyncWorker()
+  _suspended = true
 }
 
 // ---------- Outbox-Append ----------
@@ -1267,9 +1336,23 @@ export function _resetSyncForTests(): void {
   _consecutiveFailures = 0
   _authRevokedNotified = false
   _onAuthRevoked = null
+  _paused = false
+  _suspended = false
   if (_intervalHandle) {
     clearInterval(_intervalHandle)
     _intervalHandle = null
+  }
+  if (_bootHandle !== null) {
+    clearTimeout(_bootHandle)
+    _bootHandle = null
+  }
+  if (_onlineHandler) {
+    window.removeEventListener('online', _onlineHandler)
+    _onlineHandler = null
+  }
+  if (_visibilityHandler) {
+    document.removeEventListener('visibilitychange', _visibilityHandler)
+    _visibilityHandler = null
   }
 }
 

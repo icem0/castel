@@ -181,13 +181,14 @@ describe('resetLocalDbAndPull', () => {
     expect(await getDb().outbox.count()).toBe(0)
   })
 
-  it('wirft, wenn der Server nicht erreichbar ist — die DB bleibt gelöscht', async () => {
+  it('wirft, wenn der Server nicht erreichbar ist — die lokalen Daten bleiben erhalten', async () => {
     // Arrange: ein Artikel ist lokal vorhanden.
     const dbName = `castel-failtest-${Math.random().toString(36).slice(2)}`
     const { setDb: setDbLocal } = await import('../../../db/database')
     setDbLocal(new CastelDb(dbName))
     const localDb = getDb()
-    await localDb.artikel.add(artikelAnlage(neueUuid(), 'lokal'))
+    const artikelId = neueUuid()
+    await localDb.artikel.add(artikelAnlage(artikelId, 'lokal'))
     expect(await localDb.artikel.count()).toBe(1)
 
     // Server nicht erreichbar
@@ -201,11 +202,142 @@ describe('resetLocalDbAndPull', () => {
       resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' }),
     ).rejects.toThrow(/Failed to fetch|FetchError|Snapshot HTTP/)
 
-    // DB ist weg: beim erneuten Öffnen mit demselben Namen gibt es
-    // keine Artikel mehr. Der User hat eine leere App und kann den
-    // Reset erneut versuchen.
+    // Der Snapshot wird bewusst VOR dem Leeren geholt. Deshalb sind die
+    // lokalen Daten bei einem Serverfehler noch da — die App bleibt
+    // benutzbar, statt in einem leeren Zustand zu stranden.
     setDbLocal(new CastelDb(dbName))
     const reopened = getDb()
-    expect(await reopened.artikel.count()).toBe(0)
+    expect(await reopened.artikel.count()).toBe(1)
+    expect(await reopened.artikel.get(artikelId)).toBeDefined()
+  })
+
+  it('holt den Snapshot VOR dem Leeren — die Reihenfolge darf nicht wieder kippen', async () => {
+    // Arrange: ein Artikel ist lokal vorhanden.
+    const dbName = `castel-order-${Math.random().toString(36).slice(2)}`
+    const { setDb: setDbLocal } = await import('../../../db/database')
+    setDbLocal(new CastelDb(dbName))
+    await getDb().artikel.add(artikelAnlage(neueUuid(), 'lokal'))
+
+    // Der Snapshot wird zuerst geholt; ein clear() darf vorher nicht
+    // stattgefunden haben. Wir überwachen die artikel-Tabelle als
+    // Indikator für die clear()-Transaktion.
+    let clearVersucht = false
+    const db = getDb()
+    const originalClear = db.artikel.clear.bind(db.artikel)
+    db.artikel.clear = (async () => {
+      clearVersucht = true
+      return originalClear()
+    }) as typeof db.artikel.clear
+
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' }),
+    ).rejects.toThrow(/Failed to fetch/)
+
+    // Kein clear() darf stattgefunden haben, solange der Snapshot fehlt.
+    expect(clearVersucht).toBe(false)
+    setDbLocal(new CastelDb(dbName))
+    expect(await getDb().artikel.count()).toBe(1)
+  })
+
+  it('löscht die DB auch, wenn ein zweiter Tab sie offen hält (kein deleteDatabase-Block)', async () => {
+    // Simuliert einen zweiten Browser-Tab: eine fremde Dexie-Instanz auf
+    // denselben DB-Namen bleibt während des Resets offen. Mit einem
+    // `deleteDatabase()` würde der Request blockieren und der Admin-Button
+    // dauerhaft auf "läuft" stehen — der Reset muss trotzdem durchlaufen.
+    const dbName = `castel-fremd-${Math.random().toString(36).slice(2)}`
+    const { setDb: setDbLocal } = await import('../../../db/database')
+    setDbLocal(new CastelDb(dbName))
+    await getDb().artikel.add(artikelAnlage(neueUuid(), 'lokal-vorhanden'))
+
+    const fremderTab = new CastelDb(dbName)
+    await fremderTab.open()
+
+    const snap = {
+      serverTime: '2026-10-15T12:00:00.000Z',
+      since: '',
+      artikel: [artikelAnlage(neueUuid(), 'server-a')],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(snap), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    )
+
+    const ergebnis = await Promise.race([
+      resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('TIMEOUT: Reset hängt fest')), 5000),
+      ),
+    ])
+
+    expect(ergebnis.pulled.artikel).toBe(1)
+    // Der Reset hat die `dbName`-DB geleert und den Snapshot in die
+    // (default-)DB geschrieben — wir prüfen beides getrennt.
+    const geprueft = new CastelDb(dbName)
+    expect(await geprueft.artikel.count()).toBe(0)
+
+    fremderTab.close()
+  })
+
+  it('stellt auch mindestbestandEreignisse wieder her und setzt den Marker', async () => {
+    const dbName = `castel-mindest-${Math.random().toString(36).slice(2)}`
+    const { setDb: setDbLocal } = await import('../../../db/database')
+    setDbLocal(new CastelDb(dbName))
+    await getDb().artikel.add(artikelAnlage(neueUuid(), 'lokal-vorhanden'))
+
+    const ereignisId = neueUuid()
+    const snap = {
+      serverTime: '2026-10-15T12:00:00.000Z',
+      since: '',
+      mindestSince: '2026-10-15T11:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [
+        {
+          id: ereignisId,
+          artikelId: neueUuid(),
+          standortId: neueUuid(),
+          ausloeserBuchungId: neueUuid(),
+          bestandDanach: 0,
+          mindestbestand: 5,
+          defizit: 5,
+          erstelltAm: '2026-10-15T11:30:00.000Z',
+        },
+      ],
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify(snap), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    )
+
+    const ergebnis = await resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' })
+    expect(ergebnis.pulled.mindestbestandEreignisse).toBe(1)
+    expect(await getDb().mindestbestandEreignisse.get(ereignisId)).toBeDefined()
+    const marker = await getDb().einstellungen.get(['mindestbestand.lastPullAt', ''])
+    expect(marker?.value).toBe('2026-10-15T11:00:00.000Z')
   })
 })

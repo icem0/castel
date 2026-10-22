@@ -1,34 +1,43 @@
-// Service: lokale IndexedDB vollständig leeren und mit einem frischen
-// Snapshot vom Server wieder befüllen.
+// Service: wipe the local IndexedDB and refill it with a fresh server
+// snapshot.
 //
-// Use-Case: lokale DB ist korrupt (z. B. fehlgeschlagene Schema-Migration,
-// Geister-Zeilen nach v5→v6, manueller Eingriff) und der inkrementelle
-// Sync-Worker reicht nicht, weil er nur Änderungen seit lastPull zieht.
-// Dann hilft nur: DB weg, kompletter Snapshot vom Server.
+// Use case: the local DB is corrupt (failed schema migration, ghost rows
+// after v5→v6, manual interference) and the incremental sync worker is not
+// enough because it only pulls changes since `lastPullAt`. Then the only
+// way out is: drop the data, pull a complete server snapshot.
 //
-// Reihenfolge:
-//   1) Sync-Worker stoppen (keine parallelen Schreibvorgänge aus dem
-//      Worker, die den Reset blockieren oder in eine geschlossene DB
-//      schreiben würden).
-//   2) Dexie-Verbindung schließen.
-//   3) IndexedDB-Datenbank droppen.
-//   4) Frischen Snapshot vom Server holen (ohne `since` → komplett).
-//   5) Snapshot in eine neue Dexie-Instanz schreiben.
-//   6) Seite neu laden — Stores leben weiterhin in-memory, holen sich
-//      die Daten aus der frischen DB aber erst nach dem Reload.
+// Order of operations (snapshot is fetched FIRST, deliberately):
+//   1) Fully stop and suspend the sync worker (interval, boot timer,
+//      `online`/`visibilitychange` listeners). A running — or freshly
+//      restarted — sync would immediately reopen and partly refill the
+//      database we are about to wipe.
+//   2) Fetch the complete snapshot from the server (no `since`). Local
+//      data is still untouched at this point, so a server/network failure
+//      is harmless — the app stays usable. With the old order (wipe first,
+//      pull later) any network error left an empty app behind.
+//   3) The worker stays suspended until the caller reloads the page.
+//   4) Wipe every table inside ONE rw transaction. No `deleteDatabase()`:
+//      that request is blocked by IndexedDB as long as a second tab of the
+//      same origin holds the DB open (it then fires `blocked` and Dexie
+//      waits forever — the button stayed stuck). A `clear()` needs no other
+//      connection to be closed and is therefore robust. Only if the
+//      transaction itself fails (broken schema, DB no longer openable) do
+//      we escalate to `db.delete()`, guarded by a timeout.
+//   5) Write the snapshot and set the `lastPullAt` markers.
+//   6) Reload the page — stores stay in memory and only pick up the fresh
+//      data after the reload.
 //
-// Fehler in Schritt 4 sind fatal (kein Snapshot → leere DB). Wir laden
-// die Seite NICHT neu, sondern werfen den Fehler, damit der User es
-// nochmal versuchen kann (oder den Server-Check macht).
-//
-// Hinweis: wir löschen bewusst nur die DB, nicht die Caches. Cache +
-// DB-Reset sind getrennte Buttons, weil die Probleme getrennt sind.
+// Note: we deliberately wipe data only, never caches. Cache wipe and DB
+// reset are separate buttons because the underlying problems are separate.
 
 import { getDb, resetDbForTests, DB_NAME } from '../../db/database'
 import { jetztIso } from '../../domain/ids'
-import { fetchSnapshot, stopSyncWorker, type SyncSnapshot } from './worker'
+import { fetchSnapshot, suspendSyncWorker, type SyncSnapshot } from './worker'
 
 export { DB_NAME }
+
+/** Epoch marker for the mindestbestand snapshot (see worker.ts). */
+const MINDEST_SINCE_EPOCHE = '1970-01-01T00:00:00.000Z'
 
 export interface ResetLocalDbResult {
   deletedDb: string
@@ -38,11 +47,11 @@ export interface ResetLocalDbResult {
     commission: number
     buchungen: number
     einstellungen: number
+    mindestbestandEreignisse: number
   }
   /**
-   * Wurde am Ende `window.location.reload()` ausgelöst? Diese Property
-   * wird durch den Aufrufer gesetzt (nicht durch die Service-Funktion
-   * selbst) — die Funktion triggert keinen Reload.
+   * Was `window.location.reload()` triggered at the end? Set by the caller
+   * (not by this service function) — the service never reloads.
    */
   reloaded: boolean
 }
@@ -52,18 +61,39 @@ interface ApplySnapshotOptions {
   db: ReturnType<typeof getDb>
 }
 
+/**
+ * Wipes ALL tables in a single transaction. Deliberately `clear()` instead
+ * of `db.delete()`: `deleteDatabase()` is blocked while another connection
+ * (e.g. a second browser tab) has the DB open — Dexie then waits forever
+ * and the admin button hangs.
+ */
+async function clearAllTables(db: ReturnType<typeof getDb>): Promise<void> {
+  await db.transaction('rw', db.tables, async () => {
+    for (const table of db.tables) {
+      await table.clear()
+    }
+  })
+}
+
 async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOptions): Promise<void> {
   const { db } = opts
 
   await db.transaction(
     'rw',
-    [db.artikel, db.standorte, db.commission, db.buchungen, db.einstellungen],
+    [
+      db.artikel,
+      db.standorte,
+      db.commission,
+      db.buchungen,
+      db.einstellungen,
+      db.mindestbestandEreignisse,
+    ],
     async () => {
       if (data.artikel.length > 0) await db.artikel.bulkPut(data.artikel)
       if (data.standorte.length > 0) await db.standorte.bulkPut(data.standorte)
       if (data.commission.length > 0) await db.commission.bulkPut(data.commission)
       if (data.buchungen.length > 0) {
-        // Buchungen: nur inserten, unbekannte IDs (Append-Only-Semantik).
+        // Bookings: insert only, unknown ids (append-only semantics).
         const existing = await db.buchungen.bulkGet(data.buchungen.map((b) => b.id))
         const toAdd: typeof data.buchungen = []
         for (let i = 0; i < data.buchungen.length; i++) {
@@ -71,9 +101,14 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
         }
         if (toAdd.length > 0) await db.buchungen.bulkAdd(toAdd)
       }
+      // Mindestbestand events: append-only, id-keyed. The table is empty
+      // after the reset, so a plain bulkPut is enough.
+      if (data.mindestbestandEreignisse?.length > 0) {
+        await db.mindestbestandEreignisse.bulkPut(data.mindestbestandEreignisse)
+      }
       if (data.einstellungen.length > 0) {
-        // Einstellungen kommen mit userId=null; IndexedDB-Konvention
-        // ist '' (siehe worker.ts:591–612).
+        // Settings arrive with userId=null; the IndexedDB convention is ''
+        // (see worker.ts).
         const keys = data.einstellungen.map(
           (e) => [e.key, e.userId === null ? '' : e.userId] as [string, string],
         )
@@ -96,8 +131,8 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
     },
   )
 
-  // lastPullAt-Marker schreiben (sonst startet der nächste Sync wieder
-  // bei 0 und zieht alles nochmal — kein Fehler, aber unnötig).
+  // Write the lastPullAt marker (otherwise the next sync starts at 0 and
+  // pulls everything again — not an error, just wasteful).
   const now = jetztIso()
   await db.einstellungen.bulkPut([
     {
@@ -113,46 +148,60 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
       geaendertAm: now,
     },
   ])
+  // Only set the mindestbestand marker if the snapshot actually carried
+  // events (same logic as the regular sync path).
+  if ((data.mindestbestandEreignisse?.length ?? 0) > 0) {
+    await db.einstellungen.put({
+      key: 'mindestbestand.lastPullAt',
+      userId: '',
+      value: data.mindestSince ?? opts.serverTime,
+      geaendertAm: now,
+    })
+  }
 }
 
 /**
- * Löscht die lokale IndexedDB und zieht einen kompletten Snapshot vom
- * Server. Wirft, wenn der Server nicht erreichbar ist oder die
- * Snapshot-Antwort fehlschlägt — in dem Fall bleibt die DB gelöscht
- * und der User muss es nochmal versuchen (sonst hätten wir eine leere
- * App).
+ * Wipes the local data and pulls a complete snapshot from the server.
+ * Throws when the server is unreachable or the snapshot request fails —
+ * local data is then left untouched and the user can simply retry.
  *
- * Der Reload wird NICHT hier ausgelöst — der Aufrufer entscheidet, ob
- * und wann neu geladen wird. Im Normalfall kommt direkt danach ein
- * window.location.reload().
+ * The reload is NOT triggered here — the caller decides whether and when
+ * to reload. In the normal flow a `window.location.reload()` follows
+ * immediately.
  */
 export async function resetLocalDbAndPull(opts: {
   token: string | null
   apiBase: string
 }): Promise<ResetLocalDbResult> {
-  // 1) Sync-Worker anhalten. Sonst schreibt er munter weiter in eine
-  //    gleich geschlossene DB und wirft.
-  stopSyncWorker()
+  // 1) Fully stop and suspend the sync worker (including the
+  //    `online`/`visibilitychange` listeners) so the app cannot revive it
+  //    mid-reset. Stays suspended until the caller reloads.
+  suspendSyncWorker()
 
-  const oldDb = getDb()
+  // 2) Fetch the snapshot FIRST — local data is still intact here, so a
+  //    server/network error leaves the app usable instead of empty.
+  const data = await fetchSnapshot(opts.apiBase, opts.token, '', MINDEST_SINCE_EPOCHE)
 
-  // 2) Bestehende Dexie-Verbindung sauber schließen. delete() verlangt,
-  //    dass keine Connection offen ist.
-  oldDb.close()
+  const db = getDb()
 
-  // 3) DB droppen.
-  await oldDb.delete()
+  // 3) Wipe the data. A `clear()` runs on the still-open connection and
+  //    is — unlike `deleteDatabase()` — never blocked by other tabs.
+  try {
+    await clearAllTables(db)
+  } catch (e) {
+    // Broken schema / DB no longer openable: escalate to a real drop.
+    // Guarded by a timeout so a blocked deleteDatabase request (e.g. a
+    // second tab) cannot hang forever.
+    console.warn('[reset-local-db] clear() failed, escalating to db.delete()', e)
+    db.close()
+    await dropDatabase(db)
+  }
 
-  // 4) Kompletten Snapshot ziehen (kein `since` → alles). Server-
-  //    Snapshot.serverTime ist die Cutoff-Zeit für den nächsten
-  //    inkrementellen Sync.
-  const data = await fetchSnapshot(opts.apiBase, opts.token, '', '1970-01-01T00:00:00.000Z')
-
-  // 5) Neue Dexie-Instanz anlegen. Dexie liest das Schema automatisch
-  //    aus den .version()-Blöcken, also kein erneutes .stores() nötig.
-  //    Wir setzen das Singleton zurück und holen uns eine frische
-  //    Instanz — die alte ist geschlossen, würde jeder Zugriff
-  //    fehlschlagen.
+  // 4) Create a fresh Dexie instance. Dexie reads the schema straight
+  //    from the .version() blocks, so no re-declaration of .stores() is
+  //    needed. The singleton is reset so callers get a new instance —
+  //    required after the drop fallback, where the old one was closed and
+  //    every access to it would fail.
   resetDbForTests()
   const newDb = getDb()
 
@@ -169,15 +218,51 @@ export async function resetLocalDbAndPull(opts: {
       commission: data.commission.length,
       buchungen: data.buchungen.length,
       einstellungen: data.einstellungen.length,
+      mindestbestandEreignisse: data.mindestbestandEreignisse?.length ?? 0,
     },
     reloaded: false,
   }
 }
 
 /**
- * Test-Helfer: nur die DB leeren, ohne Snapshot-Pull. Wird in Tests
- * benutzt, um den Anfangszustand zu setzen. Setzt das Singleton zurück,
- * damit nachfolgende `getDb()`-Aufrufe eine frische Instanz erhalten.
+ * Last resort: drop the whole IndexedDB. `indexedDB.deleteDatabase()`
+ * blocks while another connection is open and Dexie then waits without a
+ * timeout. We abort after 10 s and throw a message that names the most
+ * likely cause (a second open tab).
+ */
+async function dropDatabase(db: ReturnType<typeof getDb>): Promise<void> {
+  let blockedByOtherTab = false
+  db.on('blocked', () => {
+    blockedByOtherTab = true
+  })
+
+  const timeoutMs = 10_000
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            blockedByOtherTab
+              ? 'Lokale Datenbank wird blockiert — bitte alle weiteren castel-Tabs schließen und erneut versuchen.'
+              : 'Lokale Datenbank konnte nicht gelöscht werden (Timeout).',
+          ),
+        ),
+      timeoutMs,
+    )
+  })
+
+  try {
+    await Promise.race([db.delete(), timeout])
+  } finally {
+    if (timer !== null) clearTimeout(timer)
+  }
+}
+
+/**
+ * Test helper: wipe the DB without pulling a snapshot. Used to set up the
+ * initial state in tests. Resets the singleton so subsequent `getDb()`
+ * calls get a fresh instance.
  */
 export async function clearLocalDbForTests(): Promise<void> {
   const { setDb } = await import('../../db/database')
