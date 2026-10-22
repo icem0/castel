@@ -24,7 +24,15 @@ export default defineConfig({
         lang: 'de-DE',
         start_url: '/',
         scope: '/',
-        display: 'standalone',
+        // Android/Chrome: 'fullscreen' blendet Adressleiste UND Statusleiste
+        // aus — nur so verschwindet die Browsereinblendung im installierten
+        // WebAPK wirklich. iOS kennt 'fullscreen' nicht und faellt laut
+        // Spezifikation still auf 'standalone' zurueck; `display` bleibt
+        // darum der sichere Fallback fuer Browser, die `display_override`
+        // ignorieren (Safari, Firefox). A2HS-Metadaten dafuer stehen in
+        // index.html.
+        display: 'fullscreen',
+        display_override: ['fullscreen', 'standalone'],
         orientation: 'portrait',
         background_color: '#ffffff',
         theme_color: '#0b3d91',
