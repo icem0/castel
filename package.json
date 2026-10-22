@@ -1,11 +1,12 @@
 {
   "name": "castel",
   "private": true,
-  "version": "0.4.51",
+  "version": "0.4.52",
   "type": "module",
   "scripts": {
     "dev": "npm run version:write && vite",
     "version:write": "node scripts/write-version.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
     "prebuild": "npm run version:write",
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",

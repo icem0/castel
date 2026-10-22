@@ -5,8 +5,8 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 ## Architektur
 
 - **Web-App / PWA** – läuft im Browser, installierbar, offline-fähig.
-- **Offline-first** – die App funktioniert ohne Netzverbindung. Synchronisation, falls später nötig, ist explizit als Feature zu planen.
-- **Lokale Datenbank im Browser** – alle Daten werden lokal persistiert (IndexedDB via Dexie o. ä.). Kein Backend erforderlich.
+- **Offline-first** – die App funktioniert ohne Netzverbindung. Änderungen werden lokal in der Outbox gepuffert und bei vorhandener Verbindung mit der API synchronisiert.
+- **Lokale Datenbank im Browser (Cache)** – die PWA persistiert eine vollständige Arbeitskopie lokal (IndexedDB via Dexie). Source of Truth ist die API (Fastify + PostgreSQL); der Client gilt als flüchtig und wird beim Sync überschrieben.
 
 ## Datenmodell
 
@@ -20,7 +20,7 @@ Klar trennen — beides kommt **nicht** zusammen in der DB ab:
 
 - **Konfiguration** (App-weit, ENV, beim Container-Start): `JWT_SECRET`, `CORS_ORIGIN`, `FOTOS_MAX_BYTES`, `RATE_LIMIT_*`, `LOG_LEVEL`, `COOKIE_*`, `DB_*`. Wird vom API-Container aus der `.env` gelesen, lebt nicht in PostgreSQL.
 - **Postgres-Loglevel**: `PG_LOG_LEVEL` in der `.env` (Postgres-GUC `log_min_messages`, Werte `debug5`..`panic`). Wenn leer, wird aus `LOG_LEVEL` gemappt (`trace→debug2`, `debug→debug1`, `info→info`, `warn→warning`, `error→error`); Default ohne beide: `warning`. Bei `debug*/info/notice` aktiviert der `db.command:` in `docker-compose.yml` zusätzlich `log_statement=all` + `log_duration=on` → **jedes** SQL-Statement landet im Log. Nur zum Debuggen setzen, danach wieder auf `warning`/`error` (Log-Flut!).
-- **Einstellungen** (User-/Fach-Präferenzen, änderbar zur Laufzeit, Cross-Device-synchronisiert): `artikelTypen` (global, Admin-only), `sprache` und `standardStandortId` (per-User). Liegen in der `einstellungen`-Tabelle (PK = `(key, user_id)`), LWW auf `geaendert_am`. Die PWA spiegelt sie zusätzlich in IndexedDB (Dexie v5, Compound-Key `[key+userId]`, `userId = ''` als globaler Marker — Domäne arbeitet mit `null`).
+- **Einstellungen** (User-/Fach-Präferenzen, änderbar zur Laufzeit, Cross-Device-synchronisiert): `artikelTypen` (global, Admin-only), `sprache` und `standardStandortId` (per-User). Liegen in der `einstellungen`-Tabelle (PK = `(key, user_id)`), LWW auf `geaendert_am`. Die PWA spiegelt sie zusätzlich in IndexedDB (Dexie, Compound-Key `[key+userId]` seit Dexie-Schema v5/v6, aktueller Schema-Stand v9 in `src/db/database.ts`; `userId = ''` als globaler Marker — Domäne arbeitet mit `null`).
 - **Persistenz**: `einstellungen` läuft über das `pgdata`-Volume des API-Containers, nicht über ein eigenes Volume. Backups via `pg_dump`.
 
 ## Build-Metadaten in der PWA
@@ -38,7 +38,8 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 - **Code-Kommentare auf Englisch.** Inline-Kommentare, JSDoc/TSDoc und sonstige Quelltext-Kommentare sind in englischer Sprache zu verfassen. Identifiers, Strings, UI-Labels und Commit-Messages bleiben projektspezifisch (Deutsch ist okay, sofern bestehend).
 - **Nach Änderungen** sind Lint und Tests auszuführen:
   - `npm run lint`
-  - `npm test`
+  - `npm run test:run` (einmalig; `npm test` startet Vitest im Watch-Mode und blockiert)
+  - API-Seitig: `npm run test:run` und `npm run typecheck` in `server/`
 - Build muss sauber durchlaufen: `npm run build`.
 
 ## Commits & Versionierung
@@ -128,7 +129,7 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 - **GHCR-Visibility-Automation**: `build-and-push.yml` ruft am Ende jedes Jobs `PATCH /user/packages/container/{pkg}` mit `{"visibility":"public"}`. Der automatische `GITHUB_TOKEN` darf das für User-Repos **nicht** (gibt 404). Lösung: klassischen PAT mit Scopes `repo` + `write:packages` unter dem Secret-Namen **`GHCR_ADMIN_TOKEN`** im Repo hinterlegen (`Settings → Secrets and variables → Actions`). Ohne Secret wird der Flip mit `::warning::` übersprungen — das Image wird trotzdem gepusht, das Paket bleibt aber `private`. Für server-seitige Pulls reicht das (Auth gegen `ghcr.io` via `docker login` bzw. Coolify-/Arcane-Registry-Config). Wer das Paket wirklich öffentlich haben will, legt den Secret an, der Flip läuft dann automatisch.
 - **Arcane / Coolify / bare Docker** funktionieren ohne Anpassung — sie alle ziehen `image:`-Referenzen transparent. Der frühere `build:`-Pfad ist absichtlich entfernt.
 - **Update-Workflow**: `git pull && docker compose pull && docker compose up -d` (nicht `--build` — es gibt nichts Lokales zu bauen).
-- **Deploy-Falle DEV_MODE / DB-Volume-Reset.** Symptom: nach einem Deploy antwortet die API mit `401 USER_INACTIVE` („User ist deaktiviert"), die PWA springt auf den First-Register-Screen. Bedeutung: die `users`-Tabelle ist **leer** — der API-Container hat beim Start truncatiert (`server/src/dev/dev-reset.ts`) oder das DB-Volume wurde zurückgesetzt. Ursachen: `DEV_MODE=true` in der `.env` (jeder Container-Start = TRUNCATE aller Tabellen) oder Override-File / `docker compose down -v` / `castel-restart.ps1` im Livebetrieb. Fix: `DEV_MODE=false` setzen, Stack neu starten, Admin über das Setup-Formular neu anlegen. **Das ist KEIN Backup-Bug** — `POST /api/admin/backup/run` ist nur der erste Request, bei dem der 401 sichtbar wird. Diagnose: `docker compose logs api` nach `[dev-reset] TRUNCATE` durchsuchen.
+- **Deploy-Falle DB-Volume-Reset.** Symptom: nach einem Deploy antwortet die API mit `401 USER_INACTIVE` („User ist deaktiviert"), die PWA springt auf den First-Register-Screen. Bedeutung: die `users`-Tabelle ist **leer** — das DB-Volume wurde zurückgesetzt. Ursachen: Override-File (`docker-compose.override.yml` entfernt `pgdata` per `volumes: !reset`), `docker compose down -v` oder `castel-restart.ps1` im Livebetrieb. Ein automatischer Server-Truncate beim Start existiert nicht mehr (der alte `dev-reset` ist entfernt) — eine leere DB kommt also immer über gelöschte/resetzte Volumes. Fix: Stack mit bestehendem Volume neu starten, Admin über das Setup-Formular neu anlegen (greift, solange `/api/auth/setup-status` die leere `users`-Tabelle meldet). **Das ist KEIN Backup-Bug** — `POST /api/admin/backup/run` ist nur der erste Request, bei dem der 401 sichtbar wird. Diagnose: `GET /api/auth/setup-status` und `docker volume ls` nach `pgdata` durchsuchen.
 - **Lockfiles pro Paket**: `package-lock.json` im Root (PWA), `server/package-lock.json` (API). Beide müssen in ihrem jeweiligen Verzeichnis für `npm ci` liegen — beim CI-Build übernimmt das `working-directory` bzw. `cache-dependency-path`.
 
 ## Lokaler Test-Workflow (Entwickler-PC, optional)
@@ -230,8 +231,8 @@ CI-Build — der laufende Stack faengt sich entweder das alte Image
 Container, der in der Restart-Schleife haengt (`pull` macht bei
 „No such image" mit dem Digest-Mismatch nicht immer das, was man will).
 
-Siehe `README.md` → „Lokales Test-Setup" für die Erstinstallation
-(Docker Desktop, WSL 2, `.env`, `docker-compose.override.yml`).
+Siehe `README.md` → „Installation (nur Docker Compose)" für die Erstinstallation
+(inkl. `.env`); `docker-compose.override.yml` ist lokal und nicht eingecheckt.
 
 ## Finetuning-Runden — Abschluss-Status
 
