@@ -22,7 +22,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { getDb } from '../db/client.js'
+import { getClient, getDb } from '../db/client.js'
 import { einstellungen } from '../db/schema.js'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
@@ -81,21 +81,21 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     '/api/admin/db/clear',
     { preHandler: app.requireAdmin },
     async (_req, reply) => {
-      const db = getDb()
-      await db.execute(sql`BEGIN`)
-      await db.execute(sql`TRUNCATE datanorm_importe`)
-      await db.execute(sql`TRUNCATE datanorm_dateien`)
-      await db.execute(sql`TRUNCATE hersteller_artikel`)
-      await db.execute(sql`TRUNCATE lieferanten`)
-      await db.execute(sql`TRUNCATE mindestbestand_ereignisse`)
-      await db.execute(sql`TRUNCATE audit_log`)
-      await db.execute(sql`TRUNCATE fotos`)
-      await db.execute(sql`TRUNCATE buchungen`)
-      await db.execute(sql`TRUNCATE commission`)
-      await db.execute(sql`TRUNCATE artikel`)
-      await db.execute(sql`TRUNCATE standorte`)
-      await db.execute(sql`TRUNCATE einstellungen`)
-      await db.execute(sql`COMMIT`)
+      const pg = getClient()
+      await pg.begin(async (tx) => {
+        await tx`TRUNCATE datanorm_importe`
+        await tx`TRUNCATE datanorm_dateien`
+        await tx`TRUNCATE hersteller_artikel`
+        await tx`TRUNCATE lieferanten`
+        await tx`TRUNCATE mindestbestand_ereignisse`
+        await tx`TRUNCATE audit_log`
+        await tx`TRUNCATE fotos`
+        await tx`TRUNCATE buchungen`
+        await tx`TRUNCATE commission`
+        await tx`TRUNCATE artikel`
+        await tx`TRUNCATE standorte`
+        await tx`TRUNCATE einstellungen`
+      })
       return reply.send({ cleared: true })
     },
   )
