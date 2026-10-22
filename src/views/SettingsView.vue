@@ -18,6 +18,7 @@ const standardId = ref<string>(settings.settings.standardStandortId ?? '')
 const firmaName = ref<string>(settings.settings.companyName ?? '')
 const firmaNameVomUser = ref(false)
 const barcodeTyp = ref<BarcodeTyp>(settings.settings.barcodeTyp)
+const barcodeTypVomUser = ref(false)
 
 const barcodeFormate = [
   { wert: 'CODE128' as BarcodeTyp, label: t('view.barcode.formatCode128') },
@@ -33,7 +34,9 @@ watch(
     if (!firmaNameVomUser.value) {
       firmaName.value = s.companyName ?? ''
     }
-    barcodeTyp.value = s.barcodeTyp
+    if (!barcodeTypVomUser.value) {
+      barcodeTyp.value = s.barcodeTyp
+    }
   },
 )
 
@@ -51,6 +54,7 @@ async function speichern(): Promise<void> {
     if (auth.istAdmin) {
       await settings.setKey('companyName', firmaName.value)
       await settings.setBarcodeTyp(barcodeTyp.value)
+      barcodeTypVomUser.value = false
     }
     statusmeldung.value = t('view.settings.gespeichert')
     if (statusTimer !== null) clearTimeout(statusTimer)
@@ -110,7 +114,7 @@ onBeforeUnmount(() => {
         </label>
         <label v-if="auth.istAdmin">
           <span>{{ t('view.settings.barcodeTyp') }}</span>
-          <select v-model="barcodeTyp" :disabled="laufend">
+          <select v-model="barcodeTyp" :disabled="laufend" @input="barcodeTypVomUser = true">
             <option v-for="f in barcodeFormate" :key="f.wert" :value="f.wert">
               {{ f.label }}
             </option>
@@ -129,34 +133,36 @@ onBeforeUnmount(() => {
       </form>
     </div>
 
-    <h2>Informationen</h2>
+    <h2>{{ t('view.settings.informationen') }}</h2>
     <div class="card quick-links">
-      <RouterLink to="/info">Erste Schritte &amp; Web-App installieren</RouterLink>
+      <RouterLink to="/info">{{ t('view.settings.ersteSchritte') }}</RouterLink>
     </div>
 
-    <h2>Account</h2>
+    <h2>{{ t('view.settings.account') }}</h2>
     <div class="card quick-links">
       <div class="readonly">
         <span class="label">{{ t('view.settings.benutzer') }}</span>
         <span class="value">{{ auth.anzeigename || '—' }}</span>
       </div>
-      <RouterLink to="/passwort-aendern">Passwort ändern</RouterLink>
-      <button type="button" class="danger" @click="abmelden">Abmelden</button>
+      <RouterLink to="/passwort-aendern">{{ t('view.settings.passwortAendern') }}</RouterLink>
+      <button type="button" class="danger" @click="abmelden">
+        {{ t('view.settings.abmelden') }}
+      </button>
     </div>
 
-    <h2 v-if="auth.istAdmin">Administration</h2>
+    <h2 v-if="auth.istAdmin">{{ t('view.settings.administration') }}</h2>
     <div v-if="auth.istAdmin" class="card quick-links">
-      <RouterLink to="/einstellungen/user">Benutzer-Verwaltung</RouterLink>
-      <RouterLink to="/einstellungen/entwicklung">Entwicklung</RouterLink>
+      <RouterLink to="/einstellungen/user">{{ t('view.settings.benutzerVerwaltung') }}</RouterLink>
+      <RouterLink to="/einstellungen/entwicklung">{{ t('view.settings.entwicklung') }}</RouterLink>
     </div>
 
-    <h2>Daten</h2>
+    <h2>{{ t('view.settings.daten') }}</h2>
     <div class="card quick-links">
-      <RouterLink to="/import">CSV-Import</RouterLink>
-      <RouterLink to="/einstellungen/backup">Backup &amp; Restore</RouterLink>
+      <RouterLink to="/import">{{ t('view.settings.csvImport') }}</RouterLink>
+      <RouterLink to="/einstellungen/backup">{{ t('view.settings.backup') }}</RouterLink>
     </div>
 
-    <h2>Stammdaten</h2>
+    <h2>{{ t('view.settings.stammdaten') }}</h2>
     <div class="card quick-links">
       <RouterLink to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
       <RouterLink v-if="auth.istAdmin" to="/einstellungen/artikel-typen">{{
