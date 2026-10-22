@@ -1,0 +1,22 @@
+-- castel: Mindestbestand-event cleanup (migration 0014).
+--
+-- The sync resolver used to read the after-stock aggregate through the
+-- connection pool instead of the open transaction: resolvePush passed `db`
+-- (not `tx`) into resolveBuchung, so berechneBestand ran on a second pooled
+-- connection. Postgres row isolation hides the booking that was inserted a
+-- few lines earlier in the same transaction, therefore
+-- `mindestbestand_ereignisse.bestand_danach` and `.defizit` were written with
+-- stale values — typically 0 after a fresh database or a full re-sync, while
+-- the real bestand was e.g. 32. The trigger also fired for `einlagerung`
+-- rows, because their own (missing) quantity made the stale sum look low.
+--
+-- The rows are pure notification snapshots: nothing references them
+-- (no FK points at `mindestbestand_ereignisse`), and the PWA mirrors them
+-- append-only via the snapshot endpoint. The wrong history cannot be
+-- reconstructed from the booking data (bestand_danach was a point-in-time
+-- value), so we drop it. The corrected trigger writes fresh events from now
+-- on, and the PWA clears its local mirror in Dexie schema v11.
+--
+-- Idempotent: TRUNCATE on an already empty table is a no-op.
+
+TRUNCATE TABLE mindestbestand_ereignisse;

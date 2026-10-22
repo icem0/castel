@@ -80,6 +80,20 @@ export interface BestandResult {
 }
 
 /**
+ * Everything that can run a Drizzle `select` — pool connection or an open
+ * transaction (`PgTransaction` extends `PgDatabase`, so both fit).
+ *
+ * Callers MUST pass the transaction handle they inserted into. Reading the
+ * aggregate through the pool while the write is still uncommitted returns a
+ * stale bestand: the freshly inserted booking is invisible on the pooled
+ * connection. That bug made `mindestbestand_ereignisse.bestand_danach` store
+ * values like 0 instead of the real bestand.
+ */
+export interface BestandQuerier {
+  select: PostgresJsDatabase<typeof schema>['select']
+}
+
+/**
  * Bestand für einen Artikel an einem Standort (SQL-Layer).
  *
  * Modellierung (PLAN §4):
@@ -94,13 +108,16 @@ export interface BestandResult {
  * (für Umlagerungen steht jede Teilbuchung bereits auf der betroffenen
  * Seite). Negativ ist erlaubt (zeigt die Konflikt-Situation nach
  * Offline-Buchungen); der Sync-Resolver lehnt das beim Push ab.
+ *
+ * NOTE: pass the transaction you wrote into (see `BestandQuerier`), not the
+ * pool — otherwise the aggregate misses the uncommitted booking.
  */
 export async function berechneBestand(
-  db: PostgresJsDatabase<typeof schema>,
+  querier: BestandQuerier,
   artikelId: string,
   standortId: string,
 ): Promise<number> {
-  const rows = await db
+  const rows = await querier
     .select({ total: sql<number>`coalesce(sum(${buchungen.menge}), 0)::int` })
     .from(buchungen)
     .where(
@@ -121,10 +138,10 @@ export async function berechneBestand(
  * Umlagerungs-Teilbuchungen), daher reicht eine einzelne gruppierte Query.
  */
 export async function berechneBestaendeProArtikel(
-  db: PostgresJsDatabase<typeof schema>,
+  querier: BestandQuerier,
   artikelId: string,
 ): Promise<BestandResult[]> {
-  const rows = await db
+  const rows = await querier
     .select({
       sid: buchungen.standortId,
       total: sql<number>`coalesce(sum(${buchungen.menge}), 0)::int`,

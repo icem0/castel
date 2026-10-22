@@ -29,7 +29,7 @@ import {
   standorte,
   auditLog,
 } from '../db/schema.js'
-import { berechneBestand } from '../domain/bestand.js'
+import { berechneBestand, type BestandQuerier } from '../domain/bestand.js'
 import {
   HatAbhaengigkeitenError,
   NegativerBestandError,
@@ -173,7 +173,12 @@ export async function resolvePush(
             await resolveProjekt(tx, op)
             break
           case 'buchung':
-            buchungsEvent = await resolveBuchung(tx, op, db)
+            // IMPORTANT: the bestand read inside must run on `tx`, not on the
+            // pool (`db`). The booking was just inserted in this transaction
+            // and is invisible to any other pooled connection — reading via
+            // `db` stored stale values (e.g. 0) in
+            // `mindestbestand_ereignisse.bestand_danach`.
+            buchungsEvent = await resolveBuchung(tx, op, tx)
             break
           case 'einstellung':
             await resolveEinstellung(tx, op, benutzerId, benutzerRolle)
@@ -560,11 +565,15 @@ interface BuchungPayload {
  * frisch erzeugte Datensatz wird als `MindestbestandEreignisRow`
  * zurückgegeben, damit `resolvePush` den Notification-Gateway am Ende
  * füttern kann.
+ *
+ * `bestandQuerier` MUST be the same transaction handle as `tx` (never the
+ * pool): the aggregate read has to see the booking inserted a few lines
+ * above, which is only visible inside the open transaction.
  */
 async function resolveBuchungCreate(
   tx: Tx,
   b: BuchungPayload,
-  db: PostgresJsDatabase<typeof schema>,
+  bestandQuerier: BestandQuerier,
 ): Promise<MindestbestandEreignisRow | null> {
   // 1) Idempotenz: gleiche ID → 200 duplicate
   const existing = await tx.select().from(buchungen).where(eq(buchungen.id, b.id)).limit(1)
@@ -626,7 +635,7 @@ async function resolveBuchungCreate(
   if (b.typ === 'storno' || b.typ === 'kommission' || b.storno) {
     return null
   }
-  const neuerBestand = await berechneBestand(db, b.artikelId, b.standortId)
+  const neuerBestand = await berechneBestand(bestandQuerier, b.artikelId, b.standortId)
   if (!sollteWarnungAusloesen(mindestbestand, neuerBestand)) {
     return null
   }
@@ -680,12 +689,12 @@ export interface MindestbestandEreignisRow {
 async function resolveBuchung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'buchung' }>,
-  db: PostgresJsDatabase<typeof schema>,
+  bestandQuerier: BestandQuerier,
 ): Promise<MindestbestandEreignisRow | null> {
   if (op.op !== 'create') {
     throw new ValidationError('buchung.op', 'nur "create" erlaubt (append-only)')
   }
-  return resolveBuchungCreate(tx, op.payload as BuchungPayload, db)
+  return resolveBuchungCreate(tx, op.payload as BuchungPayload, bestandQuerier)
 }
 
 /**
@@ -702,11 +711,7 @@ async function resolveUmlagerungPaar(
   const events: MindestbestandEreignisRow[] = []
   await db.transaction(async (tx) => {
     for (const op of ops) {
-      const ev = await resolveBuchungCreate(
-        tx,
-        op.payload as BuchungPayload,
-        tx as PostgresJsDatabase<typeof schema>,
-      )
+      const ev = await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx)
       if (ev) events.push(ev)
     }
   })

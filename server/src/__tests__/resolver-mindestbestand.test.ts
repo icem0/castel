@@ -1,21 +1,34 @@
 // Tests für den Mindestbestand-Trigger im Sync-Resolver.
 //
-// Diese Tests mocken die PostgresJsDatabase und prüfen, dass
-// resolveBuchungCreate am Ende der Transaktion den Mindestbestand-
-// Trigger auslöst. Die Mock-DB ist absichtlich minimal — vollständige
-// Integration-Tests laufen gegen eine echte Postgres-Instanz in
-// `docker compose` und sind nicht Teil dieses Suites.
+// Der Mock trennt bewusst die Pool-Verbindung (`db`) vom Transaktions-Handle
+// (`tx`): Inserts, die in der offenen Transaktion passieren, sind nur dem tx
+// sichtbar — genau wie bei Postgres. Damit ist der Test sensibel auf den
+// Regression-Fehler, den Bestand über den Pool (`db`) statt über `tx` zu
+// lesen: der Pool sieht die soeben insertete Buchung nicht und liefert einen
+// zu alten Bestand (früher: 0 bei einem frischen Bestand).
+//
+// Der Mock ist absichtlich minimal: er filtert nicht nach artikelId/
+// standortId, sondern summiert alle Buchungen. Alle Fixtures verwenden
+// deshalb genau einen Artikel und einen Standort.
 
 import { describe, it, expect, vi } from 'vitest'
 import type { PushOp } from '../sync/resolver.js'
 
+interface MockBooking {
+  id: string
+  standortId: string
+  menge: number
+  storno: boolean
+}
+
 interface MockState {
   artikel: Array<Record<string, unknown>>
   standort: Array<Record<string, unknown>>
-  buchung: Array<Record<string, unknown>>
-  bestaende: number[]
+  /** Committed bookings — the only rows visible on the pooled connection. */
+  committed: MockBooking[]
+  /** Bookings inserted in the still-open transaction (tx-only). */
+  pending: MockBooking[]
   eventInserts: Array<Record<string, unknown>>
-  buchungInserts: Array<Record<string, unknown>>
 }
 
 const DRIZZLE_NAME = Symbol.for('drizzle:Name')
@@ -31,73 +44,154 @@ function tableId(table: unknown): string | undefined {
   return undefined
 }
 
+/**
+ * Aggregate-Projektionen (`berechneBestand`) bauen ihr Feld mit `sql` —
+ * ein `SQL`-Objekt erkennt man an `queryChunks`. Spalten-Referenzen
+ * (z. B. `{ id: artikel.id })` haben dieses Feld nicht.
+ */
 function isAggregateProjection(projection: unknown): boolean {
   if (!projection || typeof projection !== 'object') return false
-  return Object.values(projection as Record<string, unknown>).some((v) => {
-    // drizzle `sql()` Aggregate-Projektionen enthalten ein Objekt als
-    // Wert (z. B. `{ total: sql... }`). Dieser Check ist robuster als der
-    // Konstruktor-Name, der je nach Bundler/Transform umbenannt wird.
-    return v !== null && typeof v === 'object' && !Array.isArray(v)
+  return Object.values(projection as Record<string, unknown>).some(
+    (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && 'queryChunks' in v,
+  )
+}
+
+/** Awaitable row list that also supports `.limit(n)` (drizzle chain). */
+function rowsPromise<T>(rows: T[]): Promise<T> & { limit: (n: number) => Promise<T> } {
+  const p = Promise.resolve(rows) as Promise<T> & { limit: (n: number) => Promise<T> }
+  p.limit = (n: number) => Promise.resolve(rows.slice(0, n))
+  return p
+}
+
+function sumBestand(rows: MockBooking[]): number {
+  return rows.reduce((sum, r) => (r.storno ? sum : sum + r.menge), 0)
+}
+
+/**
+ * Collects the bound values of a drizzle `where` clause (`Param` nodes).
+ * Used to honour the idempotency lookup on `buchungen.id`.
+ */
+function extractParams(node: unknown, out: unknown[] = [], seen = new Set<unknown>()): unknown[] {
+  if (!node || typeof node !== 'object' || seen.has(node)) return out
+  seen.add(node)
+  const o = node as Record<string, unknown>
+  if (o.constructor?.name === 'Param') out.push(o.value)
+  if (Array.isArray(o.queryChunks)) o.queryChunks.forEach((c) => extractParams(c, out, seen))
+  return out
+}
+
+function makeSelect(state: MockState, scope: 'db' | 'tx') {
+  return (projection: unknown) => ({
+    from: (table: unknown) => {
+      const id = tableId(table)
+
+      if (isAggregateProjection(projection)) {
+        // The pooled connection must never see uncommitted rows.
+        const visible =
+          id === 'buchungen'
+            ? scope === 'tx'
+              ? [...state.committed, ...state.pending]
+              : state.committed
+            : []
+        // Single article/standort per fixture — only `storno` is filtered.
+        const total = sumBestand(visible.filter((r) => !r.storno))
+        return { where: () => rowsPromise([{ total }]) }
+      }
+
+      if (id === 'buchungen') {
+        const visible = scope === 'tx' ? [...state.committed, ...state.pending] : state.committed
+        return {
+          where: (clause: unknown) => {
+            const wanted = extractParams(clause).find((p) => typeof p === 'string')
+            return rowsPromise(visible.filter((r) => r.id === wanted))
+          },
+        }
+      }
+
+      return {
+        where: () => ({
+          limit: (n: number) => {
+            if (id === 'artikel') return Promise.resolve(state.artikel.slice(0, n))
+            if (id === 'standorte') return Promise.resolve(state.standort.slice(0, n))
+            return Promise.resolve([])
+          },
+        }),
+      }
+    },
   })
 }
 
 function makeMockDb(state: MockState): unknown {
-  let bestandIndex = 0
-
-  const selectFn = (projection: unknown) => {
-    // Aggregate-Projektion (berechneBestand): gibt den nächsten
-    // konfigurierten `bestaende`-Wert zurück, unabhängig von der Tabelle.
-    if (isAggregateProjection(projection)) {
-      const wert =
-        state.bestaende[bestandIndex] ?? state.bestaende[bestandIndex - 1] ?? 0
-      bestandIndex++
-      return {
-        from: () => ({ where: () => ({ limit: () => Promise.resolve([{ total: wert }]) }) }),
-      }
-    }
-    return {
-      from: (table: unknown) => {
-        const id = tableId(table)
-        if (id === 'buchungen') {
-          return {
-            where: () => ({ limit: () => Promise.resolve(state.buchung.slice(0, 1)) }),
-          }
-        }
-        return {
-          where: () => ({
-            limit: (n: number) => {
-              if (id === 'artikel') return Promise.resolve(state.artikel.slice(0, n))
-              if (id === 'standorte') return Promise.resolve(state.standort.slice(0, n))
-              return Promise.resolve([])
-            },
-          }),
-        }
-      },
-    }
-  }
-
   const insertFn = (table: unknown) => {
     const id = tableId(table)
     return {
       values: (v: Record<string, unknown>) => {
-        if (id === 'mindestbestand_ereignisse') state.eventInserts.push(v)
-        else if (id === 'buchungen') state.buchungInserts.push(v)
+        if (id === 'mindestbestand_ereignisse') {
+          state.eventInserts.push(v)
+        } else if (id === 'buchungen') {
+          const booking: MockBooking = {
+            id: String(v.id ?? ''),
+            standortId: String(v.standortId ?? ''),
+            menge: Number(v.menge ?? 0),
+            storno: v.storno === true,
+          }
+          // Inserts always happen inside the open transaction. They become
+          // visible to the pool only after COMMIT.
+          state.pending.push(booking)
+        }
         return Promise.resolve()
       },
     }
   }
   const updateFn = () => ({ set: () => ({ where: () => Promise.resolve() }) })
 
-  const tx = { select: selectFn, insert: insertFn, update: updateFn }
-  return {
-    transaction: (fn: (t: typeof tx) => Promise<void>) => fn(tx),
-    select: selectFn,
+  const db = {
+    select: makeSelect(state, 'db'),
     insert: insertFn,
     update: updateFn,
+    transaction: async (fn: (tx: unknown) => Promise<void>) => {
+      const tx = {
+        select: makeSelect(state, 'tx'),
+        insert: insertFn,
+        update: updateFn,
+      }
+      try {
+        await fn(tx)
+        // COMMIT: pending rows become visible to the pool.
+        state.committed.push(...state.pending)
+        state.pending = []
+      } catch (err) {
+        // ROLLBACK: pending rows never reach the pool.
+        state.pending = []
+        throw err
+      }
+    },
+  }
+  return db
+}
+
+function buchungOp(payload: Record<string, unknown>): PushOp {
+  return { op: 'create', entity: 'buchung', payload } as PushOp
+}
+
+function entnahme(id: string, menge: number): Record<string, unknown> {
+  return {
+    id,
+    artikelId: 'a-1',
+    standortId: 's-1',
+    typ: 'entnahme',
+    menge,
+    erstelltAm: '2026-04-14T11:00:00.000Z',
+    erstelltVon: 'u-1',
+    storno: false,
   }
 }
 
-describe('Sync-Resolver — Mindestbestand-Trigger (Smoke-Tests)', () => {
+function einlagerung(id: string, menge: number): Record<string, unknown> {
+  return { ...entnahme(id, menge), typ: 'einlagerung' }
+}
+
+describe('Sync-Resolver — Mindestbestand-Trigger', () => {
   it('Pure-Funktion sollteWarnungAusloesen ist mit Server byte-identisch', async () => {
     // Schon im Paritätstest geprüft, hier nur als Sanity-Check.
     const { sollteWarnungAusloesen } = await import('../domain/mindestbestand.js')
@@ -106,87 +200,99 @@ describe('Sync-Resolver — Mindestbestand-Trigger (Smoke-Tests)', () => {
     expect(sollteWarnungAusloesen(5, 4)).toBe(true)
   })
 
-  it('Notification-Gateway wird mit Events gefüttert (fire-and-forget)', async () => {
-    // E2E-Smoke-Test mit Gateway: wir prüfen, dass resolvePush nach
-    // erfolgreichem Push den Gateway aufruft. Den Trigger-Pfad selbst
-    // verifizieren wir via Integration-Test (Postgres) — der Mock ist
-    // hierfür zu fragil. Wir testen hier nur, dass der Gateway nicht
-    // aufgerufen wird, wenn KEIN Event ausgelöst wurde (durch die
-    // Bestand-Konfiguration, die 9 statt 4 nach Entnahme liefert).
+  it('liest den Bestand in der offenen Transaktion (kein Stale-Read)', async () => {
+    // 60 rein, 28 raus → 32. Mindestbestand 50.
+    // Der Pool (`db`) sieht die -28-Buchung der eigenen Transaktion nicht:
+    // ein Stale-Read ergäbe 60 und damit KEIN Event.
     const { resolvePush } = await import('../sync/resolver.js')
     const state: MockState = {
-      artikel: [{ id: 'a-1', mindestbestand: 5 }],
+      artikel: [{ id: 'a-1', mindestbestand: 50 }],
       standort: [{ id: 's-1' }],
-      buchung: [],
-      bestaende: [10, 9], // 9 >= 5 → kein Event
+      committed: [],
+      pending: [],
       eventInserts: [],
-      buchungInserts: [],
     }
-    const db = makeMockDb(state)
-    const dispatch = vi.fn().mockResolvedValue(undefined)
-    const gateway = { name: 'mock', dispatchMindestbestandEvent: dispatch }
-    await resolvePush(
-      db as never,
-      [
-        {
-          op: 'create',
-          entity: 'buchung',
-          payload: {
-            id: 'b-1',
-            artikelId: 'a-1',
-            standortId: 's-1',
-            typ: 'entnahme',
-            menge: -1,
-            erstelltAm: '2026-04-14T11:00:00.000Z',
-            erstelltVon: 'u-1',
-            storno: false,
-          },
-        },
-      ],
+    const result = await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(einlagerung('b-1', 60)), buchungOp(entnahme('b-2', -28))],
       'u-1',
       'user',
-      gateway as never,
     )
-    await new Promise((r) => setTimeout(r, 0))
-    expect(dispatch).not.toHaveBeenCalled()
+    expect(result.errors).toEqual([])
+    expect(result.accepted).toEqual(['b-1', 'b-2'])
+    // Einlagerung auf 60 liegt über dem Mindestbestand → kein Event.
+    expect(state.eventInserts).toHaveLength(1)
+    expect(state.eventInserts[0]).toMatchObject({
+      bestandDanach: 32,
+      mindestbestand: 50,
+      defizit: 18,
+      ausloeserBuchungId: 'b-2',
+    })
   })
 
-  it('Notification-Gateway wird NICHT aufgerufen, wenn keine Events ausgelöst wurden', async () => {
+  it('Initial-Sync liefert nie Bestand 0 pro Buchung', async () => {
+    // Frischer Bestand (nach DB-Reset): beide Buchungen kommen in einem Push.
+    // Der alte Bug hätte 0 und 40 geschrieben (Pool-Sicht auf die jeweils
+    // vorherige Buchung), korrekt sind 40 und 32.
     const { resolvePush } = await import('../sync/resolver.js')
     const state: MockState = {
-      artikel: [{ id: 'a-1', mindestbestand: 5 }],
+      artikel: [{ id: 'a-1', mindestbestand: 50 }],
       standort: [{ id: 's-1' }],
-      buchung: [],
-      // 10 → 9 (kein Event, da 9 >= 5)
-      bestaende: [10, 9],
+      committed: [],
+      pending: [],
       eventInserts: [],
-      buchungInserts: [],
     }
-    const db = makeMockDb(state)
+    await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(einlagerung('b-1', 40)), buchungOp(entnahme('b-2', -8))],
+      'u-1',
+      'user',
+    )
+    expect(state.eventInserts.map((e) => e.bestandDanach)).toEqual([40, 32])
+    expect(state.eventInserts.map((e) => e.defizit)).toEqual([10, 18])
+  })
+
+  it('kein Event, wenn der Bestand danach über dem Mindestbestand liegt', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const state: MockState = {
+      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      standort: [{ id: 's-1' }],
+      committed: [{ id: 'b-0', standortId: 's-1', menge: 60, storno: false }],
+      pending: [],
+      eventInserts: [],
+    }
     const dispatch = vi.fn().mockResolvedValue(undefined)
     await resolvePush(
-      db as never,
-      [
-        {
-          op: 'create',
-          entity: 'buchung',
-          payload: {
-            id: 'b-1',
-            artikelId: 'a-1',
-            standortId: 's-1',
-            typ: 'entnahme',
-            menge: -1,
-            erstelltAm: '2026-04-14T11:00:00.000Z',
-            erstelltVon: 'u-1',
-            storno: false,
-          },
-        },
-      ],
+      makeMockDb(state) as never,
+      [buchungOp(entnahme('b-1', -5))],
       'u-1',
       'user',
       { name: 'mock', dispatchMindestbestandEvent: dispatch } as never,
     )
     await new Promise((r) => setTimeout(r, 0))
+    expect(state.eventInserts).toEqual([])
     expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it('Notification-Gateway wird mit korrekt berechnetem Event gefüttert', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const state: MockState = {
+      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      standort: [{ id: 's-1' }],
+      committed: [{ id: 'b-0', standortId: 's-1', menge: 40, storno: false }],
+      pending: [],
+      eventInserts: [],
+    }
+    const dispatch = vi.fn().mockResolvedValue(undefined)
+    await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(entnahme('b-1', -12))],
+      'u-1',
+      'user',
+      { name: 'mock', dispatchMindestbestandEvent: dispatch } as never,
+    )
+    await new Promise((r) => setTimeout(r, 0))
+    expect(dispatch).toHaveBeenCalledTimes(1)
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({ bestandDanach: 28, defizit: 22 })
   })
 })

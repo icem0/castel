@@ -2,9 +2,10 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v10 (Tabelle `mindestbestandEreignisse`).
-// Frühere Versionen (v1–v9) sind nur noch für Migration existierender
-// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v10 verwendet.
+// Aktuelles Schema: v11 (Mirror `mindestbestandEreignisse` geleert —
+// Serverseitig mit Migration 0014 bereinigt, siehe Kommentar bei v11).
+// Frühere Versionen (v1–v10) sind nur noch für Migration existierender
+// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v11 verwendet.
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -284,6 +285,22 @@ export class CastelDb extends Dexie {
       outbox: 'id, entity, syncedAt, createdAt, quarantinedAt',
       mindestbestandEreignisse: 'id, artikelId, standortId, erstelltAm',
     })
+
+    // v11: Clear the `mindestbestandEreignisse` mirror.
+    //      The server computed `bestandDanach` with a stale aggregate (it read
+    //      the sum through the connection pool instead of the still-open
+    //      transaction), so the mirrored snapshot values were wrong — usually
+    //      0 instead of the real bestand. Server migration 0014 truncates the
+    //      source table; the local table is append-only and the snapshot
+    //      endpoint only adds rows, so the bogus entries have to be dropped
+    //      client-side as well.
+    this.version(11)
+      .stores({
+        mindestbestandEreignisse: 'id, artikelId, standortId, erstelltAm',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('mindestbestandEreignisse').clear()
+      })
   }
 }
 
