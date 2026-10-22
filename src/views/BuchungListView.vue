@@ -5,6 +5,7 @@ import { RouterLink } from 'vue-router'
 import { useBuchungStore } from '../stores/buchung'
 import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
+import { useAuthStore } from '../stores/auth'
 import { useTableSort } from '../composables/useTableSort'
 import SortableTh from '../components/SortableTh.vue'
 import type { Buchung } from '../db/types'
@@ -13,6 +14,7 @@ const { t } = useI18n()
 const buchungStore = useBuchungStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
+const auth = useAuthStore()
 
 const artikelFilter = ref<string>('')
 const typFilter = ref<Buchung['typ'] | ''>('')
@@ -87,7 +89,7 @@ async function stornieren(b: Buchung): Promise<void> {
   await buchungStore.mu.stornieren({
     buchungId: b.id,
     grund: 'Storno aus Buchungsliste',
-    erstelltVon: '',
+    erstelltVon: auth.anzeigename.trim() || 'unbekannt',
   })
 }
 </script>
