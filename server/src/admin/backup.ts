@@ -12,7 +12,7 @@
 //   * Admin-Download: ZIP wird on-the-fly als Response gestreamt.
 //   * Cron-Backup:    ZIP wird in BACKUP_DIR geschrieben + alte Kopien rotiert.
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createReadStream, createWriteStream, statSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -169,10 +169,26 @@ export async function warteAufSyncIdle(
 // ---------- pg_dump als Stream ----------
 
 /**
+ * Prueft, ob `pg_dump` im PATH liegt. Wird beim Server-Start einmal
+ * geprueft, damit ein fehlendes `postgresql-client` sofort auffaellt
+ * (statt erst beim ersten Backup).
+ */
+export function pgDumpVerfuegbar(): boolean {
+  const r = spawnSync('pg_dump', ['--version'], { stdio: 'ignore' })
+  return r.status === 0
+}
+
+/**
  * Startet `pg_dump -Fc` und liefert den Custom-Format-Output als Node-
  * Readable. Wir nutzen spawn (nicht exec), damit der pg_dump-Output
  * gestreamt werden kann — bei grossen Datenbanken waere der
  * Memory-Buffer von exec der falsche Weg.
+ *
+ * WICHTIG: Der 'error'-Event auf dem ChildProcess muss behandelt werden.
+ * Ohne Handler stuerzt der komplette API-Prozess ab, wenn das Binary
+ * fehlt (ENOENT) — der Event waere sonst "unhandled". Wir leiten den
+ * Fehler stattdessen auf stdout weiter, wo der Backup-Job ihn auffaengt
+ * und als 'failed' markiert.
  */
 export function pgDumpStream(databaseUrl: string): Readable {
   const args = ['-Fc', '--no-owner', '--no-acl', databaseUrl]
@@ -182,6 +198,18 @@ export function pgDumpStream(databaseUrl: string): Readable {
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk: string) => {
     process.stderr.write(`[pg_dump] ${chunk}`)
+  })
+  // Fehlerbehandlung: sonst "Unhandled 'error' event" -> Prozess-Crash.
+  child.on('error', (err: NodeJS.ErrnoException) => {
+    const meldung =
+      err.code === 'ENOENT'
+        ? `pg_dump nicht gefunden — ist 'postgresql-client' im Image? (${err.message})`
+        : `pg_dump konnte nicht gestartet werden: ${err.message}`
+    // Der Fehler geht auf stdout, damit baueBackupZip ihn auffaengt.
+    // Ein eigener no-op-Listener verhindert, dass der 'error'-Event
+    // auf stdout selbst unhandled wird.
+    child.stdout.on('error', () => {})
+    child.stdout.emit('error', new Error(meldung))
   })
   // Wir geben stdout zurueck. Wenn der Prozess vor stream-end stirbt,
   // wird der Stream automatisch mit einem Error beendet (Node-Default).
@@ -231,6 +259,10 @@ export async function baueBackupZip(opts: {
     out.on('finish', () => resolve())
     out.on('error', reject)
     archive.on('error', reject)
+    // Fehler aus dem pg_dump-Stream (z. B. Binary fehlt -> ENOENT)
+    // muessen das Promise ablehnen — sonst entsteht ein stilles,
+    // unbrauchbares ZIP ohne Dump.
+    pgDumpReadable.on('error', reject)
     archive.on('warning', (err: NodeJS.ErrnoException) => {
       // ENOENT auf einzelnen Dateien ist OK (race: User loescht waehrend
       // wir lesen). Andere Warnings promoten wir zu Errors.
@@ -271,8 +303,17 @@ export async function baueBackupZip(opts: {
   }
   archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' })
 
-  await archive.finalize()
-  await finished
+  try {
+    await archive.finalize()
+    await finished
+  } catch (e) {
+    // Archiv abbrechen und Ziel-Stream schliessen — sonst bleibt der
+    // File-Handle offen und die ZIP-Datei liegt unvollstaendig im
+    // Backup-Ordner (und wuerde bei der Rotation mitzaehlen).
+    archive.abort()
+    out.destroy()
+    throw e
+  }
   return { manifest, bytes }
 }
 

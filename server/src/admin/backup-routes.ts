@@ -67,6 +67,7 @@ function neuerJobId(): string {
 async function fuehreBackupDurch(jobId: string, log: { info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void }): Promise<void> {
   const job = backupJobs.get(jobId)
   if (!job) return
+  let pfad: string | null = null
   try {
     await ensureBackupDir()
     const forceAt = await triggerSyncForce()
@@ -74,7 +75,7 @@ async function fuehreBackupDurch(jobId: string, log: { info: (...a: unknown[]) =
     const pgDump = pgDumpStream(config.DATABASE_URL)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const filename = `castel-backup-${stamp}.zip`
-    const pfad = backupDateiPfad(filename)
+    pfad = backupDateiPfad(filename)
     const fileStream = createWriteStream(pfad)
     const settings = await leseBackupSettings()
     const result = await baueBackupZip({
@@ -92,6 +93,15 @@ async function fuehreBackupDurch(jobId: string, log: { info: (...a: unknown[]) =
     const msg = e instanceof Error ? e.message : String(e)
     job.status = 'failed'
     job.error = msg
+    // Unvollstaendige ZIP loeschen — sie wuerde sonst in der Liste
+    // erscheinen und bei der Rotation mitzaehlen.
+    if (pfad !== null) {
+      try {
+        await fsUnlink(pfad)
+      } catch {
+        /* Datei schon weg — egal */
+      }
+    }
     log.error({ err: e, jobId }, '[backup] run fehlgeschlagen (asynchron)')
   }
 }

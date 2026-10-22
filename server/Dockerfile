@@ -26,10 +26,13 @@ RUN npx tsc -p tsconfig.json
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-# argon2 braucht libc / libstdc++
+# argon2 braucht libc / libstdc++. postgresql-client liefert pg_dump und
+# pg_restore — OHNE das Binary kann der Server kein Backup erstellen
+# ("spawn pg_dump ENOENT"). Der Backup-Cron und der Admin-Download
+# brauchen es zwingend.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates dumb-init \
- && rm -rf /var/lib/apt/lists/*
+    ca-certificates dumb-init postgresql-client \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=deps   /app/node_modules ./node_modules
 COPY --from=build  /app/dist          ./dist
@@ -39,9 +42,13 @@ COPY --from=build  /app/dist          ./dist
 COPY --from=build  /app/src/db/migrations ./dist/migrations
 COPY package.json ./
 
-# Verzeichnis für Foto-Speicher
-RUN mkdir -p /var/lib/castel/fotos
+# Verzeichnisse für Foto-Speicher und Backups. Absolute Pfade, weil
+# der Container-User (castel) relativ zum Working-Dir (/app) keine
+# Schreibrechte hat. BACKUP_DIR wird zusaetzlich in docker-compose.yml
+# als ENV gesetzt und auf das Volume 'backups-data' gemountet.
+RUN mkdir -p /var/lib/castel/fotos /var/lib/castel/backups
 ENV FOTOS_DIR=/var/lib/castel/fotos
+ENV BACKUP_DIR=/var/lib/castel/backups
 
 # Non-root-User
 RUN groupadd -r castel && useradd -r -g castel castel \

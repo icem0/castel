@@ -57,7 +57,11 @@ const fehler = ref<string | null>(null)
 const erfolg = ref<string | null>(null)
 
 // Aktueller Backup-Job (asynchroner Run)
-const backupJob = ref<{ id: string | null; status: 'idle' | 'running' | 'done' | 'failed'; error: string | null }>({
+const backupJob = ref<{
+  id: string | null
+  status: 'idle' | 'running' | 'done' | 'failed'
+  error: string | null
+}>({
   id: null,
   status: 'idle',
   error: null,
@@ -143,19 +147,28 @@ async function backupErstellen(): Promise<void> {
     backupJob.value = { id: r.jobId, status: 'running', error: null }
     await pollBackupJob(r.jobId)
   } catch (e) {
-    backupJob.value = { id: null, status: 'failed', error: e instanceof Error ? e.message : String(e) }
+    backupJob.value = {
+      id: null,
+      status: 'failed',
+      error: e instanceof Error ? e.message : String(e),
+    }
     fehler.value = backupJob.value.error
   }
 }
 
 async function pollBackupJob(jobId: string): Promise<void> {
   // Maximal 120s warten (60 * 2s), dann Timeout.
+  // Temporaere Fehler (502, Netzwerk) werden toleriert: Der Server
+  // kann waehrend des Backups neu starten (z. B. beim Deploy). Erst
+  // nach 5 aufeinanderfolgenden Fehlern geben wir auf.
+  let fehlerZaehler = 0
   for (let i = 0; i < 60; i++) {
     await new Promise((res) => setTimeout(res, 2000))
     try {
       const status = await apiFetch<BackupJobStatus>(
         `/api/admin/backup/status/${encodeURIComponent(jobId)}`,
       )
+      fehlerZaehler = 0
       if (status.status === 'done') {
         backupJob.value = { id: jobId, status: 'done', error: null }
         erfolg.value = t('view.backup.runErfolg', {
@@ -173,8 +186,14 @@ async function pollBackupJob(jobId: string): Promise<void> {
       }
       // status === 'running': weiter pollen
     } catch (e) {
-      fehler.value = e instanceof Error ? e.message : String(e)
-      backupJob.value = { id: jobId, status: 'failed', error: fehler.value }
+      fehlerZaehler++
+      if (fehlerZaehler < 5) {
+        // Noch nicht aufgeben — Server koennte kurz down sein.
+        continue
+      }
+      const msg = e instanceof Error ? e.message : String(e)
+      fehler.value = msg
+      backupJob.value = { id: jobId, status: 'failed', error: msg }
       return
     }
   }

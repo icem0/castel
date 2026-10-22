@@ -62,6 +62,7 @@ async function tick(log: FastifyBaseLogger): Promise<void> {
 export async function runOnce(log: FastifyBaseLogger, keepCopies: number): Promise<void> {
   const start = Date.now()
   _letzterLauf = new Date()
+  let pfad: string | null = null
   try {
     await ensureBackupDir()
     const forceAt = await triggerSyncForce()
@@ -69,7 +70,7 @@ export async function runOnce(log: FastifyBaseLogger, keepCopies: number): Promi
     const pgDump = pgDumpStream(config.DATABASE_URL)
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     const filename = `castel-backup-${stamp}.zip`
-    const pfad = backupDateiPfad(filename)
+    pfad = backupDateiPfad(filename)
     const fileStream = createWriteStream(pfad)
     const result = await baueBackupZip({
       out: fileStream,
@@ -93,6 +94,16 @@ export async function runOnce(log: FastifyBaseLogger, keepCopies: number): Promi
     _letzterVersuch = { ok: true, filename }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    // Unvollstaendige ZIP loeschen — sie wuerde sonst in der Liste
+    // erscheinen und bei der Rotation mitzaehlen.
+    if (pfad !== null) {
+      try {
+        const { unlink } = await import('node:fs/promises')
+        await unlink(pfad)
+      } catch {
+        /* Datei schon weg — egal */
+      }
+    }
     log.error({ err: e }, '[backup-cron] fehlgeschlagen')
     _letzterVersuch = { ok: false, fehler: msg }
   }

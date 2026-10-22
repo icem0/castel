@@ -17,6 +17,7 @@ import { userRoutes } from './users/routes.js'
 import { adminRoutes } from './admin/routes.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
+import { pgDumpVerfuegbar } from './admin/backup.js'
 
 import { datanormRoutes } from './datanorm/routes.js'
 import { starteDatanormCron, stoppeDatanormCron } from './datanorm/cleanup-cron.js'
@@ -146,6 +147,17 @@ async function main() {
   try {
     await app.listen({ port: config.PORT, host: config.HOST })
     app.log.info(`castel-server listening on ${config.HOST}:${config.PORT}`)
+    // Backup-Voraussetzungen pruefen: ohne pg_dump (postgresql-client)
+    // kann kein Backup erstellt werden. Das melden wir sofort beim
+    // Start, statt erst wenn der Admin auf "Backup" klickt.
+    if (!pgDumpVerfuegbar()) {
+      app.log.error(
+        'pg_dump nicht gefunden — Backups sind NICHT moeglich! ' +
+          "Es fehlt das Paket 'postgresql-client' im Image (siehe server/Dockerfile).",
+      )
+    } else {
+      app.log.info('pg_dump gefunden — Backups sind moeglich')
+    }
     starteBackupCron(app.log)
     starteDatanormCron(app.log)
   } catch (err) {
