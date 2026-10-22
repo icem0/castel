@@ -181,13 +181,13 @@ describe('resetLocalDbAndPull', () => {
     expect(await getDb().outbox.count()).toBe(0)
   })
 
-  it('wirft, wenn der Server nicht erreichbar ist — die lokalen Daten bleiben erhalten', async () => {
+  it('wirft, wenn der Server nicht erreichbar ist — die lokalen Daten sind bereits weg', async () => {
     // Arrange: ein Artikel ist lokal vorhanden.
     const dbName = `castel-failtest-${Math.random().toString(36).slice(2)}`
     const { setDb: setDbLocal } = await import('../../../db/database')
     setDbLocal(new CastelDb(dbName))
-    const localDb = getDb()
     const artikelId = neueUuid()
+    const localDb = getDb()
     await localDb.artikel.add(artikelAnlage(artikelId, 'lokal'))
     expect(await localDb.artikel.count()).toBe(1)
 
@@ -197,51 +197,69 @@ describe('resetLocalDbAndPull', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    // Act + Assert: Fehler wird propagiert
+    // Act + Assert: Fehler wird propagiert UND die Daten sind schon weg
+    // (wipe passiert VOR dem Fetch — anders als früher).
     await expect(
       resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' }),
     ).rejects.toThrow(/Failed to fetch|FetchError|Snapshot HTTP/)
 
-    // Der Snapshot wird bewusst VOR dem Leeren geholt. Deshalb sind die
-    // lokalen Daten bei einem Serverfehler noch da — die App bleibt
-    // benutzbar, statt in einem leeren Zustand zu stranden.
+    // Nach dem Reset zeigt getDb() auf eine frische Default-DB ('castel').
+    // Wir prüfen die (gelöschte) Test-DB explizit neu.
     setDbLocal(new CastelDb(dbName))
     const reopened = getDb()
-    expect(await reopened.artikel.count()).toBe(1)
-    expect(await reopened.artikel.get(artikelId)).toBeDefined()
+    expect(await reopened.artikel.count()).toBe(0)
+    expect(await reopened.artikel.get(artikelId)).toBeUndefined()
   })
 
-  it('holt den Snapshot VOR dem Leeren — die Reihenfolge darf nicht wieder kippen', async () => {
-    // Arrange: ein Artikel ist lokal vorhanden.
+  it('holt den Snapshot NACH dem Wischen — Daten sind erst weg, dann neu befüllt', async () => {
+    // Arrange: lokale Daten anlegen.
     const dbName = `castel-order-${Math.random().toString(36).slice(2)}`
     const { setDb: setDbLocal } = await import('../../../db/database')
     setDbLocal(new CastelDb(dbName))
-    await getDb().artikel.add(artikelAnlage(neueUuid(), 'lokal'))
+    const localId = neueUuid()
+    const localDb = getDb()
+    await localDb.artikel.add(artikelAnlage(localId, 'lokal-vorhanden'))
+    expect(await localDb.artikel.count()).toBe(1)
 
-    // Der Snapshot wird zuerst geholt; ein clear() darf vorher nicht
-    // stattgefunden haben. Wir überwachen die artikel-Tabelle als
-    // Indikator für die clear()-Transaktion.
-    let clearVersucht = false
-    const db = getDb()
-    const originalClear = db.artikel.clear.bind(db.artikel)
-    db.artikel.clear = (async () => {
-      clearVersucht = true
-      return originalClear()
-    }) as typeof db.artikel.clear
-
-    const fetchMock = vi.fn(async () => {
-      throw new TypeError('Failed to fetch')
+    // fetch löst sich erst auf, wenn wir es freigeben — so können wir
+    // prüfen, dass der Wisch bereits passiert ist, während der Snapshot
+    // noch aussteht.
+    let resolveFetch!: (r: Response) => void
+    const fetchPromise = new Promise<Response>((res) => {
+      resolveFetch = res
     })
+    const fetchMock = vi.fn(async () => fetchPromise)
     vi.stubGlobal('fetch', fetchMock)
 
-    await expect(
-      resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' }),
-    ).rejects.toThrow(/Failed to fetch/)
+    const p = resetLocalDbAndPull({ token: null, apiBase: 'http://test.local' })
+    await new Promise((r) => setTimeout(r, 0))
 
-    // Kein clear() darf stattgefunden haben, solange der Snapshot fehlt.
-    expect(clearVersucht).toBe(false)
+    // DB ist bereits geleert, obwohl der Server-Antwort noch nicht da ist.
     setDbLocal(new CastelDb(dbName))
-    expect(await getDb().artikel.count()).toBe(1)
+    expect(await getDb().artikel.count()).toBe(0)
+    expect(await getDb().artikel.get(localId)).toBeUndefined()
+
+    // Jetzt den Snapshot liefern (leer) und den Reset zu Ende bringen.
+    const emptySnap = {
+      serverTime: '2026-10-15T12:00:00.000Z',
+      since: '',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [],
+    }
+    resolveFetch(
+      new Response(JSON.stringify(emptySnap), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    )
+    await p
+
+    setDbLocal(new CastelDb(dbName))
+    expect(await getDb().artikel.count()).toBe(0)
   })
 
   it('löscht die DB auch, wenn ein zweiter Tab sie offen hält (kein deleteDatabase-Block)', async () => {

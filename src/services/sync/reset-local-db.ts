@@ -6,26 +6,21 @@
 // enough because it only pulls changes since `lastPullAt`. Then the only
 // way out is: drop the data, pull a complete server snapshot.
 //
-// Order of operations (snapshot is fetched FIRST, deliberately):
+// Order of operations (wipe FIRST):
 //   1) Fully stop and suspend the sync worker (interval, boot timer,
 //      `online`/`visibilitychange` listeners). A running — or freshly
 //      restarted — sync would immediately reopen and partly refill the
 //      database we are about to wipe.
-//   2) Fetch the complete snapshot from the server (no `since`). Local
-//      data is still untouched at this point, so a server/network failure
-//      is harmless — the app stays usable. With the old order (wipe first,
-//      pull later) any network error left an empty app behind.
-//   3) The worker stays suspended until the caller reloads the page.
-//   4) Wipe every table inside ONE rw transaction. No `deleteDatabase()`:
-//      that request is blocked by IndexedDB as long as a second tab of the
-//      same origin holds the DB open (it then fires `blocked` and Dexie
-//      waits forever — the button stayed stuck). A `clear()` needs no other
-//      connection to be closed and is therefore robust. Only if the
-//      transaction itself fails (broken schema, DB no longer openable) do
-//      we escalate to `db.delete()`, guarded by a timeout.
-//   5) Write the snapshot and set the `lastPullAt` markers.
-//   6) Reload the page — stores stay in memory and only pick up the fresh
-//      data after the reload.
+//   2) Close the Dexie connection and drop the whole IndexedDB with
+//      `indexedDB.deleteDatabase()`. This is a hard wipe — guaranteed empty
+//      afterwards. Guarded by a timeout so a blocked request (e.g. another
+//      castel tab holding the DB open) fails fast with a clear error instead
+//      of hanging the admin button forever.
+//   3) Create a fresh Dexie instance (schema is read from .version() blocks).
+//   4) Fetch the complete snapshot from the server (no `since`) and write it
+//      into the fresh DB, plus lastPull/mindestbestand markers.
+//   5) The worker stays suspended until the caller reloads the page; the
+//      caller triggers window.location.reload() after success.
 //
 // Note: we deliberately wipe data only, never caches. Cache wipe and DB
 // reset are separate buttons because the underlying problems are separate.
@@ -59,20 +54,6 @@ export interface ResetLocalDbResult {
 interface ApplySnapshotOptions {
   serverTime: string
   db: ReturnType<typeof getDb>
-}
-
-/**
- * Wipes ALL tables in a single transaction. Deliberately `clear()` instead
- * of `db.delete()`: `deleteDatabase()` is blocked while another connection
- * (e.g. a second browser tab) has the DB open — Dexie then waits forever
- * and the admin button hangs.
- */
-async function clearAllTables(db: ReturnType<typeof getDb>): Promise<void> {
-  await db.transaction('rw', db.tables, async () => {
-    for (const table of db.tables) {
-      await table.clear()
-    }
-  })
 }
 
 async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOptions): Promise<void> {
@@ -161,49 +142,35 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
 }
 
 /**
- * Wipes the local data and pulls a complete snapshot from the server.
- * Throws when the server is unreachable or the snapshot request fails —
- * local data is then left untouched and the user can simply retry.
+ * Wipes the local IndexedDB completely and pulls a complete snapshot from
+ * the server. Throws when the wipe or the snapshot request fails — local
+ * data is then gone and must be refilled from the server (reload).
  *
- * The reload is NOT triggered here — the caller decides whether and when
- * to reload. In the normal flow a `window.location.reload()` follows
- * immediately.
+ * Order: worker stop → hard wipe of IndexedDB → fresh snapshot → refill.
+ * The reload is NOT triggered here — the caller decides.
  */
 export async function resetLocalDbAndPull(opts: {
   token: string | null
   apiBase: string
 }): Promise<ResetLocalDbResult> {
-  // 1) Fully stop and suspend the sync worker (including the
-  //    `online`/`visibilitychange` listeners) so the app cannot revive it
-  //    mid-reset. Stays suspended until the caller reloads.
+  // 1) Fully stop and suspend the sync worker so it cannot reopen/refill
+  //    the DB while we wipe it.
   suspendSyncWorker()
 
-  // 2) Fetch the snapshot FIRST — local data is still intact here, so a
-  //    server/network error leaves the app usable instead of empty.
-  const data = await fetchSnapshot(opts.apiBase, opts.token, '', MINDEST_SINCE_EPOCHE)
+  const oldDb = getDb()
 
-  const db = getDb()
+  // 2) Close connection, then hard-drop the database. deleteDatabase()
+  //    blocks while another connection (e.g. a second tab) holds the DB —
+  //    guarded by a timeout with a clear error message.
+  oldDb.close()
+  await dropDatabase(oldDb)
 
-  // 3) Wipe the data. A `clear()` runs on the still-open connection and
-  //    is — unlike `deleteDatabase()` — never blocked by other tabs.
-  try {
-    await clearAllTables(db)
-  } catch (e) {
-    // Broken schema / DB no longer openable: escalate to a real drop.
-    // Guarded by a timeout so a blocked deleteDatabase request (e.g. a
-    // second tab) cannot hang forever.
-    console.warn('[reset-local-db] clear() failed, escalating to db.delete()', e)
-    db.close()
-    await dropDatabase(db)
-  }
-
-  // 4) Create a fresh Dexie instance. Dexie reads the schema straight
-  //    from the .version() blocks, so no re-declaration of .stores() is
-  //    needed. The singleton is reset so callers get a new instance —
-  //    required after the drop fallback, where the old one was closed and
-  //    every access to it would fail.
+  // 3) Fresh Dexie instance, reset singleton.
   resetDbForTests()
   const newDb = getDb()
+
+  // 4) Snapshot erst JETZT holen — die lokale DB ist bereits weg.
+  const data = await fetchSnapshot(opts.apiBase, opts.token, '', MINDEST_SINCE_EPOCHE)
 
   await applyPulledSnapshot(data, {
     serverTime: data.serverTime,
@@ -225,10 +192,10 @@ export async function resetLocalDbAndPull(opts: {
 }
 
 /**
- * Last resort: drop the whole IndexedDB. `indexedDB.deleteDatabase()`
- * blocks while another connection is open and Dexie then waits without a
- * timeout. We abort after 10 s and throw a message that names the most
- * likely cause (a second open tab).
+ * Drop the whole IndexedDB. `indexedDB.deleteDatabase()` blocks while
+ * another connection is open and Dexie then waits without a timeout — we
+ * abort after 10 s and throw a message naming the most likely cause
+ * (a second open castel tab).
  */
 async function dropDatabase(db: ReturnType<typeof getDb>): Promise<void> {
   let blockedByOtherTab = false

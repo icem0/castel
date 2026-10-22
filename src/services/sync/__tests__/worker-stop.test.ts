@@ -87,11 +87,11 @@ describe('stopSyncWorker', () => {
     stopSyncWorker()
     startSyncWorker({ apiBase: 'http://test.local', getToken: () => null, intervalSek: 3600 })
 
+    fetchMock.mockClear()
     sichtbar(true)
-    await new Promise((r) => setTimeout(r, 50))
 
     // Genau ein Sync, nicht zwei (kein doppelt registrierter Listener).
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
   })
 
   it('suspendSyncWorker() blocks a restart triggered by the app', async () => {
