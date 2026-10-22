@@ -408,6 +408,7 @@ export default {
         'Nur verwenden, wenn die normale Synchronisation hängt oder die lokale DB korrupt ist.',
       lokaleDBLoeschen: 'Lokale DB löschen',
       loescht: 'Lösche & ziehe Snapshot…',
+      loeschtUndNeuLaden: 'Lösche & lade neu…',
       jaLoeschen: 'Ja, löschen & neu laden',
       serverDB: 'Server-Datenbank leeren',
       serverDBHint:

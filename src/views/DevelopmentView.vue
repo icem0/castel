@@ -124,10 +124,10 @@ async function serverDbBestaetigen(): Promise<void> {
           :disabled="cachePhase === 'laufend'"
           @click="cacheBestaetigen"
         >
-          {{ cachePhase === 'laufend' ? t('view.development.leert') : t('common.ja') }}
+          {{ cachePhase === 'laufend' ? t('view.development.leert') : t('view.common.ja') }}
         </button>
         <button type="button" :disabled="cachePhase === 'laufend'" @click="cacheAbbrechen">
-          {{ t('common.abbrechen') }}
+          {{ t('view.common.abbrechen') }}
         </button>
       </div>
     </div>
@@ -172,7 +172,7 @@ async function serverDbBestaetigen(): Promise<void> {
           }}
         </button>
         <button type="button" :disabled="dbPhase === 'laufend'" @click="dbAbbrechen">
-          {{ t('common.abbrechen') }}
+          {{ t('view.common.abbrechen') }}
         </button>
       </div>
     </div>
@@ -220,7 +220,7 @@ async function serverDbBestaetigen(): Promise<void> {
           }}
         </button>
         <button type="button" :disabled="serverDbPhase === 'laufend'" @click="serverDbAbbrechen">
-          {{ t('common.abbrechen') }}
+          {{ t('view.common.abbrechen') }}
         </button>
       </div>
     </div>

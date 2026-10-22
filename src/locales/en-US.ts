@@ -396,6 +396,7 @@ export default {
       lokaleDBWarnung: 'Only use if normal sync is stuck or the local DB is corrupt.',
       lokaleDBLoeschen: 'Delete local DB',
       loescht: 'Deleting & pulling snapshot…',
+      loeschtUndNeuLaden: 'Deleting & reloading…',
       jaLoeschen: 'Yes, delete & reload',
       serverDB: 'Clear server database',
       serverDBHint:
