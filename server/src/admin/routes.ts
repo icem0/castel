@@ -22,10 +22,25 @@
 
 import type { FastifyInstance } from 'fastify'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { getClient, getDb } from '../db/client.js'
+import { getDb } from '../db/client.js'
 import { einstellungen } from '../db/schema.js'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
+
+const CLEARED_DOMAIN_TABLES = [
+  'datanorm_importe',
+  'datanorm_dateien',
+  'hersteller_artikel',
+  'lieferanten',
+  'mindestbestand_ereignisse',
+  'audit_log',
+  'fotos',
+  'buchungen',
+  'commission',
+  'artikel',
+  'standorte',
+  'einstellungen',
+] as const
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/admin/sync/all
@@ -81,21 +96,18 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
     '/api/admin/db/clear',
     { preHandler: app.requireAdmin },
     async (_req, reply) => {
-      const pg = getClient()
-      await pg.begin(async (tx) => {
-        await tx`TRUNCATE datanorm_importe`
-        await tx`TRUNCATE datanorm_dateien`
-        await tx`TRUNCATE hersteller_artikel`
-        await tx`TRUNCATE lieferanten`
-        await tx`TRUNCATE mindestbestand_ereignisse`
-        await tx`TRUNCATE audit_log`
-        await tx`TRUNCATE fotos`
-        await tx`TRUNCATE buchungen`
-        await tx`TRUNCATE commission`
-        await tx`TRUNCATE artikel`
-        await tx`TRUNCATE standorte`
-        await tx`TRUNCATE einstellungen`
-      })
+      const db = getDb()
+
+      // PostgreSQL rejects separate TRUNCATE calls when an FK points from an
+      // omitted table to the target, even if that referencing table is empty.
+      // A single statement locks the whole domain closure, and CASCADE keeps
+      // the operation stable when new dependent domain tables are added.
+      await db.execute(
+        sql.raw(
+          `TRUNCATE TABLE ${CLEARED_DOMAIN_TABLES.join(', ')} CASCADE`,
+        ),
+      )
+
       return reply.send({ cleared: true })
     },
   )
