@@ -26,14 +26,36 @@ RUN npx tsc -p tsconfig.json
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-# argon2 braucht libc / libstdc++. postgresql-client liefert pg_dump und
+# argon2 braucht libc / libstdc++. postgresql-client-16 liefert pg_dump und
 # pg_restore — OHNE das Binary kann der Server kein Backup erstellen
 # ("spawn pg_dump ENOENT"). Der Backup-Cron und der Admin-Download
 # brauchen es zwingend. unzip entpackt das Backup-ZIP beim Restore
 # ("spawn unzip ENOENT" ohne es).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates dumb-init postgresql-client unzip \
-  && rm -rf /var/lib/apt/lists/*
+#
+# WICHTIG: Die Client-Version MUSS zur Major-Version des Postgres-Servers
+# passen (docker-compose.yml: db -> postgres:16-alpine). Ein aelterer
+# pg_dump verweigert einen neueren Server ("aborting because of server
+# version mismatch"), liefert einen 0-Byte-Dump und das Backup ist wertlos.
+# Deshalb installieren wir den Client explizit aus dem PGDG-Repo in der
+# passenden Major-Version (ARG PG_MAJOR) statt des Debian-Meta-Pakets
+# 'postgresql-client' (bookworm = Version 15).
+ARG PG_MAJOR=16
+RUN set -eux; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl dumb-init unzip; \
+    install -d /usr/share/postgresql-common/pgdg; \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
+    . /etc/os-release; \
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}"; \
+    apt-get purge -y --auto-remove curl || true; \
+    rm -rf /var/lib/apt/lists/*; \
+    pg_dump --version; \
+    pg_restore --version
 
 COPY --from=deps   /app/node_modules ./node_modules
 COPY --from=build  /app/dist          ./dist

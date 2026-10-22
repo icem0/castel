@@ -74,7 +74,7 @@ export async function runOnce(log: FastifyBaseLogger, keepCopies: number): Promi
     const fileStream = createWriteStream(pfad)
     const result = await baueBackupZip({
       out: fileStream,
-      pgDumpReadable: pgDump,
+      pgDump,
       forceAt,
       dbCounts: { buchungen: wait.lastCount },
       tool: 'api/admin/backup.cron',
@@ -85,6 +85,7 @@ export async function runOnce(log: FastifyBaseLogger, keepCopies: number): Promi
       {
         filename,
         bytes: result.bytes,
+        dumpBytes: result.dumpBytes,
         geloescht,
         total: files.length,
         dauerMs: Date.now() - start,

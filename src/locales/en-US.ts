@@ -343,6 +343,11 @@ export default {
       restoreFrage: 'Really restore {name}? This will overwrite all current data irreversibly.',
       restoreFrage2: 'Are you sure? Last chance — the API service must be stopped first!',
       restoreErfolg: 'Restore of {name} complete. The API can be started again.',
+      dumpLeer: 'Empty dump',
+      dumpLeerHint:
+        'This backup contains no database dump (0 bytes) and cannot be restored. Usually caused by a failed pg_dump.',
+      dumpLeerListe:
+        'Backups with an empty dump cannot be restored — please delete them and create a new backup.',
     },
     passwortAendern: {
       h1Erzwungen: 'Set new password',

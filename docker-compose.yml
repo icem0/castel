@@ -30,6 +30,11 @@
 
 services:
   db:
+    # WICHTIG: Die Postgres-Major-Version hier muss zur Version des
+    # Postgres-Clients im API-Image passen (ARG PG_MAJOR in
+    # server/Dockerfile, aktuell 16). Ein aelterer pg_dump verweigert
+    # einen neueren Server und liefert einen leeren Dump — das Backup
+    # waere dann wertlos. Bei einem Major-Bump hier: PG_MAJOR anheben.
     image: postgres:16-alpine
     restart: unless-stopped
     environment:

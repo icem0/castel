@@ -83,7 +83,8 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 ## Backup & Restore
 
 - **Server ist Source of Truth, Client ist flüchtig.** Die PWA-IndexedDB wird beim nächsten Online-Sync ohnehin überschrieben. Es gibt **kein** clientseitiges Backup-Feature — die ganze Backup-/Restore-Logik liegt in der API und im PWA-Admin-UI unter *Einstellungen → Daten → Backup & Restore*.
-- **Alles läuft in-process im API-Service** (kein Host-Skript, kein Cron, kein SSH). Das API-Image bringt `postgresql-client` (für `pg_dump`/`pg_restore`) und `archiver` (npm) mit. Die Volumes `pgdata`, `fotos-data` und `backups-data` sind named Volumes aus `docker-compose.yml`; sie sind vom externen Snapshot/Borg des Deployers unabhängig.
+- **Alles läuft in-process im API-Service** (kein Host-Skript, kein Cron, kein SSH). Das API-Image bringt `postgresql-client-16` (für `pg_dump`/`pg_restore`) und `archiver` (npm) mit. Die Volumes `pgdata`, `fotos-data` und `backups-data` sind named Volumes aus `docker-compose.yml`; sie sind vom externen Snapshot/Borg des Deployers unabhängig.
+- **Client-Version MUSS zur Server-Version passen (Pflicht).** Das API-Image installiert den Postgres-Client aus dem PGDG-Repo in der Major-Version `ARG PG_MAJOR=16` (`server/Dockerfile`). Der `db`-Service fährt `postgres:16-alpine` — **die beiden Major-Versionen müssen synchron bleiben**. Ein älterer `pg_dump` verweigert einen neueren Server (`aborting because of server version mismatch`), liefert einen **0-Byte-Dump** und das Backup ist wertlos (Restore: `pg_restore: error: input file is too short`). Bei einem Major-Bump der DB: `ARG PG_MAJOR` im Dockerfile anheben. Der Server prüft beim Start `pg_dump --version` gegen `SHOW server_version_num` und loggt einen Error, wenn der Client älter ist.
 - **Drei Wege zum Backup** (alle admin-only):
   1. **Sofort-Download** — `POST /api/admin/backup/download`. Streamt das ZIP als Response.
   2. **Datei im Server speichern** — `POST /api/admin/backup/run`. Schreibt nach `BACKUP_DIR` (`/var/lib/castel/backups`, Volume `backups-data`).
@@ -91,11 +92,14 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
 - **Ablauf pro Backup** (sync-first):
   1. `POST /api/admin/sync/all` setzt `sync.forceAt`-Marker in `einstellungen`.
   2. Polling auf `GET /api/sync/status`, bis `buchungen`-Count stabil ist. **Zwei Zeitfenster**: Die HTTP-Endpoints `download`/`run` warten kurz (2 s Ruhe / 15 s Cap — nginx im PWA-Container killt Proxy-Requests nach 60 s, und der Sync-Worker pusht ohnehin alle 30 s). Der Cron nutzt die vollen Config-Defaults `BACKUP_SYNC_QUIET_MS` (8 s) / `BACKUP_SYNC_TIMEOUT_MS` (120 s).
-  3. `pg_dump -Fc` → Custom-Format-Dump.
+  3. `pg_dump -Fc` → Custom-Format-Dump. **Exit-Code und Byte-Count werden geprüft**: ein fehlgeschlagener oder leerer Dump macht das Backup zum Fehler (die ZIP wird verworfen) — ein Backup mit 0-Byte-Dump darf nie als „erfolgreich" durchgehen.
   4. `FOTOS_DIR` → `fotos/` (Artikel-IDs als Unterordner).
   5. `manifest.json` (`schema: 'castel-backup-1'`) + ZIP via `archiver`.
 - **Restore**: `POST /api/admin/backup/restore` mit `{ name, confirm: 'yes' }` — der Server entpackt das ZIP in tmpdir, ruft `pg_restore --clean --if-exists --single-transaction` und kopiert die Fotos zurück. **Vorbedingung**: API-Service muss gestoppt sein (Admin-Disziplin, kein Auto-Stop).
-- **Manifest-Schema**: `castel-backup-1`. Unbekannte Schemata werden verweigert.
+  - **Vor `pg_restore` wird der Dump validiert**: Datei vorhanden, > 0 Bytes, Header `PGDMP`. Sonst Abbruch mit klarer Meldung.
+  - **Jeder `pg_restore`-Exit-Code != 0 ist ein Fehler** (kein „toleranter" Exit 1). Ein Restore, der Erfolg meldet, obwohl nichts eingespielt wurde, ist schlimmer als ein klarer Fehler.
+- **Backup-Liste**: `GET /api/admin/backup/list` liefert je ZIP `dumpBytes`/`dumpOk` (geprüft via `unzip -l`). Backups mit leerem Dump werden im Admin-UI als unbrauchbar markiert; der Restore-Button ist für sie deaktiviert.
+- **Manifest-Schema**: `castel-backup-1`. Unbekannte Schemata werden verweigert. Optionale Felder `pgDumpVersion`/`pgDumpMajor` dokumentieren den benutzten Client.
 - **Defaults** (Migration 0012): `backup.schedule = ''` (aus), `backup.keepCopies = '7'` (eine Woche). ON CONFLICT DO NOTHING — Admin-Settings werden nicht überschrieben.
 
 ## Build & Deployment

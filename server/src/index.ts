@@ -17,7 +17,7 @@ import { userRoutes } from './users/routes.js'
 import { adminRoutes } from './admin/routes.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
-import { pgDumpVerfuegbar } from './admin/backup.js'
+import { pgDumpMajor, serverVersionMajor } from './admin/backup.js'
 
 import { datanormRoutes } from './datanorm/routes.js'
 import { starteDatanormCron, stoppeDatanormCron } from './datanorm/cleanup-cron.js'
@@ -150,13 +150,24 @@ async function main() {
     // Backup-Voraussetzungen pruefen: ohne pg_dump (postgresql-client)
     // kann kein Backup erstellt werden. Das melden wir sofort beim
     // Start, statt erst wenn der Admin auf "Backup" klickt.
-    if (!pgDumpVerfuegbar()) {
+    const clientMajor = pgDumpMajor()
+    const serverMajor = await serverVersionMajor()
+    if (clientMajor === null) {
       app.log.error(
         'pg_dump nicht gefunden — Backups sind NICHT moeglich! ' +
           "Es fehlt das Paket 'postgresql-client' im Image (siehe server/Dockerfile).",
       )
+    } else if (serverMajor !== null && clientMajor < serverMajor) {
+      app.log.error(
+        `pg_dump ${clientMajor} kann Postgres ${serverMajor} nicht dumpen — ` +
+          'jedes Backup waere leer und unbrauchbar! Die Client-Version im Image ' +
+          'muss zur Server-Version passen (ARG PG_MAJOR in server/Dockerfile).',
+      )
     } else {
-      app.log.info('pg_dump gefunden — Backups sind moeglich')
+      app.log.info(
+        { pgDumpMajor: clientMajor, serverMajor },
+        'pg_dump gefunden — Backups sind moeglich',
+      )
     }
     starteBackupCron(app.log)
     starteDatanormCron(app.log)

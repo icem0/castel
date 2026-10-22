@@ -80,7 +80,7 @@ async function fuehreBackupDurch(jobId: string, log: { info: (...a: unknown[]) =
     const settings = await leseBackupSettings()
     const result = await baueBackupZip({
       out: fileStream,
-      pgDumpReadable: pgDump,
+      pgDump,
       forceAt,
       dbCounts: { buchungen: wait.lastCount },
       tool: 'api/admin/backup.run',
@@ -88,7 +88,10 @@ async function fuehreBackupDurch(jobId: string, log: { info: (...a: unknown[]) =
     const geloescht = await rotiereAlteBackups(settings.keepCopies)
     job.status = 'done'
     job.filename = filename
-    log.info({ filename, bytes: result.bytes, geloescht }, '[backup] run fertig (asynchron)')
+    log.info(
+      { filename, bytes: result.bytes, dumpBytes: result.dumpBytes, geloescht },
+      '[backup] run fertig (asynchron)',
+    )
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     job.status = 'failed'
@@ -150,7 +153,10 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: app.requireAdmin },
     async (_req, reply) => {
       await ensureBackupDir()
-      const files = await listeBackups()
+      // inspect: true prueft jede ZIP auf einen nicht-leeren DB-Dump —
+      // ein Backup mit leerem Dump ist unbrauchbar und soll im UI
+      // sichtbar sein.
+      const files = await listeBackups(config.BACKUP_DIR, { inspect: true })
       return reply.send({ files, dir: config.BACKUP_DIR })
     },
   )
@@ -234,14 +240,14 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
       }
       const pfad = backupDateiPfad(name)
       try {
-        await restoreAusZip(pfad, config.DATABASE_URL)
+        const result = await restoreAusZip(pfad, config.DATABASE_URL)
+        app.log.info({ name, ...result }, '[backup] restore fertig')
+        return reply.send({ ok: true, name, ...result })
       } catch (e) {
-        return reply
-          .code(500)
-          .send({ code: 'RESTORE_FAILED', message: e instanceof Error ? e.message : String(e) })
+        const message = e instanceof Error ? e.message : String(e)
+        app.log.error({ name, err: message }, '[backup] restore fehlgeschlagen')
+        return reply.code(500).send({ code: 'RESTORE_FAILED', message })
       }
-      app.log.info({ name }, '[backup] restore fertig')
-      return reply.send({ ok: true, name })
     },
   )
 

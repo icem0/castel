@@ -354,6 +354,11 @@ export default {
         '{name} wirklich einspielen? Dies überschreibt alle aktuellen Daten unwiderruflich.',
       restoreFrage2: 'Wirklich? Letzte Chance — der API-Service muss vorher gestoppt sein!',
       restoreErfolg: 'Restore von {name} abgeschlossen. API kann wieder gestartet werden.',
+      dumpLeer: 'Dump leer',
+      dumpLeerHint:
+        'Dieses Backup enthält keinen Datenbank-Dump (0 Bytes) und kann nicht eingespielt werden. Ursache ist in der Regel ein fehlgeschlagener pg_dump.',
+      dumpLeerListe:
+        'Backups mit leerem Dump können nicht eingespielt werden — bitte löschen und ein neues Backup erstellen.',
     },
     passwortAendern: {
       h1Erzwungen: 'Neues Passwort setzen',

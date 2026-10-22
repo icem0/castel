@@ -34,6 +34,10 @@ interface BackupDatei {
   name: string
   size: number
   createdAt: string
+  /** Groesse des DB-Dumps im ZIP (null = nicht ermittelbar). */
+  dumpBytes: number | null
+  /** true = ZIP enthaelt einen nicht-leeren DB-Dump und ist einspielbar. */
+  dumpOk: boolean | null
 }
 
 interface BackupListResponse {
@@ -364,7 +368,16 @@ const settingsDirty = ref(false)
         </thead>
         <tbody>
           <tr v-for="f in files" :key="f.name">
-            <td class="mono">{{ f.name }}</td>
+            <td class="mono">
+              {{ f.name }}
+              <span
+                v-if="f.dumpOk === false"
+                class="badge-warn"
+                :title="t('view.backup.dumpLeerHint')"
+              >
+                {{ t('view.backup.dumpLeer') }}
+              </span>
+            </td>
             <td class="num">{{ humanSize(f.size) }}</td>
             <td>{{ humanDate(f.createdAt) }}</td>
             <td class="row-actions">
@@ -379,7 +392,8 @@ const settingsDirty = ref(false)
               <button
                 type="button"
                 class="danger small"
-                :disabled="backupJob.status === 'running'"
+                :disabled="backupJob.status === 'running' || f.dumpOk === false"
+                :title="f.dumpOk === false ? t('view.backup.dumpLeerHint') : undefined"
                 @click="dateiRestaurieren(f.name)"
               >
                 {{ t('view.backup.aktionRestore') }}
@@ -396,6 +410,9 @@ const settingsDirty = ref(false)
           </tr>
         </tbody>
       </table>
+      <p v-if="files.some((f) => f.dumpOk === false)" class="hint hint-warn">
+        {{ t('view.backup.dumpLeerListe') }}
+      </p>
       <p v-if="backupDir" class="hint mono backup-dir">
         {{ t('view.backup.listePfad') }}: <code>{{ backupDir }}</code>
       </p>
@@ -463,6 +480,20 @@ const settingsDirty = ref(false)
   display: flex;
   gap: 0.25rem;
   flex-wrap: wrap;
+}
+.badge-warn {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.75em;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: var(--err-accent, #b00020);
+  background: var(--err-bg, #fde8e8);
+  border: 1px solid var(--err-accent, #b00020);
+}
+.hint-warn {
+  color: var(--err-accent, #b00020);
 }
 button.small {
   padding: 0.2rem 0.5rem;

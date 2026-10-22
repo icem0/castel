@@ -14,12 +14,13 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createReadStream, createWriteStream, statSync } from 'node:fs'
-import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, readFile, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Readable, Writable } from 'node:stream'
+import { Readable, Transform, Writable } from 'node:stream'
 import archiver from 'archiver'
 import { and, isNull, sql } from 'drizzle-orm'
-import { getDb } from '../db/client.js'
+import { getClient, getDb } from '../db/client.js'
 import { buchungen, einstellungen } from '../db/schema.js'
 import { config } from '../config/config.js'
 
@@ -168,14 +169,81 @@ export async function warteAufSyncIdle(
 
 // ---------- pg_dump als Stream ----------
 
+/** Maximale Laenge des gepufferten pg_dump-stderr (fuer Fehlermeldungen). */
+const STDERR_MAX_CHARS = 16_384
+
+/** Maximale Laenge des gepufferten stdout (fuer `unzip -l`). */
+const STDOUT_MAX_CHARS = 1_048_576
+
+/** Header-Magic eines pg_dump-Custom-Format-Dumps. */
+const PGDMP_MAGIC = 'PGDMP'
+
+/** Zeitlimit, bis pg_dump nach dem Ende des Streams sauber beendet sein muss. */
+const PG_DUMP_EXIT_TIMEOUT_MS = 15_000
+
 /**
- * Prueft, ob `pg_dump` im PATH liegt. Wird beim Server-Start einmal
- * geprueft, damit ein fehlendes `postgresql-client` sofort auffaellt
- * (statt erst beim ersten Backup).
+ * Vollstaendige Versionszeile von pg_dump, z. B. "pg_dump (PostgreSQL) 16.9".
+ * null = pg_dump fehlt im PATH (kein 'postgresql-client' im Image).
  */
-export function pgDumpVerfuegbar(): boolean {
-  const r = spawnSync('pg_dump', ['--version'], { stdio: 'ignore' })
-  return r.status === 0
+export function pgDumpVersion(): string | null {
+  const r = spawnSync('pg_dump', ['--version'], { encoding: 'utf8' })
+  if (r.status !== 0 || typeof r.stdout !== 'string') return null
+  const zeile = r.stdout.trim()
+  return zeile.length > 0 ? zeile : null
+}
+
+/**
+ * Major-Version des installierten pg_dump, z. B. 16.
+ * Relevant, weil ein aelterer Client einen neueren Server nicht
+ * dumpen kann ("aborting because of server version mismatch") — der
+ * Dump waere dann leer und das Backup wertlos.
+ */
+export function pgDumpMajor(): number | null {
+  return majorAusVersion(pgDumpVersion())
+}
+
+/** Leitet die Major-Version aus einer Versionszeile ab ("... 16.9" -> 16). */
+function majorAusVersion(version: string | null): number | null {
+  if (!version) return null
+  const m = version.match(/(\d+)\.\d+/)
+  if (!m || m[1] === undefined) return null
+  return Number.parseInt(m[1], 10)
+}
+
+/**
+ * Major-Version des laufenden Postgres-Servers (z. B. 16).
+ * Wird fuer den Kompatibilitaets-Check gegen pg_dump genutzt: ein
+ * aelterer Client kann einen neueren Server nicht dumpen.
+ */
+export async function serverVersionMajor(): Promise<number | null> {
+  try {
+    const sqlc = getClient()
+    const rows = await sqlc`SHOW server_version_num`
+    const roh = rows[0]?.server_version_num
+    const num = typeof roh === 'string' ? Number.parseInt(roh, 10) : Number(roh)
+    if (!Number.isFinite(num)) return null
+    return Math.floor(num / 10_000)
+  } catch {
+    return null
+  }
+}
+
+export interface PgDumpResult {
+  /** Exit-Code von pg_dump (null bei Signal/Startfehler). */
+  code: number | null
+  /** Signal, falls der Prozess so beendet wurde. */
+  signal: NodeJS.Signals | null
+  /** Gesammelte stderr-Ausgabe (gekuerzt). */
+  stderr: string
+}
+
+export interface PgDumpHandle {
+  /** stdout von pg_dump (Custom-Format-Stream) — an archiver weiterreichen. */
+  stream: Readable
+  /** Resolved, sobald pg_dump beendet ist (Exit-Code + stderr). */
+  exit: Promise<PgDumpResult>
+  /** Anzahl der gelieferten Dump-Bytes (stdout). */
+  bytes(): number
 }
 
 /**
@@ -184,52 +252,96 @@ export function pgDumpVerfuegbar(): boolean {
  * gestreamt werden kann — bei grossen Datenbanken waere der
  * Memory-Buffer von exec der falsche Weg.
  *
- * WICHTIG: Der 'error'-Event auf dem ChildProcess muss behandelt werden.
+ * WICHTIG 1: Der 'error'-Event auf dem ChildProcess muss behandelt werden.
  * Ohne Handler stuerzt der komplette API-Prozess ab, wenn das Binary
  * fehlt (ENOENT) — der Event waere sonst "unhandled". Wir leiten den
- * Fehler stattdessen auf stdout weiter, wo der Backup-Job ihn auffaengt
- * und als 'failed' markiert.
+ * Fehler stattdessen auf den Stream weiter, wo der Backup-Job ihn
+ * auffaengt und als 'failed' markiert.
+ *
+ * WICHTIG 2: Wir liefern Exit-Code und Byte-Count mit zurueck. Ein
+ * fehlgeschlagener pg_dump (z. B. Versionskonflikt Client/Server) beendet
+ * stdout einfach sauber und leer — ohne diese Info wuerde daraus ein
+ * ZIP mit 0-Byte-Dump, der beim Restore als "input file is too short"
+ * abbricht.
  */
-export function pgDumpStream(databaseUrl: string): Readable {
+export function pgDumpStream(databaseUrl: string): PgDumpHandle {
   const args = ['-Fc', '--no-owner', '--no-acl', databaseUrl]
   const child = spawn('pg_dump', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+  let stderr = ''
   // stderr vom pg_dump in unseren Logger pipen — sonst sehen wir
   // Connection-Errors nicht.
   child.stderr.setEncoding('utf8')
   child.stderr.on('data', (chunk: string) => {
+    if (stderr.length < STDERR_MAX_CHARS) stderr += chunk
     process.stderr.write(`[pg_dump] ${chunk}`)
   })
+
+  // Zaehler-Transform: haelt den Backpressure der Pipe intakt (ein
+  // eigener 'data'-Listener wuerde den Stream dauerhaft fliessen lassen
+  // und den Memory-Verbrauch bei grossen Dumps sprengen).
+  let bytes = 0
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      bytes += chunk.length
+      cb(null, chunk)
+    },
+  })
+  // No-op-Listener: verhindert, dass ein 'error' auf dem Stream ohne
+  // zustaendigen Abnehmer den Prozess beendet.
+  counter.on('error', () => {})
+
+  const exit = new Promise<PgDumpResult>((resolve) => {
+    let settled = false
+    const done = (r: PgDumpResult) => {
+      if (settled) return
+      settled = true
+      resolve(r)
+    }
+    child.on('close', (code, signal) => done({ code, signal, stderr }))
+    child.on('error', (err: NodeJS.ErrnoException) => {
+      const meldung =
+        err.code === 'ENOENT'
+          ? `pg_dump nicht gefunden — ist 'postgresql-client' im Image? (${err.message})`
+          : `pg_dump konnte nicht gestartet werden: ${err.message}`
+      stderr = `${stderr}${stderr.length > 0 ? '\n' : ''}${meldung}`
+      done({ code: null, signal: null, stderr })
+    })
+  })
+
   // Fehlerbehandlung: sonst "Unhandled 'error' event" -> Prozess-Crash.
+  // Der Fehler geht auf den Stream, damit baueBackupZip ihn auffaengt.
   child.on('error', (err: NodeJS.ErrnoException) => {
     const meldung =
       err.code === 'ENOENT'
         ? `pg_dump nicht gefunden — ist 'postgresql-client' im Image? (${err.message})`
         : `pg_dump konnte nicht gestartet werden: ${err.message}`
-    // Der Fehler geht auf stdout, damit baueBackupZip ihn auffaengt.
-    // Ein eigener no-op-Listener verhindert, dass der 'error'-Event
-    // auf stdout selbst unhandled wird.
-    child.stdout.on('error', () => {})
-    child.stdout.emit('error', new Error(meldung))
+    counter.destroy(new Error(meldung))
   })
-  // Wir geben stdout zurueck. Wenn der Prozess vor stream-end stirbt,
-  // wird der Stream automatisch mit einem Error beendet (Node-Default).
-  return child.stdout
+  // Fehler auf stdout (z. B. EPIPE) an den Stream weiterreichen — pipe
+  // allein propagiert Fehler nicht.
+  child.stdout.on('error', (err: Error) => counter.destroy(new Error(`pg_dump: ${err.message}`)))
+  child.stdout.pipe(counter)
+
+  return { stream: counter, exit, bytes: () => bytes }
 }
 
 // ---------- ZIP-Bau ----------
 
+
 /**
  * Baut ein Backup-ZIP in den beschreibbaren Writable-Stream `out`.
- * `pgDumpReadable` wird als dump.pgdump eingebaut, FOTOS_DIR wird
+ * `pgDump.stream` wird als dump.pgdump eingebaut, FOTOS_DIR wird
  * (falls vorhanden) als fotos/ eingebettet, plus manifest.json.
  *
  * Rueckgabe: Wird aufgelöst, sobald das ZIP fertig geschrieben ist.
- *   rejected, wenn pg_dump mit Fehler beendet oder der Archiv-Vorgang
- *   scheitert.
+ *   rejected, wenn pg_dump mit Fehler beendet, wenn pg_dump KEINE Daten
+ *   geliefert hat (0-Byte-Dump) oder der Archiv-Vorgang scheitert.
  */
 export interface BackupResult {
   manifest: BackupManifest
   bytes: number
+  /** Groesse des eingebetteten DB-Dumps in Bytes. */
+  dumpBytes: number
 }
 
 export interface BackupManifest {
@@ -240,21 +352,32 @@ export interface BackupManifest {
   dbCounts: { buchungen: number }
   fotoCount: number
   tool: string
+  /** Version des benutzten pg_dump (z. B. "pg_dump (PostgreSQL) 16.9"). */
+  pgDumpVersion?: string | null
+  /** Major-Version des benutzten pg_dump (z. B. 16). */
+  pgDumpMajor?: number | null
 }
 
 export async function baueBackupZip(opts: {
   out: Writable
-  pgDumpReadable: Readable
+  pgDump: PgDumpHandle
   forceAt: string
   dbCounts: { buchungen: number }
   tool: string
 }): Promise<BackupResult> {
-  const { out, pgDumpReadable, forceAt, dbCounts, tool } = opts
+  const { out, pgDump, forceAt, dbCounts, tool } = opts
   const archive = archiver('zip', { zlib: { level: 6 } })
+  // Byte-Zaehler: ein Writable emittiert keine 'data'-Events, das
+  // Zaehlen muss daher ueber einen Transform zwischen Archiv und
+  // Ziel-Stream laufen.
   let bytes = 0
-  out.on('data', (chunk: Buffer) => {
-    bytes += chunk.length
+  const counter = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      bytes += chunk.length
+      cb(null, chunk)
+    },
   })
+  counter.on('error', () => {})
   const finished = new Promise<void>((resolve, reject) => {
     out.on('finish', () => resolve())
     out.on('error', reject)
@@ -262,7 +385,7 @@ export async function baueBackupZip(opts: {
     // Fehler aus dem pg_dump-Stream (z. B. Binary fehlt -> ENOENT)
     // muessen das Promise ablehnen — sonst entsteht ein stilles,
     // unbrauchbares ZIP ohne Dump.
-    pgDumpReadable.on('error', reject)
+    pgDump.stream.on('error', reject)
     archive.on('warning', (err: NodeJS.ErrnoException) => {
       // ENOENT auf einzelnen Dateien ist OK (race: User loescht waehrend
       // wir lesen). Andere Warnings promoten wir zu Errors.
@@ -270,10 +393,11 @@ export async function baueBackupZip(opts: {
       reject(err)
     })
   })
-  archive.pipe(out)
+  archive.pipe(counter)
+  counter.pipe(out)
 
   // pg_dump
-  archive.append(pgDumpReadable, { name: 'dump.pgdump' })
+  archive.append(pgDump.stream, { name: 'dump.pgdump' })
 
   // Fotos: nur hinzufuegen, wenn FOTOS_DIR existiert; sonst leerer Ordner.
   // fotoCount = Anzahl der Artikel-Unterordner (= IDs).
@@ -292,6 +416,7 @@ export async function baueBackupZip(opts: {
   }
 
   // manifest.json
+  const dumpVersion = pgDumpVersion()
   const manifest: BackupManifest = {
     schema: 'castel-backup-1',
     createdAt: new Date().toISOString(),
@@ -300,6 +425,8 @@ export async function baueBackupZip(opts: {
     dbCounts,
     fotoCount,
     tool,
+    pgDumpVersion: dumpVersion,
+    pgDumpMajor: majorAusVersion(dumpVersion),
   }
   archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' })
 
@@ -311,89 +438,257 @@ export async function baueBackupZip(opts: {
     // File-Handle offen und die ZIP-Datei liegt unvollstaendig im
     // Backup-Ordner (und wuerde bei der Rotation mitzaehlen).
     archive.abort()
+    counter.destroy()
     out.destroy()
     throw e
   }
-  return { manifest, bytes }
+
+  // Der Exit-Code von pg_dump ist das entscheidende Signal: ein
+  // fehlgeschlagener pg_dump (typisch: Client/Server-Versionskonflikt
+  // "server version mismatch") liefert einen 0-Byte-Dump. Ohne diese
+  // Pruefung wuerde das Backup als Erfolg gemeldet und erst beim
+  // Restore mit "input file is too short" auffallen.
+  const dumpResult = await warteAufPgDumpEnde(pgDump.exit)
+  if (dumpResult.code !== 0) {
+    const details = dumpResult.stderr.trim()
+    throw new Error(
+      `pg_dump fehlgeschlagen (exit ${dumpResult.code ?? 'null'})${
+        details.length > 0 ? `: ${details}` : ''
+      }`,
+    )
+  }
+  const dumpBytes = pgDump.bytes()
+  if (dumpBytes === 0) {
+    throw new Error(
+      'pg_dump hat keine Daten geliefert (0 Bytes) — das Backup waere unbrauchbar. ' +
+        'Typische Ursache: pg_dump-Version passt nicht zur Postgres-Server-Version.',
+    )
+  }
+  return { manifest, bytes, dumpBytes }
+}
+
+/** Wartet auf das Ende von pg_dump (mit Timeout, falls der Prozess haengt). */
+async function warteAufPgDumpEnde(exit: Promise<PgDumpResult>): Promise<PgDumpResult> {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    return await Promise.race([
+      exit,
+      new Promise<PgDumpResult>((resolve) => {
+        timer = setTimeout(
+          () =>
+            resolve({
+              code: null,
+              signal: null,
+              stderr: `pg_dump-Prozess beendete sich nicht innerhalb von ${PG_DUMP_EXIT_TIMEOUT_MS} ms`,
+            }),
+          PG_DUMP_EXIT_TIMEOUT_MS,
+        )
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 // ---------- Restore aus ZIP-File ----------
 
+export interface RestoreErgebnis {
+  /** Groesse des eingespielten DB-Dumps in Bytes. */
+  dumpBytes: number
+  /** Anzahl der kopierten Foto-Dateien. */
+  fotoDateien: number
+}
+
 /**
  * Spielt ein Backup-ZIP ein: entpackt in tmpdir, ruft pg_restore,
  * kopiert Fotos nach FOTOS_DIR.
- * Wirft, wenn das ZIP kein 'castel-backup-1'-Manifest hat oder die
- * `pg_restore`-Pipe fehlschlaegt.
+ *
+ * Wirft, wenn das ZIP kein 'castel-backup-1'-Manifest hat, wenn der
+ * enthaltene DB-Dump leer/beschaedigt ist oder wenn `pg_restore`
+ * fehlschlaegt. Jeder Exit-Code != 0 von pg_restore ist ein Fehler —
+ * ein Restore, der "Erfolg" meldet, obwohl nichts eingespielt wurde,
+ * ist schlimmer als ein klarer Fehler.
  *
  * Vorbedingung: API-Server muss gestoppt sein (Admin-Disziplin). Wir
  * pruefen das hier nicht, weil die Bedingung von aussen gilt; ein
  * Stop-Hook waere der falsche Ort.
  */
-export async function restoreAusZip(zipPath: string, databaseUrl: string): Promise<void> {
-  const { tmpdir } = await import('node:os')
-  const { mkdtemp, rm } = await import('node:fs/promises')
+export async function restoreAusZip(
+  zipPath: string,
+  databaseUrl: string,
+): Promise<RestoreErgebnis> {
   const tmp = await mkdtemp(join(tmpdir(), 'castel-restore-'))
+  try {
+    await entpackeZip(zipPath, tmp)
+    await leseManifest(tmp)
+    const dumpPath = join(tmp, 'dump.pgdump')
+    const dumpBytes = await pruefeDump(dumpPath)
+    await spieleDumpEin(dumpPath, databaseUrl)
+    const fotoDateien = await kopiereFotos(tmp)
+    return { dumpBytes, fotoDateien }
+  } finally {
+    // Aufraeumen bei Erfolg UND bei Fehlern — sonst bleiben die
+    // entpackten Daten (inkl. Fotos) im Temp-Verzeichnis liegen.
+    await rm(tmp, { recursive: true, force: true }).catch(() => {})
+  }
+}
 
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn('unzip', ['-o', zipPath, '-d', tmp], {
-      stdio: 'inherit',
-    })
-    child.on('error', reject)
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`unzip exit ${code}`))))
-  })
+/** Entpackt das ZIP nach `ziel`. Fehler -> Exception mit stderr-Auszug. */
+async function entpackeZip(zipPath: string, ziel: string): Promise<void> {
+  const r = await fuehreKommando('unzip', ['-o', zipPath, '-d', ziel], 'unzip')
+  if (r.code !== 0) {
+    throw new Error(
+      `Backup-ZIP konnte nicht entpackt werden (unzip exit ${r.code}): ${r.stderr.trim() || 'ohne Ausgabe'}`,
+    )
+  }
+}
 
+/** Liest und prueft das Manifest (Schema muss 'castel-backup-1' sein). */
+async function leseManifest(tmp: string): Promise<BackupManifest> {
   let manifestRaw: string
   try {
     manifestRaw = await readFile(join(tmp, 'manifest.json'), 'utf8')
   } catch {
-    await rm(tmp, { recursive: true, force: true }).catch(() => {})
     throw new Error('manifest.json fehlt im Backup')
   }
-  const manifest = JSON.parse(manifestRaw) as BackupManifest
+  let manifest: BackupManifest
+  try {
+    manifest = JSON.parse(manifestRaw) as BackupManifest
+  } catch {
+    throw new Error('manifest.json im Backup ist kein gueltiges JSON')
+  }
   if (manifest.schema !== 'castel-backup-1') {
-    await rm(tmp, { recursive: true, force: true }).catch(() => {})
     throw new Error(`Unbekanntes Backup-Schema '${manifest.schema}' — erwartet 'castel-backup-1'`)
   }
+  return manifest
+}
 
-  const dumpPath = join(tmp, 'dump.pgdump')
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      'pg_restore',
-      [
-        '-d',
-        databaseUrl,
-        '--clean',
-        '--if-exists',
-        '--no-owner',
-        '--no-acl',
-        '--single-transaction',
-        dumpPath,
-      ],
-      { stdio: 'inherit' },
-    )
-    child.on('error', reject)
-    child.on('close', (code) => {
-      if (code === 0 || code === 1) resolve()
-      else reject(new Error(`pg_restore exit ${code}`))
-    })
-  })
-
-  await mkdir(config.FOTOS_DIR, { recursive: true })
-  const fotosDir = join(tmp, 'fotos')
+/**
+ * Prueft den entpackten DB-Dump, BEVOR pg_restore laeuft: ein leerer
+ * Dump (0 Bytes) oder ein fehlender PGDMP-Header bedeutet, dass das
+ * Backup keinen verwertbaren Datenbank-Stand enthaelt. pg_restore
+ * wuerde das erst mit "input file is too short" melden — nach dem
+ * '--clean' hätten wir dann schon angefangen, die DB leerzuräumen.
+ */
+async function pruefeDump(dumpPath: string): Promise<number> {
+  let size: number
   try {
-    const s = statSync(fotosDir)
-    if (s.isDirectory()) {
-      const cp = spawn('cp', ['-r', `${fotosDir}/.`, `${config.FOTOS_DIR}/`], { stdio: 'inherit' })
-      await new Promise<void>((resolve, reject) => {
-        cp.on('error', reject)
-        cp.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`cp exit ${code}`))))
-      })
-    }
+    size = statSync(dumpPath).size
+  } catch {
+    throw new Error(
+      'dump.pgdump fehlt im Backup — das ZIP enthaelt keinen Datenbank-Dump und kann nicht eingespielt werden.',
+    )
+  }
+  if (size === 0) {
+    throw new Error(
+      'dump.pgdump ist leer (0 Bytes) — das Backup enthaelt keinen Datenbank-Dump. ' +
+        'Ursache ist in der Regel ein fehlgeschlagener pg_dump (z. B. passt die Client-Version nicht zur Server-Version). ' +
+        'Dieses Backup kann nicht eingespielt werden.',
+    )
+  }
+  const header = await lieseDumpHeader(dumpPath)
+  if (header !== PGDMP_MAGIC) {
+    throw new Error(
+      `dump.pgdump hat keinen gültigen PGDMP-Header ("${header}") — das Backup ist beschaedigt.`,
+    )
+  }
+  return size
+}
+
+/** Liest die ersten 5 Bytes eines Dumps (Magic "PGDMP"). */
+async function lieseDumpHeader(pfad: string): Promise<string> {
+  const handle = await open(pfad, 'r')
+  try {
+    const buf = Buffer.alloc(5)
+    const { bytesRead } = await handle.read(buf, 0, 5, 0)
+    return buf.subarray(0, bytesRead).toString('utf8')
+  } finally {
+    await handle.close()
+  }
+}
+
+/** Spielt den Dump ein. Jeder Exit-Code != 0 ist ein Fehler. */
+async function spieleDumpEin(dumpPath: string, databaseUrl: string): Promise<void> {
+  const r = await fuehreKommando(
+    'pg_restore',
+    [
+      '-d',
+      databaseUrl,
+      '--clean',
+      '--if-exists',
+      '--no-owner',
+      '--no-acl',
+      '--single-transaction',
+      dumpPath,
+    ],
+    'pg_restore',
+  )
+  if (r.code !== 0) {
+    throw new Error(
+      `pg_restore fehlgeschlagen (exit ${r.code}): ${r.stderr.trim() || 'ohne Ausgabe'}`,
+    )
+  }
+}
+
+/** Kopiert die Fotos aus dem Backup nach FOTOS_DIR. */
+async function kopiereFotos(tmp: string): Promise<number> {
+  const fotosDir = join(tmp, 'fotos')
+  let s
+  try {
+    s = statSync(fotosDir)
   } catch {
     // kein fotos/-Verzeichnis im Backup, ueberspringen
+    return 0
   }
+  if (!s.isDirectory()) return 0
+  const anzahl = await zaehleDateien(fotosDir)
+  await mkdir(config.FOTOS_DIR, { recursive: true })
+  const r = await fuehreKommando('cp', ['-r', `${fotosDir}/.`, `${config.FOTOS_DIR}/`], 'cp')
+  if (r.code !== 0) {
+    throw new Error(
+      `Fotos konnten nicht kopiert werden (cp exit ${r.code}): ${r.stderr.trim() || 'ohne Ausgabe'}`,
+    )
+  }
+  return anzahl
+}
 
-  await rm(tmp, { recursive: true, force: true }).catch(() => {})
+/** Zaehlt Dateien rekursiv (fuer die Restore-Zusammenfassung). */
+async function zaehleDateien(dir: string): Promise<number> {
+  let n = 0
+  const entries = await readdir(dir, { withFileTypes: true })
+  for (const e of entries) {
+    if (e.isDirectory()) n += await zaehleDateien(join(dir, e.name))
+    else n++
+  }
+  return n
+}
+
+/**
+ * Fuehrt ein Kommando aus und liefert Exit-Code, stdout und stderr.
+ * stderr wird zusaetzlich in das Server-Log geschrieben (wie vorher
+ * `stdio: 'inherit'`), damit z. B. pg_restore-Fehler sichtbar sind.
+ */
+async function fuehreKommando(
+  cmd: string,
+  args: string[],
+  logTag?: string,
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      if (stdout.length < STDOUT_MAX_CHARS) stdout += chunk
+    })
+    child.stderr.on('data', (chunk: string) => {
+      if (stderr.length < STDERR_MAX_CHARS) stderr += chunk
+      if (logTag) process.stderr.write(`[${logTag}] ${chunk}`)
+    })
+    child.on('error', reject)
+    child.on('close', (code) => resolve({ code, stdout, stderr }))
+  })
 }
 
 // ---------- Backup-Liste + Rotation ----------
@@ -402,9 +697,32 @@ export interface BackupDateiInfo {
   name: string
   size: number
   createdAt: string
+  /**
+   * Groesse des DB-Dumps (dump.pgdump) im ZIP in Bytes.
+   * null = nicht ermittelbar (z. B. unzip nicht verfuegbar).
+   */
+  dumpBytes: number | null
+  /**
+   * true = das ZIP enthaelt einen nicht-leeren DB-Dump und ist
+   * einspielbar. false = leerer Dump (Backup unbrauchbar).
+   * null = unklar (nicht ermittelbar).
+   */
+  dumpOk: boolean | null
 }
 
-export async function listeBackups(dir: string = config.BACKUP_DIR): Promise<BackupDateiInfo[]> {
+/**
+ * Listet die Backups im Verzeichnis.
+ *
+ * `inspect: true` prueft zusaetzlich jede ZIP auf einen nicht-leeren
+ * DB-Dump (via `unzip -l`). Das ist wichtig, weil ein Backup mit leerem
+ * Dump zwar technisch existiert, aber beim Restore mit "input file is
+ * too short" abbricht. Die Rotation ruft die Liste ohne `inspect` auf
+ * (dort reicht der Dateiname).
+ */
+export async function listeBackups(
+  dir: string = config.BACKUP_DIR,
+  opts: { inspect?: boolean } = {},
+): Promise<BackupDateiInfo[]> {
   let entries: import('node:fs').Dirent[]
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -427,10 +745,56 @@ export async function listeBackups(dir: string = config.BACKUP_DIR): Promise<Bac
       const parsed = new Date(iso)
       if (!Number.isNaN(parsed.getTime())) createdAt = parsed.toISOString()
     }
-    out.push({ name: f.name, size: s.size, createdAt })
+    out.push({ name: f.name, size: s.size, createdAt, dumpBytes: null, dumpOk: null })
   }
   out.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  if (opts.inspect) {
+    await inspiziereDumps(out, dir)
+  }
   return out
+}
+
+/** Prueft die ZIPs auf einen nicht-leeren dump.pgdump-Eintrag. */
+async function inspiziereDumps(files: BackupDateiInfo[], dir: string): Promise<void> {
+  // Maximal 8 ZIPs parallel entpacken-Vorschauen — bei 365 Kopien bleibt
+  // die Liste so schnell.
+  const parallel = 8
+  let index = 0
+  const workers = Array.from({ length: Math.min(parallel, files.length) }, async () => {
+    while (index < files.length) {
+      const f = files[index]
+      index++
+      if (!f) continue
+      const bytes = await dumpGroesseImZip(join(dir, f.name))
+      f.dumpBytes = bytes
+      f.dumpOk = bytes === null ? null : bytes > 0
+    }
+  })
+  await Promise.all(workers)
+}
+
+/**
+ * Ermittelt die Groesse des dump.pgdump-Eintrags in einem ZIP
+ * (via `unzip -l`). null, wenn das nicht ermittelbar ist.
+ */
+export async function dumpGroesseImZip(pfad: string): Promise<number | null> {
+  let stdout: string
+  try {
+    const r = await fuehreKommando('unzip', ['-l', pfad])
+    if (r.code !== 0) return null
+    stdout = r.stdout
+  } catch {
+    // unzip fehlt (ENOENT) oder sonst nicht ausfuehrbar
+    return null
+  }
+  for (const zeile of stdout.split('\n')) {
+    const teile = zeile.trim().split(/\s+/)
+    if (teile.length < 2) continue
+    if (teile[teile.length - 1] !== 'dump.pgdump') continue
+    const laenge = Number.parseInt(teile[0] ?? '', 10)
+    if (Number.isFinite(laenge)) return laenge
+  }
+  return null
 }
 
 export async function rotiereAlteBackups(
