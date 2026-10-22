@@ -50,6 +50,7 @@ async function seedArtikel(
     nachbestellHinweis: null,
     bestellnummer: null,
     barcode: null,
+    etikettenNeu: true,
     listenpreis: null,
     geaendertAm: null,
     erstelltAm: '2025-01-01T00:00:00.000Z',

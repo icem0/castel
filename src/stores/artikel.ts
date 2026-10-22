@@ -27,6 +27,9 @@ export interface ArtikelEingabe {
   /** Strichcode (EAN/Code128/QR). Semantisch getrennt von
    *  `bestellnummer` (Lieferanten-Bestellnr. vs. Strichcode am Artikel). */
   barcode?: string | null
+  /** Marker "neu" fuer den Etiketten-Druck. Default: `true` — neue
+   *  Artikel stehen damit automatisch in der Etikettenliste. */
+  etikettenNeu?: boolean
   listenpreis?: number | null
 }
 
@@ -80,6 +83,7 @@ export const useArtikelStore = defineStore('artikel', () => {
       nachbestellHinweis: e.nachbestellHinweis ?? null,
       bestellnummer: e.bestellnummer ?? null,
       barcode: e.barcode ?? null,
+      etikettenNeu: e.etikettenNeu ?? true,
       listenpreis: e.listenpreis ?? null,
       geaendertAm: now,
       erstelltAm: now,
@@ -103,6 +107,48 @@ export const useArtikelStore = defineStore('artikel', () => {
     const updated: Artikel = { ...a, status: 'archiviert', geaendertAm: jetztIso() }
     await getDb().artikel.put(updated)
     await queueOp('artikel', 'update', updated)
+  }
+
+  /**
+   * Setzt (oder entfernt) den Etiketten-Marker "neu" fuer mehrere Artikel
+   * auf einmal — Basis der beiden Buttons in der Etiketten-Ansicht
+   * ("Alle Tags loeschen" / "Alle als neu markieren").
+   *
+   * Ablauf: eine Dexie-Transaktion ueber `artikel` + `outbox`, damit
+   * lokaler Zustand und Outbox nie auseinanderlaufen. Jeder geaenderte
+   * Artikel bekommt einen aktuellen `geaendertAm`-Stempel (LWW) und einen
+   * Outbox-Op — der Sync uebertraegt die Aenderung also auch auf andere
+   * Geraete. Artikel, die den Zielwert bereits haben, werden uebersprungen
+   * (kein No-Op-Op im Outbox).
+   *
+   * Rueckgabe: Anzahl der tatsaechlich geaenderten Artikel.
+   */
+  async function markiereEtikettenNeu(ids: string[], wert: boolean): Promise<number> {
+    if (ids.length === 0) return 0
+    const db = getDb()
+    let geaendert = 0
+    // Chunking: bei vielen Artikeln sonst ein Riesentransaction.
+    const CHUNK = 500
+    for (let start = 0; start < ids.length; start += CHUNK) {
+      const chunk = ids.slice(start, start + CHUNK)
+      const now = jetztIso()
+      await db.transaction('rw', db.artikel, db.outbox, async () => {
+        const rows = await db.artikel.bulkGet(chunk)
+        const updates: Artikel[] = []
+        for (const a of rows) {
+          if (!a) continue
+          if (a.etikettenNeu === wert) continue
+          updates.push({ ...a, etikettenNeu: wert, geaendertAm: now })
+        }
+        if (updates.length === 0) return
+        await db.artikel.bulkPut(updates)
+        for (const a of updates) {
+          await queueOp('artikel', 'update', a)
+        }
+        geaendert += updates.length
+      })
+    }
+    return geaendert
   }
 
   /**
@@ -154,6 +200,7 @@ export const useArtikelStore = defineStore('artikel', () => {
     anlegen,
     aktualisieren,
     archivieren,
+    markiereEtikettenNeu,
     loeschen,
   }
 })

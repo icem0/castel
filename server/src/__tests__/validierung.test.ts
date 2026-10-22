@@ -64,6 +64,49 @@ describe('validierung.schemas', () => {
       })
       expect(r.success).toBe(true)
     })
+    it('akzeptiert Artikel mit etikettenNeu-Flag', () => {
+      const r = artikelSchema.safeParse({
+        id: 'a1',
+        titel: 'Test',
+        status: 'verfuegbar',
+        typ: 'Alarmierung',
+        verpackungseinheit: 1,
+        etikettenNeu: false,
+        geaendertAm: '2025-04-14T11:00:00.000Z',
+        erstelltAm: '2025-04-14T11:00:00.000Z',
+      })
+      expect(r.success).toBe(true)
+      expect(r.success && r.data.etikettenNeu).toBe(false)
+    })
+    it('behaelt das etikettenNeu-Flag im geparsten Payload (kein Stripping)', () => {
+      const r = artikelSchema.safeParse({
+        id: 'a1',
+        titel: 'Test',
+        status: 'verfuegbar',
+        typ: 'Alarmierung',
+        verpackungseinheit: 1,
+        etikettenNeu: true,
+        geaendertAm: '2025-04-14T11:00:00.000Z',
+        erstelltAm: '2025-04-14T11:00:00.000Z',
+      })
+      expect(r.success).toBe(true)
+      if (!r.success) return
+      expect('etikettenNeu' in r.data).toBe(true)
+      expect(r.data.etikettenNeu).toBe(true)
+    })
+    it('lehnt etikettenNeu mit falschem Typ ab', () => {
+      const r = artikelSchema.safeParse({
+        id: 'a1',
+        titel: 'Test',
+        status: 'verfuegbar',
+        typ: 'Alarmierung',
+        verpackungseinheit: 1,
+        etikettenNeu: 'ja',
+        geaendertAm: '2025-04-14T11:00:00.000Z',
+        erstelltAm: '2025-04-14T11:00:00.000Z',
+      })
+      expect(r.success).toBe(false)
+    })
     it('lehnt unbekannten Status ab', () => {
       const r = artikelSchema.safeParse({
         id: 'a1',

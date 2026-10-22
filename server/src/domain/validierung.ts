@@ -40,6 +40,7 @@ export const artikelSchema = z.object({
   nachbestellHinweis: z.enum(['i.O', 'bald', 'dringend']).nullable().optional(),
   bestellnummer: z.string().nullable().optional(),
   barcode: z.string().nullable().optional(),
+  etikettenNeu: z.boolean().optional(),
   listenpreis: z.number().int().nullable().optional(),
   geaendertAm: iso,
   erstelltAm: iso,

@@ -112,6 +112,9 @@ function mappeArtikelZeile(row: string[], headers: string[], mapping: ArtikelMap
     nachbestellHinweis: normalizeNachbestellHinweis(feld('nachbestellHinweis')),
     bestellnummer: feld('bestellnummer') || null,
     barcode: feld('barcode') || null,
+    // Importierte Artikel starten als "neu" (Etiketten-Druck) — sie haben
+    // noch kein Etikett bekommen.
+    etikettenNeu: true,
     listenpreis: parseIntOrNull(feld('listenpreis')),
     // Server-Push-Schema verlangt `geaendertAm: string` (kein null). Wenn
     // die CSV-Spalte fehlt oder leer ist, fallen wir auf `erstelltAm` (=

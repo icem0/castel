@@ -81,6 +81,10 @@ export const artikel = pgTable(
     /** Strichcode (EAN/Code128/QR) — semantisch getrennt von `bestellnummer`
      *  (Lieferanten-Bestellnr. vs. Strichcode am Artikel). */
     barcode: text('barcode'),
+    /** Marker "neu" fuer den Etiketten-Druck: TRUE = Artikel ist als
+     *  neu markiert (Bogen noch zu drucken). Wird per Button gesetzt bzw.
+     *  geloescht; neue Artikel starten mit TRUE. */
+    etikettenNeu: boolean('etiketten_neu').notNull().default(true),
     listenpreis: integer('listenpreis'), // in Cent, um Floats zu vermeiden
     geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull(),
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),

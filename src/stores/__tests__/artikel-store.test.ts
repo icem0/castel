@@ -23,6 +23,7 @@ function artikelAnlegen(titel: string): Artikel {
     nachbestellHinweis: null,
     bestellnummer: null,
     barcode: null,
+    etikettenNeu: true,
     listenpreis: null,
     geaendertAm: '2026-10-19T12:00:00.000Z',
     erstelltAm: '2026-10-19T12:00:00.000Z',

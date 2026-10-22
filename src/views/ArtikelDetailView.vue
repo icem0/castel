@@ -197,6 +197,9 @@ onMounted(() => {
           <RouterLink :to="`/buchung/neu?artikelId=${artikel.id}`" class="btn primary">
             {{ t('view.artikel.detail.buchen') }}
           </RouterLink>
+          <RouterLink :to="`/etiketten?artikelId=${artikel.id}`" class="btn">
+            {{ t('view.artikel.detail.etikettDrucken') }}
+          </RouterLink>
           <button type="button" class="btn" @click="bearbeitenStart">
             {{ t('view.artikel.detail.bearbeiten') }}
           </button>

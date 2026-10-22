@@ -301,6 +301,26 @@ export class CastelDb extends Dexie {
       .upgrade(async (tx) => {
         await tx.table('mindestbestandEreignisse').clear()
       })
+
+    // v12: Flag `etikettenNeu` auf `artikel` (Etiketten-Druck, DIN A4).
+    //      Kein Index — IndexedDB kennt keine Boolean-Keys, und der Filter
+    //      "nur neue Artikel" laeuft ohnehin clientseitig ueber die
+    //      Artikelliste. Bestehende Zeilen bekommen `true` (Default wie
+    //      auf dem Server): sie sind damit "neu" und stehen in der
+    //      Etikettenliste, bis der Marker per Button geloescht wird.
+    this.version(12)
+      .stores({
+        artikel: 'id, sharePointId, typ, status, titel, barcode',
+      })
+      .upgrade(async (tx) => {
+        const alle = await tx.table('artikel').toArray()
+        for (const row of alle as Array<Record<string, unknown>>) {
+          if (row['etikettenNeu'] === undefined) row['etikettenNeu'] = true
+        }
+        if (alle.length > 0) {
+          await tx.table('artikel').bulkPut(alle)
+        }
+      })
   }
 }
 

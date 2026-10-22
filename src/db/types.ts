@@ -27,6 +27,11 @@ export interface Artikel {
    *  die Bestellnummer des Lieferanten). `null` = kein Barcode
    *  hinterlegt. */
   barcode: string | null
+  /** Marker "neu" fuer den Etiketten-Druck (DIN-A4-Bogen). `true` = der
+   *  Artikel ist als neu markiert und soll noch ein Etikett bekommen.
+   *  Neue Artikel starten mit `true`; die Marker lassen sich per Button
+   *  setzen bzw. loeschen (siehe `etikettenIstNeu` in src/domain/etiketten.ts). */
+  etikettenNeu: boolean
   listenpreis: number | null
   geaendertAm: Iso | null
   erstelltAm: Iso

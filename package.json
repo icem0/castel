@@ -1,7 +1,7 @@
 {
   "name": "castel",
   "private": true,
-  "version": "0.4.63",
+  "version": "0.4.64",
   "type": "module",
   "scripts": {
     "dev": "npm run version:write && vite",
@@ -27,6 +27,7 @@
     "dexie": "^4.0.10",
     "husky": "^9.1.7",
     "jsbarcode": "^3.12.3",
+    "jspdf": "^4.2.1",
     "pinia": "^2.3.0",
     "vue": "^3.5.42",
     "vue-i18n": "^11.0.0",

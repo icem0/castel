@@ -44,6 +44,7 @@ function artikelAnlage(id: string, titel: string): Artikel {
     nachbestellHinweis: null,
     bestellnummer: null,
     barcode: null,
+    etikettenNeu: true,
     listenpreis: null,
     geaendertAm: now,
     erstelltAm: now,

@@ -99,6 +99,13 @@
       "when": 1700000013000,
       "tag": "0014_mindestbestand_ereignisse_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1700000014000,
+      "tag": "0015_artikel_etiketten_neu",
+      "breakpoints": true
     }
   ]
 }

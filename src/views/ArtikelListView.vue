@@ -6,6 +6,7 @@ import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
 import { useBuchungStore } from '../stores/buchung'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
+import { useArtikelFilter } from '../composables/useArtikelFilter'
 import { useTableSort } from '../composables/useTableSort'
 import { useSyncStore } from '../stores/sync'
 import { ladeFotoThumbnails, type FotoThumbnail } from '../services/fotos'
@@ -19,40 +20,11 @@ const buchungStore = useBuchungStore()
 const { alleBenutzten } = useArtikelTypen()
 const sync = useSyncStore()
 
-const suche = ref('')
-const filterTyp = ref('')
-const filterStatus = ref<'alle' | ArtikelStatus>('verfuegbar')
-const filterStandort = ref('')
-
-// Buchungs-Lookup für den Standort-Filter: wir fragen den BuchungStore
-// direkt, statt eine Lookup-Funktion in den ArtikelStore zu injizieren.
-// Der Filter lebt komplett in dieser View.
-function artikelHatBuchungAufStandort(artikelId: string, standortId: string): boolean {
-  const rows = buchungStore.byArtikel(artikelId)
-  for (const b of rows) {
-    if (b.standortId === standortId) return true
-    if (b.standortZielId === standortId) return true
-  }
-  return false
-}
-
-const gefiltert = computed<Artikel[]>(() => {
-  const sucheLower = suche.value.trim().toLowerCase()
-  const status = filterStatus.value
-  const typ = filterTyp.value
-  const standortId = filterStandort.value
-  return artikelStore.artikel.filter((a) => {
-    if (status !== 'alle' && a.status !== status) return false
-    if (typ && a.typ !== typ) return false
-    if (standortId && !artikelHatBuchungAufStandort(a.id, standortId)) return false
-    if (sucheLower) {
-      const haystack =
-        `${a.titel} ${a.typ} ${a.lieferant ?? ''} ${a.bestellnummer ?? ''}`.toLowerCase()
-      if (!haystack.includes(sucheLower)) return false
-    }
-    return true
-  })
-})
+// Filterlogik (Suche/Typ/Status/Standort) liegt im Composable, damit die
+// Etiketten-Ansicht dieselben Filter benutzen kann.
+const { suche, filterTyp, filterStatus, filterStandort, gefiltert } = useArtikelFilter(
+  () => artikelStore.artikel,
+)
 
 // Foto-Thumbnails: werden beim Mount einmal geladen und in folgenden
 // Situationen neu gefetcht, damit Bild-Zuweisungen, die auf einem anderen

@@ -20,6 +20,7 @@ function buildArtikel(barcode: string | null): Artikel {
     nachbestellHinweis: null,
     bestellnummer: null,
     barcode,
+    etikettenNeu: true,
     listenpreis: null,
     geaendertAm: now,
     erstelltAm: now,
