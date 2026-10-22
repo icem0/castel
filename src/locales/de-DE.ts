@@ -230,6 +230,18 @@ export default {
       barcodeTyp: 'Barcode-Format',
       barcodeTypHint:
         'Gilt verbindlich für alle Barcode-Darstellungen (Artikel-Detail, Etiketten-Druck). Hier ändern — überall sofort wirksam.',
+      informationen: 'Informationen',
+      ersteSchritte: 'Erste Schritte & Web-App installieren',
+      account: 'Account',
+      passwortAendern: 'Passwort ändern',
+      abmelden: 'Abmelden',
+      administration: 'Administration',
+      benutzerVerwaltung: 'Benutzer-Verwaltung',
+      entwicklung: 'Entwicklung',
+      daten: 'Daten',
+      csvImport: 'CSV-Import',
+      backup: 'Backup &amp; Restore',
+      stammdaten: 'Stammdaten',
     },
     artikelTypen: {
       h1: 'Artikel-Typen',

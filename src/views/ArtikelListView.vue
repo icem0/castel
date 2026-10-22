@@ -266,11 +266,12 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
             class="attention-cell"
             style="width: 44px; text-align: center"
           >
-            <span
+            <RouterLink
               v-if="bestandBenotigtAufmerksamkeit(a.id, standardStandort.id)"
-              class="attention-badge"
+              :to="`/artikel/${a.id}`"
+              class="attention-badge link"
               :title="t('view.artikel.spalten.aufmerksamkeit')"
-              >⚠</span
+              >⚠</RouterLink
             >
           </td>
           <td v-if="!offline" class="foto-cell" style="width: 44px; text-align: center">

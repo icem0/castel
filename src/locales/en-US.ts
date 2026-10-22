@@ -223,6 +223,18 @@ export default {
       barcodeTyp: 'Barcode format',
       barcodeTypHint:
         'Mandatory for all barcode renderings (item detail, label printing). Change here — applied everywhere immediately.',
+      informationen: 'Information',
+      ersteSchritte: 'Getting started & install web app',
+      account: 'Account',
+      passwortAendern: 'Change password',
+      abmelden: 'Sign out',
+      administration: 'Administration',
+      benutzerVerwaltung: 'User management',
+      entwicklung: 'Development',
+      daten: 'Data',
+      csvImport: 'CSV import',
+      backup: 'Backup &amp; Restore',
+      stammdaten: 'Master data',
     },
     artikelTypen: {
       h1: 'Item types',
