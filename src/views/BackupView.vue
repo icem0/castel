@@ -2,12 +2,21 @@
 // Admin-View: Backup & Restore.
 //
 // Funktionen:
-//   - "Jetzt Backup herunterladen" -> Server baut on-the-fly ein ZIP
-//     (sync -> pg_dump -Fc -> FOTOS_DIR -> zip -> Stream) und der Browser
-//     speichert es.
-//   - "Jetzt Backup erstellen"     -> legt das ZIP im BACKUP_DIR-Volume ab.
+//   - "Jetzt im Backup-Ordner ablegen" -> löst ein asynchrones Backup aus
+//     (laufend im Hintergrund, Status per Polling abrufbar). Fertiges ZIP
+//     landet im BACKUP_DIR-Volume und erscheint in der Liste unten.
 //   - Schedule-Formular            -> HH:MM (Cronjob) + Anzahl Kopien.
-//   - Liste vorhandener Backups    -> loeschen, herunterladen, restaurieren.
+//   - Liste vorhandener Backups    -> herunterladen, einspielen, loeschen.
+//
+// Server-Endpoints (alle admin-only):
+//   GET    /api/admin/backup/settings
+//   PUT    /api/admin/backup/settings
+//   GET    /api/admin/backup/list
+//   POST   /api/admin/backup/run        -> { jobId, status }
+//   GET    /api/admin/backup/status/:jobId -> { status, filename?, error? }
+//   DELETE /api/admin/backup/:name
+//   POST   /api/admin/backup/restore
+//   GET    /api/admin/backup/file/:name -> Stream
 
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -32,12 +41,10 @@ interface BackupListResponse {
   dir: string
 }
 
-interface RunResponse {
-  filename: string
-  bytes: number
-  size: number
-  geloescht: number
-  total: number
+interface BackupJobStatus {
+  status: 'running' | 'done' | 'failed'
+  filename?: string
+  error?: string
 }
 
 const settings = ref<BackupSettings>({ schedule: '', keepCopies: 7 })
@@ -48,10 +55,13 @@ const laedt = ref(false)
 const speichert = ref(false)
 const fehler = ref<string | null>(null)
 const erfolg = ref<string | null>(null)
-const laufAktion = ref<null | 'download' | 'run' | string>(null)
 
-const letzteRun = ref<RunResponse | null>(null)
-const settingsDirty = ref(false)
+// Aktueller Backup-Job (asynchroner Run)
+const backupJob = ref<{ id: string | null; status: 'idle' | 'running' | 'done' | 'failed'; error: string | null }>({
+  id: null,
+  status: 'idle',
+  error: null,
+})
 
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -94,7 +104,6 @@ async function ladeAlles(): Promise<void> {
       apiFetch<BackupListResponse>('/api/admin/backup/list'),
     ])
     settings.value = s
-    settingsDirty.value = false
     files.value = list.files
     backupDir.value = list.dir
   } catch (e) {
@@ -114,7 +123,6 @@ async function speichereSettings(): Promise<void> {
       body: settings.value,
     })
     settings.value = s
-    settingsDirty.value = false
     erfolg.value = t('view.backup.settingsGespeichert')
     setTimeout(() => (erfolg.value = null), 2000)
   } catch (e) {
@@ -124,51 +132,54 @@ async function speichereSettings(): Promise<void> {
   }
 }
 
-async function backupHerunterladen(): Promise<void> {
-  laufAktion.value = 'download'
+async function backupErstellen(): Promise<void> {
   fehler.value = null
   erfolg.value = null
+  backupJob.value = { id: null, status: 'running', error: null }
   try {
-    const url = `${getApiBaseUrl()}/api/admin/backup/download`
-    const res = await fetchStream(url, { method: 'POST' })
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(`HTTP ${res.status}: ${text || res.statusText}`)
-    }
-    const blob = await res.blob()
-    const cd = res.headers.get('Content-Disposition') ?? ''
-    const m = cd.match(/filename="?([^";]+)"?/)
-    const filename = m?.[1] ?? `castel-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
-    const objectUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objectUrl
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(objectUrl)
-    erfolg.value = t('view.backup.downloadErfolg', { filename })
-    setTimeout(() => (erfolg.value = null), 4000)
+    const r = await apiFetch<{ jobId: string; status: string }>('/api/admin/backup/run', {
+      method: 'POST',
+    })
+    backupJob.value = { id: r.jobId, status: 'running', error: null }
+    await pollBackupJob(r.jobId)
   } catch (e) {
-    fehler.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    laufAktion.value = null
+    backupJob.value = { id: null, status: 'failed', error: e instanceof Error ? e.message : String(e) }
+    fehler.value = backupJob.value.error
   }
 }
 
-async function backupErstellen(): Promise<void> {
-  laufAktion.value = 'run'
-  fehler.value = null
-  erfolg.value = null
-  try {
-    const r = await apiFetch<RunResponse>('/api/admin/backup/run', { method: 'POST' })
-    letzteRun.value = r
-    erfolg.value = t('view.backup.runErfolg', { filename: r.filename, geloescht: r.geloescht })
-    setTimeout(() => (erfolg.value = null), 4000)
-    await ladeAlles()
-  } catch (e) {
-    fehler.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    laufAktion.value = null
+async function pollBackupJob(jobId: string): Promise<void> {
+  // Maximal 120s warten (60 * 2s), dann Timeout.
+  for (let i = 0; i < 60; i++) {
+    await new Promise((res) => setTimeout(res, 2000))
+    try {
+      const status = await apiFetch<BackupJobStatus>(
+        `/api/admin/backup/status/${encodeURIComponent(jobId)}`,
+      )
+      if (status.status === 'done') {
+        backupJob.value = { id: jobId, status: 'done', error: null }
+        erfolg.value = t('view.backup.runErfolg', {
+          filename: String(status.filename ?? 'unbekannt'),
+          geloescht: 0,
+        })
+        setTimeout(() => (erfolg.value = null), 4000)
+        await ladeAlles()
+        return
+      }
+      if (status.status === 'failed') {
+        backupJob.value = { id: jobId, status: 'failed', error: status.error ?? null }
+        fehler.value = status.error || t('view.backup.runFehlgeschlagen')
+        return
+      }
+      // status === 'running': weiter pollen
+    } catch (e) {
+      fehler.value = e instanceof Error ? e.message : String(e)
+      backupJob.value = { id: jobId, status: 'failed', error: fehler.value }
+      return
+    }
   }
+  backupJob.value = { id: jobId, status: 'failed', error: 'Timeout' }
+  fehler.value = t('view.backup.runTimeout')
 }
 
 async function dateiLoeschen(name: string): Promise<void> {
@@ -221,7 +232,7 @@ async function dateiRestaurieren(name: string): Promise<void> {
     )
   )
     return
-  laufAktion.value = name
+  backupJob.value = { id: null, status: 'running', error: null }
   fehler.value = null
   try {
     await apiFetch('/api/admin/backup/restore', {
@@ -233,7 +244,7 @@ async function dateiRestaurieren(name: string): Promise<void> {
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
   } finally {
-    laufAktion.value = null
+    backupJob.value = { id: null, status: 'idle', error: null }
   }
 }
 
@@ -243,6 +254,8 @@ const scheduleHint = computed(() => {
   if (settings.value.schedule === '') return t('view.backup.scheduleAus')
   return t('view.backup.scheduleAn', { zeit: settings.value.schedule })
 })
+
+const settingsDirty = ref(false)
 </script>
 
 <template>
@@ -264,32 +277,25 @@ const scheduleHint = computed(() => {
         <button
           type="button"
           class="primary"
-          :disabled="laufAktion !== null"
-          @click="backupHerunterladen"
+          :disabled="backupJob.status === 'running'"
+          @click="backupErstellen"
         >
           {{
-            laufAktion === 'download'
+            backupJob.status === 'running'
               ? t('view.backup.laeuft')
-              : t('view.backup.jetztHerunterladen')
+              : t('view.backup.jetztErstellen')
           }}
-        </button>
-        <button type="button" :disabled="laufAktion !== null" @click="backupErstellen">
-          {{ laufAktion === 'run' ? t('view.backup.laeuft') : t('view.backup.jetztErstellen') }}
         </button>
         <button type="button" class="secondary" :disabled="laedt" @click="ladeAlles">
           {{ t('view.backup.aktualisieren') }}
         </button>
       </div>
-      <p v-if="letzteRun" class="hint hint-ok">
-        {{
-          t('view.backup.letzterRun', {
-            filename: letzteRun.filename,
-            bytes: humanSize(letzteRun.size),
-            geloescht: letzteRun.geloescht,
-            total: letzteRun.total,
-          })
-        }}
-      </p>
+      <div v-if="backupJob.status === 'failed'" class="hint error" role="alert">
+        {{ backupJob.error }}
+      </div>
+      <div v-if="backupJob.status === 'done'" class="hint hint-ok" role="status">
+        {{ t('view.backup.jobErledigt', { filename: backupJob.id ?? '' }) }}
+      </div>
     </div>
 
     <h2>{{ t('view.backup.settingsH2') }}</h2>
@@ -346,7 +352,7 @@ const scheduleHint = computed(() => {
               <button
                 type="button"
                 class="secondary small"
-                :disabled="laufAktion === f.name"
+                :disabled="backupJob.status === 'running'"
                 @click="dateiHerunterladen(f.name)"
               >
                 {{ t('view.backup.aktionDownload') }}
@@ -354,7 +360,7 @@ const scheduleHint = computed(() => {
               <button
                 type="button"
                 class="danger small"
-                :disabled="laufAktion === f.name"
+                :disabled="backupJob.status === 'running'"
                 @click="dateiRestaurieren(f.name)"
               >
                 {{ t('view.backup.aktionRestore') }}
@@ -362,7 +368,7 @@ const scheduleHint = computed(() => {
               <button
                 type="button"
                 class="secondary small"
-                :disabled="laufAktion === f.name"
+                :disabled="backupJob.status === 'running'"
                 @click="dateiLoeschen(f.name)"
               >
                 {{ t('view.backup.aktionLoeschen') }}

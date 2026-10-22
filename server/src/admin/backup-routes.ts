@@ -1,11 +1,12 @@
 // Admin-Routes: Backup & Restore + Settings.
 //
-//   POST /api/admin/backup/download   -> Stream eines Backup-ZIPs als Response
-//   GET  /api/admin/backup/list       -> Liste der vorhandenen ZIPs
-//   DELETE /api/admin/backup/:name    -> loescht ein einzelnes ZIP
 //   GET  /api/admin/backup/settings   -> { schedule, keepCopies }
 //   PUT  /api/admin/backup/settings   -> setzt { schedule, keepCopies }
-//   POST /api/admin/backup/run        -> fuehrt ein Backup in BACKUP_DIR aus
+//   GET  /api/admin/backup/list       -> Liste der vorhandenen ZIPs
+//   DELETE /api/admin/backup/:name    -> loescht ein einzelnes ZIP
+//   POST /api/admin/backup/run        -> fuehrt ein Backup im Hintergrund aus,
+//                                        antwortet sofort mit Job-ID
+//   GET  /api/admin/backup/status/:jobId -> { status, filename?, error? }
 //   POST /api/admin/backup/restore    -> laedt ein ZIP hoch, ruft pg_restore
 //   GET  /api/admin/backup/file/:name -> Stream einer existierenden Datei
 //
@@ -15,7 +16,6 @@ import type { FastifyInstance } from 'fastify'
 import { unlink as fsUnlink } from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { z } from 'zod'
-import { PassThrough } from 'node:stream'
 import {
   baueBackupZip,
   backupDateiGroesse,
@@ -40,6 +40,61 @@ import { config } from '../config/config.js'
 // der Sync-Worker der PWA pusht ohnehin alle 30 s von selbst. Der
 // Cron (backup-cron.ts) nutzt die langen Config-Defaults.
 const SYNC_WAIT_HTTP: SyncWaitOpts = { quietMs: 2000, timeoutMs: 15000 }
+
+// ---------- In-Memory-Jobs fuer asynchrone Backups ----------
+//
+// Wird beim Server-Neustart verworfen — akzeptabel, da der Cron-Job
+// ohnehin die Quelle fuer wiederkehrende Backups ist und manuelle
+// Backups sofort im Volume sichtbar sind, sobald sie fertig sind.
+
+interface BackupJob {
+  status: 'running' | 'done' | 'failed'
+  filename?: string
+  error?: string
+  createdAt: string
+}
+
+const backupJobs = new Map<string, BackupJob>
+
+function neuerJobId(): string {
+  return `backup-${Date.now().toString(36)}`
+}
+
+/**
+ * Fuehrt ein Backup im Hintergrund durch: Sync-Trigger, pg_dump,
+ * ZIP schreiben, Rotation. Schreibt das Ergebnis in den Job-Eintrag.
+ */
+async function fuehreBackupDurch(jobId: string, log: { info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void }): Promise<void> {
+  const job = backupJobs.get(jobId)
+  if (!job) return
+  try {
+    await ensureBackupDir()
+    const forceAt = await triggerSyncForce()
+    const wait = await warteAufSyncIdle(log, SYNC_WAIT_HTTP)
+    const pgDump = pgDumpStream(config.DATABASE_URL)
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const filename = `castel-backup-${stamp}.zip`
+    const pfad = backupDateiPfad(filename)
+    const fileStream = createWriteStream(pfad)
+    const settings = await leseBackupSettings()
+    const result = await baueBackupZip({
+      out: fileStream,
+      pgDumpReadable: pgDump,
+      forceAt,
+      dbCounts: { buchungen: wait.lastCount },
+      tool: 'api/admin/backup.run',
+    })
+    const geloescht = await rotiereAlteBackups(settings.keepCopies)
+    job.status = 'done'
+    job.filename = filename
+    log.info({ filename, bytes: result.bytes, geloescht }, '[backup] run fertig (asynchron)')
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    job.status = 'failed'
+    job.error = msg
+    log.error({ err: e, jobId }, '[backup] run fehlgeschlagen (asynchron)')
+  }
+}
 
 const settingsSchema = z.object({
   schedule: z.string(),
@@ -113,83 +168,39 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
-  // ---------- Download (on-the-fly ZIP) ----------
-
-  app.post(
-    '/api/admin/backup/download',
-    { preHandler: app.requireAdmin },
-    async (_req, reply) => {
-      const forceAt = await triggerSyncForce()
-      const wait = await warteAufSyncIdle(app.log, SYNC_WAIT_HTTP)
-      const pgDump = pgDumpStream(config.DATABASE_URL)
-      const zip = new PassThrough()
-      const filename = `castel-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`
-      reply.header('Content-Type', 'application/zip')
-      reply.header('Content-Disposition', `attachment; filename="${filename}"`)
-      reply.header('Cache-Control', 'no-store')
-      reply.send(zip)
-      try {
-        const { manifest } = await baueBackupZip({
-          out: zip,
-          pgDumpReadable: pgDump,
-          forceAt,
-          dbCounts: { buchungen: wait.lastCount },
-          tool: 'api/admin/backup.download',
-        })
-        app.log.info({ manifest }, '[backup] download fertig')
-      } catch (e) {
-        app.log.error({ err: e }, '[backup] download fehlgeschlagen')
-        zip.destroy(e instanceof Error ? e : new Error(String(e)))
-      }
-    },
-  )
-
-  // ---------- Run (in BACKUP_DIR schreiben, alte rotieren) ----------
+  // ---------- Run (asynchron, im Hintergrund) ----------
 
   app.post(
     '/api/admin/backup/run',
     { preHandler: app.requireAdmin },
     async (_req, reply) => {
       await ensureBackupDir()
-      const forceAt = await triggerSyncForce()
-      const wait = await warteAufSyncIdle(app.log, SYNC_WAIT_HTTP)
-      const pgDump = pgDumpStream(config.DATABASE_URL)
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const filename = `castel-backup-${stamp}.zip`
-      const pfad = backupDateiPfad(filename)
-      const fileStream = createWriteStream(pfad)
-      const settings = await leseBackupSettings()
-      let result
-      try {
-        result = await baueBackupZip({
-          out: fileStream,
-          pgDumpReadable: pgDump,
-          forceAt,
-          dbCounts: { buchungen: wait.lastCount },
-          tool: 'api/admin/backup.run',
-        })
-      } catch (e) {
-        try {
-          await fsUnlink(pfad)
-        } catch {
-          /* ignore */
-        }
-        return reply
-          .code(500)
-          .send({ code: 'BACKUP_FAILED', message: e instanceof Error ? e.message : String(e) })
+      const jobId = neuerJobId()
+      backupJobs.set(jobId, {
+        status: 'running',
+        createdAt: new Date().toISOString(),
+      })
+      // Fire-and-forget: Antwort geht sofort raus, der Job laeuft
+      // im Hintergrund. Fehler landen im Server-Log.
+      void fuehreBackupDurch(jobId, app.log)
+      return reply.send({ jobId, status: 'running' })
+    },
+  )
+
+  // ---------- Job-Status ----------
+
+  app.get<{ Params: { jobId: string } }>(
+    '/api/admin/backup/status/:jobId',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const job = backupJobs.get(req.params.jobId)
+      if (!job) {
+        return reply.code(404).send({ code: 'JOB_NOT_FOUND' })
       }
-      const geloescht = await rotiereAlteBackups(settings.keepCopies)
-      const files = await listeBackups()
-      app.log.info(
-        { filename, bytes: result.bytes, geloescht },
-        '[backup] run fertig, rotation durchgefuehrt',
-      )
       return reply.send({
-        filename,
-        bytes: result.bytes,
-        size: backupDateiGroesse(filename),
-        geloescht,
-        total: files.length,
+        status: job.status,
+        filename: job.filename ?? null,
+        error: job.error ?? null,
       })
     },
   )
