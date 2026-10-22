@@ -29,9 +29,10 @@ ENV NODE_ENV=production
 # argon2 braucht libc / libstdc++. postgresql-client liefert pg_dump und
 # pg_restore — OHNE das Binary kann der Server kein Backup erstellen
 # ("spawn pg_dump ENOENT"). Der Backup-Cron und der Admin-Download
-# brauchen es zwingend.
+# brauchen es zwingend. unzip entpackt das Backup-ZIP beim Restore
+# ("spawn unzip ENOENT" ohne es).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates dumb-init postgresql-client \
+    ca-certificates dumb-init postgresql-client unzip \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=deps   /app/node_modules ./node_modules
