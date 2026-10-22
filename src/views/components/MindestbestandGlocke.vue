@@ -17,6 +17,7 @@ import { useMindestbestandStore } from '../../stores/mindestbestand'
 import { useArtikelStore } from '../../stores/artikel'
 import { useStandortStore } from '../../stores/standort'
 import { useAuthStore } from '../../stores/auth'
+import { useMindestbestandAlarm } from '../../composables/useMindestbestandAlarm'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -24,6 +25,7 @@ const mindestbestand = useMindestbestandStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
 const auth = useAuthStore()
+const alarm = useMindestbestandAlarm()
 
 const offen = ref(false)
 let documentClickListener: ((e: MouseEvent) => void) | null = null
@@ -91,7 +93,9 @@ onBeforeUnmount(() => {
 
 const isAdmin = computed(() => auth.rolle === 'admin')
 
-const anzahl = computed(() => mindestbestand.ungesehenCount)
+// Anzahl kommt aus dem Alarm-Composable — dort ist der Trigger auch
+// angesetzt, damit Zähler und Signal nie auseinanderlaufen.
+const anzahl = alarm.anzahl
 const liste = computed(() => mindestbestand.letzte50)
 
 function artikelTitel(id: string): string {
@@ -127,7 +131,11 @@ function openPanel(): void {
     <button
       type="button"
       class="mindestbestand-indicator"
-      :class="{ aktiv: offen, hatNeu: anzahl > 0 }"
+      :class="{
+        aktiv: offen,
+        'hat-neu': anzahl > 0,
+        'hat-glanz': alarm.blitzaktiv.value,
+      }"
       :title="anzahl > 0 ? `${anzahl} neue Mindestbestand-Ereignisse` : 'Mindestbestand'"
       :aria-label="`Mindestbestand-Benachrichtigungen (${anzahl} neu)`"
       :aria-expanded="offen"
@@ -200,10 +208,33 @@ function openPanel(): void {
 .mindestbestand-indicator.aktiv {
   background: var(--accent-bg, rgba(0, 0, 0, 0.08));
 }
-.mindestbestand-indicator.hatNeu .mindestbestand-icon {
+
+/* ---- Zustand: ungesehene Events liegen an (anzahl > 0) ----
+   Der Dauer-Ring macht den Zustand auch aus 3 m Entfernung sichtbar,
+   ohne dass er das ganze Header-Layout dominiert. */
+.mindestbestand-indicator.hat-neu {
   animation: glocken-wackel 1.2s ease-in-out infinite;
-  transform-origin: top center;
 }
+.mindestbestand-indicator.hat-neu::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 10px;
+  border: 2px solid var(--danger, #c0392b);
+  opacity: 0;
+  animation: ring-puls 2s ease-out infinite;
+  pointer-events: none;
+}
+
+/* ---- Zustand: ein NEUES Event ist gerade eingetroffen (1,2 s) ----
+   Ein einmaliger weißer Blitz, damit der Admin den Moment nicht
+   verpasst, wenn er nicht auf die Glocke schaut. */
+.mindestbestand-indicator.hat-glanz {
+  animation:
+    glocken-wackel 1.2s ease-in-out infinite,
+    glocken-blitz 1.2s ease-out 1;
+}
+
 .mindestbestand-badge {
   position: absolute;
   top: 0;
@@ -220,6 +251,9 @@ function openPanel(): void {
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+.mindestbestand-indicator.hat-neu .mindestbestand-badge {
+  animation: badge-puls 1.6s ease-in-out infinite;
 }
 .mindestbestand-dropdown {
   position: absolute;
@@ -321,6 +355,63 @@ function openPanel(): void {
   20%,
   40% {
     transform: rotate(12deg);
+  }
+}
+/* Dauer-Ring: skaliert nach außen und blendet aus. Nur `transform`
+   + `opacity`, KEINE background-Animation — das würde auf jedem
+   Frame neu painten und auf schwachen Lager-Tablets ruckeln. */
+@keyframes ring-puls {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+/* Einmaliger Blitz beim Eintreffen eines neuen Events. */
+@keyframes glocken-blitz {
+  0% {
+    background: var(--danger, #c0392b);
+    box-shadow: 0 0 0 0 var(--danger, #c0392b);
+  }
+  40% {
+    background: var(--accent-bg, rgba(99, 102, 241, 0.12));
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@keyframes badge-puls {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
+}
+
+/* Barrierefreiheit: Wer reduzierte Bewegung eingestellt hat (oder
+   auf einer trägen Maschine arbeitet), bekommt nur den Ring — kein
+   Wackeln, kein Puls, kein Blitz. Der Zähler bleibt sichtbar. */
+@media (prefers-reduced-motion: reduce) {
+  .mindestbestand-indicator.hat-neu,
+  .mindestbestand-indicator.hat-neu .mindestbestand-badge,
+  .mindestbestand-indicator.hat-glanz {
+    animation: none;
+  }
+  .mindestbestand-indicator.hat-neu::after {
+    animation: none;
+    opacity: 0.9;
+    transform: none;
   }
 }
 </style>

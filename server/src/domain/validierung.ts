@@ -99,6 +99,9 @@ export const EINSTELLUNG_KEYS = [
   'barcodeTyp',
   'onboardingSeen',
   'firstLoginDone',
+  'mindestbestandSoundAn',
+  'mindestbestandLautstaerke',
+  'mindestbestandWiederholen',
 ] as const
 export type EinstellungKey = (typeof EINSTELLUNG_KEYS)[number]
 

@@ -15,6 +15,20 @@ import type { MindestbestandEreignis } from '../db/types'
 import { jetztIso, neueUuid } from '../domain/ids'
 
 const GESEHEN_KEY = 'mindestbestand.letzteGesehenAm'
+/**
+ * Cooldown-Anker für Audio + Blitz. Bewusst ein SEPARATER Marker
+ * von `GESEHEN_KEY`:
+ *
+ * - `letzteGesehenAm` steuert den Badge (kosmetisch, wird beim Öffnen
+ *   der Glocke gesetzt).
+ * - `letztesSignalAm` steuert, ob ein Alarm ausgelöst wird.
+ *
+ * Warum zwei? Beim Öffnen der Glocke wird "gesehen" gesetzt, aber der
+ * Alarm soll in dem Moment nicht erneut klingeln. Mit einem gemeinsamen
+ * Marker würde das zweite Klingeln unterdrückt, was wir beim
+ * Wiedererklingen eigentlich wollen.
+ */
+const SIGNAL_KEY = 'mindestbestand.letztesSignalAm'
 
 export const useMindestbestandStore = defineStore('mindestbestand', () => {
   const ereignisse = ref<MindestbestandEreignis[]>([])
@@ -45,13 +59,25 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
 
   /** Marker "zuletzt gesehen" — local-only, wird nicht gepusht. */
   const letzteGesehenAm = ref<string | null>(null)
+  /** Cooldown-Anker für Audio + Blitz — local-only, wird nicht gepusht. */
+  const letztesSignalAm = ref<string | null>(null)
   let markerSubscription: Subscription | null = null
 
   function startMarker() {
     if (markerSubscription) return
-    markerSubscription = liveQuery(() => getDb().einstellungen.get([GESEHEN_KEY, ''])).subscribe({
-      next: (row) => {
-        letzteGesehenAm.value = row?.value ?? null
+    markerSubscription = liveQuery(() =>
+      getDb()
+        .einstellungen.bulkGet([
+          [GESEHEN_KEY, ''],
+          [SIGNAL_KEY, ''],
+        ])
+        .then((rows) => rows),
+    ).subscribe({
+      next: (rows) => {
+        const gesehen = rows[0]
+        const signal = rows[1]
+        letzteGesehenAm.value = gesehen?.value ?? null
+        letztesSignalAm.value = signal?.value ?? null
       },
       error: (e) => {
         console.error('mindestbestand marker liveQuery error:', e)
@@ -102,6 +128,31 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
   /** Liste der letzten 50 Events (für das Drop-Down). */
   const letzte50 = computed(() => ereignisse.value.slice(0, 50))
 
+  /**
+   * Markiert, dass soeben ein Signal (Audio + Blitz + Notification)
+   * ausgelöst wurde. Setzt den Cooldown-Anker auf "jetzt" — damit
+   * feuert in den nächsten 60 s kein weiterer Alarm.
+   *
+   * Bewusst unabhängig von `markiereAlleGesehen()`: das Öffnen der
+   * Glocke setzt den Gesehen-Marker, löst aber keinen Alarm aus.
+   */
+  async function markiereSignalGesendet(): Promise<void> {
+    const now = jetztIso()
+    await getDb().einstellungen.put({
+      key: SIGNAL_KEY,
+      userId: '',
+      value: now,
+      geaendertAm: now,
+    })
+    letztesSignalAm.value = now
+  }
+
+  /** Löscht den Cooldown-Anker (für den "Testen"-Knopf in den Settings). */
+  async function signalAnkerZuruecksetzen(): Promise<void> {
+    await getDb().einstellungen.delete([SIGNAL_KEY, ''])
+    letztesSignalAm.value = null
+  }
+
   // Hilfsimporte (noUnusedLocals)
   void neueUuid
 
@@ -109,6 +160,7 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
     ereignisse,
     geladen,
     letzteGesehenAm,
+    letztesSignalAm,
     ungesehenCount,
     letzte50,
     start,
@@ -116,5 +168,7 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
     startMarker,
     stopMarker,
     markiereAlleGesehen,
+    markiereSignalGesendet,
+    signalAnkerZuruecksetzen,
   }
 })

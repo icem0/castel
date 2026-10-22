@@ -56,6 +56,29 @@ export interface Settings {
    * Zeile noch nicht vom Server gepullt hat (Race-Condition-Schutz).
    */
   firstLoginDone: boolean
+  /**
+   * Pro User: Klingelton bei neuen Mindestbestand-Ereignissen?
+   *
+   * Der Ton ist eine WebAudio-Synthese (kein MP3-Asset) — siehe
+   * `src/services/audio/alarm.ts`. Cross-Device-synchronisiert
+   * (per-User-Key): Admin stellt den Ton auf Tablet A aus, dann ist
+   * er auch auf Tablet B aus.
+   */
+  mindestbestandSoundAn: boolean
+  /**
+   * Pro User: Lautstärke des Mindestbestand-Alarms, 0..100.
+   * Wird auf den Master-Gain des WebAudio-Graphs gelegt.
+   */
+  mindestbestandLautstaerke: number
+  /**
+   * Pro User: Alarm wiederholen, solange Ereignisse ungesehen sind?
+   *
+   * Reserve für einen späteren Schritt — der aktuelle Cooldown ist
+   * fest bei 60 s (siehe `useMindestbestandAlarm.ts`). Wir
+   * persistieren die Absicht schon jetzt, damit später keine
+   * Datenmigration nötig wird.
+   */
+  mindestbestandWiederholen: boolean
 }
 
 const DEFAULTS: Settings = {
@@ -67,6 +90,9 @@ const DEFAULTS: Settings = {
   barcodeTyp: 'CODE128',
   onboardingSeen: false,
   firstLoginDone: false,
+  mindestbestandSoundAn: true,
+  mindestbestandLautstaerke: 70,
+  mindestbestandWiederholen: false,
 }
 
 const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
@@ -75,6 +101,9 @@ const PER_USER_KEYS = new Set<string>([
   'standardStandortId',
   'onboardingSeen',
   'firstLoginDone',
+  'mindestbestandSoundAn',
+  'mindestbestandLautstaerke',
+  'mindestbestandWiederholen',
 ])
 const GLOBAL_INDEX = ''
 
@@ -146,6 +175,25 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
   const firstLoginDoneRow = byKey.get('firstLoginDone')
   const firstLoginDone = firstLoginDoneRow?.value === 'true'
 
+  const soundAnRow = byKey.get('mindestbestandSoundAn')
+  const mindestbestandSoundAn =
+    soundAnRow !== undefined ? soundAnRow.value === 'true' : DEFAULTS.mindestbestandSoundAn
+
+  // Lautstärke ist ein Integer 0..100. Wir klemmen defensiv, weil der
+  // Wert aus der DB kommt (manuell geändert, oder uralter Stand).
+  const lautRow = byKey.get('mindestbestandLautstaerke')
+  const lautGeparst = lautRow ? Number.parseInt(lautRow.value, 10) : Number.NaN
+  const mindestbestandLautstaerke =
+    Number.isFinite(lautGeparst) && lautGeparst >= 0 && lautGeparst <= 100
+      ? lautGeparst
+      : DEFAULTS.mindestbestandLautstaerke
+
+  const wiederholenRow = byKey.get('mindestbestandWiederholen')
+  const mindestbestandWiederholen =
+    wiederholenRow !== undefined
+      ? wiederholenRow.value === 'true'
+      : DEFAULTS.mindestbestandWiederholen
+
   return {
     sprache,
     standardStandortId,
@@ -155,6 +203,9 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     barcodeTyp,
     onboardingSeen,
     firstLoginDone,
+    mindestbestandSoundAn,
+    mindestbestandLautstaerke,
+    mindestbestandWiederholen,
   }
 }
 
@@ -252,6 +303,19 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('firstLoginDone', done ? 'true' : 'false')
   }
 
+  async function setMindestbestandSoundAn(an: boolean): Promise<void> {
+    await setKey('mindestbestandSoundAn', an ? 'true' : 'false')
+  }
+
+  async function setMindestbestandLautstaerke(prozent: number): Promise<void> {
+    const geklemmt = Math.max(0, Math.min(100, Math.round(prozent)))
+    await setKey('mindestbestandLautstaerke', String(geklemmt))
+  }
+
+  async function setMindestbestandWiederholen(an: boolean): Promise<void> {
+    await setKey('mindestbestandWiederholen', an ? 'true' : 'false')
+  }
+
   // Hilfsfunktion: legt eine UUID-basierte ID an (für Outbox-Einträge).
   void neueUuid
 
@@ -268,5 +332,8 @@ export const useSettingsStore = defineStore('settings', () => {
     setBarcodeTyp,
     setOnboardingSeen,
     setFirstLoginDone,
+    setMindestbestandSoundAn,
+    setMindestbestandLautstaerke,
+    setMindestbestandWiederholen,
   }
 })

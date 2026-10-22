@@ -374,6 +374,23 @@ export default {
       colBestand: 'Stock',
       colMindest: 'Min',
       colDefizit: 'Deficit',
+      settingsTitel: 'Notifications',
+      soundAn: 'Sound on new events',
+      soundAnHint: 'Sounds once per new event, at most every 60 seconds.',
+      lautstaerke: 'Volume',
+      wiederholen: 'Repeat until the bell is opened',
+      wiederholenHint:
+        'Instead of sounding once, ring again every 60 seconds while events are open.',
+      wiederholenNoch: 'Coming in a later step',
+      bald: 'soon',
+      testen: 'Test sound',
+      permUnsupported: 'This browser does not support system notifications.',
+      permDenied: 'System notifications are blocked — the bell in the header still works.',
+      permDefault: 'System notifications are not allowed yet.',
+      permAnfordern: 'Allow now',
+      permGranted: 'System notifications are active.',
+      technikHinweis:
+        'Note: the sound only plays while castel is open. With the device muted, nothing will be audible.',
     },
     development: {
       h1: 'Development',

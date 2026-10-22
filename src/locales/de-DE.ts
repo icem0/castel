@@ -385,6 +385,24 @@ export default {
       colBestand: 'Bestand',
       colMindest: 'Mindest',
       colDefizit: 'Defizit',
+      settingsTitel: 'Benachrichtigungen',
+      soundAn: 'Klingelton bei neuen Ereignissen',
+      soundAnHint: 'Klingt einmal pro neuem Ereignis, höchstens alle 60 Sekunden.',
+      lautstaerke: 'Lautstärke',
+      wiederholen: 'Wiederholen, bis die Glocke geöffnet wird',
+      wiederholenHint:
+        'Statt einmal alle 60 Sekunden erneut klingeln, solange Ereignisse offen sind.',
+      wiederholenNoch: 'Kommt in einem späteren Schritt',
+      bald: 'bald',
+      testen: 'Klang testen',
+      permUnsupported: 'Dieser Browser unterstützt keine System-Benachrichtigungen.',
+      permDenied:
+        'System-Benachrichtigungen sind blockiert — die Glocke im Kopf funktioniert trotzdem.',
+      permDefault: 'System-Benachrichtigungen sind noch nicht erlaubt.',
+      permAnfordern: 'Jetzt erlauben',
+      permGranted: 'System-Benachrichtigungen sind aktiv.',
+      technikHinweis:
+        'Hinweis: Der Ton ertönt nur, solange castel geöffnet ist. Bei ausgeschaltetem Geräton wird nichts hörbar.',
     },
     development: {
       h1: 'Entwicklung',
