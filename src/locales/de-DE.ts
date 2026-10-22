@@ -428,6 +428,26 @@ export default {
       loescht: 'Lösche & ziehe Snapshot…',
       loeschtUndNeuLaden: 'Lösche & lade neu…',
       jaLoeschen: 'Ja, löschen & neu laden',
+      dbFertig: 'Gelöscht — Snapshot gezogen',
+      lokaleDBErgebnis:
+        'IndexedDB „{db}" gelöscht und neu gefüllt: {artikel} Artikel, {standorte} Standorte, {commission} Projekte, {buchungen} Buchungen, {einstellungen} Einstellungen, {mindestbestandEreignisse} Mindestbestand-Ereignisse.',
+      nurLeeren: 'Lokale DB leeren (ohne Snapshot)',
+      nurLeerenHint:
+        'Leert die IndexedDB und lädt die App neu, ohne sofort einen Snapshot zu ziehen. Der reguläre Sync füllt die DB danach wieder — der leere Zustand ist kurz sichtbar.',
+      nurLeerenFrage: 'Lokale Datenbank wirklich ohne Snapshot leeren?',
+      nurLeerenDetail:
+        'Nach dem Neuladen startet der normale Sync und pullt alle Daten komplett neu vom Server (Artikel, Standorte, Projekte, Buchungen, Einstellungen).',
+      nurLeerenWarnung:
+        'Ausstehende lokale Buchungen, die noch nicht gepusht wurden, gehen dabei verloren.',
+      nurLeerenBtn: 'Nur lokale DB leeren',
+      loeschtOhneSnapshot: 'Leere lokale DB…',
+      jaNurLeeren: 'Ja, leeren & neu laden',
+      wipeFertig: 'Leere — Syncpull folgt',
+      nurLeerenErgebnis:
+        'IndexedDB „{db}" gelöscht. Kein Snapshot gezogen — der Sync pullt nach dem Neuladen alles neu.',
+      neuladenIn: 'Die Seite lädt in {sek} Sekunden automatisch neu.',
+      neustartHinweis:
+        'Die lokale Datenbank ist bereits geleert. Lade die Seite neu — der Sync füllt sie wieder auf.',
       serverDB: 'Server-Datenbank leeren',
       serverDBHint:
         'Löscht alle Domain-Daten auf dem Server (Artikel, Standorte, Buchungen, Fotos, Einstellungen, etc.). Users und Login bleiben erhalten.',

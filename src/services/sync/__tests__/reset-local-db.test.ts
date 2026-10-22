@@ -14,7 +14,8 @@ import 'fake-indexeddb/auto'
 import { CastelDb, getDb, setDb } from '../../../db/database'
 import type { Artikel, Einstellung, Standort } from '../../../db/types'
 import { jetztIso, neueUuid } from '../../../domain/ids'
-import { DB_NAME, resetLocalDbAndPull } from '../reset-local-db'
+import { DB_NAME, resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../reset-local-db'
+import { _resetSyncForTests, startSyncWorker } from '../worker'
 
 function artikelAnlage(id: string, titel: string): Artikel {
   const now = jetztIso()
@@ -52,11 +53,15 @@ function standortAnlage(id: string, name: string): Standort {
 }
 
 beforeEach(() => {
+  // Der Reset-Flow suspendiert den Sync-Worker (Latch bis Reload) — der muss
+  // pro Test neu gesetzt werden können, ohne andere Tests anzustecken.
+  _resetSyncForTests()
   // Eigener DB-Name pro Test, damit deletes sich nicht überlagern.
   setDb(new CastelDb(`castel-reset-test-${Math.random().toString(36).slice(2)}`))
 })
 
 afterEach(() => {
+  _resetSyncForTests()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -357,5 +362,79 @@ describe('resetLocalDbAndPull', () => {
     expect(await getDb().mindestbestandEreignisse.get(ereignisId)).toBeDefined()
     const marker = await getDb().einstellungen.get(['mindestbestand.lastPullAt', ''])
     expect(marker?.value).toBe('2026-10-15T11:00:00.000Z')
+  })
+})
+
+describe('wipeLocalDbWithoutPull', () => {
+  it('leert die DB ohne Snapshot — kein Fetch, frische Instanz bleibt beschreibbar', async () => {
+    const dbName = `castel-wipe-${Math.random().toString(36).slice(2)}`
+    const { setDb: setDbLocal } = await import('../../../db/database')
+    setDbLocal(new CastelDb(dbName))
+    const localId = neueUuid()
+    await getDb().artikel.add(artikelAnlage(localId, 'lokal-vorhanden'))
+    expect(await getDb().artikel.count()).toBe(1)
+
+    // Kein Snapshot-Pull: jeder Fetch wäre ein Fehler.
+    const fetchMock = vi.fn(async () => {
+      throw new Error('fetch darf beim Wisch ohne Snapshot nicht aufgerufen werden')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const ergebnis = await wipeLocalDbWithoutPull()
+
+    expect(ergebnis.deletedDb).toBe(DB_NAME)
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    // Die gewischte Test-DB ist wirklich leer.
+    setDbLocal(new CastelDb(dbName))
+    expect(await getDb().artikel.count()).toBe(0)
+    expect(await getDb().artikel.get(localId)).toBeUndefined()
+
+    // Das Singleton zeigt auf eine frische, beschreibbare Instanz.
+    const frisch = getDb()
+    expect(await frisch.artikel.count()).toBe(0)
+    await frisch.outbox.add({
+      id: neueUuid(),
+      entity: 'artikel',
+      op: 'create',
+      payload: JSON.stringify({ id: neueUuid() }),
+      createdAt: jetztIso(),
+      syncedAt: null,
+      attempts: 0,
+      lastError: null,
+      quarantinedAt: null,
+      quarantineReason: null,
+    })
+    expect(await frisch.outbox.count()).toBe(1)
+  })
+
+  it('suspendiert den Sync-Worker, damit er die geleerte DB nicht sofort wieder füllt', async () => {
+    const dbName = `castel-wipe-suspend-${Math.random().toString(36).slice(2)}`
+    const { setDb: setDbLocal } = await import('../../../db/database')
+    setDbLocal(new CastelDb(dbName))
+    await getDb().artikel.add(artikelAnlage(neueUuid(), 'lokal-vorhanden'))
+
+    const fetchMock = vi.fn(async () => {
+      throw new Error('kein Fetch erwartet')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await wipeLocalDbWithoutPull()
+
+    // Mimics App.vue restarting the worker after the wipe: the suspend latch
+    // must keep it from reopening/refilling the DB we just dropped.
+    startSyncWorker({ apiBase: 'http://test.local', getToken: () => null, intervalSek: 3600 })
+    Object.defineProperty(document, 'visibilityState', {
+      value: 'visible',
+      configurable: true,
+    })
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('online'))
+    await new Promise((r) => setTimeout(r, 50))
+
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    setDbLocal(new CastelDb(dbName))
+    expect(await getDb().artikel.count()).toBe(0)
   })
 })

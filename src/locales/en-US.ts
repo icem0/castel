@@ -415,6 +415,25 @@ export default {
       loescht: 'Deleting & pulling snapshot…',
       loeschtUndNeuLaden: 'Deleting & reloading…',
       jaLoeschen: 'Yes, delete & reload',
+      dbFertig: 'Deleted — snapshot pulled',
+      lokaleDBErgebnis:
+        'IndexedDB "{db}" deleted and refilled: {artikel} items, {standorte} locations, {commission} commissions, {buchungen} transactions, {einstellungen} settings, {mindestbestandEreignisse} min-stock events.',
+      nurLeeren: 'Clear local DB (without snapshot)',
+      nurLeerenHint:
+        'Clears IndexedDB and reloads the app without pulling a snapshot right away. The regular sync refills the database afterwards — the empty state is briefly visible.',
+      nurLeerenFrage: 'Really clear local database without a snapshot?',
+      nurLeerenDetail:
+        'After the reload the regular sync starts and pulls every table again from the server (items, locations, commissions, transactions, settings).',
+      nurLeerenWarnung: 'Local transactions not yet pushed to the server will be lost.',
+      nurLeerenBtn: 'Clear local DB only',
+      loeschtOhneSnapshot: 'Clearing local DB…',
+      jaNurLeeren: 'Yes, clear & reload',
+      wipeFertig: 'Cleared — sync pull follows',
+      nurLeerenErgebnis:
+        'IndexedDB "{db}" deleted. No snapshot pulled — the sync pulls everything again after the reload.',
+      neuladenIn: 'The page reloads automatically in {sek} seconds.',
+      neustartHinweis:
+        'The local database is already cleared. Reload the page — the sync will refill it.',
       serverDB: 'Clear server database',
       serverDBHint:
         'Deletes all domain data on the server (items, locations, transactions, photos, settings, etc.). Users and login are kept.',

@@ -3,16 +3,24 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
-import { resetLocalDbAndPull } from '../services/sync/reset-local-db'
+import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
 
 const { t } = useI18n()
 
-type ResetPhase = 'idle' | 'bestaetigen' | 'laufend' | 'fehler'
+type ResetPhase = 'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'
+
+/** Grace period to show the wipe/pull result before the page reloads. */
+const RELOAD_DELAY_MS = 3_000
+const RELOAD_SEK = RELOAD_DELAY_MS / 1000
 
 const cachePhase = ref<ResetPhase>('idle')
 const cacheFehler = ref<string | null>(null)
 const dbPhase = ref<ResetPhase>('idle')
 const dbFehler = ref<string | null>(null)
+const dbErfolg = ref<string | null>(null)
+const wipePhase = ref<ResetPhase>('idle')
+const wipeFehler = ref<string | null>(null)
+const wipeErfolg = ref<string | null>(null)
 const serverDbPhase = ref<ResetPhase>('idle')
 const serverDbFehler = ref<string | null>(null)
 const serverDbErfolg = ref<string | null>(null)
@@ -40,23 +48,63 @@ async function cacheBestaetigen(): Promise<void> {
 function dbFrageStarten(): void {
   dbPhase.value = 'bestaetigen'
   dbFehler.value = null
+  dbErfolg.value = null
 }
 function dbAbbrechen(): void {
   dbPhase.value = 'idle'
   dbFehler.value = null
+  dbErfolg.value = null
 }
 async function dbBestaetigen(): Promise<void> {
   dbPhase.value = 'laufend'
   dbFehler.value = null
+  dbErfolg.value = null
   try {
-    await resetLocalDbAndPull({
+    const ergebnis = await resetLocalDbAndPull({
       apiBase: getApiBaseUrl(),
       token: localStorage.getItem('castel.auth.jwt'),
     })
-    window.location.reload()
+    dbErfolg.value = t('view.development.lokaleDBErgebnis', {
+      db: ergebnis.deletedDb,
+      artikel: ergebnis.pulled.artikel,
+      standorte: ergebnis.pulled.standorte,
+      commission: ergebnis.pulled.commission,
+      buchungen: ergebnis.pulled.buchungen,
+      einstellungen: ergebnis.pulled.einstellungen,
+      mindestbestandEreignisse: ergebnis.pulled.mindestbestandEreignisse,
+    })
+    dbPhase.value = 'fertig'
+    setTimeout(() => window.location.reload(), RELOAD_DELAY_MS)
   } catch (e) {
     dbFehler.value = e instanceof Error ? e.message : String(e)
     dbPhase.value = 'fehler'
+  }
+}
+
+function wipeFrageStarten(): void {
+  wipePhase.value = 'bestaetigen'
+  wipeFehler.value = null
+  wipeErfolg.value = null
+}
+function wipeAbbrechen(): void {
+  wipePhase.value = 'idle'
+  wipeFehler.value = null
+  wipeErfolg.value = null
+}
+async function wipeBestaetigen(): Promise<void> {
+  wipePhase.value = 'laufend'
+  wipeFehler.value = null
+  wipeErfolg.value = null
+  try {
+    // Deliberately no snapshot pull: the empty state stays visible until the
+    // regular sync worker refills the DB after the reload.
+    const ergebnis = await wipeLocalDbWithoutPull()
+    wipeErfolg.value = t('view.development.nurLeerenErgebnis', { db: ergebnis.deletedDb })
+    wipePhase.value = 'fertig'
+    setTimeout(() => window.location.reload(), RELOAD_DELAY_MS)
+  } catch (e) {
+    wipeFehler.value = e instanceof Error ? e.message : String(e)
+    wipePhase.value = 'fehler'
   }
 }
 
@@ -139,42 +187,107 @@ async function serverDbBestaetigen(): Promise<void> {
         <button
           type="button"
           class="danger"
-          :disabled="dbPhase === 'laufend'"
+          :disabled="dbPhase === 'laufend' || dbPhase === 'fertig'"
           @click="dbFrageStarten"
         >
           {{
             dbPhase === 'laufend'
-              ? t('view.development.loescht')
-              : t('view.development.lokaleDBLoeschen')
+              ? t('view.development.loeschtUndNeuLaden')
+              : dbPhase === 'fertig'
+                ? t('view.development.dbFertig')
+                : t('view.development.lokaleDBLoeschen')
           }}
         </button>
       </div>
     </div>
 
     <div v-if="dbPhase !== 'idle'" class="confirm" role="alertdialog">
-      <p>
-        <strong>{{ t('view.development.lokaleDBFrage') }}</strong>
-      </p>
-      <p class="hint">{{ t('view.development.lokaleDBDetail') }}</p>
-      <p class="hint">{{ t('view.development.lokaleDBWarnung') }}</p>
-      <p v-if="dbPhase === 'fehler' && dbFehler" class="wert-fehler">{{ dbFehler }}</p>
+      <template v-if="dbPhase === 'fertig'">
+        <p class="hint hint-ok">{{ dbErfolg }}</p>
+        <p class="hint">{{ t('view.development.neuladenIn', { sek: RELOAD_SEK }) }}</p>
+      </template>
+      <template v-else>
+        <p>
+          <strong>{{ t('view.development.lokaleDBFrage') }}</strong>
+        </p>
+        <p class="hint">{{ t('view.development.lokaleDBDetail') }}</p>
+        <p class="hint">{{ t('view.development.lokaleDBWarnung') }}</p>
+        <p v-if="dbPhase === 'fehler' && dbFehler" class="wert-fehler">{{ dbFehler }}</p>
+        <p v-if="dbPhase === 'fehler'" class="hint">{{ t('view.development.neustartHinweis') }}</p>
+        <div class="actions">
+          <button
+            type="button"
+            class="danger"
+            :disabled="dbPhase === 'laufend'"
+            @click="dbBestaetigen"
+          >
+            {{
+              dbPhase === 'laufend'
+                ? t('view.development.loeschtUndNeuLaden')
+                : t('view.development.jaLoeschen')
+            }}
+          </button>
+          <button type="button" :disabled="dbPhase === 'laufend'" @click="dbAbbrechen">
+            {{ t('view.common.abbrechen') }}
+          </button>
+        </div>
+      </template>
+    </div>
+
+    <h2>{{ t('view.development.nurLeeren') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.nurLeerenHint') }}</p>
       <div class="actions">
         <button
           type="button"
           class="danger"
-          :disabled="dbPhase === 'laufend'"
-          @click="dbBestaetigen"
+          :disabled="wipePhase === 'laufend' || wipePhase === 'fertig'"
+          @click="wipeFrageStarten"
         >
           {{
-            dbPhase === 'laufend'
-              ? t('view.development.loeschtUndNeuLaden')
-              : t('view.development.jaLoeschen')
+            wipePhase === 'laufend'
+              ? t('view.development.loeschtOhneSnapshot')
+              : wipePhase === 'fertig'
+                ? t('view.development.wipeFertig')
+                : t('view.development.nurLeerenBtn')
           }}
         </button>
-        <button type="button" :disabled="dbPhase === 'laufend'" @click="dbAbbrechen">
-          {{ t('view.common.abbrechen') }}
-        </button>
       </div>
+    </div>
+
+    <div v-if="wipePhase !== 'idle'" class="confirm" role="alertdialog">
+      <template v-if="wipePhase === 'fertig'">
+        <p class="hint hint-ok">{{ wipeErfolg }}</p>
+        <p class="hint">{{ t('view.development.neuladenIn', { sek: RELOAD_SEK }) }}</p>
+      </template>
+      <template v-else>
+        <p>
+          <strong>{{ t('view.development.nurLeerenFrage') }}</strong>
+        </p>
+        <p class="hint">{{ t('view.development.nurLeerenDetail') }}</p>
+        <p class="hint">{{ t('view.development.nurLeerenWarnung') }}</p>
+        <p v-if="wipePhase === 'fehler' && wipeFehler" class="wert-fehler">{{ wipeFehler }}</p>
+        <p v-if="wipePhase === 'fehler'" class="hint">
+          {{ t('view.development.neustartHinweis') }}
+        </p>
+        <div class="actions">
+          <button
+            type="button"
+            class="danger"
+            :disabled="wipePhase === 'laufend'"
+            @click="wipeBestaetigen"
+          >
+            {{
+              wipePhase === 'laufend'
+                ? t('view.development.loeschtOhneSnapshot')
+                : t('view.development.jaNurLeeren')
+            }}
+          </button>
+          <button type="button" :disabled="wipePhase === 'laufend'" @click="wipeAbbrechen">
+            {{ t('view.common.abbrechen') }}
+          </button>
+        </div>
+      </template>
     </div>
 
     <h2>{{ t('view.development.serverDB') }}</h2>
@@ -250,28 +363,6 @@ async function serverDbBestaetigen(): Promise<void> {
 .confirm .hint {
   color: var(--text-muted);
   font-size: 0.78rem !important;
-}
-.button {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.85rem;
-  background: var(--bg-input);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-family: inherit;
-}
-.button.danger {
-  background: var(--danger);
-  color: white;
-  border-color: var(--danger);
-}
-.button.danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-.button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .hint-ok {
   color: var(--success);

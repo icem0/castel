@@ -24,6 +24,10 @@
 //
 // Note: we deliberately wipe data only, never caches. Cache wipe and DB
 // reset are separate buttons because the underlying problems are separate.
+//
+// Variant: `wipeLocalDbWithoutPull()` runs steps 1-3 only. The refill is
+// left to the regular sync worker after the page reload, so the empty state
+// is actually visible in the UI before the data comes back.
 
 import { getDb, resetDbForTests, DB_NAME } from '../../db/database'
 import { jetztIso } from '../../domain/ids'
@@ -153,21 +157,8 @@ export async function resetLocalDbAndPull(opts: {
   token: string | null
   apiBase: string
 }): Promise<ResetLocalDbResult> {
-  // 1) Fully stop and suspend the sync worker so it cannot reopen/refill
-  //    the DB while we wipe it.
-  suspendSyncWorker()
-
-  const oldDb = getDb()
-
-  // 2) Close connection, then hard-drop the database. deleteDatabase()
-  //    blocks while another connection (e.g. a second tab) holds the DB —
-  //    guarded by a timeout with a clear error message.
-  oldDb.close()
-  await dropDatabase(oldDb)
-
-  // 3) Fresh Dexie instance, reset singleton.
-  resetDbForTests()
-  const newDb = getDb()
+  // 1-3) Worker stop + hard wipe + fresh instance.
+  const newDb = await wipeAndReopen()
 
   // 4) Snapshot erst JETZT holen — die lokale DB ist bereits weg.
   const data = await fetchSnapshot(opts.apiBase, opts.token, '', MINDEST_SINCE_EPOCHE)
@@ -189,6 +180,45 @@ export async function resetLocalDbAndPull(opts: {
     },
     reloaded: false,
   }
+}
+
+export interface WipeLocalDbResult {
+  deletedDb: string
+}
+
+/**
+ * Wipes the local IndexedDB and does NOT pull a snapshot. The regular sync
+ * worker refills the DB after the page reload (the `sync.lastPullAt` marker
+ * is gone with the database, so the next run pulls everything). Use this to
+ * watch the empty state and the sync refilling it.
+ *
+ * The reload is NOT triggered here — the caller decides.
+ */
+export async function wipeLocalDbWithoutPull(): Promise<WipeLocalDbResult> {
+  await wipeAndReopen()
+  return { deletedDb: DB_NAME }
+}
+
+/**
+ * Steps 1-3 of the reset flow: suspend the worker, hard-drop the IndexedDB,
+ * hand back a fresh (empty) Dexie instance for the singleton.
+ */
+async function wipeAndReopen(): Promise<ReturnType<typeof getDb>> {
+  // 1) Fully stop and suspend the sync worker so it cannot reopen/refill
+  //    the DB while we wipe it.
+  suspendSyncWorker()
+
+  const oldDb = getDb()
+
+  // 2) Close connection, then hard-drop the database. deleteDatabase()
+  //    blocks while another connection (e.g. a second tab) holds the DB —
+  //    guarded by a timeout with a clear error message.
+  oldDb.close()
+  await dropDatabase(oldDb)
+
+  // 3) Fresh Dexie instance, reset singleton.
+  resetDbForTests()
+  return getDb()
 }
 
 /**
