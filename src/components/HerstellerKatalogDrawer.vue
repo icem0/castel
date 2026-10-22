@@ -475,7 +475,7 @@ function onTaste(e: KeyboardEvent): void {
 }
 .drawer {
   width: min(440px, 100vw);
-  height: 100vh;
+  height: var(--app-vh, 100vh);
   background: var(--surface, #fff);
   display: flex;
   flex-direction: column;

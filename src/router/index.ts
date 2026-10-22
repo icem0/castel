@@ -116,6 +116,13 @@ const routes: RouteRecordRaw[] = [
 export const router = createRouter({
   history: createWebHistory(),
   routes,
+  // Scroll-Position explizit und deterministisch: neuer Route -> nach oben,
+  // Back/Forward -> gespeicherte Position. iOS stellt sonst seine eigene
+  // Scroll-Restoration wieder her und der Layout wirkt nach einem
+  // Bottom-Nav-Tap, als wuerde es springen.
+  scrollBehavior(_to, _from, savedPosition) {
+    return savedPosition ?? { top: 0 }
+  },
 })
 
 router.beforeEach((to) => {

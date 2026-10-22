@@ -1111,7 +1111,7 @@ function formatRelativ(iso: string | null): string {
 
 <style scoped>
 .app-shell {
-  min-height: 100vh;
+  min-height: var(--app-vh, 100vh);
   display: flex;
   flex-direction: column;
 }
@@ -1141,6 +1141,10 @@ function formatRelativ(iso: string | null): string {
   gap: 1.25rem;
   align-items: center;
   padding: 0.7rem 1.25rem;
+  /* Im Android-Fullscreen (kein Browser-Chrome, kein Statusleiste) laeuft die
+     WebView bis an den oberen Display-Rand. max() haelt den normalen Padding,
+     env() schiebt den Header bei Cutout/Statusleiste nach unten. */
+  padding-top: max(0.7rem, env(safe-area-inset-top, 0px));
   border-bottom: 1px solid var(--border);
   background: var(--bg-header);
   position: sticky;
@@ -1417,7 +1421,7 @@ function formatRelativ(iso: string | null): string {
   top: 4rem;
   right: 1rem;
   width: min(34rem, 96vw);
-  max-height: calc(100vh - 5rem);
+  max-height: calc(var(--app-vh, 100vh) - 5rem);
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--bg-card);
@@ -1908,6 +1912,7 @@ main {
 :root[data-layout='mobile'] .app-header {
   /* Auf Mobile nur Brand + Theme + Sync — Rest wandert in Bottom-Nav/Profil. */
   padding: 0.6rem 0.85rem;
+  padding-top: max(0.6rem, env(safe-area-inset-top, 0px));
 }
 :root[data-layout='mobile'] .app-header nav {
   display: none;
@@ -1994,6 +1999,7 @@ main {
     flex-wrap: wrap;
     gap: 0.5rem;
     padding: 0.6rem 0.75rem;
+    padding-top: max(0.6rem, env(safe-area-inset-top, 0px));
   }
   .app-header nav {
     order: 3;

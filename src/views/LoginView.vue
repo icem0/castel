@@ -417,7 +417,7 @@ async function copyVersion(): Promise<void> {
 
 <style scoped>
 .login {
-  min-height: 100vh;
+  min-height: var(--app-vh, 100vh);
   display: grid;
   place-items: center;
   padding: 2rem 1rem;

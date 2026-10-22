@@ -116,6 +116,21 @@
 html {
   overflow-x: hidden;
   -webkit-text-size-adjust: 100%;
+  /* Full-height variable: vh as baseline, dvh where supported. 100dvh tracks
+     the actually visible viewport, so collapsing browser chrome (or the
+     Android status bar in fullscreen display mode) does not leave the shell
+     taller than the screen. */
+  --app-vh: 100vh;
+  /* No rubber-banding / pull-to-refresh on the root scroller. Without this the
+     page can be dragged past its bounds on iOS and Android, which looks like
+     the layout "jumping". */
+  overscroll-behavior-y: none;
+}
+
+@supports (height: 100dvh) {
+  html {
+    --app-vh: 100dvh;
+  }
 }
 
 body {
@@ -123,6 +138,29 @@ body {
   background: var(--bg-app);
   color: var(--text);
   overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+
+/* Double-tap zoom on iOS: `touch-action: manipulation` removes the
+   double-tap-to-zoom gesture while keeping scrolling and pinch-zoom intact.
+   Supported on iOS Safari 13+. Without it a double tap on a button zooms the
+   whole page, which reads as the UI "jumping around". */
+button,
+.btn,
+a,
+label,
+summary,
+[role='button'],
+[role='tab'],
+input[type='checkbox'],
+input[type='radio'],
+.tile,
+.schnellwahl-taste,
+.stepper button,
+.fab,
+.bottom-nav a {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 img {
@@ -155,13 +193,37 @@ a {
   color: var(--accent);
   text-decoration: none;
 }
-a:hover {
-  text-decoration: underline;
+/* Hover styles are only applied on devices with a real pointer. On touch
+   devices iOS/WebKit keeps the :hover state stuck after a tap, so a button
+   keeps its hovered colours until the next tap elsewhere. That reads as the
+   UI "shifting" after every touch. */
+@media (hover: hover) {
+  a:hover {
+    text-decoration: underline;
+  }
+
+  button:hover:not(:disabled),
+  .btn:hover {
+    background: var(--bg-input);
+    border-color: var(--border-strong);
+    text-decoration: none;
+  }
+
+  button.primary:hover:not(:disabled),
+  .btn.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  button.danger:hover:not(:disabled),
+  .btn.danger:hover {
+    background: rgba(248, 113, 113, 0.1);
+  }
 }
 
 /* App-Container */
 #app {
-  min-height: 100vh;
+  min-height: var(--app-vh, 100vh);
   display: flex;
   flex-direction: column;
 }
@@ -246,12 +308,6 @@ button, .btn {
   line-height: 1.2;
 }
 
-button:hover:not(:disabled), .btn:hover {
-  background: var(--bg-input);
-  border-color: var(--border-strong);
-  text-decoration: none;
-}
-
 button:disabled, .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -263,19 +319,10 @@ button.primary, .btn.primary {
   border-color: var(--accent);
 }
 
-button.primary:hover:not(:disabled), .btn.primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
 button.danger, .btn.danger {
   background: transparent;
   color: var(--danger);
   border-color: rgba(248, 113, 113, 0.4);
-}
-
-button.danger:hover:not(:disabled), .btn.danger:hover {
-  background: rgba(248, 113, 113, 0.1);
 }
 
 /* Inputs */
@@ -426,12 +473,14 @@ label.check {
   border-bottom: none;
 }
 
-.data tbody tr:hover {
-  background: rgba(99, 102, 241, 0.04);
-}
+@media (hover: hover) {
+  .data tbody tr:hover {
+    background: rgba(99, 102, 241, 0.04);
+  }
 
-:root[data-theme='light'] .data tbody tr:hover {
-  background: rgba(79, 70, 229, 0.04);
+  :root[data-theme='light'] .data tbody tr:hover {
+    background: rgba(79, 70, 229, 0.04);
+  }
 }
 
 .data .actions-cell {
@@ -565,11 +614,14 @@ label.check {
     min-height: var(--touch-min);
   }
 
-  /* iOS zoomt in Inputs, wenn font-size < 16px. */
+  /* iOS zoomt in Eingabefelder, deren computed font-size unter 16px liegt.
+     Wichtig: hier px und KEIN rem — die Wurzel-Font-Size ist auf Mobile
+     13px (siehe Media-Query weiter unten), `1rem` waere also 13px und der
+     Zoom-Fehler wuerde bleiben. */
   input,
   select,
   textarea {
-    font-size: 1rem;
+    font-size: 16px;
   }
 }
 
@@ -596,11 +648,13 @@ label.check {
     transform 0.15s,
     background 0.15s;
 }
-.fab:hover {
-  background: var(--accent-hover);
-  text-decoration: none;
-  color: white;
-  transform: translateY(-1px);
+@media (hover: hover) {
+  .fab:hover {
+    background: var(--accent-hover);
+    text-decoration: none;
+    color: white;
+    transform: translateY(-1px);
+  }
 }
 .fab:active {
   transform: translateY(0);
@@ -656,9 +710,11 @@ label.check {
   justify-content: center;
   line-height: 1;
 }
-.schnellwahl-taste:hover {
-  background: var(--bg-card);
-  color: var(--accent);
+@media (hover: hover) {
+  .schnellwahl-taste:hover {
+    background: var(--bg-card);
+    color: var(--accent);
+  }
 }
 .schnellwahl-taste:active {
   background: var(--accent);
@@ -689,9 +745,11 @@ label.check {
   justify-content: center;
   line-height: 1;
 }
-.stepper button:hover:not(:disabled) {
-  background: var(--bg-card);
-  color: var(--accent);
+@media (hover: hover) {
+  .stepper button:hover:not(:disabled) {
+    background: var(--bg-card);
+    color: var(--accent);
+  }
 }
 .stepper input {
   border: none;
@@ -741,8 +799,10 @@ label.check {
     background 0.15s,
     border-color 0.15s;
 }
-.tile-group .tile:hover {
-  border-color: var(--accent-border);
+@media (hover: hover) {
+  .tile-group .tile:hover {
+    border-color: var(--accent-border);
+  }
 }
 .tile-group .tile.active {
   background: var(--accent-bg);
@@ -780,9 +840,11 @@ label.check {
   text-decoration: none;
   font-size: 1rem;
 }
-.card-list-item .card-list-title:hover {
-  color: var(--accent);
-  text-decoration: none;
+@media (hover: hover) {
+  .card-list-item .card-list-title:hover {
+    color: var(--accent);
+    text-decoration: none;
+  }
 }
 .card-list-item .card-list-meta {
   display: flex;

@@ -264,9 +264,8 @@ onBeforeUnmount(() => {
   z-index: 1000;
   cursor: zoom-out;
   -webkit-tap-highlight-color: transparent;
-  /* iOS-Safari: full-height fixed element trotz URL-Bar */
-  height: 100vh;
-  height: 100dvh;
+  /* full-height fixed element trotz URL-Bar (--app-vh, siehe style.css) */
+  height: var(--app-vh, 100vh);
 }
 
 .lightbox-img {

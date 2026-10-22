@@ -376,10 +376,9 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   z-index: 1000;
   cursor: zoom-out;
   -webkit-tap-highlight-color: transparent;
-  /* iOS-Safari: dvh nutzt die "Dynamic Viewport Height" (berücksichtigt
-     URL-Bar); fallback vh für ältere Browser. */
-  height: 100vh;
-  height: 100dvh;
+  /* --app-vh: vh als Baseline, dvh wo unterstützt (siehe style.css), damit
+     die Lightbox die tatsächlich sichtbare Höhe nutzt. */
+  height: var(--app-vh, 100vh);
 }
 
 .lightbox-figure {
