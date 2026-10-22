@@ -13,7 +13,6 @@ const settings = useSettingsStore()
 const standort = useStandortStore()
 const auth = useAuthStore()
 
-const sprache = ref(settings.settings.sprache)
 const standardId = ref<string>(settings.settings.standardStandortId ?? '')
 const firmaName = ref<string>(settings.settings.companyName ?? '')
 const firmaNameVomUser = ref(false)
@@ -29,7 +28,6 @@ const barcodeFormate = [
 watch(
   () => settings.settings,
   (s) => {
-    sprache.value = s.sprache
     standardId.value = s.standardStandortId ?? ''
     if (!firmaNameVomUser.value) {
       firmaName.value = s.companyName ?? ''
@@ -49,7 +47,6 @@ async function speichern(): Promise<void> {
   if (laufend.value) return
   laufend.value = true
   try {
-    await settings.setSprache(sprache.value)
     await settings.setStandardStandort(standardId.value || null)
     if (auth.istAdmin) {
       await settings.setKey('companyName', firmaName.value)
@@ -72,6 +69,22 @@ function abmelden(): void {
   void router.push('/login')
 }
 
+/**
+ * Apply the language immediately — without the "Save" button.
+ *
+ * `setSprache` writes to the local IndexedDB first; the settings store is
+ * refreshed via liveQuery and `main.ts` mirrors the value into the i18n
+ * locale. The whole UI therefore switches language right away — offline
+ * as well. The server is not in the critical path: the setting is synced
+ * asynchronously via the outbox.
+ */
+async function spracheAendern(e: Event): Promise<void> {
+  const ziel = (e.target as HTMLSelectElement).value
+  if (ziel !== 'de' && ziel !== 'en') return
+  if (ziel === settings.settings.sprache) return
+  await settings.setSprache(ziel)
+}
+
 onBeforeUnmount(() => {
   if (statusTimer !== null) {
     clearTimeout(statusTimer)
@@ -88,13 +101,6 @@ onBeforeUnmount(() => {
 
     <div class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label>
-          <span>{{ t('view.settings.sprache') }}</span>
-          <select v-model="sprache" :disabled="laufend">
-            <option value="de">{{ t('view.settings.sprachen.de') }}</option>
-            <option value="en">{{ t('view.settings.sprachen.en') }}</option>
-          </select>
-        </label>
         <label>
           <span>{{ t('view.settings.standardStandort') }}</span>
           <select v-model="standardId" :disabled="laufend">
@@ -144,6 +150,18 @@ onBeforeUnmount(() => {
         <span class="label">{{ t('view.settings.benutzer') }}</span>
         <span class="value">{{ auth.anzeigename || '—' }}</span>
       </div>
+      <label class="account-sprache">
+        <span class="label">{{ t('view.settings.sprache') }}</span>
+        <select
+          :value="settings.settings.sprache"
+          :aria-label="t('view.settings.sprache')"
+          @change="spracheAendern"
+        >
+          <option value="de">{{ t('view.settings.sprachen.de') }}</option>
+          <option value="en">{{ t('view.settings.sprachen.en') }}</option>
+        </select>
+        <small class="hint">{{ t('view.settings.spracheHint') }}</small>
+      </label>
       <RouterLink to="/passwort-aendern">{{ t('view.settings.passwortAendern') }}</RouterLink>
       <button type="button" class="danger" @click="abmelden">
         {{ t('view.settings.abmelden') }}
@@ -200,5 +218,18 @@ onBeforeUnmount(() => {
 }
 .readonly .value {
   font-weight: 500;
+}
+.account-sprache {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.account-sprache .label {
+  font-size: 0.85em;
+  color: var(--text-muted, #666);
+}
+.account-sprache select {
+  width: max-content;
+  min-width: 12rem;
 }
 </style>

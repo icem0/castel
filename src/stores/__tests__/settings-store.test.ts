@@ -142,3 +142,96 @@ describe('useSettingsStore — currentUserId wird dynamisch gelesen', () => {
     store.stop()
   })
 })
+
+// Die Sprache ist eine per-User-Einstellung. Ihre Wirkung ist rein
+// clientseitig (die UI schaltet sofort um), der Server speichert sie nur
+// als Sync-Metadatum pro User.
+describe('useSettingsStore — sprache (per User)', () => {
+  beforeEach(() => {
+    resetDbForTests()
+    setDb(getDb())
+    setActivePinia(createPinia())
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  function login(userId: string): void {
+    sessionSchreiben({
+      userId,
+      email: `${userId}@example.com`,
+      rolle: 'user',
+      anzeigename: userId,
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+  }
+
+  it('setSprache schreibt eine per-User-Zeile (userId = aktueller User)', async () => {
+    const store = useSettingsStore()
+    store.start()
+    login('user-lang')
+
+    await store.setSprache('en')
+
+    const row = await getDb().einstellungen.get(['sprache', 'user-lang'])
+    expect(row?.value).toBe('en')
+    // Kein globaler Wert: die Sprache darf nicht von anderen Usern
+    // übernommen werden.
+    const globalRow = await getDb().einstellungen.get(['sprache', ''])
+    expect(globalRow).toBeUndefined()
+
+    store.stop()
+  })
+
+  it('setSprache ohne Session schreibt nichts (kein ungewollter globaler Wert)', async () => {
+    const store = useSettingsStore()
+    store.start()
+
+    // Die fake-indexeddb-Daten überleben innerhalb der Testdatei, wir
+    // messen also die Änderung statt eines Absolutwerts.
+    const vorher = await getDb().einstellungen.where('key').equals('sprache').count()
+    await store.setSprache('en')
+    const nachher = await getDb().einstellungen.where('key').equals('sprache').count()
+
+    expect(nachher).toBe(vorher)
+    // Insbesondere keine globale Zeile, die ein später angemeldeter User
+    // als eigene Sprache erben würde.
+    expect(await getDb().einstellungen.get(['sprache', ''])).toBeUndefined()
+
+    store.stop()
+  })
+
+  it('liest die Server-Schreibweise "en-US"/"de-DE" als "en"/"de"', async () => {
+    const store = useSettingsStore()
+    store.start()
+    login('user-locale')
+
+    // Der Setup-Pfad des Servers schreibt 'de-DE'/'en-US' (siehe
+    // server/src/auth/setup-routes.ts), der Client selbst 'de'/'en'.
+    await getDb().einstellungen.put({
+      key: 'sprache',
+      userId: 'user-locale',
+      value: 'en-US',
+      geaendertAm: jetztIso(),
+    })
+
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(store.settings.sprache).toBe('en')
+
+    await getDb().einstellungen.put({
+      key: 'sprache',
+      userId: 'user-locale',
+      value: 'de-DE',
+      geaendertAm: jetztIso(),
+    })
+
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(store.settings.sprache).toBe('de')
+
+    store.stop()
+  })
+})

@@ -1,0 +1,124 @@
+// Tests für die Sprach-Auswahl in der Sektion "Account" der Einstellungen.
+//
+// Erwartetes Verhalten:
+//   - Der Sprach-Umschalter steht in der Kategorie "Account", nicht mehr
+//     im allgemeinen Einstellungs-Formular.
+//   - Die Auswahl wirkt sofort: der Wert landet in der lokalen DB
+//     (IndexedDB) und die i18n-Locale wechselt ohne "Speichern"-Klick.
+//   - Die Einstellung ist an den eingeloggten User gebunden (per-User-Key).
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import SettingsView from '../SettingsView.vue'
+import { i18n, bindSpracheAnLocale } from '../../i18n'
+import { useSettingsStore } from '../../stores/settings'
+import { getDb, resetDbForTests, setDb } from '../../db/database'
+import { jetztIso } from '../../domain/ids'
+import { sessionSchreiben } from '../../auth/session'
+
+const LS_SESSION = 'castel.auth.session'
+
+const router = createRouter({
+  history: createMemoryHistory(),
+  routes: [
+    { path: '/', component: { template: '<div />' } },
+    { path: '/einstellungen', component: { template: '<div />' } },
+    { path: '/einstellungen/user', component: { template: '<div />' } },
+    { path: '/einstellungen/entwicklung', component: { template: '<div />' } },
+    { path: '/einstellungen/artikel-typen', component: { template: '<div />' } },
+    { path: '/einstellungen/kommissionen', component: { template: '<div />' } },
+    { path: '/einstellungen/backup', component: { template: '<div />' } },
+    { path: '/passwort-aendern', component: { template: '<div />' } },
+    { path: '/info', component: { template: '<div />' } },
+    { path: '/import', component: { template: '<div />' } },
+    { path: '/etiketten', component: { template: '<div />' } },
+    { path: '/standorte', component: { template: '<div />' } },
+  ],
+})
+
+function mountSettings() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  const w = mount(SettingsView, {
+    global: { plugins: [pinia, i18n, router] },
+  })
+  return { w, pinia }
+}
+
+describe('SettingsView — Sprache in der Kategorie "Account"', () => {
+  beforeEach(() => {
+    resetDbForTests()
+    setDb(getDb())
+    i18n.global.locale.value = 'de-DE'
+    localStorage.removeItem(LS_SESSION)
+    sessionSchreiben({
+      userId: 'user-acc',
+      email: 'acc@example.com',
+      rolle: 'user',
+      anzeigename: 'Account User',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  it('zeigt den Sprach-Umschalter in der Account-Sektion, nicht im oberen Formular', () => {
+    const { w } = mountSettings()
+
+    const selects = w.findAll('select')
+    expect(selects.length).toBeGreaterThan(0)
+
+    // Der Sprach-Umschalter ist der einzige Select mit den Sprach-Optionen.
+    const sprachSelect = selects.find((s) =>
+      s.findAll('option').some((o) => o.attributes('value') === 'en'),
+    )
+    expect(sprachSelect).toBeDefined()
+
+    // Er steht in der Card unter der Ueberschrift "Account".
+    const accountCard = w.findAll('h2').find((h) => h.text() === 'Account')
+      ?.element?.nextElementSibling
+    expect(accountCard).toBeDefined()
+    expect((accountCard as HTMLElement).querySelector('select')).not.toBeNull()
+
+    // Und nicht mehr im oberen Einstellungs-Formular (dort gibt es nur
+    // noch den Standard-Standort- und den Barcode-Select).
+    const form = w.find('form')
+    const sprachSelectImForm = form
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.attributes('value') === 'en'))
+    expect(sprachSelectImForm).toBeUndefined()
+  })
+
+  it('wendet die neue Sprache sofort an (lokal + i18n-Locale, ohne "Speichern")', async () => {
+    const { w, pinia } = mountSettings()
+    const store = useSettingsStore(pinia)
+    store.start()
+    bindSpracheAnLocale(() => store.settings.sprache)
+
+    const sprachSelect = w
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.attributes('value') === 'en'))
+    expect(sprachSelect).toBeDefined()
+
+    await sprachSelect!.setValue('en')
+    // Der Store aktualisiert sich per liveQuery (asynchron) — kurz warten.
+    await new Promise<void>((r) => setTimeout(r, 50))
+
+    // 1) Lokal persistiert, an den eingeloggten User gebunden.
+    const row = await getDb().einstellungen.get(['sprache', 'user-acc'])
+    expect(row?.value).toBe('en')
+    expect(await getDb().einstellungen.get(['sprache', ''])).toBeUndefined()
+
+    // 2) Die i18n-Locale ist umgeschaltet — die UI zeigt ab sofort Englisch.
+    expect(i18n.global.locale.value).toBe('en-US')
+    expect(store.settings.sprache).toBe('en')
+
+    store.stop()
+  })
+})

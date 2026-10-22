@@ -213,6 +213,8 @@ export default {
       h1: 'Settings',
       sprache: 'Language',
       sprachen: { de: 'Deutsch', en: 'English' },
+      spracheHint:
+        'Applies only to your account — takes effect immediately, even offline. Other devices pick it up on the next sync.',
       benutzer: 'Display name (used on transactions)',
       standardStandort: 'Default location',
       companyName: 'Company Name',

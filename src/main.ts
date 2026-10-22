@@ -1,10 +1,10 @@
-import { createApp, watch } from 'vue'
+import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import './style.css'
 import App from './App.vue'
 import { router } from './router'
-import { i18n, type AppLocale } from './i18n'
-import { useSettingsStore, type Sprache } from './stores/settings'
+import { bindSpracheAnLocale, i18n } from './i18n'
+import { useSettingsStore } from './stores/settings'
 import { useAuthStore } from './stores/auth'
 const app = createApp(App)
 app.use(createPinia())
@@ -12,21 +12,13 @@ app.use(router)
 app.use(i18n)
 app.mount('#app')
 
-// Locale aus Settings-Store nachziehen. Da die Settings-Store-Werte
-// asynchron via Dexie liveQuery geladen werden, setzen wir einen Watcher,
-// der die i18n-Locale spiegelt.
+// Mirror the settings store into the i18n locale. The store values are
+// loaded asynchronously via Dexie liveQuery, so the watcher follows the
+// per-user setting `sprache` — the UI switches to the chosen language
+// right away (purely client-side, the server is not involved).
 const settings = useSettingsStore()
 settings.start()
-watch(
-  () => settings.settings.sprache,
-  (sprache: Sprache) => {
-    const next: AppLocale = sprache === 'en' ? 'en-US' : 'de-DE'
-    if (i18n.global.locale.value !== next) {
-      i18n.global.locale.value = next
-    }
-  },
-  { immediate: true },
-)
+bindSpracheAnLocale(() => settings.settings.sprache)
 
 // Auth: gespeichertes JWT aus localStorage wiederherstellen und
 // asynchron pruefen, ob der Server ueberhaupt User hat. Bei Offline

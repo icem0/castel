@@ -220,6 +220,8 @@ export default {
       h1: 'Einstellungen',
       sprache: 'Sprache',
       sprachen: { de: 'Deutsch', en: 'English' },
+      spracheHint:
+        'Gilt nur für dein Konto — wirkt sofort, auch offline. Auf anderen Geräten wird die Sprache beim nächsten Sync übernommen.',
       benutzer: 'Anzeigename (für Buchungen)',
       standardStandort: 'Standard-Standort',
       companyName: 'Firmenzeichen',

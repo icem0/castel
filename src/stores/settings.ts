@@ -8,6 +8,10 @@
 // Beim Setzen wird ein Outbox-Eintrag erzeugt, den der Sync-Worker zum
 // Server pusht. Der Server ist Source of Truth (LWW auf geaendertAm).
 //
+// The `sprache` is a client-side effect: `i18n.ts` mirrors the store value
+// into the i18n locale. The server does not evaluate the value — it only
+// stores it per user, so the setting is the same on every device.
+//
 // IndexedDB-Konvention: Dexie erlaubt kein `null` in Primary-Key-Komponenten.
 // Wir speichern "global" als userId = '' (leerer String) und übersetzen
 // in der Domain-Schicht zu/von null. Der TypeScript-Type bleibt null.
@@ -152,9 +156,17 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
   }
 
   const spracheRow = byKey.get('sprache')
-  const spracheRaw = spracheRow?.value as Sprache | undefined
+  // The client stores 'de' | 'en', but the server-side setup route writes
+  // 'de-DE' | 'en-US' (see server/src/auth/setup-routes.ts). Both spellings
+  // are normalized to the short form so a server-written row does not fall
+  // back to the default (which would silently show German for 'en-US').
+  const spracheRaw = spracheRow?.value
   const sprache: Sprache =
-    spracheRaw === 'en' || spracheRaw === 'de' ? spracheRaw : DEFAULTS.sprache
+    spracheRaw === 'en' || spracheRaw === 'en-US'
+      ? 'en'
+      : spracheRaw === 'de' || spracheRaw === 'de-DE'
+        ? 'de'
+        : DEFAULTS.sprache
 
   const standortRow = byKey.get('standardStandortId')
   const standardStandortId = standortRow?.value ? standortRow.value : DEFAULTS.standardStandortId
