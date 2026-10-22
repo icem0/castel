@@ -4,6 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
 import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
+import {
+  collectReseedPlan,
+  reseedServer,
+  ReseedGuardError,
+  type ReseedPlan,
+} from '../services/sync/reseed-server'
 
 const { t } = useI18n()
 
@@ -24,6 +30,12 @@ const wipeErfolg = ref<string | null>(null)
 const serverDbPhase = ref<ResetPhase>('idle')
 const serverDbFehler = ref<string | null>(null)
 const serverDbErfolg = ref<string | null>(null)
+const reseedPhase = ref<ResetPhase>('idle')
+const reseedFehler = ref<string | null>(null)
+const reseedErfolg = ref<string | null>(null)
+const reseedPlan = ref<ReseedPlan | null>(null)
+/** Set after a ReseedGuardError — unlocks the explicit "force" button. */
+const reseedGuardFehler = ref(false)
 
 function cacheFrageStarten(): void {
   cachePhase.value = 'bestaetigen'
@@ -129,6 +141,61 @@ async function serverDbBestaetigen(): Promise<void> {
   } catch (e) {
     serverDbFehler.value = e instanceof Error ? e.message : String(e)
     serverDbPhase.value = 'fehler'
+  }
+}
+
+async function reseedFrageStarten(): Promise<void> {
+  reseedPhase.value = 'laufend'
+  reseedFehler.value = null
+  reseedErfolg.value = null
+  reseedGuardFehler.value = false
+  try {
+    reseedPlan.value = await collectReseedPlan()
+    reseedPhase.value = 'bestaetigen'
+  } catch (e) {
+    reseedFehler.value = e instanceof Error ? e.message : String(e)
+    reseedPhase.value = 'fehler'
+  }
+}
+function reseedAbbrechen(): void {
+  reseedPhase.value = 'idle'
+  reseedFehler.value = null
+  reseedErfolg.value = null
+  reseedGuardFehler.value = false
+}
+async function reseedBestaetigen(force: boolean): Promise<void> {
+  reseedPhase.value = 'laufend'
+  reseedFehler.value = null
+  try {
+    const ergebnis = await reseedServer({
+      apiBase: getApiBaseUrl(),
+      token: localStorage.getItem('castel.auth.jwt'),
+      force,
+    })
+    reseedErfolg.value = t('view.development.reseedErgebnis', {
+      artikel: ergebnis.queued.artikel,
+      standorte: ergebnis.queued.standorte,
+      kommission: ergebnis.queued.kommission,
+      buchungen: ergebnis.queued.buchungen,
+      einstellungen: ergebnis.queued.einstellungen,
+      pendingLeft: ergebnis.pendingLeft,
+      quarantinedLeft: ergebnis.quarantinedLeft,
+    })
+    reseedPhase.value = 'fertig'
+    setTimeout(() => {
+      reseedErfolg.value = null
+      reseedPhase.value = 'idle'
+    }, 15_000)
+  } catch (e) {
+    if (e instanceof ReseedGuardError) {
+      // Guard tripped: offer the explicit force path in the confirm dialog.
+      reseedGuardFehler.value = true
+      reseedFehler.value = e.message
+      reseedPhase.value = 'bestaetigen'
+      return
+    }
+    reseedFehler.value = e instanceof Error ? e.message : String(e)
+    reseedPhase.value = 'fehler'
   }
 }
 </script>
@@ -336,6 +403,77 @@ async function serverDbBestaetigen(): Promise<void> {
           {{ t('view.common.abbrechen') }}
         </button>
       </div>
+    </div>
+
+    <h2>{{ t('view.development.reseedServer') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.reseedServerHint') }}</p>
+      <div class="actions">
+        <button
+          type="button"
+          :disabled="reseedPhase === 'laufend' || reseedPhase === 'fertig'"
+          @click="reseedFrageStarten"
+        >
+          {{
+            reseedPhase === 'laufend'
+              ? t('view.development.reseedLaedt')
+              : reseedPhase === 'fertig'
+                ? t('view.development.reseedFertig')
+                : t('view.development.reseedBtn')
+          }}
+        </button>
+      </div>
+    </div>
+
+    <div v-if="reseedPhase !== 'idle'" class="confirm" role="alertdialog">
+      <template v-if="reseedPhase === 'fertig'">
+        <p class="hint hint-ok">{{ reseedErfolg }}</p>
+      </template>
+      <template v-else>
+        <p>
+          <strong>{{ t('view.development.reseedFrage') }}</strong>
+        </p>
+        <p v-if="reseedPlan" class="hint">
+          {{
+            t('view.development.reseedDetail', {
+              artikel: reseedPlan.artikel,
+              standorte: reseedPlan.standorte,
+              kommission: reseedPlan.kommission,
+              buchungen: reseedPlan.buchungen,
+              einstellungen: reseedPlan.einstellungen,
+            })
+          }}
+        </p>
+        <p class="hint">{{ t('view.development.reseedWarnung') }}</p>
+        <p v-if="reseedPhase === 'fehler' && reseedFehler" class="wert-fehler">
+          {{ reseedFehler }}
+        </p>
+        <div class="actions">
+          <button
+            type="button"
+            :disabled="reseedPhase === 'laufend'"
+            @click="reseedBestaetigen(false)"
+          >
+            {{
+              reseedPhase === 'laufend'
+                ? t('view.development.reseedLaedt')
+                : t('view.development.reseedBtnJa')
+            }}
+          </button>
+          <button
+            v-if="reseedGuardFehler"
+            type="button"
+            class="danger"
+            :disabled="reseedPhase === 'laufend'"
+            @click="reseedBestaetigen(true)"
+          >
+            {{ t('view.development.reseedForceBtn') }}
+          </button>
+          <button type="button" :disabled="reseedPhase === 'laufend'" @click="reseedAbbrechen">
+            {{ t('view.common.abbrechen') }}
+          </button>
+        </div>
+      </template>
     </div>
   </section>
 </template>

@@ -499,6 +499,27 @@ const lastErrorMitVersion = computed(() => {
   return `${sync.status.lastError} (v${version})`
 })
 
+/**
+ * Hinweis auf eine geleerte Server-DB: den Server stören unbekannte
+ * Referenzen (UNKNOWN_REFERENCE), und er enthält weniger Daten als die
+ * lokale IndexedDB. Inkrementeller Sync kann das nicht heilen — die
+ * referenzierten Stammdaten stehen nur lokal und würden nie erneut
+ * gepusht. Admins reparieren das über Einstellungen → Entwicklung →
+ * „Server aus lokalen Daten aufbauen" (services/sync/reseed-server.ts).
+ */
+const serverVermutlichGeleert = computed((): boolean => {
+  const st = sync.status
+  const l = st.localCounts
+  const c = st.serverCounts
+  if (!l || !c) return false
+  if (l.artikel <= c.artikel && l.buchungen <= c.buchungen) return false
+  const inFailure = (st.lastFailure?.sampleErrors ?? []).some((e) => e.code === 'UNKNOWN_REFERENCE')
+  const inQuarantine = st.quarantinedItems.some((q) =>
+    (q.quarantineReason ?? '').includes('UNKNOWN_REFERENCE'),
+  )
+  return inFailure || inQuarantine
+})
+
 function formatIso(iso: string | null): string {
   if (!iso) return '–'
   const d = new Date(iso)
@@ -1008,6 +1029,11 @@ function formatRelativ(iso: string | null): string {
             </li>
           </ul>
         </details>
+        <p v-if="serverVermutlichGeleert" class="wert-warn">
+          Der Server enthält weniger Daten als lokal und lehnt Buchungen wegen unbekannter
+          Referenzen ab — die Server-DB wurde vermutlich geleert. Admin-Reparatur: Einstellungen →
+          Entwicklung → „Server aus lokalen Daten aufbauen“.
+        </p>
       </div>
 
       <h3>Datensätze</h3>

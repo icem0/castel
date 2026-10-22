@@ -424,7 +424,10 @@ async function pushOps(apiBase: string, token: string | null, ops: unknown[]): P
   return (await res.json()) as PushResult
 }
 
-async function fetchServerStatus(apiBase: string, token: string | null): Promise<ServerStatus> {
+export async function fetchServerStatus(
+  apiBase: string,
+  token: string | null,
+): Promise<ServerStatus> {
   const res = await fetch(`${apiBase}/api/sync/status`, {
     headers: {
       Accept: 'application/json',
@@ -456,7 +459,7 @@ async function getLocalCounts(): Promise<TableCounts> {
 
 // ---------- Outbox-Helfer ----------
 
-async function pendingCount(): Promise<number> {
+export async function pendingCount(): Promise<number> {
   // Dexie/IndexedDB unterstützt kein `where('syncedAt').equals(null)` —
   // daher der Full-Scan. Outbox-Größe bleibt im Lager-Use-Case klein
   // (≪ 1k Einträge zwischen Sync-Ticks), ein Index hier wäre teurer
@@ -1268,13 +1271,21 @@ export async function queueOp(
   entity: OutboxEintrag['entity'],
   op: OutboxOp,
   payload: unknown,
+  /**
+   * Optional explicit creation timestamp (ISO). The worker pushes pending
+   * items ordered by `createdAt`, and items created in the same millisecond
+   * fall back to random primary-key order. The reseed flow needs a
+   * deterministic order (master data before bookings, umlagerung halves
+   * adjacent), so it may pass strictly increasing timestamps. Default: now.
+   */
+  createdAtIso?: string,
 ): Promise<void> {
   await getDb().outbox.add({
     id: neueUuid(),
     entity,
     op,
     payload: JSON.stringify(payload),
-    createdAt: jetztIso(),
+    createdAt: createdAtIso ?? jetztIso(),
     syncedAt: null,
     attempts: 0,
     lastError: null,

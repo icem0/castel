@@ -445,6 +445,21 @@ export default {
       leertServer: 'Clearing server database…',
       jaServerLoeschen: 'Yes, delete server data',
       serverDbGeloescht: 'Server database cleared.',
+      reseedServer: 'Rebuild server from local data',
+      reseedServerHint:
+        'Reassembles a cleared server database from the local mirror (IndexedDB): locations, items, commissions, transactions and settings are uploaded in dependency order. Only use after the server database has been cleared.',
+      reseedBtn: 'Rebuild server from local data',
+      reseedBtnJa: 'Yes, rebuild server',
+      reseedLaedt: 'Rebuilding server…',
+      reseedFertig: 'Server rebuilt',
+      reseedFrage: 'Really rebuild the server database from local data?',
+      reseedDetail:
+        'Uploading: {artikel} items, {standorte} locations, {kommission} commissions, {buchungen} transactions, {einstellungen} settings. This can take several minutes depending on the data volume.',
+      reseedWarnung:
+        'Prerequisite: the server database was cleared beforehand. Item photos, suppliers and DATANORM catalogues are not part of the local database and cannot be restored. Items the server ultimately rejects stay in the sync quarantine.',
+      reseedForceBtn: 'Rebuild despite server data',
+      reseedErgebnis:
+        'Uploaded: {artikel} items, {standorte} locations, {kommission} commissions, {buchungen} transactions, {einstellungen} settings. Open outbox items: {pendingLeft}, quarantine: {quarantinedLeft}.',
     },
   },
   datanorm: {

@@ -460,6 +460,21 @@ export default {
       leertServer: 'Leere Server-Datenbank…',
       jaServerLoeschen: 'Ja, serverseitige Daten löschen',
       serverDbGeloescht: 'Server-Datenbank wurde geleert.',
+      reseedServer: 'Server aus lokalen Daten aufbauen',
+      reseedServerHint:
+        'Setzt eine geleerte Server-Datenbank aus dem lokalen Bestand (IndexedDB) wieder zusammen: Standorte, Artikel, Projekte, Buchungen und Einstellungen werden in korrekter Reihenfolge hochgeladen. Nur verwenden, nachdem die Server-Datenbank geleert wurde.',
+      reseedBtn: 'Server aus lokalen Daten aufbauen',
+      reseedBtnJa: 'Ja, Server aufbauen',
+      reseedLaedt: 'Server wird aufgebaut…',
+      reseedFertig: 'Server aufgebaut',
+      reseedFrage: 'Server-DB wirklich aus lokalen Daten aufbauen?',
+      reseedDetail:
+        'Hochgeladen werden: {artikel} Artikel, {standorte} Standorte, {kommission} Projekte, {buchungen} Buchungen, {einstellungen} Einstellungen. Das kann je nach Datenmenge mehrere Minuten dauern.',
+      reseedWarnung:
+        'Voraussetzung: Die Server-Datenbank wurde zuvor geleert. Artikel-Fotos, Lieferanten und Datanorm-Kataloge sind nicht in der lokalen Datenbank und können nicht wiederhergestellt werden. Items, die der Server endgültig ablehnt, bleiben in der Sync-Quarantäne.',
+      reseedForceBtn: 'Trotz Server-Daten aufbauen',
+      reseedErgebnis:
+        'Hochgeladen: {artikel} Artikel, {standorte} Standorte, {kommission} Projekte, {buchungen} Buchungen, {einstellungen} Einstellungen. Offene Outbox-Items: {pendingLeft}, Quarantäne: {quarantinedLeft}.',
     },
   },
   datanorm: {
