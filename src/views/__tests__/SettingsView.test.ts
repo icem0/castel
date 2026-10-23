@@ -29,6 +29,7 @@ const router = createRouter({
     { path: '/einstellungen/entwicklung', component: { template: '<div />' } },
     { path: '/einstellungen/artikel-typen', component: { template: '<div />' } },
     { path: '/einstellungen/kommissionen', component: { template: '<div />' } },
+    { path: '/einstellungen/mindestbestand', component: { template: '<div />' } },
     { path: '/einstellungen/backup', component: { template: '<div />' } },
     { path: '/passwort-aendern', component: { template: '<div />' } },
     { path: '/info', component: { template: '<div />' } },
@@ -95,6 +96,13 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     expect(sprachSelectImForm).toBeUndefined()
   })
 
+  it('zeigt die Benachrichtigungs-Kategorie nicht für normale User', () => {
+    const { w } = mountSettings()
+
+    const ueberschriften = w.findAll('h2').map((h) => h.text())
+    expect(ueberschriften).not.toContain('Benachrichtigungen')
+  })
+
   it('wendet die neue Sprache sofort an (lokal + i18n-Locale, ohne "Speichern")', async () => {
     const { w, pinia } = mountSettings()
     const store = useSettingsStore(pinia)
@@ -120,5 +128,44 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     expect(store.settings.sprache).toBe('en')
 
     store.stop()
+  })
+})
+
+describe('SettingsView — Benachrichtigungen (Admin)', () => {
+  beforeEach(() => {
+    resetDbForTests()
+    setDb(getDb())
+    i18n.global.locale.value = 'de-DE'
+    localStorage.removeItem(LS_SESSION)
+    sessionSchreiben({
+      userId: 'user-admin',
+      email: 'admin@example.com',
+      rolle: 'admin',
+      anzeigename: 'Admin User',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  it('zeigt die Mindestbestand-Benachrichtigungen samt Link zur Ereignisliste', () => {
+    const { w } = mountSettings()
+
+    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Benachrichtigungen')
+    expect(ueberschrift).toBeDefined()
+
+    const karte = ueberschrift!.element.nextElementSibling as HTMLElement
+    expect(karte).not.toBeNull()
+    expect(karte.textContent).toContain('Klingelton bei neuen Ereignissen')
+    expect(karte.querySelector('input[type="checkbox"]')).not.toBeNull()
+    expect(karte.querySelector('input[type="range"]')).not.toBeNull()
+
+    const link = karte.querySelector('a[href="/einstellungen/mindestbestand"]')
+    expect(link).not.toBeNull()
+    expect(link?.textContent).toContain('Alle Ereignisse anzeigen')
   })
 })

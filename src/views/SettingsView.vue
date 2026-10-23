@@ -5,6 +5,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
 import { useStandortStore } from '../stores/standort'
 import { useAuthStore } from '../stores/auth'
+import MindestbestandBenachrichtigungen from './components/MindestbestandBenachrichtigungen.vue'
 import type { BarcodeTyp } from '../stores/settings'
 
 const { t } = useI18n()
@@ -166,6 +167,11 @@ onBeforeUnmount(() => {
       <button type="button" class="danger" @click="abmelden">
         {{ t('view.settings.abmelden') }}
       </button>
+    </div>
+
+    <h2 v-if="auth.istAdmin">{{ t('view.settings.benachrichtigungen') }}</h2>
+    <div v-if="auth.istAdmin" class="card">
+      <MindestbestandBenachrichtigungen />
     </div>
 
     <h2 v-if="auth.istAdmin">{{ t('view.settings.administration') }}</h2>
