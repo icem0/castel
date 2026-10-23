@@ -15,12 +15,19 @@ import ArtikelFormView from '../ArtikelFormView.vue'
 import de from '../../locales/de-DE'
 import { useArtikelStore } from '../../stores/artikel'
 
-const route = { query: {} as Record<string, string> }
+const route = { query: {} as Record<string, string>, name: 'artikel-neu' as const }
 const push = vi.fn()
+const beforeEachHandlers: Array<(to: unknown, from: unknown) => unknown> = []
 
 vi.mock('vue-router', () => ({
   useRoute: () => route,
-  useRouter: () => ({ push }),
+  useRouter: () => ({
+    push,
+    beforeEach: (guard: (to: unknown, from: unknown) => unknown) => {
+      beforeEachHandlers.push(guard)
+      return () => {}
+    },
+  }),
   RouterLink: { props: ['to'], template: '<a><slot /></a>' },
 }))
 
@@ -63,6 +70,8 @@ function setup(vorhandeneArtikel: Artikel[] = []) {
 beforeEach(() => {
   vi.clearAllMocks()
   for (const key of Object.keys(route.query)) delete route.query[key]
+  route.name = 'artikel-neu'
+  beforeEachHandlers.length = 0
 })
 
 afterEach(() => {
@@ -124,5 +133,60 @@ describe('ArtikelFormView — Katalog-Prefill', () => {
     expect(wrapper.text()).not.toContain('Zum vorhandenen Artikel')
     const titel = wrapper.findAll('input').find((i) => (i.element as HTMLInputElement).value === '')
     expect(titel).toBeDefined()
+  })
+})
+
+describe('ArtikelFormView — Ungespeicherte Änderungen', () => {
+  it('registriert beforeunload-Wache bei ungespeicherten Änderungen', async () => {
+    const addSpy = vi.spyOn(window, 'addEventListener')
+    const { wrapper } = setup()
+    await flushPromises()
+    expect(addSpy).not.toHaveBeenCalledWith('beforeunload', expect.any(Function))
+
+    await wrapper.find('input').setValue('Neuer Titel')
+    await flushPromises()
+    expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function))
+  })
+
+  it('blockt den Router-Guard beim Verlassen, wenn Änderungen ungespeichert sind', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { wrapper } = setup()
+    await wrapper.find('input').setValue('Neuer Titel')
+    await flushPromises()
+
+    let resultat: unknown
+    for (const guard of beforeEachHandlers) {
+      resultat = guard({ name: 'artikel' }, route)
+    }
+    expect(resultat).toBe(false)
+  })
+
+  it('lässt den Router-Guard passieren, wenn bestätigt wird', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const { wrapper } = setup()
+    await wrapper.find('input').setValue('Neuer Titel')
+    await flushPromises()
+
+    let resultat: unknown
+    for (const guard of beforeEachHandlers) {
+      resultat = guard({ name: 'artikel' }, route)
+    }
+    expect(resultat).toBe(true)
+  })
+
+  it('lässt den Router-Guard passieren, wenn das Formular sauber ist', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    setup()
+    await flushPromises()
+
+    // Bei sauberem Formular ist kein Guard registriert → Navigation ungehindert.
+    if (beforeEachHandlers.length === 0) {
+      return
+    }
+    let resultat: unknown
+    for (const guard of beforeEachHandlers) {
+      resultat = guard({ name: 'artikel' }, route)
+    }
+    expect(resultat).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
@@ -60,6 +60,65 @@ const drawerWerte = computed<UebernahmeFelder>(() => ({
   listenpreis: formular.value.listenpreis,
   verpackungseinheit: formular.value.verpackungseinheit,
 }))
+
+/** Ob das Formular ungespeicherte Änderungen gegenüber den Initialwerten hat. */
+const dirty = computed(() => {
+  const f = formular.value
+  return (
+    f.titel !== initialForm.titel ||
+    f.typ !== initialForm.typ ||
+    f.status !== initialForm.status ||
+    f.lieferant !== initialForm.lieferant ||
+    f.verpackungseinheit !== initialForm.verpackungseinheit ||
+    f.mindestbestand !== initialForm.mindestbestand ||
+    f.bestellnummer !== initialForm.bestellnummer ||
+    f.barcode !== initialForm.barcode ||
+    f.listenpreis !== initialForm.listenpreis ||
+    f.einkaufspreis !== initialForm.einkaufspreis
+  )
+})
+
+let vorUnloadListener: ((e: BeforeUnloadEvent) => void) | null = null
+let routerGuard: (() => void) | null = null
+
+function vorUnloadHandler(e: BeforeUnloadEvent): void {
+  if (!dirty.value) return
+  e.preventDefault()
+  e.returnValue = ''
+}
+
+function aktiviereWache(): void {
+  if (!vorUnloadListener) {
+    vorUnloadListener = vorUnloadHandler
+    window.addEventListener('beforeunload', vorUnloadListener)
+  }
+  if (!routerGuard) {
+    routerGuard = router.beforeEach((to, from) => {
+      if (from.name === 'artikel-neu' && dirty.value && to.name !== 'artikel-neu') {
+        return confirm(t('view.artikel.form.ungespeichertVerlassen'))
+      }
+      return true
+    })
+  }
+}
+
+function deaktiviereWache(): void {
+  if (vorUnloadListener) {
+    window.removeEventListener('beforeunload', vorUnloadListener)
+    vorUnloadListener = null
+  }
+  if (routerGuard) {
+    routerGuard()
+    routerGuard = null
+  }
+}
+
+watch(dirty, (istDirty) => {
+  if (istDirty) aktiviereWache()
+  else deaktiviereWache()
+})
+
+onBeforeUnmount(() => deaktiviereWache())
 
 /** Bereits existierender Artikel mit demselben Barcode (Duplikat-Hinweis). */
 const duplikatArtikel = ref<{ id: string; titel: string } | null>(null)
@@ -154,6 +213,7 @@ async function speichern(): Promise<void> {
 }
 
 function abbrechen(): void {
+  deaktiviereWache()
   void router.push('/artikel')
 }
 

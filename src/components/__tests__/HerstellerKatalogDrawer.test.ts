@@ -242,4 +242,55 @@ describe('HerstellerKatalogDrawer', () => {
     await flushPromises()
     expect(w.text()).toContain('Keine Verbindung zum Server')
   })
+
+  it('schliesst den Drawer bei Wisch nach rechts über dem Schwellenwert', async () => {
+    const w = start()
+    await flushPromises()
+    const vm = w.wrapper.vm as { onTouchStart: (e: TouchEvent) => void; onTouchMove: (e: TouchEvent) => void; onTouchEnd: () => void }
+    const startX = 100
+    const preventDefault = vi.fn()
+    vm.onTouchStart({
+      touches: [{ clientX: startX, clientY: 200 }],
+    } as unknown as TouchEvent)
+    vm.onTouchMove({
+      touches: [{ clientX: startX + 100, clientY: 200 }],
+      preventDefault,
+    } as unknown as TouchEvent)
+    vm.onTouchEnd()
+    await flushPromises()
+    expect(preventDefault).toHaveBeenCalled()
+    expect(w.wrapper.emitted('schliessen')).toBeTruthy()
+  })
+
+  it('schliesst den Drawer nicht bei Wisch nach links oder unter dem Schwellenwert', async () => {
+    const w = start()
+    await flushPromises()
+    const vm = w.wrapper.vm as { onTouchStart: (e: TouchEvent) => void; onTouchMove: (e: TouchEvent) => void; onTouchEnd: () => void }
+    const startX = 200
+    vm.onTouchStart({
+      touches: [{ clientX: startX, clientY: 200 }],
+    } as unknown as TouchEvent)
+    vm.onTouchMove({
+      touches: [{ clientX: startX - 100, clientY: 200 }],
+      preventDefault: vi.fn(),
+    } as unknown as TouchEvent)
+    vm.onTouchEnd()
+    await flushPromises()
+    expect(w.wrapper.emitted('schliessen')).toBeFalsy()
+  })
+
+  it('verhindert Default-Verhalten beim horizontalen Wisch (kein Browser-Back)', async () => {
+    const w = start()
+    await flushPromises()
+    const vm = w.wrapper.vm as { onTouchStart: (e: TouchEvent) => void; onTouchMove: (e: TouchEvent) => void; onTouchEnd: () => void }
+    const preventDefault = vi.fn()
+    vm.onTouchStart({
+      touches: [{ clientX: 50, clientY: 200 }],
+    } as unknown as TouchEvent)
+    vm.onTouchMove({
+      touches: [{ clientX: 200, clientY: 200 }],
+      preventDefault,
+    } as unknown as TouchEvent)
+    expect(preventDefault).toHaveBeenCalled()
+  })
 })

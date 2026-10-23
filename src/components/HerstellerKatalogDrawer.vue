@@ -17,7 +17,7 @@
 // Field-level control: every field can be applied individually or all at
 // once, with a diff preview so nothing is overwritten by surprise.
 
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { HerstellerArtikel, Lieferant } from '../services/datanorm/lookup'
 import {
@@ -52,6 +52,51 @@ const emit = defineEmits<{
 }>()
 
 const { t, locale } = useI18n()
+
+/** Swipe-to-dismiss: der Drawer lässt sich nach rechts wegwischen. */
+const SWIPE_THRESHOLD_PX = 60
+const touchStartX = ref(0)
+const touchStartY = ref(0)
+const touchCurrentX = ref(0)
+const istZiehend = ref(false)
+
+function onTouchStart(e: TouchEvent): void {
+  const t = e.touches[0]
+  if (!t) return
+  touchStartX.value = t.clientX
+  touchStartY.value = t.clientY
+  touchCurrentX.value = touchStartX.value
+  istZiehend.value = true
+}
+
+function onTouchMove(e: TouchEvent): void {
+  if (!istZiehend.value) return
+  const t = e.touches[0]
+  if (!t) return
+  const dx = t.clientX - touchStartX.value
+  const dy = Math.abs(t.clientY - touchStartY.value)
+  // Nur horizontale Wischer behandeln; vertikales Scrollen im Drawer bleibt erhalten.
+  if (Math.abs(dx) > dy && Math.abs(dx) > 10) {
+    e.preventDefault()
+    touchCurrentX.value = t.clientX
+  }
+}
+
+function onTouchEnd(): void {
+  if (!istZiehend.value) return
+  istZiehend.value = false
+  const dx = touchCurrentX.value - touchStartX.value
+  // Wischen nach rechts (drawer-slide-in-Richtung) schliesst den Drawer.
+  if (dx > SWIPE_THRESHOLD_PX) schliessen()
+  touchCurrentX.value = 0
+}
+
+// Für Tests: Touch-Handler direkt aufrufbar machen (jsdom kennt kein TouchEvent).
+defineExpose({
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+})
 
 const lieferanten = ref<Lieferant[]>([])
 const lieferantId = ref('')
@@ -270,10 +315,18 @@ watch(
 
 onMounted(async () => {
   document.addEventListener('keydown', onTaste)
+  document.addEventListener('touchmove', onTouchMove, { passive: false })
+  document.addEventListener('touchend', onTouchEnd, { passive: false })
   // The drawer can be mounted already open (the article form opens it
   // directly when a barcode was scanned), so the watcher below never fires
   // for the initial state — load once here.
   if (props.offen) await oeffne()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onTaste)
+  document.removeEventListener('touchmove', onTouchMove)
+  document.removeEventListener('touchend', onTouchEnd)
 })
 
 function onTaste(e: KeyboardEvent): void {
@@ -289,6 +342,9 @@ function onTaste(e: KeyboardEvent): void {
         role="dialog"
         aria-modal="true"
         :aria-label="t('datanorm.drawer.titel')"
+        @touchstart="onTouchStart"
+        :class="{ ziehend: istZiehend }"
+        :style="{ transform: istZiehend ? `translateX(${touchCurrentX - touchStartX}px)` : '' }"
       >
         <header class="drawer-head">
           <h2>{{ t('datanorm.drawer.titel') }}</h2>
@@ -482,6 +538,10 @@ function onTaste(e: KeyboardEvent): void {
   flex-direction: column;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
   animation: einschieben 160ms ease-out;
+  transition: transform 0.2s ease-out;
+}
+.drawer.ziehend {
+  transition: none;
 }
 @keyframes einschieben {
   from {
