@@ -20,6 +20,7 @@ onMounted(() => artikelStore.start())
 const videoEl = ref<HTMLVideoElement | null>(null)
 const manuelleEingabe = ref('')
 const gefunden = ref<string | null>(null)
+let startLaeuft = false
 
 const {
   start,
@@ -61,17 +62,37 @@ function manuellScannen(): void {
   void codeVerarbeiten(code, 'manual')
 }
 
+async function kameraStarten(): Promise<void> {
+  if (!videoEl.value || startLaeuft) return
+  startLaeuft = true
+  try {
+    await start(videoEl.value)
+  } finally {
+    startLaeuft = false
+  }
+}
+
 async function scannerNeustarten(): Promise<void> {
   stop()
-  if (videoEl.value) await start(videoEl.value)
+  await kameraStarten()
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState !== 'visible') return
+  if (aktiv.value || scannerFehler.value) return
+  void kameraStarten()
 }
 
 onMounted(async () => {
   await new Promise((r) => setTimeout(r, 100))
-  if (videoEl.value) await start(videoEl.value)
+  await kameraStarten()
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
-onBeforeUnmount(() => stop())
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  stop()
+})
 </script>
 
 <template>

@@ -1,6 +1,9 @@
 export default {
   app: {
     title: 'castel',
+    toast: {
+      schliessen: 'Schließen',
+    },
     nav: {
       dashboard: 'Dashboard',
       artikel: 'Artikel',
@@ -188,6 +191,11 @@ export default {
         warnNegativ: 'Warnung: Bestand wäre negativ. Es wird trotzdem gebucht.',
         warnMindestbestand:
           'Warnung: Bestand {bestand} unterschreitet Mindestbestand {mindestbestand}.',
+        syncWirdGesendet: 'Buchung wird an den Server gesendet …',
+        syncBestaetigt: 'Buchung am Server angekommen',
+        syncAusstehend: 'Lokal gespeichert – Synchronisierung ausstehend',
+        syncOffline: 'Offline – Buchung lokal gespeichert',
+        syncAbgelehnt: 'Server hat die Buchung abgelehnt: {grund}',
       },
     },
     kommission: {

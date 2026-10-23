@@ -350,6 +350,13 @@ let _onAuthRevoked: (() => void) | null = null
 /** Latch: verhindert mehrfaches Feuern von onAuthRevoked, bis ein
  *  erfolgreicher Push die Auth-Validität wieder bestätigt. */
 let _authRevokedNotified = false
+/**
+ * Set when a caller asks for a sync while one is already running. The
+ * pending run is started immediately after the current one finishes, so a
+ * booking created mid-sync is not delayed until the next 30s tick.
+ */
+let _rerunRequested = false
+let _rerunOpts: { token: string | null; apiBase: string } | null = null
 
 export function getSyncStatus(): SyncStatus {
   return _status
@@ -1111,6 +1118,12 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     }
   } finally {
     _running = false
+    if (_rerunRequested) {
+      const opts = _rerunOpts
+      _rerunRequested = false
+      _rerunOpts = null
+      if (opts) void runSync(opts)
+    }
   }
 }
 
@@ -1127,6 +1140,11 @@ export async function triggerSyncNow(opts: {
 }): Promise<void> {
   _consecutiveFailures = 0
   updateStatus({ nextRetryAt: null })
+  if (_running) {
+    _rerunRequested = true
+    _rerunOpts = opts
+    return
+  }
   await runSync(opts)
 }
 
@@ -1347,6 +1365,8 @@ export function _resetSyncForTests(): void {
   _consecutiveFailures = 0
   _authRevokedNotified = false
   _onAuthRevoked = null
+  _rerunRequested = false
+  _rerunOpts = null
   _paused = false
   _suspended = false
   if (_intervalHandle) {

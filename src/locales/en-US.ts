@@ -1,6 +1,9 @@
 export default {
   app: {
     title: 'castel',
+    toast: {
+      schliessen: 'Close',
+    },
     nav: {
       dashboard: 'Dashboard',
       artikel: 'Items',
@@ -181,6 +184,11 @@ export default {
         abbrechen: 'Cancel',
         warnNegativ: 'Warning: stock would go negative. Booking is still recorded.',
         warnMindestbestand: 'Warning: stock {bestand} falls below minimum stock {mindestbestand}.',
+        syncWirdGesendet: 'Sending booking to the server …',
+        syncBestaetigt: 'Booking reached the server',
+        syncAusstehend: 'Saved locally – synchronization pending',
+        syncOffline: 'Offline – booking saved locally',
+        syncAbgelehnt: 'Server rejected the booking: {grund}',
       },
     },
     kommission: {

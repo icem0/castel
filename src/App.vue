@@ -14,8 +14,10 @@ import { getApiBaseUrl } from './auth/api'
 import { applyTheme } from './theme'
 
 import { zaehleAbweichungen } from './services/sync/worker'
+import { istMobilLayout, MOBILE_LAYOUT_QUERY } from './services/layout'
 import { version, commit, branch, buildDate } from './version'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
+import AppToast from './components/AppToast.vue'
 import MindestbestandGlocke from './views/components/MindestbestandGlocke.vue'
 
 // Responsive Layout-Umschaltung: <html data-layout="mobile|desktop">.
@@ -23,7 +25,7 @@ import MindestbestandGlocke from './views/components/MindestbestandGlocke.vue'
 const layoutModus = ref<'mobile' | 'desktop'>('desktop')
 
 function aktualisiereLayout(): void {
-  const istSchmal = window.matchMedia('(max-width: 720px)').matches
+  const istSchmal = istMobilLayout()
   layoutModus.value = istSchmal ? 'mobile' : 'desktop'
   document.documentElement.setAttribute('data-layout', layoutModus.value)
 }
@@ -54,6 +56,24 @@ function onOnline(): void {
 }
 function onOffline(): void {
   online.value = false
+}
+
+// On mobile, returning to the foreground puts the user back into the scan
+// workflow. Forms with unsaved input are excluded so a short app switch does
+// not discard what the user was typing.
+function onForeground(): void {
+  if (document.visibilityState !== 'visible') return
+  if (!auth.istAngemeldet || !istMobilLayout()) return
+  if (route.meta.public === true) return
+  if (route.name === 'scan') return
+  if (
+    route.name === 'buchung-neu' ||
+    route.name === 'artikel-neu' ||
+    route.name === 'passwort-aendern'
+  ) {
+    return
+  }
+  void router.replace({ name: 'scan' })
 }
 
 const versionOffen = ref(false)
@@ -91,11 +111,12 @@ onMounted(() => {
     audit.start()
   }
   aktualisiereLayout()
-  mql = window.matchMedia('(max-width: 720px)')
+  mql = window.matchMedia(MOBILE_LAYOUT_QUERY)
   mql.addEventListener('change', onMqlChange)
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
   window.addEventListener('click', onDocumentClick)
+  document.addEventListener('visibilitychange', onForeground)
 })
 
 onBeforeUnmount(() => {
@@ -109,6 +130,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
   window.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('visibilitychange', onForeground)
 })
 
 // Wenn sich der Login-Status ändert, Stores entsprechend starten/stoppen.
@@ -666,6 +688,8 @@ function formatRelativ(iso: string | null): string {
          ersten Login automatisch geöffnet, solange der per-User-Marker
          `onboardingSeen` nicht gesetzt ist. -->
     <OnboardingTutorial :offen="tutorialOffen" @schliessen="tutorialOffen = false" />
+
+    <AppToast />
 
     <!-- Mobile Bottom-Nav + FAB-Scanner.
          Erscheint nur, wenn data-layout="mobile" gesetzt ist (siehe CSS). -->

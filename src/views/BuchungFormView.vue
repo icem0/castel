@@ -6,6 +6,9 @@ import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
+import { useToastStore } from '../stores/toast'
+import { getApiBaseUrl } from '../auth/api'
+import { syncUndBestaetigeBuchungen } from '../services/sync/buchung-bestaetigung'
 import type { BuchungsTyp } from '../db/types'
 import {
   NegativerBestandWarnung,
@@ -22,6 +25,7 @@ const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
 const buchungStore = useBuchungStore()
 const auth = useAuthStore()
+const toast = useToastStore()
 
 const typen: BuchungsTyp[] = ['einlagerung', 'entnahme', 'umlagerung', 'inventur']
 
@@ -51,6 +55,44 @@ const zielErforderlich = computed(() => typ.value === 'umlagerung')
 const mengeErforderlich = computed(() => typ.value !== 'inventur')
 const sollMengeErforderlich = computed(() => typ.value === 'inventur')
 
+async function bestaetigeImHintergrund(buchungIds: string[], toastId: string): Promise<void> {
+  try {
+    const result = await syncUndBestaetigeBuchungen(buchungIds, {
+      apiBase: getApiBaseUrl(),
+      token: localStorage.getItem('castel.auth.jwt'),
+    })
+    if (result.status === 'bestaetigt') {
+      toast.update(toastId, {
+        status: 'success',
+        text: t('view.buchung.form.syncBestaetigt'),
+        timeoutMs: 2500,
+      })
+    } else if (result.status === 'abgelehnt') {
+      toast.update(toastId, {
+        status: 'error',
+        text: t('view.buchung.form.syncAbgelehnt', { grund: result.grund }),
+        timeoutMs: 8000,
+      })
+    } else {
+      toast.update(toastId, {
+        status: 'warning',
+        text:
+          result.grund === 'offline'
+            ? t('view.buchung.form.syncOffline')
+            : t('view.buchung.form.syncAusstehend'),
+        timeoutMs: 6000,
+      })
+    }
+  } catch (e) {
+    console.error('Buchungs-Bestaetigung fehlgeschlagen:', e)
+    toast.update(toastId, {
+      status: 'warning',
+      text: t('view.buchung.form.syncAusstehend'),
+      timeoutMs: 6000,
+    })
+  }
+}
+
 async function speichern(): Promise<void> {
   if (laufend.value) return
   fehler.value = ''
@@ -73,9 +115,10 @@ async function speichern(): Promise<void> {
 
   laufend.value = true
   const erstelltVon = auth.anzeigename.trim() || 'unbekannt'
+  const buchungIds: string[] = []
   try {
     if (typ.value === 'einlagerung') {
-      await buchungStore.mu.einlagerung({
+      const buchung = await buchungStore.mu.einlagerung({
         artikelId: artikelId.value,
         standortId: standortId.value,
         menge: menge.value,
@@ -83,6 +126,7 @@ async function speichern(): Promise<void> {
         erstelltVon,
         kommentar: kommentar.value || null,
       })
+      buchungIds.push(buchung.id)
     } else if (typ.value === 'entnahme') {
       const res = await buchungStore.mu.entnahme({
         artikelId: artikelId.value,
@@ -92,6 +136,7 @@ async function speichern(): Promise<void> {
         erstelltVon,
         kommentar: kommentar.value || null,
       })
+      buchungIds.push(res.buchung.id)
       if (res.warnung instanceof NegativerBestandWarnung) {
         warnung.value = t('view.buchung.form.warnNegativ')
       }
@@ -111,6 +156,7 @@ async function speichern(): Promise<void> {
         erstelltVon,
         kommentar: kommentar.value || null,
       })
+      buchungIds.push(res.entnahme.id, res.einlagerung.id)
       if (res.warnung instanceof NegativerBestandWarnung) {
         warnung.value = t('view.buchung.form.warnNegativ')
       }
@@ -121,16 +167,25 @@ async function speichern(): Promise<void> {
         })
       }
     } else if (typ.value === 'inventur') {
-      await buchungStore.mu.inventur({
+      const res = await buchungStore.mu.inventur({
         artikelId: artikelId.value,
         standortId: standortId.value,
         sollMenge: sollMenge.value,
         erstelltVon,
         kommentar: kommentar.value || null,
       })
+      buchungIds.push(res.buchung.id)
     }
+
+    const toastId = toast.show({
+      text: t('view.buchung.form.syncWirdGesendet'),
+      status: 'info',
+      timeoutMs: null,
+    })
+    void bestaetigeImHintergrund(buchungIds, toastId)
+
     if (route.query.from === 'scan') {
-      void router.push({ name: 'scan' })
+      void router.replace({ name: 'scan' })
       return
     }
     void router.push(artikel.value ? `/artikel/${artikel.value.id}` : '/buchungen')

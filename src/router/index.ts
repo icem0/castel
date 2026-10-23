@@ -13,6 +13,7 @@
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { istMobilLayout, sollMobilenScannerStarten } from '../services/layout'
 
 import DashboardView from '../views/DashboardView.vue'
 import ArtikelListView from '../views/ArtikelListView.vue'
@@ -125,10 +126,17 @@ export const router = createRouter({
   },
 })
 
+// One-shot marker: only the first authenticated navigation (app boot or the
+// redirect after login) may send mobile users to the scanner. Tapping the
+// dashboard in the bottom nav afterwards must keep working normally.
+let scannerStartErledigt = false
+
 router.beforeEach((to) => {
   const auth = useAuthStore()
   const isPublic = to.meta.public === true
   const requiresAdmin = to.meta.requiresAdmin === true
+
+  if (!auth.istAngemeldet) scannerStartErledigt = false
 
   // Server hat keinen User → erzwinge /login (zeigt Setup-Modus inline).
   // Greift nur bei DEFINITIVEM false, nicht bei null (offline/unknown).
@@ -143,5 +151,18 @@ router.beforeEach((to) => {
   if (requiresAdmin && !auth.istAdmin) {
     return { name: 'dashboard' }
   }
+
+  if (
+    sollMobilenScannerStarten({
+      angemeldet: auth.istAngemeldet,
+      bereitsGestartet: scannerStartErledigt,
+      mobil: istMobilLayout(),
+      routeName: to.name,
+    })
+  ) {
+    scannerStartErledigt = true
+    return { name: 'scan', replace: true }
+  }
+  scannerStartErledigt = true
   return true
 })
