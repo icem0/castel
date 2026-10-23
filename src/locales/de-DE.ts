@@ -201,6 +201,8 @@ export default {
         duplikatHinweis: 'Ein Artikel mit diesem Barcode existiert bereits: „{titel}".',
         duplikatZumArtikel: 'Zum vorhandenen Artikel',
         pflicht: 'Pflichtfeld',
+        ungespeichertVerlassen:
+          'Du hast ungespeicherte Änderungen. Wirklich verlassen?',
       },
     },
     buchung: {
@@ -322,6 +324,7 @@ export default {
       daten: 'Daten',
       csvImport: 'CSV-Import',
       backup: 'Backup &amp; Restore',
+      apiKeys: 'API-Keys',
       stammdaten: 'Stammdaten',
       artikelKataloge: 'Artikelkataloge',
     },

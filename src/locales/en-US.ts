@@ -194,6 +194,8 @@ export default {
         duplikatHinweis: 'An item with this barcode already exists: “{titel}".',
         duplikatZumArtikel: 'To existing item',
         pflicht: 'Required',
+        ungespeichertVerlassen:
+          'You have unsaved changes. Leave anyway?',
       },
     },
     buchung: {
