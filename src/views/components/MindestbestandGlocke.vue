@@ -25,7 +25,9 @@ const mindestbestand = useMindestbestandStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
 const auth = useAuthStore()
-const alarm = useMindestbestandAlarm()
+// The bell is the single owner of the repeat timer (the settings page
+// mounts the same composable for its test button and must not double-ring).
+const alarm = useMindestbestandAlarm({ wiederholung: true })
 
 const offen = ref(false)
 let documentClickListener: ((e: MouseEvent) => void) | null = null

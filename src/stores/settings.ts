@@ -81,12 +81,13 @@ export interface Settings {
    */
   mindestbestandLautstaerke: number
   /**
-   * Pro User: Alarm wiederholen, solange Ereignisse ungesehen sind?
+   * Pro User: Alarm wiederholen, bis die Glocke geöffnet wird?
    *
-   * Reserve für einen späteren Schritt — der aktuelle Cooldown ist
-   * fest bei 60 s (siehe `useMindestbestandAlarm.ts`). Wir
-   * persistieren die Absicht schon jetzt, damit später keine
-   * Datenmigration nötig wird.
+   * Bei aktivem Klingelton wird der Alarm sofort und danach alle
+   * 60 s erneut ausgelöst (Ton + Vibration + Blitz), solange
+   * ungesehene Ereignisse vorliegen. Das Öffnen der Glocke setzt
+   * `mindestbestand.letzteGesehenAm` und stoppt die Wiederholung.
+   * Siehe `useMindestbestandAlarm.ts`.
    */
   mindestbestandWiederholen: boolean
 }

@@ -77,6 +77,7 @@ const storeMock = vi.hoisted(() => ({
     istAdmin: boolean
     soundAn: boolean
     lautstaerke: number
+    wiederholen: boolean
   },
   markiereSignalGesendet: vi.fn(),
 }))
@@ -107,6 +108,7 @@ let reactiveState!: {
   istAdmin: boolean
   soundAn: boolean
   lautstaerke: number
+  wiederholen: boolean
 }
 
 /** Test-Steuerung — schreibt in das reaktive Objekt. */
@@ -133,6 +135,9 @@ vi.mock('../../stores/settings', () => ({
       },
       get mindestbestandLautstaerke() {
         return storeMock.reactiveState!.lautstaerke
+      },
+      get mindestbestandWiederholen() {
+        return storeMock.reactiveState!.wiederholen
       },
     },
   }),
@@ -169,7 +174,7 @@ function evt(id: string, erstelltAm = new Date().toISOString()): MindestbestandE
 }
 
 /** Mountet das Composable in einer Wegwerf-App und gibt die API zurück. */
-async function mountAlarm() {
+async function mountAlarm(optionen: { wiederholung?: boolean } = {}) {
   const { useMindestbestandAlarm } = await import('../useMindestbestandAlarm')
   const router = createRouter({
     history: createMemoryHistory(),
@@ -183,7 +188,7 @@ async function mountAlarm() {
   let api: ReturnType<typeof useMindestbestandAlarm> | null = null
   const probe = defineComponent({
     setup() {
-      api = useMindestbestandAlarm()
+      api = useMindestbestandAlarm(optionen)
       return () => h('div')
     },
   })
@@ -212,6 +217,7 @@ describe('useMindestbestandAlarm — Trigger', () => {
       istAdmin: true,
       soundAn: true,
       lautstaerke: 70,
+      wiederholen: false,
     })
     storeMock.reactiveState = reactiveState
     storeMock.markiereSignalGesendet.mockClear()
@@ -333,6 +339,120 @@ describe('useMindestbestandAlarm — Trigger', () => {
   it('exponiert die Notification-Permission', async () => {
     const { api, destroy } = await mountAlarm()
     expect(['granted', 'denied', 'default', 'unsupported']).toContain(api.permission.value)
+    await destroy()
+  })
+})
+
+describe('useMindestbestandAlarm — Wiederholung bis die Glocke geöffnet wird', () => {
+  beforeEach(() => {
+    reactiveState = reactive({
+      letzte50: [] as MindestbestandEreignis[],
+      letztesSignalAm: null as string | null,
+      istAdmin: true,
+      soundAn: true,
+      lautstaerke: 70,
+      wiederholen: true,
+    })
+    storeMock.reactiveState = reactiveState
+    storeMock.markiereSignalGesendet.mockClear()
+    alarmMock.alarmKlingeln.mockClear()
+    alarmMock.vibrateMuster.mockClear()
+    alarmMock.audioContextBereit.mockClear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('klingelt sofort nach Mount und danach alle 60 s', async () => {
+    vi.useFakeTimers()
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm({ wiederholung: true })
+    await nextTick()
+    await nextTick()
+
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS)
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS)
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(3)
+
+    await destroy()
+  })
+
+  it('stoppt, sobald die Glocke geöffnet wird (keine ungesehenen Events mehr)', async () => {
+    vi.useFakeTimers()
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm({ wiederholung: true })
+    await nextTick()
+    await nextTick()
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    // Opening the bell marks everything as seen.
+    steuerung.letzte50 = []
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    await destroy()
+  })
+
+  it('wiederholt nicht, wenn die Einstellung aus ist', async () => {
+    vi.useFakeTimers()
+    reactiveState.wiederholen = false
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm({ wiederholung: true })
+    await nextTick()
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
+    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+
+    await destroy()
+  })
+
+  it('wiederholt nicht, wenn der Klingelton aus ist', async () => {
+    vi.useFakeTimers()
+    reactiveState.soundAn = false
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm({ wiederholung: true })
+    await nextTick()
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
+    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+
+    await destroy()
+  })
+
+  it('wiederholt nicht für Nicht-Admins', async () => {
+    vi.useFakeTimers()
+    reactiveState.istAdmin = false
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm({ wiederholung: true })
+    await nextTick()
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
+    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+
+    await destroy()
+  })
+
+  it('besitzt ohne die Option keinen Timer (Settings-Seite klingelt nicht doppelt)', async () => {
+    vi.useFakeTimers()
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm()
+    await nextTick()
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
+    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+
     await destroy()
   })
 })

@@ -97,19 +97,15 @@ async function permissionAnfordern(): Promise<void> {
       </span>
     </label>
 
-    <label class="alarm-zeile">
+    <label v-if="soundAn" class="alarm-zeile alarm-zeile-indent">
       <input
         type="checkbox"
         :checked="wiederholen"
-        disabled
-        :title="t('view.mindestbestand.wiederholenNoch')"
+        :disabled="speichert"
         @change="onWiederholen(($event.target as HTMLInputElement).checked)"
       />
       <span class="alarm-zeile-text">
-        <span class="alarm-zeile-label">
-          {{ t('view.mindestbestand.wiederholen') }}
-          <em class="alarm-badge-soon">{{ t('view.mindestbestand.bald') }}</em>
-        </span>
+        <span class="alarm-zeile-label">{{ t('view.mindestbestand.wiederholen') }}</span>
         <span class="alarm-zeile-hint">{{ t('view.mindestbestand.wiederholenHint') }}</span>
       </span>
     </label>
@@ -201,18 +197,6 @@ async function permissionAnfordern(): Promise<void> {
   color: var(--text-muted);
   min-width: 3rem;
   text-align: right;
-}
-.alarm-badge-soon {
-  font-style: normal;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.05rem 0.35rem;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  color: var(--accent);
-  vertical-align: middle;
-  margin-left: 0.3rem;
 }
 .alarm-aktionen {
   display: flex;

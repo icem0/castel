@@ -450,9 +450,7 @@ export default {
       lautstaerke: 'Volume',
       wiederholen: 'Repeat until the bell is opened',
       wiederholenHint:
-        'Instead of sounding once, ring again every 60 seconds while events are open.',
-      wiederholenNoch: 'Coming in a later step',
-      bald: 'soon',
+        'Sounds immediately and then again every 60 seconds until the bell is opened.',
       testen: 'Test sound',
       permUnsupported: 'This browser does not support system notifications.',
       permDenied: 'System notifications are blocked — the bell in the header still works.',

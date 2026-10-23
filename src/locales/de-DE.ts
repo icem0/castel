@@ -462,9 +462,7 @@ export default {
       lautstaerke: 'Lautstärke',
       wiederholen: 'Wiederholen, bis die Glocke geöffnet wird',
       wiederholenHint:
-        'Statt einmal alle 60 Sekunden erneut klingeln, solange Ereignisse offen sind.',
-      wiederholenNoch: 'Kommt in einem späteren Schritt',
-      bald: 'bald',
+        'Klingelt sofort und danach alle 60 Sekunden erneut, bis die Glocke geöffnet wird.',
       testen: 'Klang testen',
       permUnsupported: 'Dieser Browser unterstützt keine System-Benachrichtigungen.',
       permDenied:
