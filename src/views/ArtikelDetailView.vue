@@ -20,14 +20,14 @@ const buchungStore = useBuchungStore()
 const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
 
+const artikelId = computed<string>(() => String(route.params.id ?? ''))
+const artikel = computed<Artikel | undefined>(() => artikelStore.byId(artikelId.value))
+
 const barcodeQuelle = computed<string | null | undefined>(() => artikel.value?.barcode)
 const { el: barcodeEl, fehler: barcodeFehler } = useBarcodeRender(barcodeQuelle, {
   height: 50,
   displayValue: false,
 })
-
-const artikelId = computed<string>(() => String(route.params.id ?? ''))
-const artikel = computed<Artikel | undefined>(() => artikelStore.byId(artikelId.value))
 
 const bestaende = computed<Array<{ name: string; menge: number; standortId: string }>>(() => {
   if (!artikel.value) return []
