@@ -78,6 +78,7 @@ export function buildTestArtikel(inhalt: BootstrapInhalt) {
     bestellnummer: null,
     barcode: null,
     listenpreis: null,
+    einkaufspreis: null,
     geaendertAm: now,
     erstelltAm: now,
     archiviert: false,

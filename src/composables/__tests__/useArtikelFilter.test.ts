@@ -20,6 +20,7 @@ function artikel(patch: Partial<Artikel> & { id: string; titel: string }): Artik
     barcode: null,
     etikettenNeu: true,
     listenpreis: null,
+    einkaufspreis: null,
     geaendertAm: null,
     erstelltAm: '2026-01-01T00:00:00.000Z',
     ...patch,

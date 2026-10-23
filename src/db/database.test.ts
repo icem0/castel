@@ -22,6 +22,7 @@ function buildArtikel(barcode: string | null): Artikel {
     barcode,
     etikettenNeu: true,
     listenpreis: null,
+    einkaufspreis: null,
     geaendertAm: now,
     erstelltAm: now,
   }

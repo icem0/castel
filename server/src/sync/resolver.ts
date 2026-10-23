@@ -164,7 +164,7 @@ export async function resolvePush(
       await db.transaction(async (tx) => {
         switch (op.entity) {
           case 'artikel':
-            await resolveArtikel(tx, op)
+            await resolveArtikel(tx, op, benutzerRolle === 'admin')
             break
           case 'standort':
             await resolveStandort(tx, op)
@@ -334,17 +334,33 @@ type Tx = Parameters<Parameters<PostgresJsDatabase<typeof schema>['transaction']
 async function resolveArtikel(
   tx: Tx,
   op: Extract<PushOp, { entity: 'artikel' }>,
+  istAdmin: boolean,
 ): Promise<void> {
+  // Kopie, damit der urspruengliche Push-Payload fuer Diagnose/Tests
+  // unangetastet bleibt. Nicht-Admins duerfen den vertraulichen
+  // Einkaufspreis weder setzen noch ueberschreiben:
+  //   * create: explizit null (neue Artikel starten ohne Preis)
+  //   * update: Feld entfernen -> der bestehende Server-Wert bleibt stehen
+  const payload: Record<string, unknown> = { ...op.payload }
+  if (!istAdmin) {
+    if (op.op === 'create') {
+      payload['einkaufspreis'] = null
+    } else {
+      delete payload['einkaufspreis']
+    }
+  }
+  const artikelId = payload['id'] as string
+
   if (op.op === 'create') {
-    const existing = await tx.select().from(artikel).where(eq(artikel.id, op.payload.id)).limit(1)
+    const existing = await tx.select().from(artikel).where(eq(artikel.id, artikelId)).limit(1)
     if (existing.length > 0) {
       // Idempotent: bereits vorhanden, einfach akzeptieren (Update-Fall)
-      await applyLastWriterWins(tx, artikel, op.payload)
+      await applyLastWriterWins(tx, artikel, payload)
     } else {
-      await tx.insert(artikel).values(normalizeStammdatenTimestamps(op.payload) as never)
+      await tx.insert(artikel).values(normalizeStammdatenTimestamps(payload) as never)
     }
   } else if (op.op === 'update') {
-    await applyLastWriterWins(tx, artikel, op.payload)
+    await applyLastWriterWins(tx, artikel, payload)
   } else if (op.op === 'delete') {
     // Löschen ist nur erlaubt, solange keine referenzierenden Zeilen mehr
     // existieren. `buchungen.artikel_id` und `mindestbestand_ereignisse.
@@ -358,17 +374,17 @@ async function resolveArtikel(
       tx
         .select({ c: count() })
         .from(buchungen)
-        .where(eq(buchungen.artikelId, op.payload.id)),
+        .where(eq(buchungen.artikelId, artikelId)),
       tx
         .select({ c: count() })
         .from(mindestbestandEreignisse)
-        .where(eq(mindestbestandEreignisse.artikelId, op.payload.id)),
+        .where(eq(mindestbestandEreignisse.artikelId, artikelId)),
     ])
-    assertKeineAbhaengigkeiten('artikel', op.payload.id, [
+    assertKeineAbhaengigkeiten('artikel', artikelId, [
       { entity: 'buchungen', anzahl: Number(bRes[0]?.c ?? 0) },
       { entity: 'mindestbestand_ereignisse', anzahl: Number(eRes[0]?.c ?? 0) },
     ])
-    await tx.delete(artikel).where(eq(artikel.id, op.payload.id))
+    await tx.delete(artikel).where(eq(artikel.id, artikelId))
   }
 }
 

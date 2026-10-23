@@ -16,11 +16,10 @@
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMindestbestandStore } from '../stores/mindestbestand'
+import { useMindestbestandStore, type MindestbestandZeile } from '../stores/mindestbestand'
 import { useSettingsStore } from '../stores/settings'
 import { useArtikelStore } from '../stores/artikel'
 import { useAuthStore } from '../stores/auth'
-import type { MindestbestandEreignis } from '../db/types'
 import { alarmKlingeln, audioContextBereit, vibrateMuster } from '../services/audio/alarm'
 
 /** Mindestabstand zwischen zwei Alarmen. */
@@ -139,17 +138,26 @@ export function useMindestbestandAlarm(
   }
 
   /**
-   * Löst den vollständigen Alarm aus. Setzt VOR den Nebenwirkungen
-   * den Cooldown-Anker — sonst käme ein Fehler in `alarmKlingeln` dazu,
-   * dass der nächste Tick erneut versucht.
-   *
-   * @returns `true`, wenn tatsächlich ein Signal ausgelöst wurde.
-   */
+ * Löst den vollständigen Alarm aus. Setzt VOR den Nebenwirkungen
+ * den Cooldown-Anker — sonst käme ein Fehler in `alarmKlingeln` dazu,
+ * dass der nächste Tick erneut versucht.
+ *
+ * Erwartet eine LIVE ausgewertete Zeile (siehe `MindestbestandZeile`),
+ * nicht das rohe Event: Eine Zeile mit `offen === false` ist erledigt
+ * (Bestand wieder aufgefüllt oder Schwelle entfernt) und löst deshalb
+ * bewusst KEINEN Alarm aus. Genau das war der Fehler, den der Nutzer
+ * gemeldet hat: die Glocke klingelte für einen Bestand von 3 weiter,
+ * obwohl im Hauptlager 15 lagen.
+ *
+ * @returns `true`, wenn tatsächlich ein Signal ausgelöst wurde.
+ */
   async function signalAusloesen(
-    ereignis: MindestbestandEreignis,
+    zeile: MindestbestandZeile | null | undefined,
     optionen: SignalOptionen = {},
   ): Promise<boolean> {
     const { ueberspringeCooldown = false, osNotification = true } = optionen
+    if (!zeile) return false
+    if (!zeile.offen) return false
     if (!auth.istAdmin) return false
     if (signalInFlight) return false
 
@@ -162,7 +170,7 @@ export function useMindestbestandAlarm(
     try {
       await mindestbestand.markiereSignalGesendet()
 
-      const artikelTitel = artikelStore.byId(ereignis.artikelId)?.titel ?? 'Artikel'
+      const artikelTitel = artikelStore.byId(zeile.ereignis.artikelId)?.titel ?? 'Artikel'
 
       // 1) Audio (nur wenn eingeschaltet)
       if (settings.settings.mindestbestandSoundAn) {
@@ -181,12 +189,14 @@ export function useMindestbestandAlarm(
       // 4) OS-Notification (nur bei verstecktem Dokument + Permission).
       //    Wiederholte Alarme unterdrücken sie bewusst — eine Notification
       //    pro Ereignis reicht, sonst wird das Center jede Minute geflutet.
+      //    Angezeigt wird der AKTUELLE Bestand, nicht der Snapshot aus dem
+      //    Moment der auslösenden Buchung.
       if (osNotification) {
         osNotificationSenden(
-          ereignis.artikelId,
+          zeile.ereignis.artikelId,
           `Mindestbestand unterschritten: ${artikelTitel}`,
-          ereignis.bestandDanach,
-          ereignis.mindestbestand,
+          zeile.aktuellerBestand,
+          zeile.schwelle ?? zeile.ereignis.mindestbestand,
         )
       }
       return true
@@ -215,8 +225,9 @@ export function useMindestbestandAlarm(
       if (neu === alt) return
       if (!auth.istAdmin) return
       if (alt === undefined) return // Store noch nicht geladen
-      // Das NEUESTE Event (Index 0, weil `orderBy('erstelltAm').reverse()`).
-      const neueste = mindestbestand.letzte50[0]
+      // Das NEUESTE Event (Index 0, weil `orderBy('erstelltAm').reverse()`),
+      // live ausgewertet. `signalAusloesen` lässt erledigte Alarme durch.
+      const neueste = mindestbestand.letzte50Zeilen[0]
       if (!neueste) return
       await signalAusloesen(neueste)
     },
@@ -239,6 +250,11 @@ export function useMindestbestandAlarm(
    * One repeat tick. A missing cooldown anchor is allowed here: after a
    * reload (or on a fresh device) the persisted events should keep
    * ringing until the bell is opened.
+   *
+   * `ungesehenCount` zählt nur noch OFFENE Alarme. Wird der Bestand
+   * während der Wiederholung wieder aufgefüllt, fällt der Zähler auf 0
+   * und der Timer stellt sich selbst ab — die Glocke hört also von
+   * allein auf, sobald nichts mehr zu tun ist.
    */
   async function signalWiederholen(): Promise<boolean> {
     if (!optionen.wiederholung) return false
@@ -247,7 +263,7 @@ export function useMindestbestandAlarm(
     if (!settings.settings.mindestbestandSoundAn) return false
     if (mindestbestand.ungesehenCount <= 0) return false
 
-    const neueste = mindestbestand.letzte50[0]
+    const neueste = mindestbestand.offeneZeilen[0]
     if (!neueste) return false
 
     const anker = mindestbestand.letztesSignalAm
@@ -323,21 +339,28 @@ export function useMindestbestandAlarm(
 
   /** Manueller Test — umgeht den Cooldown bewusst. */
   async function signalTesten(): Promise<void> {
-    // Wir brauchen für den Test ein synthetisches Event, falls die DB
+    // Wir brauchen für den Test eine synthetische Zeile, falls die DB
     // leer ist (frische Installation). Die Werte sind egal — es geht
-    // nur um Klingelton / Blitz / Haptik.
+    // nur um Klingelton / Blitz / Haptik. `offen: true` sorgt dafür,
+    // dass der Test nicht an der Live-Prüfung hängen bleibt.
     const artikel = artikelStore.artikel[0]
-    const platzhalter: MindestbestandEreignis = {
-      id: 'test',
-      artikelId: artikel?.id ?? '',
-      standortId: '',
-      ausloeserBuchungId: '',
-      bestandDanach: 0,
-      mindestbestand: 1,
+    const vorhanden = mindestbestand.offeneZeilen[0]
+    const platzhalter: MindestbestandZeile = {
+      ereignis: {
+        id: 'test',
+        artikelId: artikel?.id ?? '',
+        standortId: '',
+        ausloeserBuchungId: '',
+        bestandDanach: 0,
+        mindestbestand: 1,
+        defizit: 1,
+        erstelltAm: new Date().toISOString(),
+      },
+      aktuellerBestand: 0,
+      schwelle: 1,
       defizit: 1,
-      erstelltAm: new Date().toISOString(),
+      offen: true,
     }
-    const vorhanden = mindestbestand.letzte50[0]
     await signalAusloesen(vorhanden ?? platzhalter, { ueberspringeCooldown: true })
   }
 

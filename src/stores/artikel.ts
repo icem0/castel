@@ -12,6 +12,7 @@ import { getDb } from '../db/database'
 import type { Artikel, ArtikelStatus, NachbestellHinweis } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
 import { berechneBestand } from '../domain/bestand'
+import { sortiereNachName } from '../domain/sortierung'
 import { queueOp } from '../services/sync/worker'
 
 export interface ArtikelEingabe {
@@ -31,6 +32,8 @@ export interface ArtikelEingabe {
    *  Artikel stehen damit automatisch in der Etikettenliste. */
   etikettenNeu?: boolean
   listenpreis?: number | null
+  /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admins. */
+  einkaufspreis?: number | null
 }
 
 // Hinweis: Filter (Suche/Typ/Status/Standort) leben absichtlich NICHT im
@@ -49,7 +52,7 @@ export const useArtikelStore = defineStore('artikel', () => {
     if (subscription) return
     subscription = liveQuery(() => getDb().artikel.toArray()).subscribe({
       next: (rows) => {
-        artikel.value = rows
+        artikel.value = sortiereNachName(rows, (a) => a.titel)
         geladen.value = true
       },
       error: (e) => {
@@ -85,6 +88,7 @@ export const useArtikelStore = defineStore('artikel', () => {
       barcode: e.barcode ?? null,
       etikettenNeu: e.etikettenNeu ?? true,
       listenpreis: e.listenpreis ?? null,
+      einkaufspreis: e.einkaufspreis ?? null,
       geaendertAm: now,
       erstelltAm: now,
     }

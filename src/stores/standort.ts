@@ -7,6 +7,7 @@ import { computed, ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
 import type { Standort, StandortTyp } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
+import { sortiereNachName } from '../domain/sortierung'
 import { queueOp } from '../services/sync/worker'
 
 export interface StandortEingabe {
@@ -25,7 +26,7 @@ export const useStandortStore = defineStore('standort', () => {
     if (subscription) return
     subscription = liveQuery(() => getDb().standorte.toArray()).subscribe({
       next: (rows) => {
-        standorte.value = rows
+        standorte.value = sortiereNachName(rows, (s) => s.name)
         geladen.value = true
       },
       error: (e) => {

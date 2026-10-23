@@ -1,8 +1,13 @@
 <script setup lang="ts">
 // MindestbestandPanelView: vollständige Liste aller erfassten
 // Mindestbestand-Ereignisse, sortiert nach `erstelltAm` (neueste
-// zuerst). Filter nach Artikel und Standort. Klick auf einen Eintrag
-// navigiert zur Artikel-Detail-View.
+// zuerst). Filter nach Artikel, Standort und Status. Klick auf einen
+// Eintrag navigiert zur Artikel-Detail-View.
+//
+// WICHTIG: Angezeigt wird der LIVE-Bestand, nicht der Snapshot
+// `bestandDanach` aus dem Moment der auslösenden Buchung. Sonst steht
+// hier dauerhaft "3", während im Lager längst 15 liegen. Der Snapshot
+// bleibt als Tooltip erhalten ("Bestand damals").
 //
 // Admin-only. Beim Mount wird "alle gesehen" markiert, sodass der
 // Counter in der Glocke auf 0 springt.
@@ -13,6 +18,8 @@ import { useI18n } from 'vue-i18n'
 import { useMindestbestandStore } from '../stores/mindestbestand'
 import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
+import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
+import { sortiereNachName } from '../domain/sortierung'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -22,6 +29,8 @@ const standortStore = useStandortStore()
 
 const filterArtikel = ref<string>('')
 const filterStandort = ref<string>('')
+type StatusFilter = 'offen' | 'erledigt' | 'alle'
+const filterStatus = ref<StatusFilter>('offen')
 
 onMounted(() => {
   mindestbestand.start()
@@ -37,18 +46,21 @@ function standortName(id: string): string {
 }
 
 const gefiltert = computed(() =>
-  mindestbestand.ereignisse.filter((e) => {
-    if (filterArtikel.value && e.artikelId !== filterArtikel.value) return false
-    if (filterStandort.value && e.standortId !== filterStandort.value) return false
+  mindestbestand.zeilen.filter((z) => {
+    if (filterArtikel.value && z.ereignis.artikelId !== filterArtikel.value) return false
+    if (filterStandort.value && z.ereignis.standortId !== filterStandort.value) return false
+    if (filterStatus.value === 'offen' && !z.offen) return false
+    if (filterStatus.value === 'erledigt' && z.offen) return false
     return true
   }),
 )
 
 const artikelOptionen = computed(() => {
   const ids = new Set(mindestbestand.ereignisse.map((e) => e.artikelId))
-  return Array.from(ids)
-    .map((id) => ({ id, titel: artikelTitel(id) }))
-    .sort((a, b) => a.titel.localeCompare(b.titel))
+  return sortiereNachName(
+    artikelStore.artikel.filter((a) => ids.has(a.id)),
+    (a) => a.titel,
+  )
 })
 
 function open(id: string): void {
@@ -75,12 +87,11 @@ function formatDatum(iso: string): string {
       <div class="filter-row">
         <label>
           <span>{{ t('view.mindestbestand.filterArtikel') }}</span>
-          <select v-model="filterArtikel">
-            <option value="">{{ t('view.mindestbestand.alleArtikel') }}</option>
-            <option v-for="a in artikelOptionen" :key="a.id" :value="a.id">
-              {{ a.titel }}
-            </option>
-          </select>
+          <ArtikelSucheSelect
+            v-model="filterArtikel"
+            :items="artikelOptionen"
+            :placeholder="t('view.mindestbestand.filterArtikel')"
+          />
         </label>
         <label>
           <span>{{ t('view.mindestbestand.filterStandort') }}</span>
@@ -89,6 +100,14 @@ function formatDatum(iso: string): string {
             <option v-for="s in standortStore.aktive" :key="s.id" :value="s.id">
               {{ s.name }}
             </option>
+          </select>
+        </label>
+        <label>
+          <span>{{ t('view.mindestbestand.filterStatus') }}</span>
+          <select v-model="filterStatus">
+            <option value="offen">{{ t('view.mindestbestand.statusOffen') }}</option>
+            <option value="erledigt">{{ t('view.mindestbestand.statusErledigt') }}</option>
+            <option value="alle">{{ t('view.mindestbestand.alleStatus') }}</option>
           </select>
         </label>
       </div>
@@ -105,19 +124,30 @@ function formatDatum(iso: string): string {
             <th>{{ t('view.mindestbestand.colBestand') }}</th>
             <th>{{ t('view.mindestbestand.colMindest') }}</th>
             <th>{{ t('view.mindestbestand.colDefizit') }}</th>
+            <th>{{ t('view.mindestbestand.colStatus') }}</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="ev in gefiltert" :key="ev.id">
-            <td>{{ formatDatum(ev.erstelltAm) }}</td>
-            <td>{{ artikelTitel(ev.artikelId) }}</td>
-            <td>{{ standortName(ev.standortId) }}</td>
-            <td>{{ ev.bestandDanach }}</td>
-            <td>{{ ev.mindestbestand }}</td>
-            <td class="defizit">{{ ev.defizit }}</td>
+          <tr v-for="z in gefiltert" :key="z.ereignis.id" :class="{ erledigt: !z.offen }">
+            <td>{{ formatDatum(z.ereignis.erstelltAm) }}</td>
+            <td>{{ artikelTitel(z.ereignis.artikelId) }}</td>
+            <td>{{ standortName(z.ereignis.standortId) }}</td>
+            <td :title="t('view.mindestbestand.bestandDamals', { bestand: z.ereignis.bestandDanach })">
+              {{ z.aktuellerBestand }}
+            </td>
+            <td>{{ z.schwelle ?? '—' }}</td>
+            <td class="defizit">{{ z.defizit }}</td>
             <td>
-              <button type="button" class="btn" @click="open(ev.artikelId)">
+              <span v-if="z.offen" class="status-offen">
+                {{ t('view.mindestbestand.statusOffen') }}
+              </span>
+              <span v-else class="status-erledigt">
+                {{ t('view.mindestbestand.statusErledigt') }}
+              </span>
+            </td>
+            <td>
+              <button type="button" class="btn" @click="open(z.ereignis.artikelId)">
                 {{ t('view.mindestbestand.openArtikel') }}
               </button>
             </td>
@@ -173,6 +203,18 @@ function formatDatum(iso: string): string {
 .defizit {
   color: #c0392b;
   font-weight: 600;
+}
+.status-offen {
+  color: #c0392b;
+  font-weight: 600;
+}
+.status-erledigt {
+  color: var(--success, #16a34a);
+  font-weight: 600;
+}
+/* Erledigte Zeilen bleiben als Historie sichtbar, treten aber zurück. */
+.data-table tr.erledigt td {
+  opacity: 0.6;
 }
 .empty-state {
   color: var(--text-muted);

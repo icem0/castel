@@ -116,6 +116,7 @@ function mappeArtikelZeile(row: string[], headers: string[], mapping: ArtikelMap
     // noch kein Etikett bekommen.
     etikettenNeu: true,
     listenpreis: parseIntOrNull(feld('listenpreis')),
+    einkaufspreis: null,
     // Server-Push-Schema verlangt `geaendertAm: string` (kein null). Wenn
     // die CSV-Spalte fehlt oder leer ist, fallen wir auf `erstelltAm` (=
     // Import-Zeitpunkt) zurück — semantisch identisch zu einem frisch

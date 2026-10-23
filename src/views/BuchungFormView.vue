@@ -114,7 +114,7 @@ async function speichern(): Promise<void> {
   }
 
   laufend.value = true
-  const erstelltVon = auth.anzeigename.trim() || 'unbekannt'
+  const erstelltVon = auth.erstelltVon
   const buchungIds: string[] = []
   try {
     if (typ.value === 'einlagerung') {

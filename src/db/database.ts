@@ -321,6 +321,24 @@ export class CastelDb extends Dexie {
           await tx.table('artikel').bulkPut(alle)
         }
       })
+
+    // v13: Vertraulicher Netto-Einkaufspreis. Kein Index — die Dashboard-
+    //      Auswertung laeuft ohnehin ueber alle Artikel. Bestehende Zeilen
+    //      starten mit `null`; Nicht-Admins bekommen den Wert nie vom
+    //      Server (Snapshot strippt ihn) und der Sync bereinigt ihn lokal.
+    this.version(13)
+      .stores({
+        artikel: 'id, sharePointId, typ, status, titel, barcode',
+      })
+      .upgrade(async (tx) => {
+        const alle = await tx.table('artikel').toArray()
+        for (const row of alle as Array<Record<string, unknown>>) {
+          if (row['einkaufspreis'] === undefined) row['einkaufspreis'] = null
+        }
+        if (alle.length > 0) {
+          await tx.table('artikel').bulkPut(alle)
+        }
+      })
   }
 }
 

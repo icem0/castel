@@ -28,6 +28,7 @@ import type {
 import { jetztIso, neueUuid } from '../../domain/ids'
 import { setApiBaseUrl } from '../../auth/api'
 import { sessionLesen } from '../../auth/session'
+import { prepareRoleForSync } from './preise'
 
 // ---------- Konfiguration ----------
 
@@ -765,7 +766,17 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
   _running = true
 
   const { token, apiBase } = opts
-  const currentUserId = sessionLesen()?.userId ?? null
+  const session = sessionLesen()
+  const currentUserId = session?.userId ?? null
+
+  // Must run before `lastPull` is read: an admin promotion clears the
+  // marker so this run fetches a full snapshot (including prices).
+  try {
+    await prepareRoleForSync(session?.rolle === 'admin')
+  } catch (e) {
+    console.warn('[sync] role preparation failed:', e)
+  }
+
   const lastPull = (await getDb().einstellungen.get(['sync.lastPullAt', '']))?.value ?? null
 
   try {

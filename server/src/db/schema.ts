@@ -121,6 +121,8 @@ export const artikel = pgTable(
      *  geloescht; neue Artikel starten mit TRUE. */
     etikettenNeu: boolean('etiketten_neu').notNull().default(true),
     listenpreis: integer('listenpreis'), // in Cent, um Floats zu vermeiden
+    /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admin-sichtbar. */
+    einkaufspreis: integer('einkaufspreis'),
     geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull(),
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
   },

@@ -42,6 +42,8 @@ export const artikelSchema = z.object({
   barcode: z.string().nullable().optional(),
   etikettenNeu: z.boolean().optional(),
   listenpreis: z.number().int().nullable().optional(),
+  /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. */
+  einkaufspreis: z.number().int().nullable().optional(),
   geaendertAm: iso,
   erstelltAm: iso,
 })
@@ -165,12 +167,16 @@ export const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, 'Passwort muss mindestens 8 Zeichen haben'),
   rolle: z.enum(['admin', 'user']).default('user'),
+  // Optional: ohne Anzeigename wird der lokale Teil der E-Mail verwendet,
+  // damit Buchungen dieses Users nie als "unbekannt" erscheinen.
+  anzeigename: z.string().trim().max(120).optional(),
 })
 
 export const patchUserSchema = z.object({
   rolle: z.enum(['admin', 'user']).optional(),
   aktiv: z.boolean().optional(),
   password: z.string().min(8).optional(),
+  anzeigename: z.string().trim().min(1, 'Anzeigename darf nicht leer sein').max(120).optional(),
 })
 
 /**

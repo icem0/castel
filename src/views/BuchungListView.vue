@@ -8,6 +8,7 @@ import { useStandortStore } from '../stores/standort'
 import { useAuthStore } from '../stores/auth'
 import { useTableSort } from '../composables/useTableSort'
 import SortableTh from '../components/SortableTh.vue'
+import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 import { istKommissionStorno } from '../domain/buchungen'
 import type { Buchung } from '../db/types'
 
@@ -112,7 +113,7 @@ async function stornieren(b: Buchung): Promise<void> {
     await buchungStore.mu.stornieren({
       buchungId: b.id,
       grund: t('view.buchung.stornoGrund'),
-      erstelltVon: auth.anzeigename.trim() || 'unbekannt',
+      erstelltVon: auth.erstelltVon,
     })
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
@@ -130,7 +131,7 @@ async function stornoAufheben(s: Buchung): Promise<void> {
     await buchungStore.mu.stornoAufheben({
       stornoId: s.id,
       grund: t('view.buchung.stornoAufhebenGrund'),
-      erstelltVon: auth.anzeigename.trim() || 'unbekannt',
+      erstelltVon: auth.erstelltVon,
     })
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
@@ -148,10 +149,12 @@ async function stornoAufheben(s: Buchung): Promise<void> {
     </header>
 
     <div class="filter-bar">
-      <select v-model="artikelFilter">
-        <option value="">— Alle Artikel —</option>
-        <option v-for="a in artikelStore.artikel" :key="a.id" :value="a.id">{{ a.titel }}</option>
-      </select>
+      <ArtikelSucheSelect
+        v-model="artikelFilter"
+        class="filter-suche"
+        :items="artikelStore.artikel"
+        :placeholder="t('view.buchung.filterArtikel')"
+      />
       <select v-model="typFilter">
         <option value="">— Alle Typen —</option>
         <option value="einlagerung">{{ formatTyp('einlagerung') }}</option>
@@ -266,6 +269,10 @@ async function stornoAufheben(s: Buchung): Promise<void> {
 </template>
 
 <style scoped>
+.filter-bar .filter-suche {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
 .data .num {
   font-variant-numeric: tabular-nums;
   text-align: right;

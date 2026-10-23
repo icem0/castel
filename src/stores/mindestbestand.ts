@@ -2,17 +2,31 @@
 // reaktiv via Dexie liveQuery. Treibt das Glocken-Panel in der
 // AppShell und den Admin-View `/einstellungen/mindestbestand`.
 //
+// WICHTIG — Ereignis vs. Alarmzustand:
+// `mindestbestand_ereignisse` ist ein Append-only Log. `bestandDanach`
+// ist der eingefrorene Bestand aus dem Moment der auslösenden Buchung.
+// Wird der Artikel danach wieder aufgefüllt, behauptet das Event weiter
+// ein Defizit ("Bestand 3" neben einem realen Bestand von 15). Deshalb
+// wird jedes Event hier gegen den LIVE-Bestand aus den Buchungen
+// ausgewertet (`zeilen`): nur Events, deren Unterschreitung HEUTE noch
+// gilt, zählen als offener Alarm. Historisch bleibt das Event im Log
+// sichtbar, ist aber als "erledigt" markiert und wird nicht mehr
+// gezählt und nicht mehr geklingelt.
+//
 // "Neu" vs. "Gesehen": wir lesen den `letzteGesehenAm`-Marker aus
 // `einstellungen` (userId='', local-only). Der Counter im Panel zeigt
-// nur Events, die nach diesem Marker liegen. Beim Klick auf die Glocke
+// nur offene Events, die nach diesem Marker liegen. Beim Klick auf die Glocke
 // oder beim Mount des Panels setzt der Store den Marker auf "jetzt".
 
 import { defineStore } from 'pinia'
 import { liveQuery, type Subscription } from 'dexie'
 import { computed, ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
-import type { MindestbestandEreignis } from '../db/types'
+import type { Artikel, MindestbestandEreignis } from '../db/types'
 import { jetztIso, neueUuid } from '../domain/ids'
+import { berechneDefizitAktuell, sollteWarnungAusloesen } from '../domain/mindestbestand'
+import { useArtikelStore } from './artikel'
+import { useBuchungStore } from './buchung'
 
 const GESEHEN_KEY = 'mindestbestand.letzteGesehenAm'
 /**
@@ -30,10 +44,67 @@ const GESEHEN_KEY = 'mindestbestand.letzteGesehenAm'
  */
 const SIGNAL_KEY = 'mindestbestand.letztesSignalAm'
 
+/**
+ * Ein historisches Ereignis, live gegen den aktuellen Bestand
+ * ausgewertet. `ereignis.bestandDanach` bleibt der historische
+ * Snapshot; `aktuellerBestand` ist die Zahl, die heute gilt.
+ */
+export interface MindestbestandZeile {
+  ereignis: MindestbestandEreignis
+  /** Bestand an `ereignis.standortId`, live aus den Buchungen berechnet. */
+  aktuellerBestand: number
+  /**
+   * Heute gültige Schwelle. `null`, wenn der Admin den Mindestbestand
+   * entfernt hat — dann ist der Alarm gegenstandslos. Der Snapshot aus
+   * dem Event greift nur, solange der Artikel selbst nicht geladen ist.
+   */
+  schwelle: number | null
+  /** Defizit gegen den aktuellen Bestand, nie negativ. */
+  defizit: number
+  /** Unterschreitung gilt heute noch — nur diese Zeilen sind aktive Alarme. */
+  offen: boolean
+}
+
 export const useMindestbestandStore = defineStore('mindestbestand', () => {
   const ereignisse = ref<MindestbestandEreignis[]>([])
   const geladen = ref(false)
   let subscription: Subscription | null = null
+
+  // Live-Quelle für den aktuellen Bestand. Beide Stores werden global in
+  // `App.vue` gestartet, die Daten stehen also auch dann bereit, wenn nur
+  // die Glocke (admin-only) den Mindestbestand-Store instanziiert.
+  const buchungStore = useBuchungStore()
+  const artikelStore = useArtikelStore()
+
+  function schwelleFuer(ev: MindestbestandEreignis, a: Artikel | undefined): number | null {
+    // Artikel geladen: es gilt die HEUTE gesetzte Schwelle. `null` heißt
+    // "Admin hat keinen Mindestbestand gesetzt" — dann ist der Alarm
+    // erledigt und darf nicht vom historischen Snapshot am Leben
+    // gehalten werden.
+    if (a) return a.mindestbestand
+    // Artikel nicht geladen (gelöscht oder noch nicht gespiegelt): der
+    // Snapshot ist die beste verfügbare Information.
+    return ev.mindestbestand
+  }
+
+  /** Alle Ereignisse, jeweils live gegen den aktuellen Bestand geprüft. */
+  const zeilen = computed<MindestbestandZeile[]>(() =>
+    ereignisse.value.map((ev) => {
+      const aktuellerBestand = buchungStore.getBestand(ev.artikelId, ev.standortId)
+      const schwelle = schwelleFuer(ev, artikelStore.byId(ev.artikelId))
+      return {
+        ereignis: ev,
+        aktuellerBestand,
+        schwelle,
+        defizit: schwelle === null ? 0 : berechneDefizitAktuell(schwelle, aktuellerBestand),
+        offen:
+          schwelle !== null && sollteWarnungAusloesen(schwelle, aktuellerBestand),
+      }
+    }),
+  )
+
+  /** Nur die Zeilen, deren Unterschreitung heute noch gilt. */
+  const offeneZeilen = computed(() => zeilen.value.filter((z) => z.offen))
 
   function start() {
     if (subscription) return
@@ -94,18 +165,19 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
     letzteGesehenAm.value = value
   }
 
-  /** Anzahl "neuer" Events = seit dem letzten "Gesehen"-Marker. */
+  /**
+   * Anzahl "neuer, noch offener" Alarme = Ereignisse, die UND
+   *   * nach dem letzten "Gesehen"-Marker liegen UND
+   *   * deren Unterschreitung heute noch gilt.
+   *
+   * Der zweite Teil ist der Fix: wurde der Bestand nach dem Alarm wieder
+   * aufgefüllt, zählt das Ereignis nicht mehr — die Glocke ist dann
+   * wieder ruhig, ohne dass jemand den Marker von Hand setzen muss.
+   */
   const ungesehenCount = computed(() => {
     const marker = letzteGesehenAm.value
-    if (!marker) {
-      // Default-Verhalten: alle Events der letzten 24h zählen.
-      // Wir wollen den Counter nicht künstlich hochtreiben, wenn der
-      // User die PWA zum ersten Mal öffnet und 200 historische Events
-      // in der DB liegen.
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-      return ereignisse.value.filter((e) => e.erstelltAm > cutoff).length
-    }
-    return ereignisse.value.filter((e) => e.erstelltAm > marker).length
+    const cutoff = marker ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    return offeneZeilen.value.filter((z) => z.ereignis.erstelltAm > cutoff).length
   })
 
   /**
@@ -125,8 +197,14 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
     setMarker(now)
   }
 
-  /** Liste der letzten 50 Events (für das Drop-Down). */
+  /** Liste der letzten 50 Events (für das Drop-drawdown / den Watch-Trigger). */
   const letzte50 = computed(() => ereignisse.value.slice(0, 50))
+
+  /**
+   * Dasselbe für die Anzeige, aber live ausgewertet: liefert den
+   * aktuellen Bestand und den Status offen/erledigt je Zeile.
+   */
+  const letzte50Zeilen = computed(() => zeilen.value.slice(0, 50))
 
   /**
    * Markiert, dass soeben ein Signal (Audio + Blitz + Notification)
@@ -158,11 +236,14 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
 
   return {
     ereignisse,
+    zeilen,
+    offeneZeilen,
     geladen,
     letzteGesehenAm,
     letztesSignalAm,
     ungesehenCount,
     letzte50,
+    letzte50Zeilen,
     start,
     stop,
     startMarker,

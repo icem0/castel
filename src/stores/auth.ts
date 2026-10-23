@@ -25,6 +25,7 @@ import {
 import { hasheText } from '../auth/crypto'
 import {
   aendereEigenesPasswortServer,
+  aendereAnzeigenameServer,
   aendereRolleServer,
   deaktiviereUserServer,
   holeAktiveUserliste,
@@ -50,6 +51,16 @@ export const useAuthStore = defineStore('auth', () => {
   const userId = computed(() => session.value?.userId ?? null)
   const email = computed(() => session.value?.email ?? null)
   const anzeigename = computed(() => session.value?.anzeigename ?? '')
+  // Author name written into bookings. Never empty: users created before
+  // display names became mandatory have `anzeigename = ''`, so fall back to
+  // the e-mail (then user id) instead of the meaningless literal 'unbekannt'.
+  const erstelltVon = computed(() => {
+    const name = session.value?.anzeigename?.trim()
+    if (name) return name
+    const mail = session.value?.email?.trim()
+    if (mail) return mail
+    return session.value?.userId ?? 'unbekannt'
+  })
   const mussPasswortAendern = computed(() => session.value?.mustChangePassword === true)
 
   // Server-User-State:
@@ -273,16 +284,22 @@ export const useAuthStore = defineStore('auth', () => {
     email: string
     passwort: string
     rolle: 'admin' | 'user'
+    anzeigename?: string
   }): Promise<void> {
     await legeUserAnServer({
       email: input.email,
       password: input.passwort,
       rolle: input.rolle,
+      anzeigename: input.anzeigename,
     })
   }
 
   async function aendereRolle(userId: string, neueRolle: 'admin' | 'user'): Promise<void> {
     await aendereRolleServer(userId, neueRolle)
+  }
+
+  async function aendereAnzeigename(userId: string, anzeigename: string): Promise<void> {
+    await aendereAnzeigenameServer(userId, anzeigename)
   }
 
   async function setzeAktiv(id: string, aktiv: boolean): Promise<void> {
@@ -321,6 +338,7 @@ export const useAuthStore = defineStore('auth', () => {
     userId,
     email,
     anzeigename,
+    erstelltVon,
     mussPasswortAendern,
     serverHatUser,
     pruefeServerUserState,
@@ -330,6 +348,7 @@ export const useAuthStore = defineStore('auth', () => {
     aktiveUserliste,
     neuerUser,
     aendereRolle,
+    aendereAnzeigename,
     setzeAktiv,
     setzePasswortFuer,
     deaktiviereUser,

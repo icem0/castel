@@ -9,6 +9,7 @@ import { defineComponent, h, nextTick, reactive, createApp } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { cooldownAktiv, COOLDOWN_MS, BLITZ_DAUER_MS } from '../useMindestbestandAlarm'
+import type { MindestbestandZeile } from '../../stores/mindestbestand'
 import type { MindestbestandEreignis } from '../../db/types'
 
 describe('cooldownAktiv — reine Logik', () => {
@@ -73,6 +74,8 @@ vi.mock('../../services/audio/alarm', () => ({
 const storeMock = vi.hoisted(() => ({
   reactiveState: null as null | {
     letzte50: MindestbestandEreignis[]
+    /** Test control: which event ids count as still-open alarms. */
+    offenIds: string[]
     letztesSignalAm: string | null
     istAdmin: boolean
     soundAn: boolean
@@ -82,18 +85,38 @@ const storeMock = vi.hoisted(() => ({
   markiereSignalGesendet: vi.fn(),
 }))
 
+/** Maps a raw event to a live-evaluated row, mirroring the real store. */
+function zeileAus(ev: MindestbestandEreignis, offen: boolean): MindestbestandZeile {
+  return {
+    ereignis: ev,
+    aktuellerBestand: ev.bestandDanach,
+    schwelle: ev.mindestbestand,
+    defizit: ev.defizit,
+    offen,
+  }
+}
+
 vi.mock('../../stores/mindestbestand', () => ({
   useMindestbestandStore: () => {
     const s = storeMock.reactiveState!
+    const zeilen = (): MindestbestandZeile[] =>
+      s.letzte50.map((ev) => zeileAus(ev, s.offenIds.includes(ev.id)))
+    const offene = (): MindestbestandZeile[] => zeilen().filter((z) => z.offen)
     return {
       get letzte50() {
         return s.letzte50
+      },
+      get letzte50Zeilen() {
+        return zeilen()
+      },
+      get offeneZeilen() {
+        return offene()
       },
       get letztesSignalAm() {
         return s.letztesSignalAm
       },
       get ungesehenCount() {
-        return s.letzte50.length
+        return offene().length
       },
       markiereSignalGesendet: storeMock.markiereSignalGesendet,
     }
@@ -104,6 +127,7 @@ vi.mock('../../stores/mindestbestand', () => ({
 // deshalb bauen wir das reaktive Objekt im beforeEach.
 let reactiveState!: {
   letzte50: MindestbestandEreignis[]
+  offenIds: string[]
   letztesSignalAm: string | null
   istAdmin: boolean
   soundAn: boolean
@@ -118,12 +142,19 @@ const steuerung = {
   },
   set letzte50(v: MindestbestandEreignis[]) {
     reactiveState.letzte50 = v
+    // A newly written event counts as unresolved by default — that is the
+    // normal case. Tests covering the resolved path use `markiereErledigt`.
+    reactiveState.offenIds = v.map((e) => e.id)
   },
   get letztesSignalAm(): string | null {
     return reactiveState.letztesSignalAm
   },
   set letztesSignalAm(v: string | null) {
     reactiveState.letztesSignalAm = v
+  },
+  /** Mark the given event ids as resolved (stock back above the minimum). */
+  markiereErledigt(ids: string[]): void {
+    reactiveState.offenIds = reactiveState.offenIds.filter((id) => !ids.includes(id))
   },
 }
 
@@ -213,6 +244,7 @@ describe('useMindestbestandAlarm — Trigger', () => {
   beforeEach(() => {
     reactiveState = reactive({
       letzte50: [] as MindestbestandEreignis[],
+      offenIds: [] as string[],
       letztesSignalAm: null as string | null,
       istAdmin: true,
       soundAn: true,
@@ -336,6 +368,52 @@ describe('useMindestbestandAlarm — Trigger', () => {
     expect(BLITZ_DAUER_MS).toBeLessThan(5000)
   })
 
+  // Regression: Die Glocke klingelte für einen Event-Snapshot
+  // "Bestand 3", obwohl der Bestand im Hauptlager wieder bei 15 lag.
+  // Der Snapshot ist historisch — der Alarm darf nur klingeln, solange
+  // die Unterschreitung LIVE noch gilt.
+  it('klingelt NICHT, wenn der Bestand wieder über dem Mindestbestand liegt', async () => {
+    steuerung.letztesSignalAm = new Date(Date.now() - 120_000).toISOString()
+    const { api, destroy } = await mountAlarm()
+    steuerung.letzte50 = [evt('e1')]
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    // Bestand wird aufgefüllt: das Event bleibt im Log, ist aber erledigt.
+    steuerung.markiereErledigt(['e1'])
+    await nextTick()
+    await nextTick()
+    await nextTick()
+
+    expect(api.anzahl.value).toBe(0)
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+    await destroy()
+  })
+
+  it('klingelt nicht, wenn ein NEUES Event bereits erledigt ist', async () => {
+    steuerung.letztesSignalAm = new Date(Date.now() - 120_000).toISOString()
+    const { destroy } = await mountAlarm()
+    steuerung.letzte50 = [evt('e1')]
+    await nextTick()
+    await nextTick()
+    await nextTick()
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    // Ausgleichende Buchung im selben Sync: Event trifft ein, gilt aber
+    // schon nicht mehr (z. B. Entnahme sofort durch Einlagerung gedeckt).
+    steuerung.letztesSignalAm = new Date(Date.now() - 120_000).toISOString()
+    steuerung.letzte50 = [evt('e2'), evt('e1')]
+    steuerung.markiereErledigt(['e2'])
+    await nextTick()
+    await nextTick()
+    await nextTick()
+
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+    await destroy()
+  })
+
   it('exponiert die Notification-Permission', async () => {
     const { api, destroy } = await mountAlarm()
     expect(['granted', 'denied', 'default', 'unsupported']).toContain(api.permission.value)
@@ -347,6 +425,7 @@ describe('useMindestbestandAlarm — Wiederholung bis die Glocke geöffnet wird'
   beforeEach(() => {
     reactiveState = reactive({
       letzte50: [] as MindestbestandEreignis[],
+      offenIds: [] as string[],
       letztesSignalAm: null as string | null,
       istAdmin: true,
       soundAn: true,
@@ -393,6 +472,25 @@ describe('useMindestbestandAlarm — Wiederholung bis die Glocke geöffnet wird'
 
     // Opening the bell marks everything as seen.
     steuerung.letzte50 = []
+    await nextTick()
+
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    await destroy()
+  })
+
+  it('stoppt die Wiederholung, wenn der Bestand wieder aufgefüllt wird', async () => {
+    vi.useFakeTimers()
+    steuerung.letzte50 = [evt('e1')]
+    const { destroy } = await mountAlarm({ wiederholung: true })
+    await nextTick()
+    await nextTick()
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+
+    // Bestand wieder aufgefüllt → nichts mehr zu melden → Timer steht still.
+    steuerung.markiereErledigt(['e1'])
+    await nextTick()
     await nextTick()
 
     await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)

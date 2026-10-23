@@ -32,7 +32,7 @@ async function speichern(): Promise<void> {
     return
   }
   laufend.value = true
-  const erstelltVon = auth.anzeigename.trim() || 'unbekannt'
+  const erstelltVon = auth.erstelltVon
   try {
     await buchungStore.mu.kommission({
       buchungId: original.value.id,

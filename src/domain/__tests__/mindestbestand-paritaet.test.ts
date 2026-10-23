@@ -82,6 +82,14 @@ describe('Mindestbestand-Pure-Funktionen sind byte-identisch (PWA ↔ Server)', 
     expect(pwaFn).toBe(serverFn)
   })
 
+  it('berechneDefizitAktuell: PWA == Server', () => {
+    const pwaSrc = readFileSync(PWA_FILE, 'utf8')
+    const serverSrc = readFileSync(SERVER_FILE, 'utf8')
+    const pwaFn = normalize(extractFunction(pwaSrc, 'berechneDefizitAktuell'))
+    const serverFn = normalize(extractFunction(serverSrc, 'berechneDefizitAktuell'))
+    expect(pwaFn).toBe(serverFn)
+  })
+
   it('MindestbestandArtikel-Interface ist auf beiden Seiten strukturell gleich', () => {
     const pwaSrc = readFileSync(PWA_FILE, 'utf8')
     const serverSrc = readFileSync(SERVER_FILE, 'utf8')

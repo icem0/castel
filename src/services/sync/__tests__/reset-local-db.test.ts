@@ -33,6 +33,7 @@ function artikelAnlage(id: string, titel: string): Artikel {
     barcode: null,
     etikettenNeu: true,
     listenpreis: null,
+    einkaufspreis: null,
     geaendertAm: now,
     erstelltAm: now,
   }

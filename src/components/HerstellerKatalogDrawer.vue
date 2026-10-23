@@ -28,6 +28,7 @@ import {
   speichereLetztenLieferant,
   sucheHerstellerArtikel,
 } from '../services/datanorm/lookup'
+import { sortiereNachName } from '../domain/sortierung'
 
 /** Fields the drawer can copy into the article form. */
 export interface UebernahmeFelder {
@@ -147,7 +148,7 @@ async function ladeLieferantenListe(): Promise<void> {
   laedtLieferanten.value = true
   fehler.value = ''
   try {
-    lieferanten.value = await ladeLieferanten()
+    lieferanten.value = sortiereNachName(await ladeLieferanten(), (l) => l.name)
     // Pre-select the supplier used last time, if it still exists.
     const gemerkt = leseLetztenLieferant()
     if (gemerkt && lieferanten.value.some((l) => l.id === gemerkt)) {

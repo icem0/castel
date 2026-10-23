@@ -60,3 +60,24 @@ export function berechneDefizit(
 ): number {
   return mindestbestand - bestandDanach
 }
+
+/**
+ * Defizit gegen den *aktuellen* Bestand — im Gegensatz zu
+ * `berechneDefizit` nie negativ.
+ *
+ * Grund: `mindestbestand_ereignisse` ist ein Append-only Log. Das Feld
+ * `bestandDanach` ist ein eingefrorener Snapshot aus dem Moment der
+ * auslösenden Buchung. Wird der Bestand danach wieder aufgefüllt, ist
+ * der Alarm sachlich erledigt — der historische Wert behauptet aber
+ * weiterhin ein Defizit. Für die Anzeige brauchen wir deshalb den
+ * Vergleich gegen den LIVE-Bestand, und der darf nicht ins Negative
+ * laufen (ein Bestand über dem Mindestbestand hat kein Defizit).
+ */
+export function berechneDefizitAktuell(
+  mindestbestand: number,
+  aktuellerBestand: number,
+): number {
+  const differenz = mindestbestand - aktuellerBestand
+  if (differenz < 0) return 0
+  return differenz
+}

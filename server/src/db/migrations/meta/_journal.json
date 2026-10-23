@@ -113,6 +113,20 @@
       "when": 1700000015000,
       "tag": "0016_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1700000016000,
+      "tag": "0016_backfill_anzeigename",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1700000017000,
+      "tag": "0017_artikel_einkaufspreis",
+      "breakpoints": true
     }
   ]
 }

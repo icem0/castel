@@ -57,10 +57,18 @@ export async function legeUserAnServer(input: {
   email: string
   password: string
   rolle: 'admin' | 'user'
+  anzeigename?: string
 }): Promise<UserDto> {
   return apiFetch<UserDto>('/api/users', {
     method: 'POST',
     body: input,
+  })
+}
+
+export async function aendereAnzeigenameServer(id: string, anzeigename: string): Promise<void> {
+  await apiFetch(`/api/users/${id}`, {
+    method: 'PATCH',
+    body: { anzeigename },
   })
 }
 

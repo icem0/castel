@@ -13,6 +13,7 @@ import {
 } from '../db/schema.js'
 import { pushPayloadSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { resolvePush } from './resolver.js'
+import { stripEinkaufspreis } from './preise.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 
 async function countRows(db: ReturnType<typeof getDb>): Promise<{
@@ -94,7 +95,9 @@ export async function syncRoutes(
         // mindestSince wird mitgeschickt, damit der Client den Marker
         // bei Bedarf aktualisieren kann (z. B. nach Pagination).
         mindestSince: mindestSinceIso,
-        artikel: artikelRows,
+        // Einkaufspreise sind vertraulich und werden nur an Admins
+        // ausgeliefert. Fuer alle anderen Rollen steht das Feld auf null.
+        artikel: stripEinkaufspreis(artikelRows, user.rolle === 'admin'),
         standorte: standortRows,
         commission: projektRows,
         buchungen: buchungRows,

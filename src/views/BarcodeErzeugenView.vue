@@ -20,6 +20,7 @@ import {
 } from '../services/etiketten/presets'
 import { presetWarnungen } from '../services/etiketten/layout'
 import { downloadPdf, erzeugeEtikettenPdf, type EtikettDaten } from '../services/etiketten/pdf'
+import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 import type { Artikel, ArtikelStatus } from '../db/types'
 
 const { t } = useI18n()
@@ -45,14 +46,15 @@ const { el: barcodeEl, fehler: barcodeFehler } = useBarcodeRender(barcodeQuelle,
   margin: 10,
 })
 
-function artikelOptionen(): Artikel[] {
-  return artikelStore.artikel
-}
-
 function aufArtikelWechseln(): void {
   const a = auswahlArtikel.value
   barcodeWert.value = a?.barcode ?? ''
   speicherHinweis.value = ''
+}
+
+function waehleArtikel(id: string): void {
+  auswahlArtikel.value = artikelStore.byId(id) ?? null
+  aufArtikelWechseln()
 }
 
 // ---------- Tab: Serien-Etiketten (DIN A4) ----------
@@ -473,12 +475,13 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
         <form class="form" @submit.prevent>
           <label>
             <span>{{ t('view.barcode.artikel') }} *</span>
-            <select v-model="auswahlArtikel" :disabled="laufend" @change="aufArtikelWechseln">
-              <option :value="null">{{ t('view.barcode.artikelWaehlen') }}</option>
-              <option v-for="a in artikelOptionen()" :key="a.id" :value="a">
-                {{ a.titel }} {{ a.typ ? '(' + a.typ + ')' : '' }}
-              </option>
-            </select>
+            <ArtikelSucheSelect
+              :model-value="auswahlArtikel?.id ?? ''"
+              :items="artikelStore.artikel"
+              :disabled="laufend"
+              :placeholder="t('view.barcode.artikelWaehlen')"
+              @update:model-value="waehleArtikel"
+            />
           </label>
 
           <label v-if="auswahlArtikel">

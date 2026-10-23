@@ -8,10 +8,11 @@ import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
 import { useBarcodeRender } from '../composables/useBarcodeRender'
+import { centZuEuro, euroZuCent, formatiereCent } from '../domain/geld'
 import type { Artikel, ArtikelStatus, Buchung } from '../db/types'
 import FotoUpload from './components/FotoUpload.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const artikelStore = useArtikelStore()
@@ -104,6 +105,8 @@ interface BearbeitungsForm {
   bestellnummer: string
   barcode: string
   listenpreis: number | null
+  /** Netto-Einkaufspreis je VE in Euro (UI-Einheit). Nur Admins. */
+  einkaufspreis: number | null
 }
 
 const bearbeitet = ref(false)
@@ -132,6 +135,7 @@ function bearbeitenStart(): void {
     bestellnummer: a.bestellnummer ?? '',
     barcode: a.barcode ?? '',
     listenpreis: a.listenpreis,
+    einkaufspreis: centZuEuro(a.einkaufspreis),
   }
   bearbeitFehler.value = ''
   bearbeitet.value = true
@@ -164,6 +168,10 @@ async function bearbeitenSpeichern(): Promise<void> {
       bestellnummer: f.bestellnummer.trim() || null,
       barcode: f.barcode.trim() || null,
       listenpreis: f.listenpreis,
+      // Vertraulich: Nicht-Admins schicken das Feld gar nicht mit, damit
+      // ein lokal vorhandener Alt-Wert nicht versehentlich ueberschrieben
+      // wird. Der Server ignoriert es zusaetzlich fuer Nicht-Admins.
+      ...(auth.istAdmin ? { einkaufspreis: euroZuCent(f.einkaufspreis) } : {}),
     })
     bearbeitet.value = false
     formular.value = null
@@ -256,8 +264,12 @@ onMounted(() => {
           </dd>
         </div>
         <div v-if="artikel.listenpreis != null">
-          <dt>Listenpreis</dt>
+          <dt>{{ t('view.artikel.form.listenpreis') }}</dt>
           <dd>{{ artikel.listenpreis.toFixed(2) }} €</dd>
+        </div>
+        <div v-if="auth.istAdmin && artikel.einkaufspreis != null">
+          <dt>{{ t('view.artikel.form.einkaufspreis') }}</dt>
+          <dd>{{ formatiereCent(artikel.einkaufspreis, locale) }}</dd>
         </div>
         <div v-if="artikel.mindestbestand != null">
           <dt>{{ t('view.artikel.form.mindestbestand') }}</dt>
@@ -336,7 +348,7 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>Listenpreis</span>
+          <span>{{ t('view.artikel.form.listenpreis') }}</span>
           <input
             v-model.number="formular.listenpreis"
             type="number"
@@ -344,6 +356,18 @@ onMounted(() => {
             step="0.01"
             :disabled="bearbeitLaufend"
           />
+        </label>
+        <label v-if="auth.istAdmin">
+          <span>{{ t('view.artikel.form.einkaufspreis') }}</span>
+          <input
+            v-model.number="formular.einkaufspreis"
+            type="number"
+            min="0"
+            step="0.01"
+            :disabled="bearbeitLaufend"
+            data-testid="artikel-detail-einkaufspreis"
+          />
+          <small class="hint">{{ t('view.artikel.form.einkaufspreisHint') }}</small>
         </label>
 
         <p v-if="bearbeitFehler" class="fehler" role="alert">{{ bearbeitFehler }}</p>

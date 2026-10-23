@@ -98,7 +98,11 @@ const isAdmin = computed(() => auth.rolle === 'admin')
 // Anzahl kommt aus dem Alarm-Composable — dort ist der Trigger auch
 // angesetzt, damit Zähler und Signal nie auseinanderlaufen.
 const anzahl = alarm.anzahl
-const liste = computed(() => mindestbestand.letzte50)
+// Live ausgewertet: jede Zeile trägt den HEUTE gültigen Bestand und den
+// Status offen/erledigt. Der rohe Snapshot (`ev.bestandDanach`) wird
+// bewusst nicht angezeigt — er ist der Stand von damals und führt sonst
+// zu Meldungen wie „Bestand 3", obwohl im Lager 15 liegen.
+const liste = computed(() => mindestbestand.letzte50Zeilen)
 
 function artikelTitel(id: string): string {
   return artikelStore.byId(id)?.titel ?? '…'
@@ -164,19 +168,23 @@ function openPanel(): void {
         {{ t('view.mindestbestand.empty') }}
       </p>
       <ul v-else class="mindestbestand-liste">
-        <li v-for="ev in liste" :key="ev.id">
-          <button type="button" class="mindestbestand-item" @click="openArtikel(ev.artikelId)">
-            <span class="mindestbestand-item-titel">{{ artikelTitel(ev.artikelId) }}</span>
+        <li v-for="z in liste" :key="z.ereignis.id" :class="{ erledigt: !z.offen }">
+          <button type="button" class="mindestbestand-item" @click="openArtikel(z.ereignis.artikelId)">
+            <span class="mindestbestand-item-titel">{{ artikelTitel(z.ereignis.artikelId) }}</span>
             <span class="mindestbestand-item-meta">
-              {{ standortName(ev.standortId) }} ·
+              {{ standortName(z.ereignis.standortId) }} ·
               {{
                 t('view.mindestbestand.bestand', {
-                  bestand: ev.bestandDanach,
-                  mindest: ev.mindestbestand,
+                  bestand: z.aktuellerBestand,
+                  mindest: z.schwelle ?? z.ereignis.mindestbestand,
                 })
               }}
             </span>
-            <span class="mindestbestand-item-zeit">{{ formatZeit(ev.erstelltAm) }}</span>
+            <span class="mindestbestand-item-status">
+              <template v-if="z.offen">{{ t('view.mindestbestand.statusOffen') }}</template>
+              <template v-else>{{ t('view.mindestbestand.statusErledigt') }}</template>
+            </span>
+            <span class="mindestbestand-item-zeit">{{ formatZeit(z.ereignis.erstelltAm) }}</span>
           </button>
         </li>
       </ul>
@@ -324,6 +332,22 @@ function openPanel(): void {
   font-size: 0.85rem;
   grid-column: 1;
   overflow-wrap: anywhere;
+}
+.mindestbestand-item-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  grid-column: 1;
+  color: var(--danger, #c0392b);
+}
+/* Erledigt: die Unterschreitung gilt nicht mehr (Bestand wieder
+   aufgefüllt). Die Zeile bleibt als Historie sichtbar, ist aber
+   ausgegraut und zählt nicht mehr als offener Alarm. */
+li.erledigt .mindestbestand-item-titel,
+li.erledigt .mindestbestand-item-meta {
+  opacity: 0.55;
+}
+li.erledigt .mindestbestand-item-status {
+  color: var(--success, #16a34a);
 }
 .mindestbestand-item-zeit {
   color: var(--text-muted);

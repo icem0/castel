@@ -10,6 +10,7 @@ const auth = useAuthStore()
 const userStore = useUserStore()
 
 const formularOffen = ref(false)
+const anzeigename = ref('')
 const email = ref('')
 const passwort = ref('')
 const rolle = ref<UserRolle>('user')
@@ -45,8 +46,10 @@ async function anlegen(): Promise<void> {
       email: email.value,
       passwort: passwort.value,
       rolle: rolle.value,
+      anzeigename: anzeigename.value,
     })
     formularOffen.value = false
+    anzeigename.value = ''
     email.value = ''
     passwort.value = ''
     await userStore.laden()
@@ -70,6 +73,22 @@ async function deaktivieren(id: string): Promise<void> {
 async function aktivieren(id: string): Promise<void> {
   try {
     await auth.setzeAktiv(id, true)
+    await userStore.laden()
+  } catch (e) {
+    alert(e instanceof Error ? e.message : String(e))
+  }
+}
+
+async function anzeigenameAendern(id: string, aktuell: string): Promise<void> {
+  const eingabe = prompt('Anzeigename', aktuell)
+  if (eingabe === null) return
+  const neuerName = eingabe.trim()
+  if (!neuerName) {
+    alert('Anzeigename darf nicht leer sein.')
+    return
+  }
+  try {
+    await auth.aendereAnzeigename(id, neuerName)
     await userStore.laden()
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
@@ -147,6 +166,10 @@ function formatDatum(iso: string | null): string {
     <div v-if="formularOffen" class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="anlegen">
         <label>
+          <span>Anzeigename (optional, sonst E-Mail-Teil)</span>
+          <input v-model="anzeigename" type="text" autocomplete="off" :disabled="laufend" />
+        </label>
+        <label>
           <span>E-Mail</span>
           <input v-model="email" type="email" required autocomplete="off" :disabled="laufend" />
         </label>
@@ -179,6 +202,7 @@ function formatDatum(iso: string | null): string {
     <table v-if="userStore.users.length > 0" class="data">
       <thead>
         <tr>
+          <th>Anzeigename</th>
           <th>E-Mail</th>
           <th>Rolle</th>
           <th>Aktiv</th>
@@ -189,6 +213,7 @@ function formatDatum(iso: string | null): string {
       </thead>
       <tbody>
         <tr v-for="u in userStore.users" :key="u.id">
+          <td>{{ u.anzeigename || '—' }}</td>
           <td>{{ u.email }}</td>
           <td>
             <span class="badge" :class="{ accent: u.rolle === 'admin' }">
@@ -230,6 +255,9 @@ function formatDatum(iso: string | null): string {
               @click="rolleAendern(u.id, u.rolle === 'admin' ? 'user' : 'admin')"
             >
               {{ u.rolle === 'admin' ? 'Zu User' : 'Zu Admin' }}
+            </button>
+            <button type="button" @click="anzeigenameAendern(u.id, u.anzeigename ?? '')">
+              Name ändern
             </button>
             <button type="button" @click="passwortZuruecksetzen(u.id)">PW-Reset</button>
           </td>

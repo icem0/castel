@@ -9,6 +9,7 @@ import { useArtikelTypen } from '../composables/useArtikelTypen'
 import { useArtikelFilter } from '../composables/useArtikelFilter'
 import { useTableSort } from '../composables/useTableSort'
 import { useSyncStore } from '../stores/sync'
+import { sortiereNachName } from '../domain/sortierung'
 import { ladeFotoThumbnails, type FotoThumbnail } from '../services/fotos'
 import SortableTh from '../components/SortableTh.vue'
 import type { Artikel, ArtikelStatus } from '../db/types'
@@ -118,9 +119,7 @@ type SortKey = 'titel' | 'typ' | 'bestand'
 
 const standardStandort = computed(() => standortStore.standardlager)
 
-const standortOptionen = computed(() =>
-  [...standortStore.aktive].sort((a, b) => a.name.localeCompare(b.name, 'de')),
-)
+const standortOptionen = computed(() => sortiereNachName(standortStore.aktive, (s) => s.name))
 
 const sortierung = useTableSort<Artikel, SortKey>({
   defaultKey: 'titel',

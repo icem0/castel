@@ -40,8 +40,11 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
       }
       const { email, password, rolle } = parsed.data
+      const normalizedEmail = email.toLowerCase()
+      const anzeigename =
+        parsed.data.anzeigename?.trim() || normalizedEmail.split('@')[0] || normalizedEmail
       const db = getDb()
-      const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1)
+      const existing = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1)
       if (existing.length > 0) {
         return reply.code(409).send({ code: 'EMAIL_TAKEN', message: 'E-Mail bereits vergeben' })
       }
@@ -49,16 +52,18 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       const passwordHash = await argon2.hash(password, { type: argon2.argon2id })
       await db.insert(users).values({
         id,
-        email: email.toLowerCase(),
+        email: normalizedEmail,
         passwordHash,
         rolle,
         aktiv: true,
         erstelltAm: new Date(),
         letzterLoginAm: null,
         mustChangePassword: true,
-        anzeigename: '',
+        anzeigename,
       })
-      return reply.code(201).send({ id, email: email.toLowerCase(), rolle, aktiv: true })
+      return reply
+        .code(201)
+        .send({ id, email: normalizedEmail, anzeigename, rolle, aktiv: true })
     },
   )
 
@@ -79,6 +84,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       const patch: Partial<typeof users.$inferInsert> = {}
       if (parsed.data.rolle !== undefined) patch.rolle = parsed.data.rolle
       if (parsed.data.aktiv !== undefined) patch.aktiv = parsed.data.aktiv
+      if (parsed.data.anzeigename !== undefined) patch.anzeigename = parsed.data.anzeigename
       if (parsed.data.password !== undefined) {
         patch.passwordHash = await argon2.hash(parsed.data.password, { type: argon2.argon2id })
         patch.mustChangePassword = true

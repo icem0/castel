@@ -33,6 +33,9 @@ export interface Artikel {
    *  setzen bzw. loeschen (siehe `etikettenIstNeu` in src/domain/etiketten.ts). */
   etikettenNeu: boolean
   listenpreis: number | null
+  /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admin-sichtbar
+   *  und nur fuer Admins im lokalen Spiegel (siehe Sync-Rollenlogik). */
+  einkaufspreis: number | null
   geaendertAm: Iso | null
   erstelltAm: Iso
 }
