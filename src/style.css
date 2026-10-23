@@ -121,10 +121,6 @@ html {
      Android status bar in fullscreen display mode) does not leave the shell
      taller than the screen. */
   --app-vh: 100vh;
-  /* No rubber-banding / pull-to-refresh on the root scroller. Without this the
-     page can be dragged past its bounds on iOS and Android, which looks like
-     the layout "jumping". */
-  overscroll-behavior-y: none;
 }
 
 @supports (height: 100dvh) {
@@ -133,12 +129,23 @@ html {
   }
 }
 
+/* No rubber-banding / pull-to-refresh on touch devices. Scoped to coarse
+   pointers: with a mouse wheel the property would otherwise trap the scroll
+   chain and the page would stop scrolling on desktop. Do NOT put this on
+   `body`: `overflow-x: hidden` already turns body into a scroll container, so
+   `overscroll-behavior-y: none` there blocks the wheel from chaining to the
+   actual root scroller (html). */
+@media (pointer: coarse) {
+  html {
+    overscroll-behavior-y: none;
+  }
+}
+
 body {
   margin: 0;
   background: var(--bg-app);
   color: var(--text);
   overflow-x: hidden;
-  overscroll-behavior-y: none;
 }
 
 /* Double-tap zoom on iOS: `touch-action: manipulation` removes the
