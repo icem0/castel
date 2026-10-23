@@ -316,35 +316,35 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
     '/api/datanorm/upload',
     { preHandler: app.requireAdmin },
     async (req: FastifyRequest, reply: FastifyReply) => {
-      const daten = req.parts()
       let lieferantId = ''
       let encodingRaw = ''
       let dateiname = ''
       let dateiBytes: Buffer | null = null
 
-      for await (const part of daten) {
-        if (part.type === 'file') {
-          dateiname = part.filename ?? 'datanorm'
-          const stueck: Buffer[] = []
-          for await (const chunk of part.file) {
-            stueck.push(chunk as Buffer)
-          }
-          dateiBytes = Buffer.concat(stueck)
-        } else if (part.fieldname === 'lieferantId') {
-          lieferantId = String(part.value ?? '').trim()
-        } else if (part.fieldname === 'encoding') {
-          encodingRaw = String(part.value ?? '').trim()
-        }
-      }
-
-      if (dateiBytes === null) {
-        return reply.code(400).send({ code: 'NO_FILE', message: 'keine Datei hochgeladen' })
-      }
-      if (lieferantId === '') {
-        return reply.code(400).send({ code: 'VALIDATION', message: 'lieferantId fehlt' })
-      }
-
       try {
+        const daten = req.parts()
+        for await (const part of daten) {
+          if (part.type === 'file') {
+            dateiname = part.filename ?? 'datanorm'
+            const stueck: Buffer[] = []
+            for await (const chunk of part.file) {
+              stueck.push(chunk as Buffer)
+            }
+            dateiBytes = Buffer.concat(stueck)
+          } else if (part.fieldname === 'lieferantId') {
+            lieferantId = String(part.value ?? '').trim()
+          } else if (part.fieldname === 'encoding') {
+            encodingRaw = String(part.value ?? '').trim()
+          }
+        }
+
+        if (dateiBytes === null) {
+          return reply.code(400).send({ code: 'NO_FILE', message: 'keine Datei hochgeladen' })
+        }
+        if (lieferantId === '') {
+          return reply.code(400).send({ code: 'VALIDATION', message: 'lieferantId fehlt' })
+        }
+
         const ergebnis = await importiereDatanorm({
           lieferantId,
           originalDateiname: dateiname,
