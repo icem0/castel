@@ -86,6 +86,18 @@ async function spracheAendern(e: Event): Promise<void> {
   await settings.setSprache(ziel)
 }
 
+/**
+ * Apply the theme immediately — same pattern as the language: the local
+ * IndexedDB write refreshes the store via liveQuery and the root watcher
+ * in `App.vue` updates `data-theme` right away.
+ */
+async function themeAendern(e: Event): Promise<void> {
+  const ziel = (e.target as HTMLSelectElement).value
+  if (ziel !== 'dark' && ziel !== 'light' && ziel !== 'auto') return
+  if (ziel === settings.settings.theme) return
+  await settings.setTheme(ziel)
+}
+
 onBeforeUnmount(() => {
   if (statusTimer !== null) {
     clearTimeout(statusTimer)
@@ -151,7 +163,7 @@ onBeforeUnmount(() => {
         <span class="label">{{ t('view.settings.benutzer') }}</span>
         <span class="value">{{ auth.anzeigename || '—' }}</span>
       </div>
-      <label class="account-sprache">
+      <label class="account-setting">
         <span class="label">{{ t('view.settings.sprache') }}</span>
         <select
           :value="settings.settings.sprache"
@@ -162,6 +174,19 @@ onBeforeUnmount(() => {
           <option value="en">{{ t('view.settings.sprachen.en') }}</option>
         </select>
         <small class="hint">{{ t('view.settings.spracheHint') }}</small>
+      </label>
+      <label class="account-setting">
+        <span class="label">{{ t('view.settings.theme') }}</span>
+        <select
+          :value="settings.settings.theme"
+          :aria-label="t('view.settings.theme')"
+          @change="themeAendern"
+        >
+          <option value="dark">{{ t('view.settings.themes.dark') }}</option>
+          <option value="light">{{ t('view.settings.themes.light') }}</option>
+          <option value="auto">{{ t('view.settings.themes.auto') }}</option>
+        </select>
+        <small class="hint">{{ t('view.settings.themeHint') }}</small>
       </label>
       <RouterLink to="/passwort-aendern">{{ t('view.settings.passwortAendern') }}</RouterLink>
       <button type="button" class="danger" @click="abmelden">
@@ -225,16 +250,16 @@ onBeforeUnmount(() => {
 .readonly .value {
   font-weight: 500;
 }
-.account-sprache {
+.account-setting {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
 }
-.account-sprache .label {
+.account-setting .label {
   font-size: 0.85em;
   color: var(--text-muted, #666);
 }
-.account-sprache select {
+.account-setting select {
   width: max-content;
   min-width: 12rem;
 }

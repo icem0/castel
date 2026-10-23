@@ -93,6 +93,7 @@ export const buchungSchema = z.object({
 
 export const EINSTELLUNG_KEYS = [
   'sprache',
+  'theme',
   'standardStandortId',
   'artikelTypen',
   'kommissionen',

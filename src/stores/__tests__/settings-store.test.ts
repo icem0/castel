@@ -235,3 +235,111 @@ describe('useSettingsStore — sprache (per User)', () => {
     store.stop()
   })
 })
+
+// The theme used to live in localStorage and applied to all users of a
+// device. It is now a per-user setting (synced like the language) and the
+// old value is migrated once per user.
+describe('useSettingsStore — theme (per User)', () => {
+  beforeEach(() => {
+    resetDbForTests()
+    setDb(getDb())
+    setActivePinia(createPinia())
+    localStorage.removeItem(LS_SESSION)
+    localStorage.removeItem('theme')
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+    localStorage.removeItem('theme')
+  })
+
+  function login(userId: string): void {
+    sessionSchreiben({
+      userId,
+      email: `${userId}@example.com`,
+      rolle: 'user',
+      anzeigename: userId,
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+  }
+
+  it('setTheme schreibt eine per-User-Zeile (userId = aktueller User)', async () => {
+    const store = useSettingsStore()
+    store.start()
+    login('user-theme')
+
+    await store.setTheme('light')
+
+    const row = await getDb().einstellungen.get(['theme', 'user-theme'])
+    expect(row?.value).toBe('light')
+    expect(await getDb().einstellungen.get(['theme', ''])).toBeUndefined()
+
+    store.stop()
+  })
+
+  it('liest nur gültige Werte und fällt sonst auf den Default zurück', async () => {
+    const store = useSettingsStore()
+    store.start()
+    login('user-theme-invalid')
+
+    await getDb().einstellungen.put({
+      key: 'theme',
+      userId: 'user-theme-invalid',
+      value: 'neon',
+      geaendertAm: jetztIso(),
+    })
+
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(store.settings.theme).toBe('dark')
+
+    await getDb().einstellungen.put({
+      key: 'theme',
+      userId: 'user-theme-invalid',
+      value: 'auto',
+      geaendertAm: jetztIso(),
+    })
+
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(store.settings.theme).toBe('auto')
+
+    store.stop()
+  })
+
+  it('migriert die alte localStorage-Wahl einmalig in die Per-User-Zeile', async () => {
+    localStorage.setItem('theme', 'light')
+    const store = useSettingsStore()
+    store.start()
+    login('user-theme-legacy')
+
+    await new Promise<void>((r) => setTimeout(r, 80))
+
+    const row = await getDb().einstellungen.get(['theme', 'user-theme-legacy'])
+    expect(row?.value).toBe('light')
+    expect(localStorage.getItem('theme')).toBeNull()
+    expect(store.settings.theme).toBe('light')
+
+    store.stop()
+  })
+
+  it('überschreibt eine vorhandene Per-User-Zeile nicht mit der Legacy-Wahl', async () => {
+    await getDb().einstellungen.put({
+      key: 'theme',
+      userId: 'user-theme-existing',
+      value: 'auto',
+      geaendertAm: jetztIso(),
+    })
+    localStorage.setItem('theme', 'light')
+    const store = useSettingsStore()
+    store.start()
+    login('user-theme-existing')
+
+    await new Promise<void>((r) => setTimeout(r, 80))
+
+    const row = await getDb().einstellungen.get(['theme', 'user-theme-existing'])
+    expect(row?.value).toBe('auto')
+
+    store.stop()
+  })
+})

@@ -27,9 +27,15 @@ import type { Einstellung } from '../db/types'
 
 export type Sprache = 'de' | 'en'
 export type BarcodeTyp = 'CODE128' | 'EAN13' | 'CODE39'
+export type Theme = 'dark' | 'light' | 'auto'
 
 export interface Settings {
   sprache: Sprache
+  /**
+   * Per-user color scheme. 'auto' follows the system preference by leaving
+   * `data-theme` unset on the document root (see `src/theme.ts`).
+   */
+  theme: Theme
   standardStandortId: string | null
   /** Konfigurierbare Liste der Artikel-Typen (Reihenfolge wie angelegt). */
   artikelTypen: string[]
@@ -87,6 +93,7 @@ export interface Settings {
 
 const DEFAULTS: Settings = {
   sprache: 'de',
+  theme: 'dark',
   standardStandortId: null,
   artikelTypen: ['Zubehör', 'Verbrauchsmaterial'],
   kommissionen: [],
@@ -102,6 +109,7 @@ const DEFAULTS: Settings = {
 const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
 const PER_USER_KEYS = new Set<string>([
   'sprache',
+  'theme',
   'standardStandortId',
   'onboardingSeen',
   'firstLoginDone',
@@ -168,6 +176,11 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
         ? 'de'
         : DEFAULTS.sprache
 
+  const themeRow = byKey.get('theme')
+  const themeRaw = themeRow?.value
+  const theme: Theme =
+    themeRaw === 'dark' || themeRaw === 'light' || themeRaw === 'auto' ? themeRaw : DEFAULTS.theme
+
   const standortRow = byKey.get('standardStandortId')
   const standardStandortId = standortRow?.value ? standortRow.value : DEFAULTS.standardStandortId
 
@@ -208,6 +221,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
 
   return {
     sprache,
+    theme,
     standardStandortId,
     artikelTypen: typen,
     kommissionen,
@@ -225,6 +239,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<Settings>({ ...DEFAULTS, artikelTypen: [...DEFAULTS.artikelTypen] })
   const geladen = ref(false)
   let subscription: Subscription | null = null
+  // Prevent repeating the one-time legacy migration while the liveQuery
+  // catches up with the freshly written row.
+  const migratedLegacyThemeFor = new Set<string>()
 
   function start() {
     if (subscription) return
@@ -238,11 +255,30 @@ export const useSettingsStore = defineStore('settings', () => {
         const currentUserId = sessionLesen()?.userId ?? null
         settings.value = fromRows(rows, currentUserId)
         geladen.value = true
+        if (currentUserId !== null && !migratedLegacyThemeFor.has(currentUserId)) {
+          migratedLegacyThemeFor.add(currentUserId)
+          void migriereLegacyTheme(rows, currentUserId)
+        }
       },
       error: (e) => {
         console.error('settings liveQuery error:', e)
       },
     })
+  }
+
+  /**
+   * One-time migration of the pre-per-user theme choice, which used to live
+   * in `localStorage`. Runs only when the logged-in user has no `theme` row
+   * yet. The legacy key is removed afterwards so it cannot leak into another
+   * user on the same device.
+   */
+  async function migriereLegacyTheme(rows: Einstellung[], currentUserId: string): Promise<void> {
+    const hasTheme = rows.some((row) => row.key === 'theme' && row.userId === currentUserId)
+    if (hasTheme) return
+    const legacy = localStorage.getItem('theme')
+    if (legacy !== 'dark' && legacy !== 'light' && legacy !== 'auto') return
+    localStorage.removeItem('theme')
+    await setKey('theme', legacy)
   }
 
   function stop() {
@@ -289,6 +325,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function setSprache(sprache: Sprache): Promise<void> {
     await setKey('sprache', sprache)
+  }
+
+  async function setTheme(theme: Theme): Promise<void> {
+    await setKey('theme', theme)
   }
 
   async function setStandardStandort(id: string | null): Promise<void> {
@@ -338,6 +378,7 @@ export const useSettingsStore = defineStore('settings', () => {
     stop,
     setKey,
     setSprache,
+    setTheme,
     setStandardStandort,
     setArtikelTypen,
     setKommissionen,

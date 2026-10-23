@@ -132,6 +132,24 @@ describe('pushPayloadSchema — einstellung', () => {
     expect(r.success).toBe(true)
   })
 
+  it('akzeptiert "theme" als per-User-Key', () => {
+    const r = pushPayloadSchema.safeParse({
+      ops: [
+        {
+          op: 'upsert',
+          entity: 'einstellung',
+          payload: {
+            key: 'theme',
+            userId: 'user-123',
+            value: 'auto',
+            geaendertAm: '2025-04-14T11:00:00.000Z',
+          },
+        },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
   it('lehnt unbekannte Keys ab (Whitelist)', () => {
     const r = pushPayloadSchema.safeParse({
       ops: [

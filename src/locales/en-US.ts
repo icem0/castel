@@ -223,6 +223,10 @@ export default {
       sprachen: { de: 'Deutsch', en: 'English' },
       spracheHint:
         'Applies only to your account — takes effect immediately, even offline. Other devices pick it up on the next sync.',
+      theme: 'Theme',
+      themes: { dark: 'Dark', light: 'Light', auto: 'System' },
+      themeHint:
+        'Applies only to your account — takes effect immediately, even offline. "System" follows your device setting.',
       benutzer: 'Display name (used on transactions)',
       standardStandort: 'Default location',
       companyName: 'Company Name',

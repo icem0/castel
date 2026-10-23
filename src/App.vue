@@ -11,6 +11,7 @@ import { useAuditStore } from './stores/audit'
 import { useAuthStore } from './stores/auth'
 import { useSyncStore } from './stores/sync'
 import { getApiBaseUrl } from './auth/api'
+import { applyTheme } from './theme'
 
 import { zaehleAbweichungen } from './services/sync/worker'
 import { version, commit, branch, buildDate } from './version'
@@ -71,20 +72,11 @@ function onDocumentClick(e: MouseEvent): void {
   if (syncPanelOffen.value && !ziel.closest('.sync-indicator, .sync-panel')) closeSyncPanel()
 }
 
-const themeUmschalter = ref<'dark' | 'light' | 'auto'>(
-  (localStorage.getItem('theme') as 'dark' | 'light' | 'auto' | null) ?? 'dark',
-)
+// Theme is a per-user setting. The store is refreshed via Dexie liveQuery,
+// so the document switches as soon as the local write lands — no server
+// round-trip needed.
 watchEffect(() => {
-  const wert = themeUmschalter.value
-  localStorage.setItem('theme', wert)
-  const root = document.documentElement
-  if (wert === 'dark') {
-    root.setAttribute('data-theme', 'dark')
-  } else if (wert === 'light') {
-    root.setAttribute('data-theme', 'light')
-  } else {
-    root.removeAttribute('data-theme')
-  }
+  applyTheme(settings.settings.theme)
 })
 
 onMounted(() => {
@@ -638,17 +630,6 @@ function formatRelativ(iso: string | null): string {
           <span class="user-email">{{ auth.session.email }}</span>
           <button type="button" class="logout-btn" title="Abmelden" @click="abmelden">⏻</button>
         </div>
-        <button
-          type="button"
-          class="theme-toggle"
-          :title="`Theme: ${themeUmschalter}`"
-          @click="
-            themeUmschalter =
-              themeUmschalter === 'dark' ? 'light' : themeUmschalter === 'light' ? 'auto' : 'dark'
-          "
-        >
-          {{ themeUmschalter === 'dark' ? '🌙' : themeUmschalter === 'light' ? '☀️' : '🖥️' }}
-        </button>
         <button
           type="button"
           class="version-badge"
@@ -1317,14 +1298,6 @@ function formatRelativ(iso: string | null): string {
   color: var(--danger);
 }
 
-.theme-toggle {
-  padding: 0.3rem 0.5rem;
-  font-size: 1rem;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
 .sync-indicator {
   display: inline-flex;
   align-items: center;
@@ -1936,7 +1909,7 @@ main {
 }
 
 :root[data-layout='mobile'] .app-header {
-  /* Auf Mobile nur Brand + Theme + Sync — Rest wandert in Bottom-Nav/Profil. */
+  /* Auf Mobile nur Brand + Sync — Rest wandert in Bottom-Nav/Profil. */
   padding: 0.6rem 0.85rem;
   padding-top: max(0.6rem, env(safe-area-inset-top, 0px));
 }

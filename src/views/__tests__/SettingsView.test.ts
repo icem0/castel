@@ -96,6 +96,32 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     expect(sprachSelectImForm).toBeUndefined()
   })
 
+  it('zeigt den Theme-Umschalter in der Account-Sektion und speichert per User', async () => {
+    const { w, pinia } = mountSettings()
+    const store = useSettingsStore(pinia)
+    store.start()
+
+    const accountCard = w.findAll('h2').find((h) => h.text() === 'Account')?.element
+      ?.nextElementSibling as HTMLElement | undefined
+    expect(accountCard).toBeDefined()
+
+    const themeSelect = Array.from(accountCard!.querySelectorAll('select')).find((s) =>
+      Array.from(s.options).some((o) => o.value === 'auto'),
+    )
+    expect(themeSelect).toBeDefined()
+
+    themeSelect!.value = 'light'
+    themeSelect!.dispatchEvent(new Event('change'))
+    await new Promise<void>((r) => setTimeout(r, 50))
+
+    const row = await getDb().einstellungen.get(['theme', 'user-acc'])
+    expect(row?.value).toBe('light')
+    expect(await getDb().einstellungen.get(['theme', ''])).toBeUndefined()
+    expect(store.settings.theme).toBe('light')
+
+    store.stop()
+  })
+
   it('zeigt die Benachrichtigungs-Kategorie nicht für normale User', () => {
     const { w } = mountSettings()
 

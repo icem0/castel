@@ -230,6 +230,10 @@ export default {
       sprachen: { de: 'Deutsch', en: 'English' },
       spracheHint:
         'Gilt nur für dein Konto — wirkt sofort, auch offline. Auf anderen Geräten wird die Sprache beim nächsten Sync übernommen.',
+      theme: 'Design',
+      themes: { dark: 'Dunkel', light: 'Hell', auto: 'System' },
+      themeHint:
+        'Gilt nur für dein Konto — wirkt sofort, auch offline. „System“ folgt der Einstellung deines Geräts.',
       benutzer: 'Anzeigename (für Buchungen)',
       standardStandort: 'Standard-Standort',
       companyName: 'Firmenzeichen',
