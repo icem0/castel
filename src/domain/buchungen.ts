@@ -13,6 +13,7 @@ import {
   MindestbestandWarnung,
   NegativerBestandWarnung,
   PflichtfeldFehltError,
+  StornoNichtAufhebbarError,
   UnbekannteReferenzError,
 } from './errors'
 import { assertKeinZukunftsDatum, assertMengePositiv, assertPflichtfeld } from './validierung'
@@ -454,11 +455,135 @@ export async function stornieren(e: StornoEingabe): Promise<StornoErgebnis> {
     await db.buchungen.add(storno)
     await Promise.all([
       queueOp('buchung', 'create', storno),
-      // Original-Update (storno=true) muss gepusht werden, damit der
-      // Server weiß, dass das Original storniert ist.
+      // Das Original mitschicken, falls es dem Server noch fehlt. Ein bereits
+      // vorhandenes Original bleibt unverändert (append-only) — den
+      // storno-Zustand leitet der Server aus der Kette ab (stornoVon).
       queueOp('buchung', 'create', orig),
     ])
     await auditSchreiben('stornieren', storno)
   })
   return { storno, original }
+}
+
+/**
+ * Detects whether a storno booking was produced by `createKommission`. Such a
+ * storno must never be undone: `createKommission` already added a replacement
+ * booking carrying the same quantity, so reactivating the original would
+ * double the stock.
+ *
+ * Detection is a fingerprint (same transaction timestamp, identical article/
+ * location/quantity as the original), not an explicit field — deliberately so
+ * that stornos created before this feature existed are recognised as well.
+ */
+export function istKommissionStorno(
+  stornierung: Buchung,
+  original: Buchung,
+  alle: ReadonlyArray<Buchung>,
+): boolean {
+  return alle.some(
+    (b) =>
+      b.typ === 'kommission' &&
+      b.erstelltAm === stornierung.erstelltAm &&
+      b.artikelId === original.artikelId &&
+      b.standortId === original.standortId &&
+      b.menge === original.menge,
+  )
+}
+
+export interface StornoAufhebenEingabe {
+  /** ID of the storno booking to undo. */
+  stornoId: string
+  grund: string
+  erstelltVon: string
+}
+
+export interface StornoAufhebenErgebnis {
+  original: Buchung
+  stornierung: Buchung
+  /**
+   * Audit booking documenting the undo. It references the storno booking and
+   * is excluded from the stock (storno=true) — it carries no quantity effect,
+   * the original booking does.
+   */
+  aufhebung: Buchung
+}
+
+/**
+ * Undoes a storno: the cancelled original booking becomes active again
+ * (storno=false), the storno booking stays in the list as history. An extra
+ * audit booking (storno=true, no stock effect) is appended referencing the
+ * undone storno — the server derives its storno state from that chain.
+ *
+ * Throws `StornoNichtAufhebbarError` when the target is not an undoable
+ * storno (wrong type, already undone, or a commission storno).
+ */
+export async function stornoAufheben(e: StornoAufhebenEingabe): Promise<StornoAufhebenErgebnis> {
+  assertPflichtfeld('stornoId', e.stornoId)
+  assertPflichtfeld('grund', e.grund)
+  assertPflichtfeld('erstelltVon', e.erstelltVon)
+  const db = getDb()
+  const now = jetztIso()
+  const aufhebung: Buchung = {
+    id: neueUuid(),
+    artikelId: '',
+    standortId: '',
+    standortZielId: null,
+    typ: 'storno',
+    menge: 0,
+    paarId: null,
+    projekt: null,
+    erstelltAm: now,
+    clientEingabeAm: now,
+    erstelltVon: e.erstelltVon,
+    kommentar: e.grund,
+    mitteilungAn: null,
+    stornoVon: e.stornoId,
+    // Does NOT count towards the stock (storno=true) — pure audit/sync record.
+    storno: true,
+    storniertDurch: null,
+    serverId: null,
+  }
+  let original!: Buchung
+  let stornierung!: Buchung
+  await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
+    const s = await db.buchungen.get(e.stornoId)
+    if (!s) throw new PflichtfeldFehltError('stornoId (nicht gefunden)')
+    if (s.typ !== 'storno') {
+      throw new StornoNichtAufhebbarError(e.stornoId, 'keine Storno-Buchung')
+    }
+    if (!s.stornoVon) {
+      throw new StornoNichtAufhebbarError(e.stornoId, 'ohne Original-Verweis')
+    }
+    const x = await db.buchungen.get(s.stornoVon)
+    if (!x) throw new PflichtfeldFehltError('stornoVon (Original nicht gefunden)')
+    if (x.storno !== true || x.storniertDurch !== s.id) {
+      throw new StornoNichtAufhebbarError(
+        e.stornoId,
+        'Original ist nicht (mehr) durch diesen Storno storniert',
+      )
+    }
+    const alle = await db.buchungen.toArray()
+    if (istKommissionStorno(s, x, alle)) {
+      throw new StornoNichtAufhebbarError(e.stornoId, 'Kommission-Storno')
+    }
+
+    original = { ...x, storno: false, storniertDurch: null }
+    stornierung = s
+    aufhebung.artikelId = x.artikelId
+    aufhebung.standortId = x.standortId
+    aufhebung.standortZielId = x.standortZielId
+    aufhebung.menge = x.menge
+
+    await db.buchungen.put(original)
+    await db.buchungen.add(aufhebung)
+    await Promise.all([
+      queueOp('buchung', 'create', aufhebung),
+      // Send the reactivated original too, in case the server has not seen it
+      // yet. An existing original stays untouched (append-only); the server
+      // derives the storno state from the chain (aufhebung references storno).
+      queueOp('buchung', 'create', original),
+    ])
+    await auditSchreiben('stornoAufheben', aufhebung)
+  })
+  return { original, stornierung, aufhebung }
 }

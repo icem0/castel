@@ -14,8 +14,10 @@ import {
   createKommission,
   createInventur,
   stornieren,
+  stornoAufheben,
   type KommissionEingabe,
   type StornoEingabe,
+  type StornoAufhebenEingabe,
 } from '../domain/buchungen'
 import { berechneBestand, berechneBestandProStandort } from '../domain/bestand'
 
@@ -68,6 +70,7 @@ export const useBuchungStore = defineStore('buchung', () => {
     kommission: (e: KommissionEingabe) => createKommission(e),
     inventur: createInventur,
     stornieren: (e: StornoEingabe) => stornieren(e),
+    stornoAufheben: (e: StornoAufhebenEingabe) => stornoAufheben(e),
   }
 
   return {

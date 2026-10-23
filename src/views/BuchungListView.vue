@@ -8,6 +8,7 @@ import { useStandortStore } from '../stores/standort'
 import { useAuthStore } from '../stores/auth'
 import { useTableSort } from '../composables/useTableSort'
 import SortableTh from '../components/SortableTh.vue'
+import { istKommissionStorno } from '../domain/buchungen'
 import type { Buchung } from '../db/types'
 
 const { t } = useI18n()
@@ -18,9 +19,28 @@ const auth = useAuthStore()
 
 const artikelFilter = ref<string>('')
 const typFilter = ref<Buchung['typ'] | ''>('')
+const laufend = ref(false)
+const fehler = ref('')
 
 function istStorniert(b: Buchung): boolean {
   return b.storno || b.typ === 'storno'
+}
+
+function findeBuchung(id: string | null): Buchung | undefined {
+  if (!id) return undefined
+  return buchungStore.buchungen.find((b) => b.id === id)
+}
+
+/**
+ * A storno can be undone when its original booking is currently cancelled by
+ * exactly this storno. Commission stornos are excluded (a replacement booking
+ * already carries the quantity).
+ */
+function istAufhebbar(s: Buchung): boolean {
+  if (s.typ !== 'storno' || !s.storno || !s.stornoVon) return false
+  const original = findeBuchung(s.stornoVon)
+  if (!original || original.storno !== true || original.storniertDurch !== s.id) return false
+  return !istKommissionStorno(s, original, buchungStore.buchungen)
 }
 
 type SortKey = 'erstelltAm' | 'artikel' | 'standort' | 'typ' | 'menge' | 'projekt' | 'von'
@@ -84,13 +104,39 @@ function formatDatum(iso: string): string {
 }
 
 async function stornieren(b: Buchung): Promise<void> {
-  if (istStorniert(b)) return
-  if (!confirm('Stornieren?')) return
-  await buchungStore.mu.stornieren({
-    buchungId: b.id,
-    grund: 'Storno aus Buchungsliste',
-    erstelltVon: auth.anzeigename.trim() || 'unbekannt',
-  })
+  if (laufend.value || istStorniert(b)) return
+  if (!confirm(t('view.buchung.stornoFrage'))) return
+  laufend.value = true
+  fehler.value = ''
+  try {
+    await buchungStore.mu.stornieren({
+      buchungId: b.id,
+      grund: t('view.buchung.stornoGrund'),
+      erstelltVon: auth.anzeigename.trim() || 'unbekannt',
+    })
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    laufend.value = false
+  }
+}
+
+async function stornoAufheben(s: Buchung): Promise<void> {
+  if (laufend.value || !istAufhebbar(s)) return
+  if (!confirm(t('view.buchung.stornoAufhebenFrage'))) return
+  laufend.value = true
+  fehler.value = ''
+  try {
+    await buchungStore.mu.stornoAufheben({
+      stornoId: s.id,
+      grund: t('view.buchung.stornoAufhebenGrund'),
+      erstelltVon: auth.anzeigename.trim() || 'unbekannt',
+    })
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    laufend.value = false
+  }
 }
 </script>
 
@@ -116,6 +162,8 @@ async function stornieren(b: Buchung): Promise<void> {
         <option value="storno">Storno</option>
       </select>
     </div>
+
+    <p v-if="fehler" class="hint hint-danger" role="alert">{{ fehler }}</p>
 
     <p v-if="zeilen.length === 0" class="empty-state">{{ t('view.buchung.leer') }}</p>
 
@@ -193,9 +241,19 @@ async function stornieren(b: Buchung): Promise<void> {
               v-if="!istStorniert(b) && b.typ !== 'kommission'"
               type="button"
               class="danger"
+              :disabled="laufend"
               @click="stornieren(b)"
             >
-              Storno
+              {{ t('view.buchung.stornoAktion') }}
+            </button>
+            <button
+              v-if="istAufhebbar(b)"
+              type="button"
+              class="btn"
+              :disabled="laufend"
+              @click="stornoAufheben(b)"
+            >
+              {{ t('view.buchung.stornoAufhebenAktion') }}
             </button>
             <RouterLink v-if="b.typ === 'kommission'" :to="`/kommission/${b.id}`" class="btn">
               …

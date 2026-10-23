@@ -146,6 +146,13 @@ export default {
     buchung: {
       h1: 'Buchungen',
       leer: 'Noch keine Buchungen.',
+      stornoAktion: 'Storno',
+      stornoAufhebenAktion: 'Storno aufheben',
+      stornoFrage: 'Sind Sie sicher? Die Buchung wird storniert und der Bestand angepasst.',
+      stornoAufhebenFrage:
+        'Sind Sie sicher? Der Storno wird aufgehoben und die Original-Buchung wieder aktiv.',
+      stornoGrund: 'Storno aus Buchungsliste',
+      stornoAufhebenGrund: 'Storno aufgehoben',
       spalten: {
         zeit: 'Zeit',
         artikel: 'Artikel',

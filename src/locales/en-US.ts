@@ -140,6 +140,13 @@ export default {
     buchung: {
       h1: 'Transactions',
       leer: 'No transactions yet.',
+      stornoAktion: 'Cancel',
+      stornoAufhebenAktion: 'Undo cancellation',
+      stornoFrage: 'Are you sure? The transaction will be cancelled and the stock adjusted.',
+      stornoAufhebenFrage:
+        'Are you sure? The cancellation will be undone and the original transaction reactivated.',
+      stornoGrund: 'Cancellation from transaction list',
+      stornoAufhebenGrund: 'Cancellation undone',
       spalten: {
         zeit: 'Time',
         artikel: 'Item',

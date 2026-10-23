@@ -575,23 +575,44 @@ async function resolveBuchungCreate(
   b: BuchungPayload,
   bestandQuerier: BestandQuerier,
 ): Promise<MindestbestandEreignisRow | null> {
-  // 1) Idempotenz: gleiche ID → 200 duplicate
+  // 1) Idempotenz: gleiche ID → 200 duplicate. Buchungen sind append-only,
+  //    ein späterer Push derselben ID ändert nichts. Die storno-Markierung
+  //    wird NICHT aus dem Payload übernommen, sondern aus der Storno-Kette
+  //    abgeleitet (siehe Schritt 2) — sonst könnte ein veralteter Client
+  //    einen Storno zurücksetzen.
   const existing = await tx.select().from(buchungen).where(eq(buchungen.id, b.id)).limit(1)
   if (existing.length > 0) return null
 
-  // 2) Storno-Idempotenz: zweimal dieselbe Buchung stornieren führt zu
-  //    zwei verschiedenen Storno-IDs (verschiedene Outbox-Pushes). Wir
-  //    lehnen den zweiten Storno ab, wenn das Original bereits
-  //    `storno=true` ist — verhindert Doppel-Storno über parallele
-  //    Clients. Wenn das Original noch nicht angekommen ist (race), wird
-  //    der Storno vorgemerkt und landet beim Eintreffen des Originals.
+  // 2) Storno-Kette. Eine eingehende Storno-Buchung verweist per `stornoVon`
+  //    auf ihr Ziel:
+  //      a) Ziel ist eine normale Buchung X → X wird storniert
+  //         (X.storno=true, X.storniertDurch=<Storno-ID>). Ist X bereits
+  //         storniert, wird der Storno geschluckt (Doppel-Storno über
+  //         parallele Clients — idempotent no-op). Wenn das Original noch
+  //         nicht angekommen ist (race), wird der Storno vorgemerkt und
+  //         landet beim Eintreffen des Originals.
+  //      b) Ziel ist selbst eine Storno-Buchung S (typ='storno') → S wurde
+  //         aufgehoben: das Original von S (S.stornoVon) wird wieder aktiv
+  //         (storno=false, storniertDurch=null).
+  //
+  //    Daraus leitet der Server seinen storno-Zustand ab (Schritt 6), statt
+  //    den Flag aus dem Payload zu übernehmen.
+  let aufhebungVon: string | null = null
   if (b.typ === 'storno' && b.stornoVon) {
-    const origRows = await tx
-      .select({ id: buchungen.id, storno: buchungen.storno })
+    const zielRows = await tx
+      .select({
+        id: buchungen.id,
+        typ: buchungen.typ,
+        storno: buchungen.storno,
+        stornoVon: buchungen.stornoVon,
+      })
       .from(buchungen)
       .where(eq(buchungen.id, b.stornoVon))
       .limit(1)
-    if (origRows[0]?.storno === true) {
+    const ziel = zielRows[0]
+    if (ziel?.typ === 'storno') {
+      aufhebungVon = ziel.stornoVon ?? null
+    } else if (ziel?.storno === true) {
       return null // doppelter Storno: idempotent no-op
     }
   }
@@ -625,7 +646,23 @@ async function resolveBuchungCreate(
     .insert(buchungen)
     .values(normalizeBuchungTimestamps(b as unknown as Record<string, unknown>) as never)
 
-  // 6) Mindestbestand-Trigger: nur für Buchungstypen, die den Bestand
+  // 6) Storno-Kette anwenden (siehe Schritt 2). Der Ziel-Zustand wird
+  //    serverseitig gesetzt — der Client muss die Flags nicht pushen.
+  if (b.typ === 'storno' && b.stornoVon) {
+    if (aufhebungVon) {
+      await tx
+        .update(buchungen)
+        .set({ storno: false, storniertDurch: null })
+        .where(eq(buchungen.id, aufhebungVon))
+    } else {
+      await tx
+        .update(buchungen)
+        .set({ storno: true, storniertDurch: b.id })
+        .where(eq(buchungen.id, b.stornoVon))
+    }
+  }
+
+  // 7) Mindestbestand-Trigger: nur für Buchungstypen, die den Bestand
   //    real verändern (also nicht storno, nicht kommission). Inventur
   //    zählt, weil sie als Differenz kodiert ist und der neue Bestand
   //    genau `soll` ist (= bestand_davor + differenz). Bei Umlagerung

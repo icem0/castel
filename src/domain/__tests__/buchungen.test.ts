@@ -11,6 +11,7 @@ import {
   createKommission,
   createUmlagerung,
   stornieren,
+  stornoAufheben,
 } from '../buchungen'
 import { berechneBestand, berechneBestandProStandort } from '../bestand'
 import {
@@ -18,6 +19,7 @@ import {
   GleicherStandortError,
   NegativerBestandWarnung,
   PflichtfeldFehltError,
+  StornoNichtAufhebbarError,
   UnbekannteReferenzError,
   UngueltigeMengeError,
   ZukunftsDatumError,
@@ -246,6 +248,79 @@ describe('stornieren', () => {
     await expect(stornieren({ buchungId: b.id, grund: 'y', erstelltVon: 't' })).rejects.toThrow(
       BereitsStorniertError,
     )
+  })
+})
+
+describe('stornoAufheben', () => {
+  it('reaktiviert das Original und stellt den Bestand wieder her', async () => {
+    const b = await createEinlagerung({
+      artikelId: A(1),
+      standortId: S(1),
+      menge: 10,
+      erstelltVon: 't',
+    })
+    const s = await stornieren({ buchungId: b.id, grund: 'falsche Eingabe', erstelltVon: 't' })
+    expect(berechneBestand(await testDb.buchungen.toArray(), S(1))).toBe(0)
+
+    const r = await stornoAufheben({
+      stornoId: s.storno.id,
+      grund: 'doch richtig',
+      erstelltVon: 't',
+    })
+
+    expect(r.original.id).toBe(b.id)
+    expect(r.original.storno).toBe(false)
+    expect(r.original.storniertDurch).toBeNull()
+    expect(r.aufhebung.typ).toBe('storno')
+    expect(r.aufhebung.storno).toBe(true) // zählt nicht in den Bestand
+    expect(r.aufhebung.stornoVon).toBe(s.storno.id)
+    expect(r.aufhebung.menge).toBe(10)
+    const alle = await testDb.buchungen.toArray()
+    expect(berechneBestand(alle, S(1))).toBe(10)
+  })
+
+  it('verbietet doppeltes Aufheben', async () => {
+    const b = await createEinlagerung({
+      artikelId: A(1),
+      standortId: S(1),
+      menge: 4,
+      erstelltVon: 't',
+    })
+    const s = await stornieren({ buchungId: b.id, grund: 'x', erstelltVon: 't' })
+    await stornoAufheben({ stornoId: s.storno.id, grund: 'y', erstelltVon: 't' })
+    await expect(
+      stornoAufheben({ stornoId: s.storno.id, grund: 'z', erstelltVon: 't' }),
+    ).rejects.toThrow(StornoNichtAufhebbarError)
+  })
+
+  it('verbietet das Aufheben einer Nicht-Storno-Buchung', async () => {
+    const b = await createEinlagerung({
+      artikelId: A(1),
+      standortId: S(1),
+      menge: 4,
+      erstelltVon: 't',
+    })
+    await expect(stornoAufheben({ stornoId: b.id, grund: 'x', erstelltVon: 't' })).rejects.toThrow(
+      StornoNichtAufhebbarError,
+    )
+  })
+
+  it('verbietet das Aufheben eines Kommission-Stornos', async () => {
+    const b = await createEntnahme({
+      artikelId: A(1),
+      standortId: S(1),
+      menge: 5,
+      projekt: '220405',
+      erstelltVon: 't',
+    })
+    const k = await createKommission({
+      buchungId: b.buchung.id,
+      neuesProjekt: '220999',
+      erstelltVon: 't',
+    })
+    await expect(
+      stornoAufheben({ stornoId: k.storno.id, grund: 'x', erstelltVon: 't' }),
+    ).rejects.toThrow(StornoNichtAufhebbarError)
   })
 })
 

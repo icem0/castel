@@ -23,6 +23,20 @@ export class BereitsStorniertError extends BuchungsError {
   }
 }
 
+/**
+ * Thrown by `stornoAufheben` when a cancellation cannot be undone — e.g. the
+ * target is not a storno booking, the original is not (or no longer) cancelled
+ * by this storno, or the storno belongs to a commission.
+ */
+export class StornoNichtAufhebbarError extends BuchungsError {
+  constructor(
+    public readonly buchungId: string,
+    public readonly grund: string,
+  ) {
+    super(`Storno ${buchungId} kann nicht aufgehoben werden: ${grund}`, 'STORNO_NICHT_AUFHEBBAR')
+  }
+}
+
 export class GleicherStandortError extends BuchungsError {
   constructor() {
     super('Quell- und Zielstandort sind identisch', 'GLEICHER_STANDORT')
