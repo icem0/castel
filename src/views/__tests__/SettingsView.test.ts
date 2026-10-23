@@ -29,6 +29,7 @@ const router = createRouter({
     { path: '/einstellungen/entwicklung', component: { template: '<div />' } },
     { path: '/einstellungen/artikel-typen', component: { template: '<div />' } },
     { path: '/einstellungen/kommissionen', component: { template: '<div />' } },
+    { path: '/einstellungen/artikel-kataloge', component: { template: '<div />' } },
     { path: '/einstellungen/mindestbestand', component: { template: '<div />' } },
     { path: '/einstellungen/backup', component: { template: '<div />' } },
     { path: '/passwort-aendern', component: { template: '<div />' } },

@@ -3,16 +3,19 @@ import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
+import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
 import HerstellerKatalogDrawer, {
   type UebernahmeFelder,
 } from '../components/HerstellerKatalogDrawer.vue'
+import { euroZuCent } from '../domain/geld'
 import type { ArtikelStatus } from '../db/types'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const artikelStore = useArtikelStore()
+const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
 
 interface Form {
@@ -25,6 +28,8 @@ interface Form {
   bestellnummer: string
   barcode: string
   listenpreis: number | null
+  /** Netto-Einkaufspreis je VE in Euro (UI-Einheit). Nur Admins. */
+  einkaufspreis: number | null
 }
 
 const initialForm: Form = (() => {
@@ -38,6 +43,7 @@ const initialForm: Form = (() => {
     bestellnummer: '',
     barcode: '',
     listenpreis: null,
+    einkaufspreis: null,
   }
 })()
 
@@ -54,6 +60,42 @@ const drawerWerte = computed<UebernahmeFelder>(() => ({
   listenpreis: formular.value.listenpreis,
   verpackungseinheit: formular.value.verpackungseinheit,
 }))
+
+/** Bereits existierender Artikel mit demselben Barcode (Duplikat-Hinweis). */
+const duplikatArtikel = ref<{ id: string; titel: string } | null>(null)
+
+/**
+ * Übernimmt die Felder aus den Query-Params, die der Katalog-Browser
+ * mitgibt (`?katTitel=…&katEan=…`), und warnt bei einem Duplikat.
+ *
+ * Die Werte landen bewusst nur im Formular, nicht direkt in der DB: Typ,
+ * Verpackungseinheit und Status sind castel-Konzepte, die ein Lieferanten-
+ * Katalog nicht kennt — die entscheidet der User.
+ */
+function handleKatalogPrefill(): void {
+  const katTitel = route.query.katTitel
+  if (typeof katTitel !== 'string' || katTitel === '') return
+
+  const katEan = typeof route.query.katEan === 'string' ? route.query.katEan : ''
+  const katMatchcode = typeof route.query.katMatchcode === 'string' ? route.query.katMatchcode : ''
+  const katLieferant = typeof route.query.katLieferant === 'string' ? route.query.katLieferant : ''
+  const katPreis = Number.parseFloat(String(route.query.katPreis ?? ''))
+
+  formular.value.titel = katTitel
+  if (katEan !== '') formular.value.barcode = katEan
+  if (katMatchcode !== '') formular.value.bestellnummer = katMatchcode
+  if (katLieferant !== '') formular.value.lieferant = katLieferant
+  if (Number.isFinite(katPreis)) formular.value.listenpreis = katPreis
+
+  // Duplikat-Check: Der Katalog liefert bei jedem Upload dieselben EANs —
+  // ohne diesen Hinweis legt der User beim zweiten Durchlauf DoppeltArtikel an.
+  if (katEan !== '') {
+    const doppelt = artikelStore.artikel.find((a) => a.barcode === katEan)
+    if (doppelt) {
+      duplikatArtikel.value = { id: doppelt.id, titel: doppelt.titel }
+    }
+  }
+}
 
 /** Copies the ticked catalogue fields into the form without saving yet. */
 function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
@@ -77,6 +119,7 @@ onMounted(() => {
     // open the drawer right away with the term already filled in.
     drawerOffen.value = true
   }
+  handleKatalogPrefill()
 })
 
 async function speichern(): Promise<void> {
@@ -98,6 +141,9 @@ async function speichern(): Promise<void> {
       bestellnummer: formular.value.bestellnummer.trim() || null,
       barcode: formular.value.barcode.trim() || null,
       listenpreis: formular.value.listenpreis,
+      // Vertrauliches Feld: nur Admins duerfen es setzen. Fuer alle
+      // anderen wird es gar nicht erst in den Payload aufgenommen.
+      einkaufspreis: auth.istAdmin ? euroZuCent(formular.value.einkaufspreis) : null,
     })
     void router.push('/artikel')
   } catch (e) {
@@ -126,6 +172,16 @@ const statusOptionen: ArtikelStatus[] = [
       <h1>{{ t('view.artikel.form.h1') }}</h1>
       <RouterLink to="/artikel" class="btn">{{ t('view.artikel.form.abbrechen') }}</RouterLink>
     </header>
+
+    <div v-if="duplikatArtikel" class="card duplikat-banner">
+      <p>{{ t('view.artikel.form.duplikatHinweis', { titel: duplikatArtikel.titel }) }}</p>
+      <RouterLink
+        :to="{ name: 'artikel-detail', params: { id: duplikatArtikel.id } }"
+        class="primary"
+      >
+        {{ t('view.artikel.form.duplikatZumArtikel') }}
+      </RouterLink>
+    </div>
 
     <div class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
@@ -202,7 +258,7 @@ const statusOptionen: ArtikelStatus[] = [
           </small>
         </label>
         <label>
-          <span>Listenpreis</span>
+          <span>{{ t('view.artikel.form.listenpreis') }}</span>
           <input
             v-model.number="formular.listenpreis"
             type="number"
@@ -210,6 +266,18 @@ const statusOptionen: ArtikelStatus[] = [
             step="0.01"
             :disabled="laufend"
           />
+        </label>
+        <label v-if="auth.istAdmin">
+          <span>{{ t('view.artikel.form.einkaufspreis') }}</span>
+          <input
+            v-model.number="formular.einkaufspreis"
+            type="number"
+            min="0"
+            step="0.01"
+            :disabled="laufend"
+            data-testid="artikel-form-einkaufspreis"
+          />
+          <small class="hint">{{ t('view.artikel.form.einkaufspreisHint') }}</small>
         </label>
 
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
@@ -235,6 +303,18 @@ const statusOptionen: ArtikelStatus[] = [
 </template>
 
 <style scoped>
+.duplikat-banner {
+  border-color: #d9a441;
+  background: #fdf6e7;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.duplikat-banner p {
+  margin: 0;
+  flex: 1 1 240px;
+}
 .katalog-aktion {
   display: flex;
   flex-direction: column;

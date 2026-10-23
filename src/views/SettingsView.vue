@@ -221,6 +221,9 @@ onBeforeUnmount(() => {
       <RouterLink v-if="auth.istAdmin" to="/einstellungen/kommissionen">{{
         t('view.kommissionen.h1')
       }}</RouterLink>
+      <RouterLink to="/einstellungen/artikel-kataloge">{{
+        t('view.settings.artikelKataloge')
+      }}</RouterLink>
       <RouterLink to="/etiketten">{{ t('view.barcode.h1') }}</RouterLink>
     </div>
   </section>

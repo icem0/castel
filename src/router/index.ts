@@ -27,6 +27,7 @@ import SettingsView from '../views/SettingsView.vue'
 import DevelopmentView from '../views/DevelopmentView.vue'
 import ArtikelTypenView from '../views/ArtikelTypenView.vue'
 import KommissionenView from '../views/KommissionenView.vue'
+import ArtikelKatalogeView from '../views/ArtikelKatalogeView.vue'
 import ImportView from '../views/ImportView.vue'
 import LoginView from '../views/LoginView.vue'
 import PasswortAendernView from '../views/PasswortAendernView.vue'
@@ -87,6 +88,11 @@ const routes: RouteRecordRaw[] = [
     name: 'einstellungen-kommissionen',
     component: KommissionenView,
     meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/artikel-kataloge',
+    name: 'einstellungen-artikel-kataloge',
+    component: ArtikelKatalogeView,
   },
   {
     path: '/einstellungen/mindestbestand',
