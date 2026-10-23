@@ -532,7 +532,7 @@ function toDateOrThrow(v: unknown): Date {
 
 // ---------- Buchungs-Resolver ----------
 
-interface BuchungPayload {
+export interface BuchungPayload {
   id: string
   artikelId: string
   standortId: string
@@ -570,7 +570,7 @@ interface BuchungPayload {
  * pool): the aggregate read has to see the booking inserted a few lines
  * above, which is only visible inside the open transaction.
  */
-async function resolveBuchungCreate(
+export async function resolveBuchungCreate(
   tx: Tx,
   b: BuchungPayload,
   bestandQuerier: BestandQuerier,

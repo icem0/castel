@@ -5,12 +5,19 @@ import fastifyCors from '@fastify/cors'
 import fastifyHelmet from '@fastify/helmet'
 import fastifyCookie from '@fastify/cookie'
 import fastifyMultipart from '@fastify/multipart'
+import fastifySwagger from '@fastify/swagger'
+import fastifySwaggerUi from '@fastify/swagger-ui'
 import { config } from './config/config.js'
 import { registerJwt } from './auth/jwt.js'
 import { registerAuthDecorators } from './auth/middleware.js'
 import { registerRateLimit } from './auth/rate-limit.js'
 import { authRoutes } from './auth/routes.js'
 import { setupRoutes } from './auth/setup-routes.js'
+import { apiKeyRoutes } from './auth/api-key-routes.js'
+import { registerApiAuthDecorators } from './auth/api-key-auth.js'
+import { apiV1Routes } from './api/v1/routes.js'
+import { buildOpenApiSpec } from './api/docs.js'
+import { mcpRoutes } from './mcp/routes.js'
 import { syncRoutes } from './sync/routes.js'
 import { fotoRoutes, fotoStaticRoutes } from './fotos/routes.js'
 import { userRoutes } from './users/routes.js'
@@ -46,6 +53,19 @@ async function main() {
   await registerRateLimit(app)
   await registerJwt(app)
   registerAuthDecorators(app)
+  registerApiAuthDecorators(app)
+
+  // OpenAPI/Swagger-UI (public, keine Daten).
+  if (config.API_DOCS_ENABLED) {
+    await app.register(fastifySwagger, {
+      mode: 'static',
+      specification: { document: buildOpenApiSpec() as never },
+    })
+    await app.register(fastifySwaggerUi, {
+      routePrefix: '/api/docs',
+      uiConfig: { docExpansion: 'list', deepLinking: true },
+    })
+  }
 
   // Health-Endpoint (zuerst, kein Auth)
   app.get('/api/healthz', async () => ({
@@ -83,6 +103,11 @@ async function main() {
     'Notification-Gateway initialisiert',
   )
 
+  // Agenten-API (API-Key, eigene Scopes) und MCP (Streamable HTTP).
+  // Bewusst VOR den JWT-Bloecken: diese Routen bringen ihre Auth selbst mit.
+  await apiV1Routes(app, notificationGateway)
+  await mcpRoutes(app, notificationGateway)
+
   // /fotos/* statische Auslieferung — OHNE Auth. <img src> schickt
   // keinen Authorization-Header, also muss der Handler vor dem
   // requireAuth-Hook registriert sein, sonst gibt's 401 auf jedem
@@ -92,6 +117,7 @@ async function main() {
   await app.register(async (instance) => {
     instance.addHook('preHandler', instance.requireAuth)
     await syncRoutes(instance, notificationGateway)
+    await apiKeyRoutes(instance)
     await userRoutes(instance)
     await fotoRoutes(instance)
     await adminRoutes(instance)

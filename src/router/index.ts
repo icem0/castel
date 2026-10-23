@@ -36,6 +36,7 @@ import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
 import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
 import BackupView from '../views/BackupView.vue'
+import ApiKeysView from '../views/ApiKeysView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Auth-Routen (kein Login nötig)
@@ -67,6 +68,7 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAdmin: true },
   },
   { path: '/einstellungen', name: 'einstellungen', component: SettingsView },
+  { path: '/einstellungen/api-keys', name: 'einstellungen-api-keys', component: ApiKeysView },
   { path: '/info', name: 'info', component: InfoView },
   {
     path: '/einstellungen/user',

@@ -1,7 +1,7 @@
 {
   "name": "castel-server",
   "private": true,
-  "version": "0.4.71",
+  "version": "0.4.72",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -23,6 +23,9 @@
     "@fastify/multipart": "^9.0.1",
     "@fastify/rate-limit": "^10.1.1",
     "@fastify/static": "^8.0.3",
+    "@fastify/swagger": "^9.9.2",
+    "@fastify/swagger-ui": "^6.1.2",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "archiver": "^7.0.1",
     "argon2": "^0.41.1",
     "dotenv": "^16.4.5",
@@ -31,7 +34,8 @@
     "iconv-lite": "^0.6.3",
     "pino-pretty": "^11.3.0",
     "postgres": "^3.4.5",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

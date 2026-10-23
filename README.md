@@ -16,7 +16,7 @@
 Mobile-First-Lager für Werkstatt und Baustelle. Funktioniert offline, synct wenn online.
 10+ Geräte, JWT-Auth, Barcode-Scan, Foto-Erfassung, Inventur mit Defizit-Buchung.
 
-[Features](#-features) • [Quickstart](#-quickstart) • [Architektur](#-architektur) • [Deployment](#-deployment) • [API-Referenz](#-api-referenz) • [Entwicklung](#-entwicklung) • [Mitmachen](#-mitmachen)
+[Features](#-features) • [Quickstart](#-quickstart) • [Architektur](#-architektur) • [Deployment](#-deployment) • [Agenten-API](#-agenten-api--mcp) • [Entwicklung](#-entwicklung) • [Mitmachen](#-mitmachen)
 
 </div>
 
@@ -147,6 +147,32 @@ Jede Buchung hat eine unveränderliche `id` (UUID) und `erstelltAm`-Zeitstempel.
 
 
 ---
+
+## 🤖 Agenten-API & MCP
+
+Neben der PWA können KI-Agenten und Skripte über eine eigene, dokumentierte
+Schnittstelle auf castel zugreifen. Die Authentifizierung läuft über
+API-Keys mit Scopes (`read`, `write`, `admin`), verwaltbar in der PWA
+unter **Einstellungen → Daten → API-Keys**. Keys werden nur einmal
+angezeigt; der Server speichert ausschließlich SHA-256-Hash und Prefix.
+
+- **REST:** `/api/v1` — Artikel, Standorte, Bestand, Buchungen, Storno,
+  Kommissionen, Mindestbestand, Audit
+- **OpenAPI/Swagger UI:** `/api/docs` (JSON: `/api/docs/json`)
+- **MCP:** `/api/mcp` (Streamable HTTP, stateless) mit 14 Tools
+- **Discovery:** `GET /api/v1/meta`
+
+Die vollständige Referenz inkl. Curl- und MCP-Beispielen steht in
+[docs/AGENT-API.md](docs/AGENT-API.md). Wichtige Regeln: Bestand ist die
+Summe aller nicht stornierten Buchungen, Mengen werden nie überschrieben,
+Korrekturen laufen über Storno.
+
+```bash
+# Key anlegen: PWA → Einstellungen → Daten → API-Keys
+export CASTEL_KEY='castel_...'
+curl -s -H "Authorization: Bearer $CASTEL_KEY" \
+  "$CASTEL_URL/api/v1/artikel?q=kabel&limit=20"
+```
 
 ## 💾 Backup & Restore
 

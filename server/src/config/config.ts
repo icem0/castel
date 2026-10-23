@@ -39,6 +39,33 @@ const schema = z.object({
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),
   RATE_LIMIT_LOGIN_WINDOW: z.string().default('1 minute'),
 
+  // Agenten-Zugriff (API-Keys + MCP).
+  // API_KEYS_ENABLED=false deaktiviert sowohl die Key-Verwaltung als auch
+  // die API-Key-Authentifizierung; die PWA/JWT-Nutzung bleibt unberuehrt.
+  API_KEYS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true' || v === '1'),
+  API_KEY_MAX_PER_USER: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(120),
+  RATE_LIMIT_API_WINDOW: z.string().default('1 minute'),
+
+  // MCP-Server (in-process im API-Container).
+  // Der Pfad liegt bewusst unter /api/*, damit der bestehende nginx-Proxy
+  // im PWA-Container ihn ohne zusaetzliche location-Regel erreicht.
+  MCP_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true' || v === '1'),
+  MCP_PATH: z.string().default('/api/mcp'),
+
+  // OpenAPI/Swagger-UI unter /api/docs. Oeffentlich lesbar (keine Daten),
+  // kann bei Bedarf abgeschaltet werden.
+  API_DOCS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true' || v === '1'),
+
   // DATANORM-Import (Hersteller-Kataloge).
   // Die Dateien werden serverseitig aufbewahrt und geparst; die PWA fragt
   // den Katalog anschliessend on-demand per /api/datanorm/artikel ab.

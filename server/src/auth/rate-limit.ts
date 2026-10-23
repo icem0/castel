@@ -29,3 +29,16 @@ export function loginRateLimit(app: FastifyInstance) {
     keyGenerator: (req) => req.ip,
   })
 }
+
+/**
+ * Rate-Limit fuer Agenten-Requests. Muss NACH requireApiAuth laufen,
+ * damit `req.apiAuth` gesetzt ist. Der Key-Hash selbst ist nicht noetig:
+ * die apiKeyId ist stabil und nicht geheim.
+ */
+export function agentenRateLimit(app: FastifyInstance) {
+  return app.rateLimit({
+    max: config.RATE_LIMIT_API_MAX,
+    timeWindow: config.RATE_LIMIT_API_WINDOW,
+    keyGenerator: (req) => req.apiAuth?.apiKeyId ?? req.ip,
+  })
+}

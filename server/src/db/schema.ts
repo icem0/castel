@@ -57,6 +57,41 @@ export const refreshTokens = pgTable(
   (t) => [index('refresh_tokens_user_idx').on(t.userId), index('refresh_tokens_hash_idx').on(t.tokenHash)],
 )
 
+// ---------- API-Keys (Agentenzugriff) ----------
+
+/**
+ * API keys for machine/agent access. The plaintext key is shown exactly once
+ * on creation; only its SHA-256 hash is stored here. `prefix` is the visible
+ * part used to identify a key in the UI (e.g. `castel_ab12cd34`).
+ *
+ * Scopes are additive and never exceed the owning user's role:
+ *   * read  — GET endpoints
+ *   * write — mutating endpoints
+ *   * admin — admin-only endpoints (only available to admin users)
+ */
+export const apiKeys = pgTable(
+  'api_keys',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    keyHash: text('key_hash').notNull(),
+    prefix: text('prefix').notNull(),
+    scopes: text('scopes').array().notNull().default([]),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+    letzteNutzungAm: timestamp('letzte_nutzung_am', { withTimezone: true }),
+    ablaufAm: timestamp('ablauf_am', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('api_keys_hash_idx').on(t.keyHash),
+    index('api_keys_user_idx').on(t.userId),
+    index('api_keys_prefix_idx').on(t.prefix),
+  ],
+)
+
 // ---------- Domänen-Tabellen (Spiegel der PWA) ----------
 
 export const artikel = pgTable(
