@@ -145,7 +145,10 @@ body {
   margin: 0;
   background: var(--bg-app);
   color: var(--text);
-  overflow-x: hidden;
+  /* `clip` instead of `hidden`: `hidden` turns body into a scroll container,
+     which breaks `position: sticky` on the app header (it sticks to body, not
+     to the viewport). `clip` still prevents horizontal overflow. */
+  overflow-x: clip;
 }
 
 /* Double-tap zoom on iOS: `touch-action: manipulation` removes the
@@ -178,7 +181,9 @@ img {
 
 #app,
 .app-shell {
-  overflow-x: hidden;
+  /* Same reason as body: must not become a scroll container, otherwise the
+     sticky app header scrolls away with the page. */
+  overflow-x: clip;
 }
 
 /* Typografie */
