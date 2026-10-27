@@ -16,7 +16,8 @@
 //
 // Alles in einer DB-Transaktion pro Push-Batch.
 
-import { and, count, eq, isNull } from 'drizzle-orm'
+import { and, count, eq, getTableColumns, isNull } from 'drizzle-orm'
+import { PgTimestamp } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import * as schema from '../db/schema.js'
@@ -459,7 +460,7 @@ async function resolveArtikel(
       // Idempotent: bereits vorhanden, einfach akzeptieren (Update-Fall)
       await applyLastWriterWins(tx, artikel, payload)
     } else {
-      await tx.insert(artikel).values(normalizeStammdatenTimestamps(payload) as never)
+      await tx.insert(artikel).values(normalizeStammdatenTimestamps(artikel, payload) as never)
     }
   } else if (op.op === 'update') {
     await applyLastWriterWins(tx, artikel, payload)
@@ -504,7 +505,7 @@ async function resolveHersteller(
     if (existing.length > 0) {
       await applyLastWriterWins(tx, hersteller, op.payload)
     } else {
-      await tx.insert(hersteller).values(normalizeStammdatenTimestamps(op.payload) as never)
+      await tx.insert(hersteller).values(normalizeStammdatenTimestamps(hersteller, op.payload) as never)
     }
   } else if (op.op === 'update') {
     await applyLastWriterWins(tx, hersteller, op.payload)
@@ -535,7 +536,7 @@ async function resolveStandort(
     if (existing.length > 0) {
       await applyLastWriterWins(tx, standorte, op.payload)
     } else {
-      await tx.insert(standorte).values(normalizeStammdatenTimestamps(op.payload) as never)
+      await tx.insert(standorte).values(normalizeStammdatenTimestamps(standorte, op.payload) as never)
     }
   } else if (op.op === 'update') {
     // Das Hauptlagers (Standard-Standort) darf nicht archiviert werden.
@@ -679,7 +680,7 @@ async function resolveProjekt(
     if (existing.length > 0) {
       await applyLastWriterWins(tx, projekte, op.payload)
     } else {
-      await tx.insert(projekte).values(normalizeStammdatenTimestamps(op.payload) as never)
+      await tx.insert(projekte).values(normalizeStammdatenTimestamps(projekte, op.payload) as never)
     }
   } else if (op.op === 'update') {
     await applyLastWriterWins(tx, projekte, op.payload)
@@ -737,7 +738,7 @@ async function resolveAkkuDatensatz(
     if (existing.length > 0) {
       await applyLastWriterWins(tx, table, payload)
     } else {
-      await tx.insert(table).values(normalizeStammdatenTimestamps(payload) as never)
+      await tx.insert(table).values(normalizeStammdatenTimestamps(table, payload) as never)
     }
     return
   }
@@ -792,7 +793,7 @@ async function applyLastWriterWins(
   const current = existing[0]
   if (!current) {
     // Server hat es nicht (kann bei create passieren, wenn race-condition) — insert
-    await tx.insert(table).values(normalizeStammdatenTimestamps(payload) as never)
+    await tx.insert(table).values(normalizeStammdatenTimestamps(table, payload) as never)
     return
   }
   // Drizzle's postgres-js-Driver liefert `timestamp with timezone` als ISO-String,
@@ -805,7 +806,10 @@ async function applyLastWriterWins(
     incomingGeaendertAm,
     id,
   })
-  await tx.update(table).set(normalizeStammdatenTimestamps(payload) as never).where(eq(table.id, id))
+  await tx
+    .update(table)
+    .set(normalizeStammdatenTimestamps(table, payload) as never)
+    .where(eq(table.id, id))
 }
 
 /**
@@ -838,14 +842,48 @@ function normalizeTimestampFields(
 }
 
 /**
- * Stammdaten-spezifischer Wrapper. Nur hier, damit der Aufruf-Code
- * sprechend benannt ist (Stammdaten vs. Buchungen) — Logik liegt in
- * `normalizeTimestampFields`.
+ * JS-Property-Namen (nicht die DB-Spaltennamen) aller TIMESTAMPTZ-Spalten
+ * einer Drizzle-Tabelle. Die Keys werden aus dem Schema abgeleitet statt
+ * hartkodiert: ein neues Timestamp-Feld (z. B. `artikel.bestelltAm`) ist
+ * damit automatisch abgedeckt. Genau dieser Fall hat den Sync-Push mit
+ * `value.toISOString is not a function` craschen lassen, weil die
+ * Normalize-Liste nur `geaendertAm`/`erstelltAm` kannte.
+ *
+ * `date`-Spalten mit `mode: 'string'` (z. B. `akku_netzteile.einbaudatum`)
+ * sind bewusst keine `PgTimestamp` und bleiben Strings.
  */
-function normalizeStammdatenTimestamps(
+const timestampKeysCache = new WeakMap<object, readonly string[]>()
+
+function timestampKeysOf(table: object): readonly string[] {
+  const cached = timestampKeysCache.get(table)
+  if (cached) return cached
+  const columns = getTableColumns(table as never) as Record<string, unknown>
+  const keys = Object.keys(columns).filter((key) => columns[key] instanceof PgTimestamp)
+  timestampKeysCache.set(table, keys)
+  return keys
+}
+
+/**
+ * Entitaets-spezifischer Wrapper: normalisiert alle Timestamp-Felder, die
+ * die Tabelle laut Schema hat. Logik liegt in `normalizeTimestampFields`.
+ */
+function normalizeEntityTimestamps(
+  table: object,
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
-  return normalizeTimestampFields(payload, ['geaendertAm', 'erstelltAm'])
+  return normalizeTimestampFields(payload, timestampKeysOf(table))
+}
+
+/**
+ * Stammdaten-spezifischer Wrapper (artikel/standorte/projekte/hersteller/
+ * akku_*). Wird explizit mit der jeweiligen Tabelle aufgerufen, damit der
+ * Aufruf-Code sprechend benannt ist.
+ */
+function normalizeStammdatenTimestamps(
+  table: object,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  return normalizeEntityTimestamps(table, payload)
 }
 
 /**
@@ -859,7 +897,7 @@ function normalizeStammdatenTimestamps(
 function normalizeBuchungTimestamps(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
-  return normalizeTimestampFields(payload, ['erstelltAm', 'clientEingabeAm'])
+  return normalizeEntityTimestamps(buchungen, payload)
 }
 
 /**

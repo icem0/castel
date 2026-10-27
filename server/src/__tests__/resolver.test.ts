@@ -418,3 +418,98 @@ describe('Resolver — Buchungs-Insert normalisiert ISO-Strings auf Date', () =>
     expect(row['clientEingabeAm']).toBeUndefined()
   })
 })
+// Regression: die Timestamp-Normalisierung wird aus dem Drizzle-Schema
+// abgeleitet. Dadurch werden auch Felder normalisiert, die es frueher nicht
+// in der festen Liste gab (z. B. `artikel.bestelltAm`) — ohne das crashte
+// der Push mit `value.toISOString is not a function`.
+// Felder mit `mode: 'string'` (z. B. `akku_netzteile.einbaudatum`) bleiben
+// dagegen unangetastet, weil sie keine TIMESTAMPTZ-Spalten sind.
+describe('Resolver — Timestamp-Normalisierung aus dem Schema', () => {
+  function makeMockDb(captured: { inserts: Array<Record<string, unknown>> }) {
+    const txMock = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.resolve([]),
+          }),
+        }),
+      }),
+      insert: () => ({
+        values: (v: Record<string, unknown>) => {
+          captured.inserts.push(v)
+          return Promise.resolve()
+        },
+      }),
+      update: () => ({
+        set: () => ({ where: () => Promise.resolve() }),
+      }),
+    }
+    return {
+      transaction: (fn: (tx: typeof txMock) => Promise<void>) => fn(txMock),
+    } as never
+  }
+
+  it('artikel: alle TIMESTAMPTZ-Felder werden zu Date (auch bestelltAm)', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const captured = { inserts: [] as Array<Record<string, unknown>> }
+    await resolvePush(
+      makeMockDb(captured),
+      [
+        {
+          op: 'create',
+          entity: 'artikel',
+          payload: {
+            id: 'a-1',
+            titel: 'Testartikel',
+            status: 'verfuegbar',
+            typ: 'Demo',
+            verpackungseinheit: 1,
+            bestelltAm: '2026-10-14T08:00:00.000Z',
+            geaendertAm: '2026-10-15T10:00:00.000Z',
+            erstelltAm: '2026-10-15T09:00:00.000Z',
+          },
+        },
+      ],
+      'u1',
+      'admin',
+    )
+    const artikelInsert = captured.inserts.find((r) => 'titel' in r)
+    expect(artikelInsert).toBeDefined()
+    expect(artikelInsert?.['bestelltAm']).toBeInstanceOf(Date)
+    expect(artikelInsert?.['geaendertAm']).toBeInstanceOf(Date)
+    expect(artikelInsert?.['erstelltAm']).toBeInstanceOf(Date)
+  })
+
+  it('akku_netzteil: das Kalenderdatum bleibt ein String', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const captured = { inserts: [] as Array<Record<string, unknown>> }
+    await resolvePush(
+      makeMockDb(captured),
+      [
+        {
+          op: 'create',
+          entity: 'akku_netzteil',
+          payload: {
+            id: 'n-1',
+            anlage: 'Anlage 1',
+            objekt: 'Objekt 1',
+            name: 'Notlichtaggregat',
+            einbaudatum: '2020-01-15',
+            intervallJahre: 5,
+            kapazitaetAh: 12.5,
+            anzahl: 2,
+            geloescht: false,
+            geaendertAm: '2026-10-15T10:00:00.000Z',
+            erstelltAm: '2026-10-15T09:00:00.000Z',
+          },
+        },
+      ],
+      'u1',
+      'admin',
+    )
+    const netzteilInsert = captured.inserts.find((r) => 'einbaudatum' in r)
+    expect(netzteilInsert).toBeDefined()
+    expect(netzteilInsert?.['einbaudatum']).toBe('2020-01-15')
+    expect(netzteilInsert?.['geaendertAm']).toBeInstanceOf(Date)
+  })
+})
