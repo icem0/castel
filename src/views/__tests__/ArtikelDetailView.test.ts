@@ -4,7 +4,7 @@ import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import ArtikelDetailView from '../ArtikelDetailView.vue'
 import { i18n } from '../../i18n'
-import { useArtikelStore } from '../../stores/artikel'
+import { useArtikelStore, type ArtikelEingabe } from '../../stores/artikel'
 import { resetDbForTests } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
 import * as lookup from '../../services/datanorm/lookup'
@@ -85,9 +85,10 @@ afterEach(async () => {
 async function setupView(
   barcode: string | null,
   weitere: Array<{ titel: string; barcode: string | null }> = [],
+  extra: Partial<ArtikelEingabe> = {},
 ) {
   const store = useArtikelStore(pinia)
-  const artikel = await store.anlegen({ titel: 'Schraube M6', typ: 'Material', barcode })
+  const artikel = await store.anlegen({ titel: 'Schraube M6', typ: 'Material', barcode, ...extra })
   const andere = []
   for (const r of weitere) {
     andere.push(await store.anlegen({ titel: r.titel, typ: 'Material', barcode: r.barcode }))
@@ -159,6 +160,28 @@ describe('ArtikelDetailView — Barcode', () => {
     const svg = w.find('.barcode-row svg')
     expect(svg.exists()).toBe(true)
     expect(svg.findAll('rect').length).toBeGreaterThan(0)
+
+    w.unmount()
+  })
+})
+
+describe('ArtikelDetailView — Bestellnummer kopieren', () => {
+  it('kopiert die Bestellnummer in die Zwischenablage und zeigt den Erfolg', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+    Object.defineProperty(window.navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    })
+
+    const { w } = await setupView(null, [], { bestellnummer: 'B-42' })
+
+    const button = w.get('[data-testid="artikel-detail-bestellnummer-kopieren"]')
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith('B-42')
+    expect(button.classes()).toContain('state-ok')
 
     w.unmount()
   })
