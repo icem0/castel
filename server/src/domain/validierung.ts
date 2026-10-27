@@ -125,6 +125,7 @@ export const EINSTELLUNG_KEYS = [
   'theme',
   'standardStandortId',
   'artikelTypen',
+  'akkuTypen',
   'kommissionen',
   'companyName',
   'barcodeTyp',

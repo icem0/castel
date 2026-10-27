@@ -26,6 +26,7 @@ import StandortListView from '../views/StandortListView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import DevelopmentView from '../views/DevelopmentView.vue'
 import ArtikelTypenView from '../views/ArtikelTypenView.vue'
+import AkkuTypenView from '../views/AkkuTypenView.vue'
 import KommissionenView from '../views/KommissionenView.vue'
 import ArtikelKatalogeView from '../views/ArtikelKatalogeView.vue'
 import ImportView from '../views/ImportView.vue'
@@ -82,6 +83,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/artikel-typen',
     name: 'einstellungen-artikel-typen',
     component: ArtikelTypenView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/akku-typen',
+    name: 'einstellungen-akku-typen',
+    component: AkkuTypenView,
     meta: { requiresAdmin: true },
   },
   {

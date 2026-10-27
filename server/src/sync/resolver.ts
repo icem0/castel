@@ -43,6 +43,7 @@ import {
   berechneDefizit,
   sollteWarnungAusloesen,
 } from '../domain/mindestbestand.js'
+import { parseAkkuTypenWert } from '../domain/akkutausch.js'
 import { applyLastWriterWinsMock } from './__test-helpers__.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 
@@ -1029,7 +1030,13 @@ async function resolveUmlagerungPaar(
 // ---------- Einstellungs-Resolver ----------
 // Whitelist der erlaubten Keys. artikelTypen ist global und nur von
 // Admins pflegbar. sprache und standardStandortId sind pro User.
-const ADMIN_ONLY_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
+const ADMIN_ONLY_KEYS = new Set<string>([
+  'artikelTypen',
+  'akkuTypen',
+  'kommissionen',
+  'companyName',
+  'barcodeTyp',
+])
 
 async function resolveEinstellung(
   tx: Tx,
@@ -1060,7 +1067,17 @@ async function resolveEinstellung(
     )
   }
 
-  // 3) LWW-Upsert auf (key, userId)
+  // 3) `akkuTypen` ist ein JSON-Array mit den Akku-Groessen. Der Server
+  //    validiert den Wert, bevor er gespeichert wird — ein kaputter Wert
+  //    wuerde bei jedem Client die Planung unbrauchbar machen.
+  if (p.key === 'akkuTypen') {
+    const geprueft = parseAkkuTypenWert(p.value)
+    if (geprueft.fehler.length > 0) {
+      throw new ValidationError('einstellung.value', geprueft.fehler.join('; '))
+    }
+  }
+
+  // 4) LWW-Upsert auf (key, userId)
   const incomingGeaendertAm = new Date(p.geaendertAm)
   const where = and(
     eq(einstellungen.key, p.key),

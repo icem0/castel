@@ -24,6 +24,8 @@ import { sessionLesen } from '../auth/session'
 import { jetztIso, neueUuid } from '../domain/ids'
 import { queueOp } from '../services/sync/worker'
 import type { Einstellung } from '../db/types'
+import type { AkkuTyp } from '../domain/akkutausch/types'
+import { parseAkkuTypen, serialisiereAkkuTypen } from '../domain/akkutausch/serialisierung'
 
 export type Sprache = 'de' | 'en'
 export type BarcodeTyp = 'CODE128' | 'EAN13' | 'CODE39'
@@ -39,6 +41,11 @@ export interface Settings {
   standardStandortId: string | null
   /** Konfigurierbare Liste der Artikel-Typen (Reihenfolge wie angelegt). */
   artikelTypen: string[]
+  /**
+   * Konfigurierte Akku-Größen des Akkutausch-Tools (global, Admin-only).
+   * Gespeichert als JSON-Array in der Einstellung `akkuTypen`.
+   */
+  akkuTypen: AkkuTyp[]
   /** Konfigurierbare Liste der Kommissionen/Projekte (Reihenfolge wie angelegt). */
   kommissionen: string[]
   /** Firmenzeichen, nur von Admins konfigurierbar. */
@@ -97,6 +104,7 @@ const DEFAULTS: Settings = {
   theme: 'dark',
   standardStandortId: null,
   artikelTypen: ['Zubehör', 'Verbrauchsmaterial'],
+  akkuTypen: [],
   kommissionen: [],
   companyName: '',
   barcodeTyp: 'CODE128',
@@ -107,7 +115,13 @@ const DEFAULTS: Settings = {
   mindestbestandWiederholen: false,
 }
 
-const GLOBAL_KEYS = new Set<string>(['artikelTypen', 'kommissionen', 'companyName', 'barcodeTyp'])
+const GLOBAL_KEYS = new Set<string>([
+  'artikelTypen',
+  'akkuTypen',
+  'kommissionen',
+  'companyName',
+  'barcodeTyp',
+])
 const PER_USER_KEYS = new Set<string>([
   'sprache',
   'theme',
@@ -162,6 +176,14 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     } catch {
       // bewusst ignorieren → Defaults
     }
+  }
+
+  // akkuTypen: JSON-Array mit den Akku-Größen des Akkutausch-Tools.
+  // Fehlertolerant — kaputte Einträge werden verworfen, der Rest bleibt nutzbar.
+  let akkuTypen: AkkuTyp[] = DEFAULTS.akkuTypen
+  const akkuTypenRow = byKey.get('akkuTypen')
+  if (akkuTypenRow) {
+    akkuTypen = parseAkkuTypen(akkuTypenRow.value)
   }
 
   const spracheRow = byKey.get('sprache')
@@ -225,6 +247,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     theme,
     standardStandortId,
     artikelTypen: typen,
+    akkuTypen,
     kommissionen,
     companyName,
     barcodeTyp,
@@ -237,7 +260,11 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-  const settings = ref<Settings>({ ...DEFAULTS, artikelTypen: [...DEFAULTS.artikelTypen] })
+  const settings = ref<Settings>({
+    ...DEFAULTS,
+    artikelTypen: [...DEFAULTS.artikelTypen],
+    akkuTypen: [...DEFAULTS.akkuTypen],
+  })
   const geladen = ref(false)
   let subscription: Subscription | null = null
   // Prevent repeating the one-time legacy migration while the liveQuery
@@ -340,6 +367,14 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('artikelTypen', JSON.stringify(typen))
   }
 
+  /**
+   * Setzt die Akku-Größen des Akkutausch-Tools. Global und damit
+   * Admin-only — der Server lehnt Schreibversuche von normalen Usern ab.
+   */
+  async function setAkkuTypen(typen: readonly AkkuTyp[]): Promise<void> {
+    await setKey('akkuTypen', serialisiereAkkuTypen(typen))
+  }
+
   async function setKommissionen(typen: string[]): Promise<void> {
     await setKey('kommissionen', JSON.stringify(typen))
   }
@@ -382,6 +417,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setTheme,
     setStandardStandort,
     setArtikelTypen,
+    setAkkuTypen,
     setKommissionen,
     setBarcodeTyp,
     setOnboardingSeen,
