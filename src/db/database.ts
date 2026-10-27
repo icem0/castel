@@ -2,10 +2,10 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v16 (Akkutausch — Netzteile + Projektakkus, siehe
-// Kommentar bei v16). Frühere Versionen (v1–v15) sind nur noch für
+// Aktuelles Schema: v17 (Rabattsatz je Lieferant + Listenpreis in Cent,
+// siehe Kommentar bei v17). Frühere Versionen (v1–v16) sind nur noch für
 // Migration existierender Browser-DBs. Wenn du eine frische DB anlegst,
-// wird direkt v16 verwendet.
+// wird direkt v17 verwendet.
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -421,6 +421,48 @@ export class CastelDb extends Dexie {
       akkuNetzteile: 'id, anlage, geaendertAm',
       akkuProjekte: 'id, [jahr+quartal], geaendertAm',
     })
+
+    // v17: Rabattsatz je Lieferant + einheitliche Preiseinheit.
+    //      * `hersteller.rabattsatz` — Ø-Rabatt in Prozent (0 = kein Rabatt
+    //        bekannt). Bestehende Zeilen starten bei 0.
+    //      * `artikel.listenpreis` — bislang stand im lokalen Spiegel ein
+    //        Euro-Wert (aus dem Artikelformular), waehrend der Server
+    //        (und der CSV-Import) Cent erwarten. Die Einheit wird jetzt
+    //        durchgaengig auf Cent vereinheitlicht: Werte mit Nachkomma
+    //        stammen sicher aus dem Formular (Euro) und werden x100
+    //        gerundet; ganzzahlige Werte (Import/Katalog/Server) sind
+    //        bereits Cent und bleiben unveraendert.
+    this.version(17)
+      .stores({
+        akkuNetzteile: 'id, anlage, geaendertAm',
+        akkuProjekte: 'id, [jahr+quartal], geaendertAm',
+      })
+      .upgrade(async (tx) => {
+        const hersteller = (await tx.table('hersteller').toArray()) as Array<
+          Record<string, unknown>
+        >
+        for (const row of hersteller) {
+          if (row['rabattsatz'] === undefined) row['rabattsatz'] = 0
+        }
+        if (hersteller.length > 0) {
+          await tx.table('hersteller').bulkPut(hersteller)
+        }
+
+        const artikel = (await tx.table('artikel').toArray()) as Array<Record<string, unknown>>
+        for (const row of artikel) {
+          const listenpreis = row['listenpreis']
+          if (
+            typeof listenpreis === 'number' &&
+            Number.isFinite(listenpreis) &&
+            !Number.isInteger(listenpreis)
+          ) {
+            row['listenpreis'] = Math.round(listenpreis * 100)
+          }
+        }
+        if (artikel.length > 0) {
+          await tx.table('artikel').bulkPut(artikel)
+        }
+      })
   }
 }
 

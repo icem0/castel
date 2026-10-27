@@ -59,6 +59,11 @@ export const herstellerSchema = z.object({
   name: z.string().min(1).max(200),
   bestellEmail: z.string().nullable().optional(),
   bestellWebseite: z.string().nullable().optional(),
+  /**
+   * Durchschnittsrabatt des Lieferanten in Prozent (0 = kein Rabatt
+   * bekannt). Nur Admins duerfen ihn schreiben (siehe sync/resolver.ts).
+   */
+  rabattsatz: z.number().min(0).max(100).optional(),
   geaendertAm: iso,
   erstelltAm: iso,
 })

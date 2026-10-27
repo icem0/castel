@@ -41,6 +41,7 @@ A4-Etiketten, Mindestbestands-Alarme und DATANORM-Katalogimport.
 | 🧮 **Inventur** | Soll-Erfassung erzeugt automatisch eine Differenz-Buchung. |
 | 🔔 **Mindestbestand** | Alarm bei Unterschreitung, Klingelton (optional wiederholend), Bestellstatus und „Jetzt bestellen“ direkt aus dem Alarm. |
 | 🏭 **Hersteller** | Stammdaten mit Bestell-E-Mail und Bestell-Webseite – Grundlage für den Bestell-Workflow. |
+| 💰 **Ø-Rabatt & Lagerwert** | Rabattsatz je Lieferant: aus dem Listenpreis wird automatisch der Einkaufspreis erzeugt. EK × Bestand ergibt den Lagerwert im Dashboard (nur für Admins). |
 | 📚 **DATANORM-Kataloge** | DATANORM 4/5 hochladen, Lieferantenkataloge durchsuchen und Felder direkt ins Artikelformular übernehmen. Inkl. Import-Historie und Duplikat-Erkennung. |
 | 📥 **CSV-Import** | Wizard mit Spalten-Mapping und Validierung für Artikel-Stammdaten. |
 | 🌓 **Design & Sprache** | Dark/Light/System und Deutsch/Englisch – pro User, sofort wirksam und cross-device synchronisiert. |

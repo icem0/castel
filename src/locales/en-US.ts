@@ -218,6 +218,8 @@ export default {
         listenpreis: 'List price',
         einkaufspreis: 'Purchase price (net, per unit)',
         einkaufspreisHint: 'Confidential: visible to admins only. Price per packaging unit.',
+        einkaufspreisAuto:
+          'Generated automatically from the list price and the supplier’s average discount ({rabatt} %).',
         speichern: 'Save',
         abbrechen: 'Cancel',
         duplikatHinweis: 'An item with this barcode already exists: “{titel}".',
@@ -684,11 +686,16 @@ export default {
       name: 'Name',
       bestellEmail: 'Order e-mail',
       bestellWebseite: 'Order website',
+      rabattsatz: 'Avg. discount (%)',
+      rabattsatzAnzeige: '− {rabatt} % discount',
+      rabattsatzHint:
+        'Average discount of this supplier. It is the base for the automatically generated purchase price (list price minus discount). 0 = no discount set.',
       hinzufuegen: 'Add',
       hinzugefuegt: 'Manufacturer added',
       bearbeiten: 'Edit',
       speichern: 'Save',
       gespeichert: 'saved',
+      gespeichertMitEinkaufspreisen: 'saved — {anzahl} purchase prices recalculated',
       abbrechen: 'Cancel',
       loeschen: 'Delete',
       geloescht: 'Manufacturer deleted',
@@ -699,6 +706,7 @@ export default {
       leer: 'No manufacturers yet.',
       fehlerName: 'Name must not be empty.',
       fehlerEmail: 'Please enter a valid e-mail address.',
+      fehlerRabatt: 'The discount must be between 0 and 100 %.',
       fehlerDuplikat: 'A manufacturer with this name already exists.',
     },
     common: {

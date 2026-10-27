@@ -11,7 +11,8 @@ import { useArtikelTypen } from '../composables/useArtikelTypen'
 import HerstellerKatalogDrawer, {
   type UebernahmeFelder,
 } from '../components/HerstellerKatalogDrawer.vue'
-import { euroZuCent } from '../domain/geld'
+import { centZuEuro, euroZuCent } from '../domain/geld'
+import { berechneEinkaufspreisCent, rabattsatzVon } from '../domain/rabatt'
 import type { ArtikelStatus } from '../db/types'
 
 const { t } = useI18n()
@@ -68,6 +69,34 @@ const neuerHerstellerFehler = ref('')
 function waehleHersteller(): void {
   const h = herstellerStore.byId(formular.value.herstellerId)
   if (h) formular.value.lieferant = h.name
+  // Neuer Lieferant = neuer Rabattsatz -> Einkaufspreis neu erzeugen.
+  berechneEinkaufspreis()
+}
+
+/**
+ * Rabattsatz des gewaehlten Lieferanten (Prozent) — `null`, wenn kein
+ * Lieferant gewaehlt ist oder fuer ihn kein Rabatt hinterlegt ist.
+ */
+const rabattsatzFormular = computed<number | null>(() =>
+  rabattsatzVon(herstellerStore.byId(formular.value.herstellerId)),
+)
+
+/**
+ * Erzeugt den Einkaufspreis aus dem Listenpreis und dem Rabattsatz des
+ * Lieferanten: `EK = Listenpreis × (1 − Rabatt)`.
+ *
+ * Ohne hinterlegten Rabattsatz passiert nichts — der EK bleibt dann
+ * manuell pflegbar.
+ */
+function berechneEinkaufspreis(): void {
+  if (!auth.istAdmin) return
+  const satz = rabattsatzFormular.value
+  if (satz === null) return
+  const listenpreis = formular.value.listenpreis
+  if (typeof listenpreis !== 'number') return
+  const ekCent = berechneEinkaufspreisCent(euroZuCent(listenpreis), satz)
+  if (ekCent === null) return
+  formular.value.einkaufspreis = centZuEuro(ekCent)
 }
 
 async function herstellerAnlegen(): Promise<void> {
@@ -100,11 +129,16 @@ async function herstellerAnlegen(): Promise<void> {
 watch(
   () => herstellerStore.geladen,
   (geladen) => {
-    if (!geladen || formular.value.herstellerId) return
-    const name = formular.value.lieferant.trim()
-    if (!name) return
-    const match = herstellerStore.byName(name)
-    if (match) formular.value.herstellerId = match.id
+    if (!geladen) return
+    if (!formular.value.herstellerId) {
+      const name = formular.value.lieferant.trim()
+      if (!name) return
+      const match = herstellerStore.byName(name)
+      if (match) formular.value.herstellerId = match.id
+    }
+    // Der Lieferant bringt seinen Rabattsatz mit — der EK wird daraus
+    // und dem (ggf. bereits gesetzten) Listenpreis erzeugt.
+    berechneEinkaufspreis()
   },
 )
 
@@ -206,6 +240,8 @@ function handleKatalogPrefill(): void {
     if (match) formular.value.herstellerId = match.id
   }
   if (Number.isFinite(katPreis)) formular.value.listenpreis = katPreis
+  // Katalogpreis ist ein Listenpreis — daraus den EK erzeugen.
+  berechneEinkaufspreis()
 
   // Duplikat-Check: Der Katalog liefert bei jedem Upload dieselben EANs —
   // ohne diesen Hinweis legt der User beim zweiten Durchlauf DoppeltArtikel an.
@@ -224,6 +260,8 @@ function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
   if (felder.bestellnummer !== undefined) formular.value.bestellnummer = felder.bestellnummer
   if (felder.lieferant !== undefined) formular.value.lieferant = felder.lieferant
   if (felder.listenpreis !== undefined) formular.value.listenpreis = felder.listenpreis
+  // Uebernommener Listenpreis -> Einkaufspreis neu erzeugen.
+  berechneEinkaufspreis()
 }
 
 onMounted(() => {
@@ -263,7 +301,7 @@ async function speichern(): Promise<void> {
       verpackungseinheit: formular.value.verpackungseinheit,
       bestellnummer: formular.value.bestellnummer.trim() || null,
       barcode: formular.value.barcode.trim() || null,
-      listenpreis: formular.value.listenpreis,
+      listenpreis: euroZuCent(formular.value.listenpreis),
       // Vertrauliches Feld: nur Admins duerfen es setzen. Fuer alle
       // anderen wird es gar nicht erst in den Payload aufgenommen.
       einkaufspreis: auth.istAdmin ? euroZuCent(formular.value.einkaufspreis) : null,
@@ -435,6 +473,7 @@ const statusOptionen: ArtikelStatus[] = [
             min="0"
             step="0.01"
             :disabled="laufend"
+            @input="berechneEinkaufspreis"
           />
         </label>
         <label v-if="auth.istAdmin">
@@ -447,7 +486,10 @@ const statusOptionen: ArtikelStatus[] = [
             :disabled="laufend"
             data-testid="artikel-form-einkaufspreis"
           />
-          <small class="hint">{{ t('view.artikel.form.einkaufspreisHint') }}</small>
+          <small v-if="rabattsatzFormular !== null" class="hint">
+            {{ t('view.artikel.form.einkaufspreisAuto', { rabatt: rabattsatzFormular }) }}
+          </small>
+          <small v-else class="hint">{{ t('view.artikel.form.einkaufspreisHint') }}</small>
         </label>
 
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>

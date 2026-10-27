@@ -227,6 +227,8 @@ export default {
         einkaufspreis: 'Einkaufspreis (netto, je VE)',
         einkaufspreisHint:
           'Vertraulich: nur für Admins sichtbar. Preis gilt je Verpackungseinheit.',
+        einkaufspreisAuto:
+          'Wird automatisch aus dem Listenpreis und dem Ø-Rabatt des Lieferanten ({rabatt} %) erzeugt.',
         speichern: 'Speichern',
         abbrechen: 'Abbrechen',
         duplikatHinweis: 'Ein Artikel mit diesem Barcode existiert bereits: „{titel}".',
@@ -702,11 +704,16 @@ export default {
       name: 'Name',
       bestellEmail: 'Bestell-E-Mail',
       bestellWebseite: 'Bestell-Webseite',
+      rabattsatz: 'Ø-Rabatt (%)',
+      rabattsatzAnzeige: '− {rabatt} % Rabatt',
+      rabattsatzHint:
+        'Durchschnittlicher Rabatt dieses Lieferanten. Grundlage für den automatisch erzeugten Einkaufspreis (Listenpreis minus Rabatt). 0 = kein Rabatt hinterlegt.',
       hinzufuegen: 'Hinzufügen',
       hinzugefuegt: 'Hersteller hinzugefügt',
       bearbeiten: 'Bearbeiten',
       speichern: 'Speichern',
       gespeichert: 'gespeichert',
+      gespeichertMitEinkaufspreisen: 'gespeichert — {anzahl} Einkaufspreise neu berechnet',
       abbrechen: 'Abbrechen',
       loeschen: 'Löschen',
       geloescht: 'Hersteller gelöscht',
@@ -717,6 +724,7 @@ export default {
       leer: 'Noch keine Hersteller angelegt.',
       fehlerName: 'Name darf nicht leer sein.',
       fehlerEmail: 'Bitte eine gültige E-Mail-Adresse eingeben.',
+      fehlerRabatt: 'Der Rabatt muss zwischen 0 und 100 % liegen.',
       fehlerDuplikat: 'Ein Hersteller mit diesem Namen existiert bereits.',
     },
     common: {

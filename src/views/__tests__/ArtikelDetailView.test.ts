@@ -5,8 +5,9 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import ArtikelDetailView from '../ArtikelDetailView.vue'
 import { i18n } from '../../i18n'
 import { useArtikelStore, type ArtikelEingabe } from '../../stores/artikel'
-import { resetDbForTests } from '../../db/database'
+import { getDb, resetDbForTests } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
+import { sessionSchreiben } from '../../auth/session'
 import * as lookup from '../../services/datanorm/lookup'
 
 vi.mock('../../services/datanorm/lookup', async (importOriginal) => {
@@ -274,6 +275,69 @@ describe('ArtikelDetailView — Katalogübernahme', () => {
 
     const link = banner?.querySelector('a') as HTMLAnchorElement | null
     expect(link?.getAttribute('href')).toBe(`/artikel/${duplikat?.id}`)
+
+    w.unmount()
+  })
+})
+
+describe('ArtikelDetailView — Einkaufspreis aus dem Lieferantenrabatt', () => {
+  beforeEach(() => {
+    sessionSchreiben({
+      userId: 'u1',
+      email: 'admin@example.com',
+      rolle: 'admin',
+      anzeigename: 'Admin',
+      loginAm: '2026-10-19T10:00:00.000Z',
+      mustChangePassword: false,
+      jwtExpiresAt: '2026-10-20T10:00:00.000Z',
+    })
+  })
+
+  afterEach(() => {
+    sessionSchreiben(null)
+  })
+
+  async function setupMitLieferant(rabattsatz: number) {
+    await getDb().hersteller.add({
+      id: 'h-1',
+      name: 'Muster GmbH',
+      bestellEmail: null,
+      bestellWebseite: null,
+      rabattsatz,
+      geaendertAm: '2026-10-19T10:00:00.000Z',
+      erstelltAm: '2026-10-19T10:00:00.000Z',
+    })
+    return setupView(null, [], { herstellerId: 'h-1', listenpreis: 10000 })
+  }
+
+  it('erzeugt den Einkaufspreis aus Listenpreis und Rabattsatz', async () => {
+    const { w } = await setupMitLieferant(20)
+
+    await w.get('[data-testid="artikel-detail-bearbeiten"]').trigger('click')
+    await flushPromises()
+
+    // Listenpreis im Formular (Euro) aendern -> EK folgt automatisch.
+    await setzeWert(eingabeFuer(w, 'Listenpreis'), '200')
+    await flushPromises()
+
+    const ekFeld = w.get('[data-testid="artikel-detail-einkaufspreis"]')
+    expect((ekFeld.element as HTMLInputElement).value).toBe('160')
+    expect(w.text()).toContain('20 %')
+
+    w.unmount()
+  })
+
+  it('lässt den Einkaufspreis unberührt, wenn kein Rabatt hinterlegt ist', async () => {
+    const { w } = await setupMitLieferant(0)
+
+    await w.get('[data-testid="artikel-detail-bearbeiten"]').trigger('click')
+    await flushPromises()
+
+    await setzeWert(eingabeFuer(w, 'Listenpreis'), '200')
+    await flushPromises()
+
+    const ekFeld = w.get('[data-testid="artikel-detail-einkaufspreis"]')
+    expect((ekFeld.element as HTMLInputElement).value).toBe('')
 
     w.unmount()
   })

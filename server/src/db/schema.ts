@@ -173,8 +173,20 @@ export const hersteller = pgTable(
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
+    /**
+     * Bestellkontakt — E-Mail ODER Webseite.
+     */
     bestellEmail: text('bestell_email'),
     bestellWebseite: text('bestell_webseite'),
+    /**
+     * Durchschnittsrabatt dieses Lieferanten in Prozent (0 = kein Rabatt
+     * bekannt). Basis der automatischen EK-Berechnung:
+     * `EK = Listenpreis * (1 - rabattsatz / 100)`.
+     *
+     * NUMERIC, weil 12,5 % realistisch sind. Nur Admin-sichtbar — der
+     * Rabattsatz ist dieselbe Information wie der Einkaufspreis.
+     */
+    rabattsatz: numeric('rabattsatz', { precision: 5, scale: 2 }).notNull().default('0'),
     geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
   },

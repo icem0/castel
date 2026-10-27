@@ -215,7 +215,7 @@ export async function resolvePush(
             await resolveArtikel(tx, op, benutzerRolle === 'admin')
             break
           case 'hersteller':
-            await resolveHersteller(tx, op)
+            await resolveHersteller(tx, op, benutzerRolle === 'admin')
             break
           case 'standort':
             await resolveStandort(tx, op)
@@ -494,7 +494,28 @@ async function resolveArtikel(
 async function resolveHersteller(
   tx: Tx,
   op: Extract<PushOp, { entity: 'hersteller' }>,
+  istAdmin: boolean,
 ): Promise<void> {
+  // Der Rabattsatz ist vertraulich (derselbe Inhalt wie der
+  // Einkaufspreis): Nicht-Admins duerfen ihn weder setzen noch
+  // ueberschreiben.
+  //   * create: explizit 0 (kein Rabatt bekannt)
+  //   * update: Feld entfernen -> der bestehende Server-Wert bleibt stehen
+  const payload: Record<string, unknown> = { ...op.payload }
+  if (!istAdmin) {
+    if (op.op === 'create') {
+      payload['rabattsatz'] = 0
+    } else {
+      delete payload['rabattsatz']
+    }
+  } else {
+    // NUMERIC erwartet einen String (Drizzle mapToDriverValue) — der
+    // Client schickt eine Zahl.
+    const rabattsatz = payload['rabattsatz']
+    if (typeof rabattsatz === 'number' && Number.isFinite(rabattsatz)) {
+      payload['rabattsatz'] = rabattsatz.toFixed(2)
+    }
+  }
   const herstellerId = op.payload.id as string
   if (op.op === 'create') {
     const existing = await tx
@@ -503,12 +524,12 @@ async function resolveHersteller(
       .where(eq(hersteller.id, herstellerId))
       .limit(1)
     if (existing.length > 0) {
-      await applyLastWriterWins(tx, hersteller, op.payload)
+      await applyLastWriterWins(tx, hersteller, payload)
     } else {
-      await tx.insert(hersteller).values(normalizeStammdatenTimestamps(hersteller, op.payload) as never)
+      await tx.insert(hersteller).values(normalizeStammdatenTimestamps(hersteller, payload) as never)
     }
   } else if (op.op === 'update') {
-    await applyLastWriterWins(tx, hersteller, op.payload)
+    await applyLastWriterWins(tx, hersteller, payload)
   } else if (op.op === 'delete') {
     // Hersteller duerfen nur geloescht werden, solange kein Artikel mehr
     // darauf verweist. Der FK ist ON DELETE SET NULL, aber ein stilles

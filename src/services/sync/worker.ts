@@ -30,6 +30,7 @@ import type {
   Standort,
 } from '../../db/types'
 import { jetztIso, neueUuid } from '../../domain/ids'
+import { normalisiereRabattsatz } from '../../domain/rabatt'
 import { setApiBaseUrl } from '../../auth/api'
 import { sessionLesen } from '../../auth/session'
 import { prepareRoleForSync } from './preise'
@@ -955,11 +956,13 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       }
       // Hersteller — LWW wie die uebrigen Stammdaten.
       for (const h of snap.hersteller ?? []) {
-        const existing = await db.hersteller.get(h.id)
+        // Aelteres Server-Format ohne Rabattsatz -> 0 ("kein Rabatt bekannt").
+        const row = { ...h, rabattsatz: normalisiereRabattsatz(h.rabattsatz) }
+        const existing = await db.hersteller.get(row.id)
         if (!existing) {
-          await db.hersteller.add(h)
-        } else if ((h.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
-          await db.hersteller.put(h)
+          await db.hersteller.add(row)
+        } else if ((row.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
+          await db.hersteller.put(row)
         }
       }
       // Mindestbestand je (Artikel, Standort) — LWW auf geaendertAm,

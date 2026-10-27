@@ -17,7 +17,7 @@ import {
 } from '../db/schema.js'
 import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { resolvePush } from './resolver.js'
-import { stripEinkaufspreis } from './preise.js'
+import { mappeHerstellerRabattsatz, stripEinkaufspreis } from './preise.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 
 async function countRows(db: ReturnType<typeof getDb>): Promise<{
@@ -145,7 +145,9 @@ export async function syncRoutes(
         standorte: standortRows,
         commission: projektRows,
         buchungen: buchungRows,
-        hersteller: herstellerRows,
+        // Der Rabattsatz des Lieferanten ist dieselbe Information wie der
+        // Einkaufspreis — nur Admins bekommen ihn (und dann als Zahl).
+        hersteller: mappeHerstellerRabattsatz(herstellerRows, user.rolle === 'admin'),
         artikelStandortMindestbestaende: mindestbestandRows.map((r) => ({
           artikelId: r.artikelId,
           standortId: r.standortId,

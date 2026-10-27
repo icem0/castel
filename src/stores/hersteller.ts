@@ -11,6 +11,7 @@ import { ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
 import type { Hersteller } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
+import { normalisiereRabattsatz } from '../domain/rabatt'
 import { sortiereNachName } from '../domain/sortierung'
 import { queueOp } from '../services/sync/worker'
 
@@ -18,6 +19,9 @@ export interface HerstellerEingabe {
   name: string
   bestellEmail?: string | null
   bestellWebseite?: string | null
+  /** Ø-Rabatt in Prozent (0 = kein Rabatt bekannt). Nur Admins schreiben
+   *  den Wert; der Server ignoriert ihn fuer andere Rollen. */
+  rabattsatz?: number | null
 }
 
 export const useHerstellerStore = defineStore('hersteller', () => {
@@ -63,6 +67,7 @@ export const useHerstellerStore = defineStore('hersteller', () => {
       name: e.name.trim(),
       bestellEmail: e.bestellEmail?.trim() || null,
       bestellWebseite: e.bestellWebseite?.trim() || null,
+      rabattsatz: normalisiereRabattsatz(e.rabattsatz),
       geaendertAm: now,
       erstelltAm: now,
     }

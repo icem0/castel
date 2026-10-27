@@ -20,14 +20,30 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
   - **Der Standard-Standort (Hauptlager) ist geschützt**: weder löschbar noch archivierbar (`PROTECTED_STANDORT`, DB-seitig geprüft).
   - Ein gelöschter Artikel/Standort nimmt seine Konfigurationen per `ON DELETE CASCADE` mit — das Löschen wird dadurch nicht blockiert (Buchungen und Mindestbestand-Ereignisse tun das weiterhin).
 
+### Preise, Rabatt und Lagerwert
+
+- **Geld ist immer eine Ganzzahl in Cent** — `artikel.listenpreis`, `artikel.einkaufspreis`, `hersteller_artikel.preis_*_cent`. Auch die PWA speichert beide Preise in Cent (Dexie v17 hat den früheren Euro-Wert des Artikelformulars umgestellt). Die UI rechnet in Euro und wandelt an der Formulargrenze um (`src/domain/geld.ts`).
+- **Der Ø-Rabatt liegt am Lieferanten** (`hersteller.rabattsatz`, NUMERIC(5,2) in Prozent, Migration `0022`). `hersteller` ist die Lieferanten-Stammdaten-Entität, an der die Artikel hängen (`artikel.hersteller_id`); der Freitext `artikel.lieferant` ist nur der Spiegel für DATANORM/CSV.
+  - **Vertraulich** wie der Einkaufspreis: nur Admins sehen und schreiben ihn. Der Snapshot strippt ihn für andere Rollen (`server/src/sync/preise.ts`), der Push-Resolver ignoriert ihn für Nicht-Admins.
+- **EK-Erzeugung**: `EK = Listenpreis × (1 − rabattsatz / 100)` (reine Logik in `src/domain/rabatt.ts`). Beim Ändern des Listenpreises (Artikelformular/-detail, Katalogübernahme) wird der EK automatisch erzeugt; beim Ändern des Rabattsatzes werden die EKs aller Artikel des Lieferanten neu berechnet (`artikelStore.berechneEinkaufspreise`).
+- **Lagerwert** = Σ (Bestand je Artikel/Standort ÷ VE × EK) — nur positive Bestände, Artikel ohne EK werden gezählt und ausgelassen (`lagerwertAuswertung` in `src/domain/statistik.ts`, Admin-only im Dashboard).
+
 ### Konfiguration vs. Einstellungen
 
 Klar trennen — beides kommt **nicht** zusammen in der DB ab:
 
 - **Konfiguration** (App-weit, ENV, beim Container-Start): `JWT_SECRET`, `CORS_ORIGIN`, `FOTOS_MAX_BYTES`, `RATE_LIMIT_*`, `LOG_LEVEL`, `COOKIE_*`, `DB_*`. Wird vom API-Container aus der `.env` gelesen, lebt nicht in PostgreSQL.
 - **Postgres-Loglevel**: `PG_LOG_LEVEL` in der `.env` (Postgres-GUC `log_min_messages`, Werte `debug5`..`panic`). Wenn leer, wird aus `LOG_LEVEL` gemappt (`trace→debug2`, `debug→debug1`, `info→info`, `warn→warning`, `error→error`); Default ohne beide: `warning`. Bei `debug*/info/notice` aktiviert der `db.command:` in `docker-compose.yml` zusätzlich `log_statement=all` + `log_duration=on` → **jedes** SQL-Statement landet im Log. Nur zum Debuggen setzen, danach wieder auf `warning`/`error` (Log-Flut!).
-- **Einstellungen** (User-/Fach-Präferenzen, änderbar zur Laufzeit, Cross-Device-synchronisiert): `artikelTypen` (global, Admin-only), `sprache` und `standardStandortId` (per-User). Liegen in der `einstellungen`-Tabelle (PK = `(key, user_id)`), LWW auf `geaendert_am`. Die PWA spiegelt sie zusätzlich in IndexedDB (Dexie, Compound-Key `[key+userId]` seit Dexie-Schema v5/v6, aktueller Schema-Stand v15 in `src/db/database.ts`; `userId = ''` als globaler Marker — Domäne arbeitet mit `null`).
+- **Einstellungen** (User-/Fach-Präferenzen, änderbar zur Laufzeit, Cross-Device-synchronisiert): `artikelTypen` (global, Admin-only), `sprache` und `standardStandortId` (per-User). Liegen in der `einstellungen`-Tabelle (PK = `(key, user_id)`), LWW auf `geaendert_am`. Die PWA spiegelt sie zusätzlich in IndexedDB (Dexie, Compound-Key `[key+userId]` seit Dexie-Schema v5/v6, aktueller Schema-Stand v17 in `src/db/database.ts`; `userId = ''` als globaler Marker — Domäne arbeitet mit `null`).
 - **Persistenz**: `einstellungen` läuft über das `pgdata`-Volume des API-Containers, nicht über ein eigenes Volume. Backups via `pg_dump`.
+
+### Migrationen
+
+- **Der Runner entscheidet über den Hash, nicht über Zeitstempel.** `server/src/db/migrate.ts` liest `meta/_journal.json`, bildet den SHA-256 über jede `.sql`-Datei und vergleicht ihn mit `drizzle.__drizzle_migrations`. Angewandt wird alles **nach** der zuletzt angewandten Migration (Index im Journal).
+  - Grund: Drizzle-orms `migrate()` vergleicht nur `created_at` gegen den `when`-Wert des Journals. Die historischen Pseudo-Zeitstempel (`1700000000000 + Index * 1000`) liegen alle vor jedem echten Zeitstempel — bei einer Installation, deren Buchführung echte Zeitstempel trägt, würden die fehlenden Migrationen **nie** angewandt.
+  - Der `when`-Wert im Journal ist rein informativ. Neue Migrationen: Datei unter `server/src/db/migrations/NNNN_name.sql` anlegen, Eintrag in `meta/_journal.json` ergänzen (Index + `tag`; `when` = aktueller Epoch-ms).
+  - **Idempotenz bleibt Pflicht**: jede `.sql`-Datei muss mehrfach ausführbar sein (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, `DROP CONSTRAINT IF EXISTS`), weil der Runner bei einem Teilfehler die Transaktion zurückrollt und der Container-Start sie beim nächsten Mal erneut versucht.
+  - Lokal: `npm run db:migrate` aus `server/` (liest `src/db/migrations/`), im Container `node dist/db/migrate.js` (liest `dist/migrations/`).
 
 ## Build-Metadaten in der PWA
 

@@ -14,6 +14,7 @@ import HerstellerKatalogDrawer, {
   type UebernahmeFelder,
 } from '../components/HerstellerKatalogDrawer.vue'
 import { centZuEuro, euroZuCent, formatiereCent } from '../domain/geld'
+import { berechneEinkaufspreisCent, rabattsatzVon } from '../domain/rabatt'
 import type { Artikel, ArtikelStatus, Buchung } from '../db/types'
 import FotoUpload from './components/FotoUpload.vue'
 
@@ -203,11 +204,41 @@ function bearbeitenStart(): void {
     ),
     bestellnummer: a.bestellnummer ?? '',
     barcode: a.barcode ?? '',
-    listenpreis: a.listenpreis,
+    listenpreis: centZuEuro(a.listenpreis),
     einkaufspreis: centZuEuro(a.einkaufspreis),
   }
   bearbeitFehler.value = ''
   bearbeitet.value = true
+}
+
+/**
+ * Rabattsatz des gewaehlten Lieferanten (Prozent) — `null`, wenn kein
+ * Lieferant gewaehlt ist oder fuer ihn kein Rabatt hinterlegt ist.
+ */
+const rabattsatzFormular = computed<number | null>(() => {
+  const f = formular.value
+  if (!f) return null
+  return rabattsatzVon(herstellerStore.byId(f.herstellerId))
+})
+
+/**
+ * Erzeugt den Einkaufspreis aus dem Listenpreis und dem Rabattsatz des
+ * Lieferanten: `EK = Listenpreis × (1 − Rabatt)`.
+ *
+ * Wird bei jeder Aenderung des Listenpreises und beim Wechsel des
+ * Lieferanten aufgerufen. Ohne hinterlegten Rabattsatz passiert nichts —
+ * der EK bleibt dann manuell pflegbar.
+ */
+function berechneEinkaufspreis(): void {
+  const f = formular.value
+  if (!f || !auth.istAdmin) return
+  const satz = rabattsatzFormular.value
+  if (satz === null) return
+  const listenpreis = typeof f.listenpreis === 'number' ? f.listenpreis : null
+  if (listenpreis === null) return
+  const ekCent = berechneEinkaufspreisCent(euroZuCent(listenpreis), satz)
+  if (ekCent === null) return
+  f.einkaufspreis = centZuEuro(ekCent)
 }
 
 function waehleHersteller(): void {
@@ -215,6 +246,8 @@ function waehleHersteller(): void {
   if (!f) return
   const h = herstellerStore.byId(f.herstellerId)
   if (h) f.lieferant = h.name
+  // Neuer Lieferant = neuer Rabattsatz -> Einkaufspreis neu erzeugen.
+  berechneEinkaufspreis()
 }
 
 // ---------- Catalogue takeover (same drawer as the "new article" form) ----------
@@ -267,6 +300,8 @@ function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
       if (match) f.herstellerId = match.id
     }
   }
+  // Uebernommener Listenpreis -> Einkaufspreis neu erzeugen.
+  berechneEinkaufspreis()
 }
 
 function katalogSchliessen(): void {
@@ -300,7 +335,7 @@ async function bearbeitenSpeichern(): Promise<void> {
       verpackungseinheit: f.verpackungseinheit,
       bestellnummer: f.bestellnummer.trim() || null,
       barcode: f.barcode.trim() || null,
-      listenpreis: f.listenpreis,
+      listenpreis: euroZuCent(f.listenpreis),
       // Vertraulich: Nicht-Admins schicken das Feld gar nicht mit, damit
       // ein lokal vorhandener Alt-Wert nicht versehentlich ueberschrieben
       // wird. Der Server ignoriert es zusaetzlich fuer Nicht-Admins.
@@ -473,7 +508,7 @@ onMounted(() => {
         </div>
         <div v-if="artikel.listenpreis != null">
           <dt>{{ t('view.artikel.form.listenpreis') }}</dt>
-          <dd>{{ artikel.listenpreis.toFixed(2) }} €</dd>
+          <dd>{{ formatiereCent(artikel.listenpreis, locale) }}</dd>
         </div>
         <div v-if="auth.istAdmin && artikel.einkaufspreis != null">
           <dt>{{ t('view.artikel.form.einkaufspreis') }}</dt>
@@ -612,6 +647,7 @@ onMounted(() => {
             min="0"
             step="0.01"
             :disabled="bearbeitLaufend"
+            @input="berechneEinkaufspreis"
           />
         </label>
         <label v-if="auth.istAdmin">
@@ -624,7 +660,10 @@ onMounted(() => {
             :disabled="bearbeitLaufend"
             data-testid="artikel-detail-einkaufspreis"
           />
-          <small class="hint">{{ t('view.artikel.form.einkaufspreisHint') }}</small>
+          <small v-if="rabattsatzFormular !== null" class="hint">
+            {{ t('view.artikel.form.einkaufspreisAuto', { rabatt: rabattsatzFormular }) }}
+          </small>
+          <small v-else class="hint">{{ t('view.artikel.form.einkaufspreisHint') }}</small>
         </label>
 
         <p v-if="bearbeitFehler" class="fehler" role="alert">{{ bearbeitFehler }}</p>

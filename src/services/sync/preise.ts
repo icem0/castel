@@ -6,7 +6,11 @@
 // (und in pending Outbox-Payloads) stehen. Beim Wechsel auf eine
 // Nicht-Admin-Rolle werden sie deshalb entfernt.
 //
-// Umgekehrt reicht ein inkrementeller Snapshot nach einer BeFOERDERUNG
+// Der Ø-Rabatt des Lieferanten (`hersteller.rabattsatz`) ist dieselbe
+// Information in anderer Form — aus dem Listenpreis laesst sich der
+// Einkaufspreis berechnen — und wird genauso bereinigt.
+//
+// Umgekehrt reicht ein inkrementeller Snapshot nach einer beFOERDERUNG
 // zum Admin nicht aus: unveraenderte Artikel-Zeilen wuerden nicht erneut
 // geliefert. Deshalb wird in diesem Fall der `sync.lastPullAt`-Marker
 // geleert, damit der naechste Lauf einen vollen Snapshot zieht.
@@ -37,6 +41,10 @@ function schreibeLetzteRolle(rolle: 'admin' | 'user'): void {
  * Entfernt lokal gespeicherte Einkaufspreise aus Artikeln und aus noch
  * nicht gepushten Artikel-Outbox-Eintraegen.
  *
+ * Der Rabattsatz des Lieferanten (`hersteller.rabattsatz`) ist dieselbe
+ * Information in anderer Form — aus dem Listenpreis laesst sich der
+ * Einkaufspreis berechnen. Er wird deshalb genauso behandelt.
+ *
  * Bewusst ohne `geaendertAm`-Update: die Bereinigung ist eine lokale
  * Sicherheitsmaßnahme, keine fachliche Aenderung. Es wird kein Outbox-Op
  * erzeugt und der Server bleibt unberuehrt.
@@ -46,18 +54,36 @@ export async function bereinigeEinkaufspreiseLokal(): Promise<void> {
   await db.artikel
     .filter((a) => a.einkaufspreis !== null && a.einkaufspreis !== undefined)
     .modify({ einkaufspreis: null })
+  await db.hersteller
+    .filter((h) => h.rabattsatz !== null && h.rabattsatz !== undefined && h.rabattsatz !== 0)
+    .modify({ rabattsatz: 0 })
 
   const artikelOps = await db.outbox.where('entity').equals('artikel').toArray()
   for (const op of artikelOps) {
-    try {
-      const payload = JSON.parse(op.payload) as Record<string, unknown>
-      if (!payload || typeof payload !== 'object') continue
-      if (payload['einkaufspreis'] === null || payload['einkaufspreis'] === undefined) continue
-      payload['einkaufspreis'] = null
-      await db.outbox.update(op.id, { payload: JSON.stringify(payload) })
-    } catch {
-      // Korrupte Outbox-Payloads werden vom Sync separat behandelt.
-    }
+    await setzePayloadFeld(op.id, 'einkaufspreis', null)
+  }
+  const herstellerOps = await db.outbox.where('entity').equals('hersteller').toArray()
+  for (const op of herstellerOps) {
+    await setzePayloadFeld(op.id, 'rabattsatz', 0)
+  }
+}
+
+/**
+ * Setzt ein Feld in einem noch nicht gepushten Outbox-Payload. Der
+ * Payload wird dabei neu serialisiert; korrupte Payloads werden
+ * uebersprungen (der Sync behandelt sie separat).
+ */
+async function setzePayloadFeld(outboxId: string, feld: string, wert: unknown): Promise<void> {
+  const db = getDb()
+  const op = await db.outbox.get(outboxId)
+  if (!op) return
+  try {
+    const payload = JSON.parse(op.payload) as Record<string, unknown>
+    if (!payload || typeof payload !== 'object') return
+    payload[feld] = wert
+    await db.outbox.update(outboxId, { payload: JSON.stringify(payload) })
+  } catch {
+    // Korrupte Outbox-Payloads werden vom Sync separat behandelt.
   }
 }
 

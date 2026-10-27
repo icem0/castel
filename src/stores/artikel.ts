@@ -12,6 +12,7 @@ import { getDb } from '../db/database'
 import type { Artikel, ArtikelStatus, NachbestellHinweis } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
 import { berechneBestand } from '../domain/bestand'
+import { berechneEinkaufspreisCent } from '../domain/rabatt'
 import { sortiereNachName } from '../domain/sortierung'
 import { queueOp } from '../services/sync/worker'
 
@@ -195,6 +196,39 @@ export const useArtikelStore = defineStore('artikel', () => {
   }
 
   /**
+   * Berechnet die Einkaufspreise aller Artikel eines Lieferanten neu:
+   * `EK = Listenpreis × (1 − Ø-Rabatt des Lieferanten)`.
+   *
+   * Wird aufgerufen, wenn der Rabattsatz eines Lieferanten geaendert wird —
+   * die Artikel sollen den neuen Rabatt ohne Einzelbearbeitung abbilden.
+   * Artikel ohne Listenpreis bleiben unberuehrt (ohne Listenpreis gibt es
+   * keinen berechenbaren EK).
+   *
+   * Der Einkaufspreis ist vertraulich: nur Admins duerfen ihn schreiben
+   * (der Server weist den Wert fuer andere Rollen zurueck). Die Funktion
+   * selbst prueft das nicht — das macht die aufrufende Admin-Ansicht.
+   *
+   * Rueckgabe: Anzahl der tatsaechlich geaenderten Artikel.
+   */
+  async function berechneEinkaufspreise(herstellerId: string, rabattsatz: number): Promise<number> {
+    const db = getDb()
+    const alle = await db.artikel.toArray()
+    const betroffen = alle.filter((a) => a.herstellerId === herstellerId)
+    if (betroffen.length === 0) return 0
+    const now = jetztIso()
+    let geaendert = 0
+    for (const a of betroffen) {
+      const ek = berechneEinkaufspreisCent(a.listenpreis, rabattsatz)
+      if (ek === null || ek === a.einkaufspreis) continue
+      const updated: Artikel = { ...a, einkaufspreis: ek, geaendertAm: now }
+      await db.artikel.put(updated)
+      await queueOp('artikel', 'update', updated)
+      geaendert += 1
+    }
+    return geaendert
+  }
+
+  /**
    * Löscht einen Artikel unwiderruflich. Voraussetzung: keine Buchungen
    * und keine Mindestbestand-Ereignisse verweisen auf ihn. Die Prüfung
    * übernimmt der Server (`HAS_DEPENDENCIES`); die UI deaktiviert den
@@ -248,6 +282,7 @@ export const useArtikelStore = defineStore('artikel', () => {
     archivieren,
     markiereEtikettenNeu,
     markiereBestellt,
+    berechneEinkaufspreise,
     loeschen,
   }
 })

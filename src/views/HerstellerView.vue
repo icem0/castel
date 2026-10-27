@@ -16,12 +16,17 @@ const { t } = useI18n()
 const store = useHerstellerStore()
 const artikelStore = useArtikelStore()
 
-onMounted(() => store.start())
+onMounted(() => {
+  store.start()
+  // Der Artikel-Store liefert die Stückzahl je Lieferant (Anzeige,
+  // Löschen-Schutz) und die Artikel für die EK-Neuberechnung.
+  artikelStore.start()
+})
 
-const neu = ref({ name: '', bestellEmail: '', bestellWebseite: '' })
+const neu = ref({ name: '', bestellEmail: '', bestellWebseite: '', rabattsatz: 0 })
 const fehler = ref('')
 const bearbeiteId = ref<string | null>(null)
-const bearbeitung = ref({ name: '', bestellEmail: '', bestellWebseite: '' })
+const bearbeitung = ref({ name: '', bestellEmail: '', bestellWebseite: '', rabattsatz: 0 })
 const speicherStatus = ref('')
 let statusTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -29,10 +34,13 @@ function anzahlArtikel(id: string): number {
   return artikelStore.artikel.filter((a) => a.herstellerId === id).length
 }
 
-function pruefe(name: string, email: string): string | null {
+function pruefe(name: string, email: string, rabattsatz: number): string | null {
   if (!name.trim()) return t('view.hersteller.fehlerName')
   if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
     return t('view.hersteller.fehlerEmail')
+  }
+  if (!Number.isFinite(rabattsatz) || rabattsatz < 0 || rabattsatz > 100) {
+    return t('view.hersteller.fehlerRabatt')
   }
   return null
 }
@@ -47,7 +55,7 @@ function status(meldung: string): void {
 }
 
 async function hinzufuegen(): Promise<void> {
-  const f = pruefe(neu.value.name, neu.value.bestellEmail)
+  const f = pruefe(neu.value.name, neu.value.bestellEmail, neu.value.rabattsatz)
   if (f) {
     fehler.value = f
     return
@@ -60,8 +68,9 @@ async function hinzufuegen(): Promise<void> {
     name: neu.value.name,
     bestellEmail: neu.value.bestellEmail,
     bestellWebseite: neu.value.bestellWebseite,
+    rabattsatz: neu.value.rabattsatz,
   })
-  neu.value = { name: '', bestellEmail: '', bestellWebseite: '' }
+  neu.value = { name: '', bestellEmail: '', bestellWebseite: '', rabattsatz: 0 }
   fehler.value = ''
   status(t('view.hersteller.hinzugefuegt'))
 }
@@ -74,6 +83,7 @@ function bearbeiten(id: string): void {
     name: h.name,
     bestellEmail: h.bestellEmail ?? '',
     bestellWebseite: h.bestellWebseite ?? '',
+    rabattsatz: h.rabattsatz ?? 0,
   }
   fehler.value = ''
 }
@@ -85,7 +95,11 @@ function abbrechen(): void {
 
 async function speichern(): Promise<void> {
   if (!bearbeiteId.value) return
-  const f = pruefe(bearbeitung.value.name, bearbeitung.value.bestellEmail)
+  const f = pruefe(
+    bearbeitung.value.name,
+    bearbeitung.value.bestellEmail,
+    bearbeitung.value.rabattsatz,
+  )
   if (f) {
     fehler.value = f
     return
@@ -95,14 +109,23 @@ async function speichern(): Promise<void> {
     fehler.value = t('view.hersteller.fehlerDuplikat')
     return
   }
-  await store.aktualisieren(bearbeiteId.value, {
+  const id = bearbeiteId.value
+  await store.aktualisieren(id, {
     name: bearbeitung.value.name.trim(),
     bestellEmail: bearbeitung.value.bestellEmail.trim() || null,
     bestellWebseite: bearbeitung.value.bestellWebseite.trim() || null,
+    rabattsatz: bearbeitung.value.rabattsatz,
   })
+  // Der Rabattsatz ist die Basis des "wahren Werts": die Einkaufspreise
+  // der Artikel dieses Lieferanten werden sofort neu berechnet.
+  const geaendert = await artikelStore.berechneEinkaufspreise(id, bearbeitung.value.rabattsatz)
   bearbeiteId.value = null
   fehler.value = ''
-  status(t('view.hersteller.gespeichert'))
+  status(
+    geaendert > 0
+      ? t('view.hersteller.gespeichertMitEinkaufspreisen', { anzahl: geaendert })
+      : t('view.hersteller.gespeichert'),
+  )
 }
 
 async function loeschen(id: string): Promise<void> {
@@ -141,6 +164,17 @@ function webHref(web: string): string {
           <span>{{ t('view.hersteller.bestellWebseite') }}</span>
           <input v-model="neu.bestellWebseite" type="text" autocomplete="off" />
         </label>
+        <label>
+          <span>{{ t('view.hersteller.rabattsatz') }}</span>
+          <input
+            v-model.number="neu.rabattsatz"
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            data-testid="hersteller-rabattsatz"
+          />
+        </label>
         <button type="submit" class="primary">{{ t('view.hersteller.hinzufuegen') }}</button>
       </form>
       <p v-if="fehler && !bearbeiteId" class="fehler">{{ fehler }}</p>
@@ -162,6 +196,17 @@ function webHref(web: string): string {
               <span>{{ t('view.hersteller.bestellWebseite') }}</span>
               <input v-model="bearbeitung.bestellWebseite" type="text" autocomplete="off" />
             </label>
+            <label>
+              <span>{{ t('view.hersteller.rabattsatz') }}</span>
+              <input
+                v-model.number="bearbeitung.rabattsatz"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                data-testid="hersteller-rabattsatz-bearbeiten"
+              />
+            </label>
             <div class="row-actions">
               <button type="submit" class="primary">{{ t('view.hersteller.speichern') }}</button>
               <button type="button" @click="abbrechen">{{ t('view.hersteller.abbrechen') }}</button>
@@ -170,7 +215,12 @@ function webHref(web: string): string {
           </form>
         </template>
         <template v-else>
-          <span class="row-title">{{ h.name }}</span>
+          <span class="row-title">
+            {{ h.name }}
+            <span v-if="(h.rabattsatz ?? 0) > 0" class="rabatt-badge">
+              {{ t('view.hersteller.rabattsatzAnzeige', { rabatt: h.rabattsatz }) }}
+            </span>
+          </span>
           <span class="row-meta">
             <a v-if="h.bestellEmail" :href="`mailto:${h.bestellEmail}`">{{ h.bestellEmail }}</a>
             <a
@@ -220,7 +270,7 @@ function webHref(web: string): string {
 <style scoped>
 .neu-form {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr 1fr auto auto;
   gap: 0.5rem;
   align-items: end;
 }
@@ -251,6 +301,16 @@ function webHref(web: string): string {
   color: var(--text-strong);
 }
 
+.rabatt-badge {
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 .row-meta {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -272,7 +332,7 @@ function webHref(web: string): string {
 .edit-form {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr auto;
   gap: 0.5rem;
   align-items: end;
 }

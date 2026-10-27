@@ -41,6 +41,7 @@ A4 labels, minimum-stock alerts and DATANORM catalog import.
 | 🧮 **Stocktaking** | Recording the target quantity automatically creates a difference booking. |
 | 🔔 **Minimum stock** | Alert when stock falls below the threshold, optional repeating sound, order status and “Order now” directly from the alert. |
 | 🏭 **Manufacturers** | Master data with order email and order website – the basis for the ordering workflow. |
+| 💰 **Avg. discount & inventory value** | Discount per supplier: the purchase price is generated automatically from the list price. Purchase price × stock yields the inventory value in the dashboard (admins only). |
 | 📚 **DATANORM catalogs** | Upload DATANORM 4/5 files, search supplier catalogs and copy fields directly into the article form. Includes import history and duplicate detection. |
 | 📥 **CSV import** | Wizard with column mapping and validation for article master data. |
 | 🌓 **Theme & language** | Dark/light/system and German/English – per user, applied immediately and synced across devices. |

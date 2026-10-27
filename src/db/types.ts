@@ -37,6 +37,8 @@ export interface Artikel {
    *  Neue Artikel starten mit `true`; die Marker lassen sich per Button
    *  setzen bzw. loeschen (siehe `etikettenIstNeu` in src/domain/etiketten.ts). */
   etikettenNeu: boolean
+  /** Listenpreis in Cent (Ganzzahl) — wie `einkaufspreis`. Die UI rechnet
+   *  in Euro und wandelt an der Formulargrenze um (siehe `domain/geld.ts`). */
   listenpreis: number | null
   /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admin-sichtbar
    *  und nur fuer Admins im lokalen Spiegel (siehe Sync-Rollenlogik). */
@@ -66,6 +68,15 @@ export interface Hersteller {
   name: string
   bestellEmail: string | null
   bestellWebseite: string | null
+  /**
+   * Durchschnittsrabatt dieses Lieferanten in Prozent (0 = kein Rabatt
+   * bekannt). Basis der automatischen EK-Berechnung:
+   * `EK = Listenpreis * (1 - rabattsatz / 100)`.
+   *
+   * Vertraulich wie der Einkaufspreis: nur Admins bekommen den Wert vom
+   * Server und duerfen ihn schreiben.
+   */
+  rabattsatz: number
   geaendertAm: Iso | null
   erstelltAm: Iso
 }
