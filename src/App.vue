@@ -10,10 +10,11 @@ import { useProjektStore } from './stores/projekt'
 import { useAuditStore } from './stores/audit'
 import { useAuthStore } from './stores/auth'
 import { useSyncStore } from './stores/sync'
+import { useToastStore } from './stores/toast'
 import { getApiBaseUrl } from './auth/api'
 import { applyTheme } from './theme'
 
-import { zaehleAbweichungen } from './services/sync/worker'
+import { discardQuarantine, releaseQuarantine, zaehleAbweichungen } from './services/sync/worker'
 import { istMobilLayout, MOBILE_LAYOUT_QUERY } from './services/layout'
 import { version, commit, branch, buildDate } from './version'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
@@ -47,6 +48,7 @@ const projekt = useProjektStore()
 const audit = useAuditStore()
 const auth = useAuthStore()
 const sync = useSyncStore()
+const toast = useToastStore()
 // Public-Routen zeigen kein Header-Layout.
 const istPublicRoute = computed(() => route.meta.public === true)
 
@@ -455,6 +457,80 @@ async function manuellSync(): Promise<void> {
   await ladeSyncDetail()
 }
 
+const quarantineBusy = ref<string | null>(null)
+
+async function quarantineFreigeben(outboxId: string): Promise<void> {
+  if (quarantineBusy.value) return
+  quarantineBusy.value = outboxId
+  try {
+    await releaseQuarantine(outboxId)
+    toast.show({ text: t('app.sync.freigegeben'), status: 'success' })
+  } finally {
+    quarantineBusy.value = null
+  }
+}
+
+async function quarantineVerwerfen(outboxId: string): Promise<void> {
+  if (quarantineBusy.value) return
+  if (!confirm(t('app.sync.verwerfenFrage'))) return
+  quarantineBusy.value = outboxId
+  try {
+    await discardQuarantine(outboxId)
+    toast.show({ text: t('app.sync.verworfen'), status: 'info' })
+  } finally {
+    quarantineBusy.value = null
+  }
+}
+
+const nichtGespeicherteBuchungen = computed(() =>
+  buchung.buchungen.filter((b) => b.nichtGespeichert === true),
+)
+
+const syncBannerSichtbar = computed(
+  () =>
+    online.value &&
+    (sync.status.status === 'error' ||
+      sync.status.status === 'offline' ||
+      sync.status.status === 'origin-unavailable' ||
+      sync.status.quarantined > 0 ||
+      nichtGespeicherteBuchungen.value.length > 0),
+)
+
+const syncBannerText = computed((): string => {
+  if (nichtGespeicherteBuchungen.value.length > 0) {
+    return t('app.sync.nichtGespeichert', { anzahl: nichtGespeicherteBuchungen.value.length })
+  }
+  if (sync.status.lastError) {
+    return t('app.sync.fehler', { fehler: sync.status.lastError })
+  }
+  if (sync.status.quarantined > 0) {
+    return t('app.sync.quarantaene', { anzahl: sync.status.quarantined })
+  }
+  if (sync.status.pending > 0) {
+    return t('app.sync.ausstehend', { anzahl: sync.status.pending })
+  }
+  return t('app.sync.fehler', { fehler: t('app.sync.fehlerUnbekannt') })
+})
+
+const lastSyncToastAt = new Map<string, number>()
+watch(
+  () => sync.status.lastErrorFingerprint,
+  (fingerprint) => {
+    if (!fingerprint) return
+    const now = Date.now()
+    if (now - (lastSyncToastAt.get(fingerprint) ?? 0) < 5 * 60_000) return
+    lastSyncToastAt.set(fingerprint, now)
+    toast.show({
+      id: 'sync-fehler',
+      text: t('app.sync.toastFehler', {
+        fehler: sync.status.lastError ?? t('app.sync.fehlerUnbekannt'),
+      }),
+      status: 'error',
+      timeoutMs: 8_000,
+    })
+  },
+)
+
 const syncZustand = computed<
   | 'offline'
   | 'error'
@@ -468,7 +544,7 @@ const syncZustand = computed<
   const st = sync.status
   if (!online.value) return 'offline'
   if (st.status === 'origin-unavailable') return 'origin-unavailable'
-  if (st.status === 'error') return 'error'
+  if (st.status === 'offline' || st.status === 'error') return 'error'
   if (st.status === 'syncing') return 'syncing'
   if (st.pending > 0) return 'pending'
   const diff = zaehleAbweichungen(st.localCounts, st.serverCounts)
@@ -607,6 +683,15 @@ function formatRelativ(iso: string | null): string {
     <div v-if="!online" class="offline-banner" role="status" aria-live="polite">
       <span class="dot"></span>
       Offline – Daten werden lokal gespeichert und sind verfügbar.
+    </div>
+    <div v-else-if="syncBannerSichtbar" class="sync-error-banner" role="alert">
+      <span class="sync-error-copy">
+        <strong>{{ t('app.sync.bannerTitel') }}</strong>
+        <span>{{ syncBannerText }}</span>
+      </span>
+      <button type="button" @click.stop="toggleSyncPanel">
+        {{ t('app.sync.details') }}
+      </button>
     </div>
     <header class="app-header">
       <div class="brand">
@@ -848,6 +933,18 @@ function formatRelativ(iso: string | null): string {
             </span>
           </dd>
         </div>
+        <div>
+          <dt>{{ t('app.sync.ungeloest') }}</dt>
+          <dd>
+            <span :class="sync.status.unresolved > 0 ? 'wert-warn' : 'wert-ok'">
+              {{ sync.status.unresolved }}
+            </span>
+          </dd>
+        </div>
+        <div v-if="sync.status.quarantined > 0">
+          <dt>{{ t('app.sync.quarantineTitel') }}</dt>
+          <dd class="wert-warn">{{ sync.status.quarantined }}</dd>
+        </div>
         <div v-if="sync.status.lastError" class="flex items-center gap-2">
           <dt>Letzter Fehler</dt>
           <dd class="wert-fehler">{{ lastErrorMitVersion }}</dd>
@@ -1041,6 +1138,35 @@ function formatRelativ(iso: string | null): string {
         </p>
       </div>
 
+      <div v-if="sync.status.quarantinedItems.length > 0" class="sync-quarantine-block">
+        <strong>{{ t('app.sync.quarantineTitel') }}</strong>
+        <p>{{ t('app.sync.quarantineHinweis') }}</p>
+        <ul class="sync-diag-list">
+          <li v-for="q in sync.status.quarantinedItems" :key="q.outboxId">
+            <code class="mono">{{ q.entity }}/{{ q.op }}</code>
+            <span class="muted">{{ q.payloadId.slice(0, 8) }}…</span>
+            <div class="wert-warn">{{ q.quarantineReason }}</div>
+            <div class="sync-quarantine-actions">
+              <button
+                type="button"
+                :disabled="quarantineBusy === q.outboxId"
+                @click="quarantineFreigeben(q.outboxId)"
+              >
+                {{ t('app.sync.erneutVersuchen') }}
+              </button>
+              <button
+                type="button"
+                class="danger"
+                :disabled="quarantineBusy === q.outboxId"
+                @click="quarantineVerwerfen(q.outboxId)"
+              >
+                {{ t('app.sync.verwerfen') }}
+              </button>
+            </div>
+          </li>
+        </ul>
+      </div>
+
       <h3>Datensätze</h3>
       <table class="sync-counts">
         <thead>
@@ -1165,6 +1291,39 @@ function formatRelativ(iso: string | null): string {
   background: #1a1206;
   border-radius: 50%;
   display: inline-block;
+}
+
+.sync-error-banner {
+  background: rgba(248, 113, 113, 0.16);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.5);
+  color: var(--text-strong);
+  padding: 0.45rem 1rem;
+  font-size: 0.82rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+}
+.sync-error-copy {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.sync-error-copy span {
+  overflow-wrap: anywhere;
+}
+.sync-error-banner button {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-strong);
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .app-header {
@@ -1611,6 +1770,42 @@ function formatRelativ(iso: string | null): string {
 .sync-diag-block strong {
   display: block;
   margin-bottom: 0.25rem;
+}
+.sync-quarantine-block {
+  margin-top: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-left: 3px solid #f59e0b;
+  border-radius: 0.25rem;
+  font-size: 0.85rem;
+}
+.sync-quarantine-block > strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+.sync-quarantine-block > p {
+  margin: 0 0 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.sync-quarantine-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+}
+.sync-quarantine-actions button {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+}
+.sync-quarantine-actions button.danger {
+  border-color: rgba(248, 113, 113, 0.6);
+  color: var(--danger);
 }
 .sync-diag-message {
   margin: 0.2rem 0 0.35rem;

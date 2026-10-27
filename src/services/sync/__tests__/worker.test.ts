@@ -1600,3 +1600,168 @@ describe('Sync — Mindestbestand-Ereignis-Snapshot', () => {
     expect(marker?.value).toBe('2026-04-14T11:00:00.000Z')
   })
 })
+
+describe('Sync — skipped & reconcile', () => {
+  function syncResponse(overrides: Record<string, unknown>): Response {
+    return new Response(
+      JSON.stringify({
+        serverTime: new Date().toISOString(),
+        counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
+        ...overrides,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  it('behandelt server-skipped Items wie akzeptiert (Outbox wird synced)', async () => {
+    const id = neueUuid()
+    await outboxAdd('buchung', 'create', {
+      id,
+      artikelId: neueUuid(),
+      standortId: neueUuid(),
+      typ: 'einlagerung',
+      menge: 1,
+    } as unknown)
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      if (url.endsWith('/api/sync/push') && method === 'POST') {
+        return syncResponse({
+          accepted: [],
+          skipped: [{ id, reason: 'DUPLICATE_ID' }],
+          conflicts: [],
+          errors: [],
+        })
+      }
+      if (url.includes('/api/sync/snapshot')) {
+        return syncResponse({
+          since: '1970-01-01T00:00:00.000Z',
+          artikel: [],
+          standorte: [],
+          commission: [],
+          buchungen: [],
+          einstellungen: [],
+        })
+      }
+      if (url.endsWith('/api/sync/status')) {
+        return syncResponse({
+          counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 1 },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { runSync, getSyncStatus } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    const items = await getDb().outbox.toArray()
+    expect(items).toHaveLength(1)
+    expect(items[0]?.syncedAt).not.toBeNull()
+    expect(getSyncStatus().pending).toBe(0)
+  })
+
+  it('markiert lokal vorhandene, serverseitig fehlende Buchungen als nicht gespeichert', async () => {
+    const b = buchungsAnlage(neueUuid(), neueUuid(), neueUuid(), 1)
+    await getDb().buchungen.add(b)
+    const reconcileCalls: string[][] = []
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/sync/snapshot')) {
+        return syncResponse({
+          since: '1970-01-01T00:00:00.000Z',
+          artikel: [],
+          standorte: [],
+          commission: [],
+          buchungen: [],
+          einstellungen: [],
+        })
+      }
+      if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
+        const body = JSON.parse(String(init?.body)) as { ids: string[] }
+        reconcileCalls.push(body.ids)
+        return new Response(JSON.stringify({ present: [], missing: body.ids }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/api/sync/status')) {
+        return syncResponse({
+          counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    expect(reconcileCalls).toEqual([[b.id]])
+    const stored = await getDb().buchungen.get(b.id)
+    expect(stored?.nichtGespeichert).toBe(true)
+    expect(stored?.skipReason).toBe('SERVER_MISSING')
+    expect(stored?.serverVerworfenAt).toBeTruthy()
+  })
+
+  it('entfernt das Flag wieder, wenn der Server die Buchung doch kennt', async () => {
+    const b = { ...buchungsAnlage(neueUuid(), neueUuid(), neueUuid(), 1), nichtGespeichert: true }
+    await getDb().buchungen.add(b)
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/sync/snapshot')) {
+        return syncResponse({
+          since: '1970-01-01T00:00:00.000Z',
+          artikel: [],
+          standorte: [],
+          commission: [],
+          buchungen: [b],
+          einstellungen: [],
+        })
+      }
+      if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
+        const body = JSON.parse(String(init?.body)) as { ids: string[] }
+        return new Response(JSON.stringify({ present: body.ids, missing: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/api/sync/status')) {
+        return syncResponse({
+          counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 1 },
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    const stored = await getDb().buchungen.get(b.id)
+    expect(stored?.nichtGespeichert).toBe(false)
+    expect(stored?.skipReason).toBeNull()
+  })
+
+  it('fetchWithTimeout bricht auch dann ab, wenn fetch das Signal ignoriert', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => new Promise<Response>(() => {})),
+      )
+      const { fetchWithTimeout, SyncTimeoutError } = await import('../worker')
+      const p = fetchWithTimeout('http://test.local/slow', {}, 50)
+      const expectation = expect(p).rejects.toBeInstanceOf(SyncTimeoutError)
+      await vi.advanceTimersByTimeAsync(60)
+      await expectation
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

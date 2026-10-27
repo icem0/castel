@@ -43,6 +43,7 @@ async function main() {
           : { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss' } },
     },
     bodyLimit: 4 * 1024 * 1024, // 4 MB für Push-Payloads
+    connectionTimeout: config.HTTP_CONNECTION_TIMEOUT_MS,
   })
 
   // Plugins

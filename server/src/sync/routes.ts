@@ -1,7 +1,7 @@
 // Sync-Routes: GET /api/sync/snapshot, GET /api/sync/status, POST /api/sync/push.
 
 import type { FastifyInstance } from 'fastify'
-import { and, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
   artikel,
@@ -11,7 +11,7 @@ import {
   projekte,
   standorte,
 } from '../db/schema.js'
-import { pushPayloadSchema, snapshotQuerySchema } from '../domain/validierung.js'
+import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { resolvePush } from './resolver.js'
 import { stripEinkaufspreis } from './preise.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
@@ -135,6 +135,32 @@ export async function syncRoutes(
       return reply.send({
         serverTime: new Date().toISOString(),
         counts,
+      })
+    },
+  )
+
+  // ---------- POST /api/sync/reconcile ----------
+  // Cheap existence check for local booking IDs. The client uses it to
+  // detect bookings that were marked synced locally but never reached the
+  // server (e.g. after a partial/aborted push).
+  app.post(
+    '/api/sync/reconcile',
+    { preHandler: app.requireAuth },
+    async (req, reply) => {
+      const parsed = reconcileSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+      }
+      const ids = parsed.data.ids
+      const db = getDb()
+      const rows = await db
+        .select({ id: buchungen.id })
+        .from(buchungen)
+        .where(inArray(buchungen.id, ids))
+      const presentIds = new Set(rows.map((r) => r.id))
+      return reply.send({
+        present: ids.filter((id) => presentIds.has(id)),
+        missing: ids.filter((id) => !presentIds.has(id)),
       })
     },
   )

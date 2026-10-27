@@ -78,6 +78,11 @@ const pushSchema = z.discriminatedUnion('entity', [
 
 export interface ResolverResult {
   accepted: string[] // op-IDs (payload.id)
+  /** Ops that were valid but intentionally changed nothing (idempotent no-op). */
+  skipped: Array<{
+    id: string
+    reason: string
+  }>
   conflicts: Array<{
     id: string
     reason: string
@@ -110,7 +115,7 @@ export async function resolvePush(
    */
   gateway?: NotificationGateway,
 ): Promise<ResolverResult> {
-  const result: ResolverResult = { accepted: [], conflicts: [], errors: [] }
+  const result: ResolverResult = { accepted: [], skipped: [], conflicts: [], errors: [] }
   /** Sammelt alle in diesem Resolver-Lauf erzeugten Mindestbestand-
    *  Events. Wird am Ende an `gateway.dispatchMindestbestandEvent`
    *  durchgereicht (fire-and-forget, damit die Antwort-Latenz nicht
@@ -146,9 +151,13 @@ export async function resolvePush(
         })
     } else {
       try {
-        const paarEvents = await resolveUmlagerungPaar(db, list)
-        for (const op of list) result.accepted.push(op.payload.id)
-        events.push(...paarEvents)
+        const paar = await resolveUmlagerungPaar(db, list)
+        result.skipped.push(...paar.skipped)
+        const skippedIds = new Set(paar.skipped.map((s) => s.id))
+        for (const op of list) {
+          if (!skippedIds.has(op.payload.id)) result.accepted.push(op.payload.id)
+        }
+        events.push(...paar.events)
       } catch (err) {
         for (const op of list) pushBuchungsError(result, op.payload.id, err, op)
       }
@@ -161,6 +170,7 @@ export async function resolvePush(
     const op = ops[i]!
     try {
       let buchungsEvent: MindestbestandEreignisRow | null = null
+      let skipReason: string | null = null
       await db.transaction(async (tx) => {
         switch (op.entity) {
           case 'artikel':
@@ -178,14 +188,22 @@ export async function resolvePush(
             // and is invisible to any other pooled connection — reading via
             // `db` stored stale values (e.g. 0) in
             // `mindestbestand_ereignisse.bestand_danach`.
-            buchungsEvent = await resolveBuchung(tx, op, tx)
+            buchungsEvent = await resolveBuchung(tx, op, tx, (reason) => {
+              skipReason = reason
+            })
             break
-          case 'einstellung':
-            await resolveEinstellung(tx, op, benutzerId, benutzerRolle)
+          case 'einstellung': {
+            const applied = await resolveEinstellung(tx, op, benutzerId, benutzerRolle)
+            if (!applied) skipReason = 'STALE_SETTING'
             break
+          }
         }
 
         const entitaetId = entitaetIdFor(op)
+        if (skipReason) {
+          result.skipped.push({ id: entitaetId, reason: skipReason })
+          return
+        }
         await tx.insert(auditLog).values({
           id: crypto.randomUUID(),
           aktion: op.op,
@@ -590,6 +608,7 @@ export async function resolveBuchungCreate(
   tx: Tx,
   b: BuchungPayload,
   bestandQuerier: BestandQuerier,
+  onSkip?: (reason: string) => void,
 ): Promise<MindestbestandEreignisRow | null> {
   // 1) Idempotenz: gleiche ID → 200 duplicate. Buchungen sind append-only,
   //    ein späterer Push derselben ID ändert nichts. Die storno-Markierung
@@ -597,7 +616,10 @@ export async function resolveBuchungCreate(
   //    abgeleitet (siehe Schritt 2) — sonst könnte ein veralteter Client
   //    einen Storno zurücksetzen.
   const existing = await tx.select().from(buchungen).where(eq(buchungen.id, b.id)).limit(1)
-  if (existing.length > 0) return null
+  if (existing.length > 0) {
+    onSkip?.('DUPLICATE_ID')
+    return null
+  }
 
   // 2) Storno-Kette. Eine eingehende Storno-Buchung verweist per `stornoVon`
   //    auf ihr Ziel:
@@ -629,6 +651,7 @@ export async function resolveBuchungCreate(
     if (ziel?.typ === 'storno') {
       aufhebungVon = ziel.stornoVon ?? null
     } else if (ziel?.storno === true) {
+      onSkip?.('DUPLICATE_STORNO')
       return null // doppelter Storno: idempotent no-op
     }
   }
@@ -743,32 +766,38 @@ async function resolveBuchung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'buchung' }>,
   bestandQuerier: BestandQuerier,
+  onSkip?: (reason: string) => void,
 ): Promise<MindestbestandEreignisRow | null> {
   if (op.op !== 'create') {
     throw new ValidationError('buchung.op', 'nur "create" erlaubt (append-only)')
   }
-  return resolveBuchungCreate(tx, op.payload as BuchungPayload, bestandQuerier)
+  return resolveBuchungCreate(tx, op.payload as BuchungPayload, bestandQuerier, onSkip)
 }
 
 /**
  * Pusht ein Umlagerungs-Paar atomar in EINER DB-Transaktion. Beide
  * Hälften werden gemeinsam validiert und eingefügt — entweder beide
- * oder keine. Gibt eine Liste der in dieser Transaktion ausgelösten
- * Mindestbestand-Ereignisse zurück (typisch 0 oder 1, abhängig vom
- * Quellbestand).
+ * oder keine. Gibt die ausgelösten Mindestbestand-Ereignisse und die
+ * idempotent übersprungenen Hälften zurück.
  */
 async function resolveUmlagerungPaar(
   db: PostgresJsDatabase<typeof schema>,
   ops: ReadonlyArray<Extract<PushOp, { entity: 'buchung' }>>,
-): Promise<MindestbestandEreignisRow[]> {
+): Promise<{
+  events: MindestbestandEreignisRow[]
+  skipped: Array<{ id: string; reason: string }>
+}> {
   const events: MindestbestandEreignisRow[] = []
+  const skipped: Array<{ id: string; reason: string }> = []
   await db.transaction(async (tx) => {
     for (const op of ops) {
-      const ev = await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx)
+      const ev = await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx, (reason) => {
+        skipped.push({ id: op.payload.id, reason })
+      })
       if (ev) events.push(ev)
     }
   })
-  return events
+  return { events, skipped }
 }
 
 // ---------- Einstellungs-Resolver ----------
@@ -781,7 +810,7 @@ async function resolveEinstellung(
   op: Extract<PushOp, { entity: 'einstellung' }>,
   benutzerId: string,
   benutzerRolle: 'admin' | 'user',
-): Promise<void> {
+): Promise<boolean> {
   const p = op.payload as {
     key: string
     userId: string | null
@@ -821,18 +850,19 @@ async function resolveEinstellung(
       value: p.value,
       geaendertAm: incomingGeaendertAm,
     })
-    return
+    return true
   }
   // Nur überschreiben, wenn die eingehende Version neuer ist.
   // Auch hier: Drizzle-string-vs-Date normalisieren.
   const existingRow = existing[0]
-  if (!existingRow) return
+  if (!existingRow) return true
   const existingGeaendertAm = toDateOrThrow(existingRow.geaendertAm)
   if (incomingGeaendertAm.getTime() <= existingGeaendertAm.getTime()) {
-    return
+    return false
   }
   await tx
     .update(einstellungen)
     .set({ value: p.value, geaendertAm: incomingGeaendertAm })
     .where(where)
+  return true
 }

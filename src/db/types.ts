@@ -81,6 +81,14 @@ export interface Buchung {
    *  Im Normalfall identisch mit `id` — nur abweichend, wenn Server-Replikation
    *  eine andere ID vergibt (zukünftiges Feature). */
   serverId: string | null
+  /**
+   * Local-only marker for a booking that exists in IndexedDB but not on the
+   * server (reconcile found it missing). Such a booking is never deleted.
+   */
+  nichtGespeichert?: boolean
+  skipReason?: string | null
+  skipBemerkung?: string | null
+  serverVerworfenAt?: string | null
 }
 
 export interface Projekt {

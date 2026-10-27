@@ -156,6 +156,11 @@ export const pushPayloadSchema = z.object({
     .max(500, 'maximal 500 ops pro Push'),
 })
 
+/** IDs lokaler Buchungen, deren Existenz der Client gegen den Server prüft. */
+export const reconcileSchema = z.object({
+  ids: z.array(id).min(1, 'mindestens eine ID').max(500, 'maximal 500 IDs pro Request'),
+})
+
 // ---------- Auth ----------
 
 export const loginSchema = z.object({

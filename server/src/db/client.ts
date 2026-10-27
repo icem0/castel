@@ -21,6 +21,10 @@ export function getClient() {
       idle_timeout: 30,
       connect_timeout: 10,
       prepare: false, // wegen pgbouncer-Kompatibilität
+      connection: {
+        statement_timeout: config.DB_STATEMENT_TIMEOUT_MS,
+        idle_in_transaction_session_timeout: config.DB_IDLE_TX_TIMEOUT_MS,
+      },
     })
   }
   return _client

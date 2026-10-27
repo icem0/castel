@@ -12,6 +12,26 @@ export default {
       standorte: 'Locations',
       einstellungen: 'Settings',
     },
+    sync: {
+      bannerTitel: 'Synchronization',
+      nichtGespeichert: '{anzahl} booking(s) not saved on the server',
+      fehler: 'Sync error: {fehler}',
+      fehlerUnbekannt: 'Unknown synchronization error',
+      ausstehend: '{anzahl} change(s) waiting to be sent',
+      quarantaene: '{anzahl} item(s) in quarantine',
+      details: 'Show details',
+      toastFehler: 'Sync error: {fehler}',
+      quarantineTitel: 'Sync quarantine',
+      quarantineHinweis:
+        'The server permanently rejected these changes. Retry them or discard them locally.',
+      erneutVersuchen: 'Retry',
+      verwerfen: 'Discard',
+      verwerfenFrage: 'Discard this quarantine item permanently? It will never be pushed again.',
+      freigegeben: 'Item released — it will be retried on the next sync.',
+      verworfen: 'Item discarded.',
+      ungeloest: 'Unresolved',
+      lokalNichtGespeichert: 'Not saved on server',
+    },
   },
   view: {
     dashboard: {

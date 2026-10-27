@@ -42,6 +42,11 @@ const QUARANTINE_THRESHOLD = 5
 /** Server-Codes, die ein Item sofort stilllegen (kein Retry hilft). */
 const HARD_QUARANTINE_CODES = new Set(['UNKNOWN_REFERENCE', 'BEREITS_STORNIED', 'HAS_DEPENDENCIES'])
 
+export const PUSH_TIMEOUT_MS = 30_000
+export const SNAPSHOT_TIMEOUT_MS = 90_000
+export const SERVER_STATUS_TIMEOUT_MS = 10_000
+export const RUN_TIMEOUT_MS = 120_000
+
 // ---------- Backoff (rein, ohne Side-Effects → testbar) ----------
 
 /**
@@ -132,6 +137,21 @@ export function parseRetryAfter(
 
 // ---------- HTTP-Fehler ----------
 
+export class SyncTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SyncTimeoutError'
+  }
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === 'AbortError' ||
+      (typeof DOMException !== 'undefined' && err instanceof DOMException))
+  )
+}
+
 /** Vom Server stammender Fehler mit optionalem Retry-After. */
 export class SyncHttpError extends Error {
   readonly status: number
@@ -170,6 +190,59 @@ async function readErrorBody(res: Response): Promise<string> {
   }
 }
 
+/**
+ * Fetch wrapper with a hard client-side timeout. A hung request must not
+ * leave the worker in a silent `syncing` state, so the timer rejects even
+ * when the fetch mock/transport ignores `signal`.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  parentSignal: AbortSignal | null = null,
+): Promise<Response> {
+  const controller = new AbortController()
+  let onParentAbort: (() => void) | null = null
+
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      if (parentSignal.reason instanceof SyncTimeoutError) throw parentSignal.reason
+      throw new SyncTimeoutError(`Sync-Fetch abgebrochen: ${url}`)
+    }
+    onParentAbort = () => controller.abort(parentSignal.reason)
+    parentSignal.addEventListener('abort', onParentAbort, { once: true })
+  }
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const err = new SyncTimeoutError(`Sync-Timeout nach ${timeoutMs}ms: ${url}`)
+        controller.abort(err)
+        reject(err)
+      }, timeoutMs)
+    })
+
+    try {
+      return await Promise.race([fetch(url, { ...init, signal: controller.signal }), timeout])
+    } catch (err) {
+      if (parentSignal?.aborted && parentSignal.reason instanceof SyncTimeoutError) {
+        throw parentSignal.reason
+      }
+      if (isAbortError(err)) {
+        if (parentSignal?.aborted && parentSignal.reason instanceof SyncTimeoutError) {
+          throw parentSignal.reason
+        }
+        throw new SyncTimeoutError(`Sync-Fetch abgebrochen: ${url}`)
+      }
+      throw err
+    }
+  } finally {
+    if (timeoutHandle !== null) clearTimeout(timeoutHandle)
+    if (onParentAbort) parentSignal?.removeEventListener('abort', onParentAbort)
+  }
+}
+
 // ---------- Typen ----------
 
 export interface SyncSnapshot {
@@ -195,6 +268,8 @@ export interface SyncSnapshot {
 
 export interface PushResult {
   accepted: string[]
+  /** Valid ops that changed nothing on the server (idempotent no-ops). */
+  skipped?: Array<{ id: string; reason: string }>
   conflicts: Array<{ id: string; reason: string }>
   errors: Array<{
     id: string
@@ -281,9 +356,22 @@ export interface QuarantinedItem {
   createdAt: string
 }
 
+export type SyncStep =
+  | 'prepare'
+  | 'push'
+  | 'snapshot'
+  | 'serverStatus'
+  | 'counts'
+  | 'reconcile'
+  | 'done'
+  | 'timeout'
+  | null
+
 export interface SyncStatus {
   status: 'idle' | 'syncing' | 'offline' | 'error' | 'origin-unavailable'
   pending: number
+  /** Pending + quarantined items that still need an explicit user action. */
+  unresolved: number
   /** Anzahl manuell stillgelegter Outbox-Items (Quarantäne). */
   quarantined: number
   /** Erste paar quarantinierte Items für die UI. */
@@ -300,12 +388,19 @@ export interface SyncStatus {
   nextRetryAt: string | null
   /** Strukturierte Diagnose-Info für den letzten Fehler (oder `null`). */
   lastFailure: SyncLastFailure | null
+  /** Last worker phase for UI/diagnostics. */
+  lastStep: SyncStep
+  lastStepAt: string | null
+  lastErrorCode: string | null
+  lastErrorAt: string | null
+  lastErrorFingerprint: string | null
 }
 
 const LISTENERS = new Set<(s: SyncStatus) => void>()
 let _status: SyncStatus = {
   status: 'idle',
   pending: 0,
+  unresolved: 0,
   quarantined: 0,
   quarantinedItems: [],
   lastSyncAt: null,
@@ -315,6 +410,11 @@ let _status: SyncStatus = {
   serverTime: null,
   nextRetryAt: null,
   lastFailure: null,
+  lastStep: null,
+  lastStepAt: null,
+  lastErrorCode: null,
+  lastErrorAt: null,
+  lastErrorFingerprint: null,
 }
 let _intervalHandle: ReturnType<typeof setInterval> | null = null
 /**
@@ -358,6 +458,9 @@ let _authRevokedNotified = false
  */
 let _rerunRequested = false
 let _rerunOpts: { token: string | null; apiBase: string } | null = null
+let _runToken = 0
+let _runAbort: AbortController | null = null
+let _watchdogHandle: ReturnType<typeof setTimeout> | null = null
 
 export function getSyncStatus(): SyncStatus {
   return _status
@@ -387,19 +490,26 @@ export async function fetchSnapshot(
   token: string | null,
   since: string,
   mindestSince?: string,
+  signal: AbortSignal | null = null,
+  timeoutMs: number = SNAPSHOT_TIMEOUT_MS,
 ): Promise<SyncSnapshot> {
   const params = new URLSearchParams()
   if (since) params.set('since', since)
   if (mindestSince) params.set('mindestSince', mindestSince)
   const qs = params.toString()
   const url = `${apiBase}/api/sync/snapshot${qs ? `?${qs}` : ''}`
-  const res = await fetch(url, {
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  const res = await fetchWithTimeout(
+    url,
+    {
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
     },
-    credentials: 'include',
-  })
+    timeoutMs,
+    signal,
+  )
   if (!res.ok) {
     const body = await readErrorBody(res)
     const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'))
@@ -411,16 +521,27 @@ export async function fetchSnapshot(
   return (await res.json()) as SyncSnapshot
 }
 
-async function pushOps(apiBase: string, token: string | null, ops: unknown[]): Promise<PushResult> {
-  const res = await fetch(`${apiBase}/api/sync/push`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+async function pushOps(
+  apiBase: string,
+  token: string | null,
+  ops: unknown[],
+  signal: AbortSignal | null = null,
+  timeoutMs: number = PUSH_TIMEOUT_MS,
+): Promise<PushResult> {
+  const res = await fetchWithTimeout(
+    `${apiBase}/api/sync/push`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ ops }),
     },
-    credentials: 'include',
-    body: JSON.stringify({ ops }),
-  })
+    timeoutMs,
+    signal,
+  )
   if (!res.ok) {
     const body = await readErrorBody(res)
     const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'))
@@ -435,14 +556,21 @@ async function pushOps(apiBase: string, token: string | null, ops: unknown[]): P
 export async function fetchServerStatus(
   apiBase: string,
   token: string | null,
+  signal: AbortSignal | null = null,
+  timeoutMs: number = SERVER_STATUS_TIMEOUT_MS,
 ): Promise<ServerStatus> {
-  const res = await fetch(`${apiBase}/api/sync/status`, {
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  const res = await fetchWithTimeout(
+    `${apiBase}/api/sync/status`,
+    {
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
     },
-    credentials: 'include',
-  })
+    timeoutMs,
+    signal,
+  )
   if (!res.ok) {
     const body = await readErrorBody(res)
     const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'))
@@ -452,6 +580,93 @@ export async function fetchServerStatus(
     })
   }
   return (await res.json()) as ServerStatus
+}
+
+interface ReconcileResult {
+  present: string[]
+  missing: string[]
+}
+
+const RECONCILE_BATCH_SIZE = 500
+
+async function postReconcile(
+  apiBase: string,
+  token: string | null,
+  ids: string[],
+  signal: AbortSignal | null,
+): Promise<ReconcileResult> {
+  const res = await fetchWithTimeout(
+    `${apiBase}/api/sync/reconcile`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ ids }),
+    },
+    PUSH_TIMEOUT_MS,
+    signal,
+  )
+  if (!res.ok) {
+    const body = await readErrorBody(res)
+    const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'))
+    throw new SyncHttpError(res.status, `Reconcile HTTP ${res.status}: ${body}`, {
+      retryAfterMs,
+      category: categorizeStatus(res.status),
+    })
+  }
+  return (await res.json()) as ReconcileResult
+}
+
+/**
+ * Compare local booking IDs with the server. Missing IDs are marked locally
+ * as "not saved" (never deleted). IDs that are present clear an older mark.
+ * With `allLocal = false` only already-marked rows are checked, which keeps
+ * later syncs cheap once the known divergence has been marked.
+ */
+async function reconcileBookings(
+  apiBase: string,
+  token: string | null,
+  signal: AbortSignal | null,
+  allLocal: boolean,
+): Promise<number> {
+  const db = getDb()
+  const rows = allLocal
+    ? await db.buchungen.toArray()
+    : await db.buchungen.filter((b) => b.nichtGespeichert === true).toArray()
+  const ids = rows.map((b) => b.id)
+  if (ids.length === 0) return 0
+
+  let missingCount = 0
+  for (let i = 0; i < ids.length; i += RECONCILE_BATCH_SIZE) {
+    if (signal?.aborted) throw new SyncTimeoutError('Sync abgebrochen')
+    const chunk = ids.slice(i, i + RECONCILE_BATCH_SIZE)
+    const result = await postReconcile(apiBase, token, chunk, signal)
+    const present = new Set(result.present)
+    const missing = new Set(result.missing)
+    const at = jetztIso()
+    for (const id of chunk) {
+      if (present.has(id)) {
+        await db.buchungen.update(id, {
+          nichtGespeichert: false,
+          skipReason: null,
+          skipBemerkung: null,
+          serverVerworfenAt: null,
+        })
+      } else if (missing.has(id)) {
+        missingCount++
+        await db.buchungen.update(id, {
+          nichtGespeichert: true,
+          skipReason: 'SERVER_MISSING',
+          skipBemerkung: 'Buchung ist lokal vorhanden, fehlt aber auf dem Server.',
+          serverVerworfenAt: at,
+        })
+      }
+    }
+  }
+  return missingCount
 }
 
 async function getLocalCounts(): Promise<TableCounts> {
@@ -577,6 +792,18 @@ async function quarantinedSnapshot(): Promise<{
   return { quarantined: quar, quarantinedItems: items }
 }
 
+async function syncCountPatch(): Promise<
+  Pick<SyncStatus, 'pending' | 'unresolved' | 'quarantined' | 'quarantinedItems'>
+> {
+  const [pending, q] = await Promise.all([pendingCount(), quarantinedSnapshot()])
+  return {
+    pending,
+    unresolved: pending + q.quarantined,
+    quarantined: q.quarantined,
+    quarantinedItems: q.quarantinedItems,
+  }
+}
+
 /**
  * Setzt alle Outbox-Items zurück (attempts=0, lastError=null), die wegen
  * eines abgelaufenen Tokens als failed markiert wurden. syncedAt bleibt
@@ -628,6 +855,16 @@ async function collectStuckItems(limit = 5): Promise<SyncLastFailure['stuckItems
     })
   }
   return out
+}
+
+function syncErrorFingerprint(
+  source: SyncFailureSource,
+  code: string,
+  status: number | null,
+  message: string,
+): string {
+  const normalized = message.replace(/\s+/g, ' ').trim().slice(0, 180)
+  return `${source ?? 'unknown'}:${code}:${status ?? 0}:${normalized}`
 }
 
 // ---------- Snapshot-Merge ----------
@@ -763,7 +1000,86 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
   // and partly refill it.
   if (_paused) return
   if (_running) return
+
+  const runToken = ++_runToken
+  const timeoutToken = runToken + 1
   _running = true
+  _runAbort = new AbortController()
+  const signal = _runAbort.signal
+
+  const safeUpdate = (patch: Partial<SyncStatus>): void => {
+    if (_runToken === runToken) updateStatus(patch)
+  }
+  const setStep = (step: SyncStep): void => {
+    safeUpdate({ lastStep: step, lastStepAt: jetztIso() })
+  }
+
+  _watchdogHandle = setTimeout(() => {
+    if (_runToken !== runToken || !_running) return
+    const err = new SyncTimeoutError(`Sync-Lauf nach ${RUN_TIMEOUT_MS}ms abgebrochen`)
+    const at = jetztIso()
+    const backoffMs = computeBackoffMs(_consecutiveFailures + 1)
+    const nextRetryAt = backoffMs > 0 ? new Date(Date.now() + backoffMs).toISOString() : null
+
+    _runToken = timeoutToken
+    _running = false
+    if (_watchdogHandle) {
+      clearTimeout(_watchdogHandle)
+      _watchdogHandle = null
+    }
+    _runAbort?.abort(err)
+    _runAbort = null
+    console.error('[sync]', err)
+    _consecutiveFailures += 1
+    updateStatus({
+      status: 'error',
+      lastError: err.message,
+      lastFailure: {
+        at,
+        source: 'network',
+        status: null,
+        code: 'SYNC_TIMEOUT',
+        message: err.message,
+        retryAfterMs: null,
+        rejectedItems: 0,
+        sampleErrors: [],
+        stuckItems: [],
+      },
+      lastStep: 'timeout',
+      lastStepAt: at,
+      lastErrorCode: 'SYNC_TIMEOUT',
+      lastErrorAt: at,
+      lastErrorFingerprint: syncErrorFingerprint('network', 'SYNC_TIMEOUT', null, err.message),
+      nextRetryAt,
+    })
+    void Promise.all([
+      syncCountPatch().catch(() => ({
+        pending: _status.pending,
+        unresolved: _status.unresolved,
+        quarantined: _status.quarantined,
+        quarantinedItems: _status.quarantinedItems,
+      })),
+      getLocalCounts().catch(() => _status.localCounts),
+      collectStuckItems(5).catch(() => []),
+    ]).then(([counts, localCounts, stuckItems]) => {
+      if (_runToken !== timeoutToken) return
+      updateStatus({
+        ...counts,
+        localCounts,
+        lastFailure: {
+          at,
+          source: 'network',
+          status: null,
+          code: 'SYNC_TIMEOUT',
+          message: err.message,
+          retryAfterMs: null,
+          rejectedItems: 0,
+          sampleErrors: [],
+          stuckItems,
+        },
+      })
+    })
+  }, RUN_TIMEOUT_MS)
 
   const { token, apiBase } = opts
   const session = sessionLesen()
@@ -780,13 +1096,14 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
   const lastPull = (await getDb().einstellungen.get(['sync.lastPullAt', '']))?.value ?? null
 
   try {
-    updateStatus({ status: 'syncing' })
+    safeUpdate({ status: 'syncing', lastStep: 'prepare', lastStepAt: jetztIso() })
     // Latch: merkt, ob der Push-Handler Items abgelehnt hat.
     // Wird im success-Pfad genutzt, um den Status auf 'error' zu
     // belassen und die Diagnose nicht wegzuschmeißen.
     let hadPartialRejection = false
 
     // 1) Push
+    setStep('push')
     const batch = await nextBatch()
     if (batch.length > 0) {
       // Wir behalten für jedes Item den Outbox-Eintrag, damit wir hinterher
@@ -840,8 +1157,10 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       }
       if (ops.length > 0) {
         try {
-          const result = await pushOps(apiBase, token, ops)
+          const result = await pushOps(apiBase, token, ops, signal)
+          if (_runToken !== runToken) return
           const acceptedIds = new Set(result.accepted)
+          const skippedIds = new Set((result.skipped ?? []).map((s) => s.id))
           const conflictsById = new Map(result.conflicts.map((c) => [c.id, c.reason]))
           const errorsById = new Map(
             result.errors.map((e) => [e.id, { code: e.code, msg: `${e.code}: ${e.message}` }]),
@@ -866,7 +1185,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
           }
           for (const it of items) {
             const outboxRow = await getDb().outbox.get(it.outboxId)
-            if (acceptedIds.has(it.payloadId)) {
+            if (acceptedIds.has(it.payloadId) || skippedIds.has(it.payloadId)) {
               await markSynced(it.outboxId)
             } else if (conflictsById.has(it.payloadId)) {
               // Quarantäne VOR markFailed — wenn das Item quarantiniert
@@ -890,39 +1209,59 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
           // aber an den Status, damit die UI sie sehen kann.
           if (lastPushDiagnosis.rejectedItems > 0) {
             hadPartialRejection = true
-            updateStatus({
-              lastError: `Server hat ${lastPushDiagnosis.rejectedItems} von ${items.length} Items abgelehnt`,
+            const msg = `Server hat ${lastPushDiagnosis.rejectedItems} von ${items.length} Items abgelehnt`
+            const at = jetztIso()
+            const stuckItems = await collectStuckItems(5)
+            const counts = await syncCountPatch()
+            safeUpdate({
+              lastError: msg,
               lastFailure: {
-                at: jetztIso(),
+                at,
                 source: 'push',
                 status: 200,
                 code: 'PARTIAL_REJECTED',
-                message: `Server hat ${lastPushDiagnosis.rejectedItems} von ${items.length} Items abgelehnt`,
+                message: msg,
                 retryAfterMs: null,
                 ...lastPushDiagnosis,
-                stuckItems: await collectStuckItems(5),
+                stuckItems,
               },
-              ...(await quarantinedSnapshot()),
+              ...counts,
+              lastStep: 'push',
+              lastStepAt: at,
+              lastErrorCode: 'PARTIAL_REJECTED',
+              lastErrorAt: at,
+              lastErrorFingerprint: syncErrorFingerprint('push', 'PARTIAL_REJECTED', 200, msg),
             })
           }
         } catch (e) {
+          if (_runToken !== runToken) return
           // Gesamter Push fehlgeschlagen (z. B. Netzwerk oder HTTP-Fehler).
           const http = e instanceof SyncHttpError ? e : null
+          const timeout = e instanceof SyncTimeoutError ? e : null
           const msg = e instanceof Error ? e.message : String(e)
+          const at = jetztIso()
+          const source: SyncFailureSource = http ? 'push' : 'network'
+          const code = timeout ? 'SYNC_TIMEOUT' : (http?.category ?? 'NETWORK')
           for (const it of items) await markFailed(it.outboxId, msg)
-          updateStatus({
+          const stuckItems = await collectStuckItems(5)
+          const counts = await syncCountPatch()
+          safeUpdate({
             lastError: msg,
             lastFailure: {
-              at: jetztIso(),
-              source: http ? 'push' : 'network',
+              at,
+              source,
               status: http?.status ?? null,
-              code: http?.category ?? 'NETWORK',
+              code,
               message: msg,
               retryAfterMs: http?.retryAfterMs ?? null,
               rejectedItems: 0,
               sampleErrors: [],
-              stuckItems: await collectStuckItems(5),
+              stuckItems,
             },
+            ...counts,
+            lastErrorCode: code,
+            lastErrorAt: at,
+            lastErrorFingerprint: syncErrorFingerprint(source, code, http?.status ?? null, msg),
           })
           throw e
         }
@@ -933,6 +1272,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     // Mindestbestand-Marker lesen: Default = "Anbeginn der Zeit" =
     //    komplettes Event-Set. Der Client schickt seinen letzten
     //    Event-Timestamp, um nur die Änderungen zu ziehen.
+    setStep('snapshot')
     const lastMindestPull =
       (await getDb().einstellungen.get(['mindestbestand.lastPullAt', '']))?.value ?? null
     const snap = await fetchSnapshot(
@@ -940,21 +1280,28 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       token,
       lastPull ?? '1970-01-01T00:00:00.000Z',
       lastMindestPull ?? '1970-01-01T00:00:00.000Z',
+      signal,
     )
+    if (_runToken !== runToken) return
     await applySnapshot(snap)
+    if (_runToken !== runToken) return
 
     // 3) Server-Status für Divergenz-Anzeige holen
     let serverCounts: TableCounts | null = _status.serverCounts
     let serverTime: string | null = _status.serverTime
+    setStep('serverStatus')
     try {
-      const st = await fetchServerStatus(apiBase, token)
+      const st = await fetchServerStatus(apiBase, token, signal)
+      if (_runToken !== runToken) return
       serverCounts = st.counts
       serverTime = st.serverTime
     } catch {
       // Counts sind nur Anzeige – Fehler hier sind nicht kritisch.
     }
 
+    setStep('counts')
     let localCounts: TableCounts = await getLocalCounts()
+    if (_runToken !== runToken) return
 
     // 4) Self-Healing: Wenn der inkrementelle Pull nichts brachte, aber
     //    der Server in mindestens einer Tabelle mehr Zeilen hat als
@@ -982,6 +1329,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
           'Pull lieferte nichts. Setze Marker zurück und hole vollen Snapshot.',
         { lastPull, localCounts, serverCounts },
       )
+      if (_runToken !== runToken) return
       // Marker zurücksetzen: `value = ''` lässt runSync beim nächsten Lauf
       // `lastPull` als `null` lesen (siehe `?? null` weiter oben) und damit
       // den vollen Snapshot ziehen. Wir löschen NICHT die Zeile, weil
@@ -993,11 +1341,15 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
         value: '',
         geaendertAm: jetztIso(),
       })
-      const fullSnap = await fetchSnapshot(apiBase, token, '', '1970-01-01T00:00:00.000Z')
+      if (_runToken !== runToken) return
+      const fullSnap = await fetchSnapshot(apiBase, token, '', '1970-01-01T00:00:00.000Z', signal)
+      if (_runToken !== runToken) return
       await applySnapshot(fullSnap)
+      if (_runToken !== runToken) return
       // Counts nach Heilung neu holen.
       try {
-        const st = await fetchServerStatus(apiBase, token)
+        const st = await fetchServerStatus(apiBase, token, signal)
+        if (_runToken !== runToken) return
         serverCounts = st.counts
         serverTime = st.serverTime
       } catch {
@@ -1012,26 +1364,52 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       }
     }
 
-    updateStatus({
+    if (_runToken !== runToken) return
+    const notSavedRows = await getDb()
+      .buchungen.filter((b) => b.nichtGespeichert === true)
+      .count()
+    const stillPending = await pendingCount()
+    // Never reconcile while own writes are still queued: those bookings are
+    // legitimately absent from the server yet and must not be flagged.
+    const needsFullReconcile =
+      stillPending === 0 &&
+      serverCounts !== null &&
+      localCounts !== null &&
+      serverCounts.buchungen < localCounts.buchungen - notSavedRows
+    if (stillPending === 0 && (needsFullReconcile || notSavedRows > 0)) {
+      setStep('reconcile')
+      await reconcileBookings(apiBase, token, signal, needsFullReconcile)
+      if (_runToken !== runToken) return
+    }
+
+    const counts = await syncCountPatch()
+    if (_runToken !== runToken) return
+    const finishedAt = jetztIso()
+    safeUpdate({
       status: hadPartialRejection ? 'error' : 'idle',
-      lastSyncAt: jetztIso(),
+      lastSyncAt: finishedAt,
       // lastError/lastFailure nur zurücksetzen, wenn der aktuelle
       // Zyklus keine Ablehnung hatte (und der catch-Block sie nicht
       // schon wegen eines späteren Fehlers überschrieben hat).
       lastError: hadPartialRejection ? _status.lastError : null,
       lastFailure: hadPartialRejection ? _status.lastFailure : null,
-      pending: await pendingCount(),
-      ...(await quarantinedSnapshot()),
+      ...counts,
       serverCounts,
       serverTime,
       localCounts,
       nextRetryAt: null,
+      lastStep: 'done',
+      lastStepAt: finishedAt,
+      lastErrorCode: hadPartialRejection ? _status.lastErrorCode : null,
+      lastErrorAt: hadPartialRejection ? _status.lastErrorAt : null,
+      lastErrorFingerprint: hadPartialRejection ? _status.lastErrorFingerprint : null,
     })
     _consecutiveFailures = 0
     // Erfolgreicher Push beweist: Token ist wieder gültig (oder war es die
     // ganze Zeit, z. B. nach manuellem Re-Login). Latch lösen.
     _authRevokedNotified = false
   } catch (e) {
+    if (_runToken !== runToken) return
     const msg = e instanceof Error ? e.message : String(e)
     let localCounts: TableCounts | null = _status.localCounts
     try {
@@ -1039,9 +1417,11 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     } catch {
       // Counts sind nur Anzeige – Fehler hier sind nicht kritisch.
     }
+    if (_runToken !== runToken) return
 
     const isNetwork = /Failed to fetch|NetworkError|fetch|load failed/i.test(msg)
     const http = e instanceof SyncHttpError ? e : null
+    const timeout = e instanceof SyncTimeoutError ? e : null
 
     _consecutiveFailures++
     const backoffMs = computeBackoffMs(_consecutiveFailures)
@@ -1053,38 +1433,46 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     // hat (partieller Erfolg mit Server-Rejects). Sonst überschreiben wir
     // dessen Source/Code mit der hier beobachteten Information.
     const existingFailure = _status.lastFailure
+    const at = jetztIso()
+    const source: SyncFailureSource =
+      existingFailure?.source ?? (timeout || isNetwork ? 'network' : 'snapshot')
+    const code = timeout ? 'SYNC_TIMEOUT' : (http?.category ?? (isNetwork ? 'NETWORK' : 'UNKNOWN'))
     const newFailure: SyncLastFailure = {
-      at: jetztIso(),
-      source: existingFailure?.source ?? (isNetwork ? 'network' : 'snapshot'),
+      at,
+      source,
       status: http?.status ?? null,
-      code: http?.category ?? (isNetwork ? 'NETWORK' : 'UNKNOWN'),
+      code,
       message: msg,
       retryAfterMs: http?.retryAfterMs ?? null,
       rejectedItems: existingFailure?.rejectedItems ?? 0,
       sampleErrors: existingFailure?.sampleErrors ?? [],
       stuckItems: await collectStuckItems(5),
     }
+    if (_runToken !== runToken) return
+    const counts = await syncCountPatch()
+    if (_runToken !== runToken) return
+    const failurePatch: Partial<SyncStatus> = {
+      lastError: msg,
+      ...counts,
+      localCounts,
+      lastFailure: newFailure,
+      lastErrorCode: code,
+      lastErrorAt: at,
+      lastErrorFingerprint: syncErrorFingerprint(source, code, newFailure.status, msg),
+    }
 
     if (isNetwork) {
-      updateStatus({
+      safeUpdate({
+        ...failurePatch,
         status: 'offline',
-        lastError: msg,
-        pending: await pendingCount(),
-        ...(await quarantinedSnapshot()),
-        localCounts,
         nextRetryAt,
-        lastFailure: newFailure,
       })
     } else if (http?.category === 'origin-unavailable') {
       // 5xx: Server/Origin ist down — kein Punkt, alle 30s zu hämmern.
-      updateStatus({
+      safeUpdate({
+        ...failurePatch,
         status: 'origin-unavailable',
-        lastError: msg,
-        pending: await pendingCount(),
-        ...(await quarantinedSnapshot()),
-        localCounts,
         nextRetryAt,
-        lastFailure: newFailure,
       })
     } else if (http?.category === 'auth') {
       // Token abgelaufen o. ä. — User muss sich neu einloggen.
@@ -1095,14 +1483,12 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       // attempts/lastError der Outbox-Items (sie sind nicht wirklich
       // kaputt — der Token ist es).
       await resetOutboxAfterAuthRevoked()
-      updateStatus({
+      if (_runToken !== runToken) return
+      safeUpdate({
+        ...failurePatch,
         status: 'error',
         lastError: 'Sitzung abgelaufen — bitte neu anmelden.',
-        pending: await pendingCount(),
-        ...(await quarantinedSnapshot()),
-        localCounts,
         nextRetryAt: null,
-        lastFailure: newFailure,
       })
       // Callback NUR aufrufen, wenn er noch nicht im aktuellen
       // Auth-Invalid-Zyklus gefeuert wurde. Verhindert Endlos-Trigger,
@@ -1117,23 +1503,26 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
         }
       }
     } else {
-      updateStatus({
+      safeUpdate({
+        ...failurePatch,
         status: 'error',
-        lastError: msg,
-        pending: await pendingCount(),
-        ...(await quarantinedSnapshot()),
-        localCounts,
         nextRetryAt,
-        lastFailure: newFailure,
       })
     }
   } finally {
-    _running = false
-    if (_rerunRequested) {
-      const opts = _rerunOpts
-      _rerunRequested = false
-      _rerunOpts = null
-      if (opts) void runSync(opts)
+    if (_runToken === runToken) {
+      if (_watchdogHandle !== null) {
+        clearTimeout(_watchdogHandle)
+        _watchdogHandle = null
+      }
+      _runAbort = null
+      _running = false
+      if (_rerunRequested) {
+        const opts = _rerunOpts
+        _rerunRequested = false
+        _rerunOpts = null
+        if (opts) void runSync(opts)
+      }
     }
   }
 }
@@ -1191,7 +1580,7 @@ export async function refreshStatus(opts: {
     serverCounts,
     serverTime,
     lastError,
-    ...(await quarantinedSnapshot()),
+    ...(await syncCountPatch()),
   })
 }
 
@@ -1279,7 +1668,28 @@ export function stopSyncWorker(): void {
     document.removeEventListener('visibilitychange', _visibilityHandler)
     _visibilityHandler = null
   }
+  abortRunningSync('Sync-Worker gestoppt')
   _paused = true
+}
+
+/**
+ * Invalidates the current run token and aborts its signal so an in-flight
+ * sync stops at the next guard instead of continuing against a stopped /
+ * suspended worker.
+ */
+function abortRunningSync(reason: string): void {
+  if (!_runAbort) return
+  _runToken += 1
+  _running = false
+  _rerunRequested = false
+  _rerunOpts = null
+  if (_watchdogHandle !== null) {
+    clearTimeout(_watchdogHandle)
+    _watchdogHandle = null
+  }
+  const controller = _runAbort
+  _runAbort = null
+  controller.abort(new SyncTimeoutError(reason))
 }
 
 /**
@@ -1335,10 +1745,7 @@ export async function releaseQuarantine(outboxId: string): Promise<void> {
     quarantinedAt: null,
     quarantineReason: null,
   })
-  updateStatus({
-    pending: await pendingCount(),
-    ...(await quarantinedSnapshot()),
-  })
+  updateStatus(await syncCountPatch())
 }
 
 /**
@@ -1347,10 +1754,7 @@ export async function releaseQuarantine(outboxId: string): Promise<void> {
  */
 export async function discardQuarantine(outboxId: string): Promise<void> {
   await getDb().outbox.delete(outboxId)
-  updateStatus({
-    pending: await pendingCount(),
-    ...(await quarantinedSnapshot()),
-  })
+  updateStatus(await syncCountPatch())
 }
 
 // ---------- Test-Helfer ----------
@@ -1363,6 +1767,7 @@ export function _resetSyncForTests(): void {
   _status = {
     status: 'idle',
     pending: 0,
+    unresolved: 0,
     quarantined: 0,
     quarantinedItems: [],
     lastSyncAt: null,
@@ -1372,6 +1777,11 @@ export function _resetSyncForTests(): void {
     serverTime: null,
     nextRetryAt: null,
     lastFailure: null,
+    lastStep: null,
+    lastStepAt: null,
+    lastErrorCode: null,
+    lastErrorAt: null,
+    lastErrorFingerprint: null,
   }
   _consecutiveFailures = 0
   _authRevokedNotified = false
@@ -1380,6 +1790,16 @@ export function _resetSyncForTests(): void {
   _rerunOpts = null
   _paused = false
   _suspended = false
+  _runToken = 0
+  _running = false
+  if (_watchdogHandle !== null) {
+    clearTimeout(_watchdogHandle)
+    _watchdogHandle = null
+  }
+  if (_runAbort) {
+    _runAbort.abort(new SyncTimeoutError('Sync reset for tests'))
+    _runAbort = null
+  }
   if (_intervalHandle) {
     clearInterval(_intervalHandle)
     _intervalHandle = null

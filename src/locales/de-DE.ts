@@ -12,6 +12,27 @@ export default {
       standorte: 'Standorte',
       einstellungen: 'Einstellungen',
     },
+    sync: {
+      bannerTitel: 'Synchronisierung',
+      nichtGespeichert: '{anzahl} Buchung(en) nicht auf dem Server gespeichert',
+      fehler: 'Sync-Fehler: {fehler}',
+      fehlerUnbekannt: 'Unbekannter Synchronisierungsfehler',
+      ausstehend: '{anzahl} Änderung(en) warten auf Übertragung',
+      quarantaene: '{anzahl} Eintrag/Einträge in Quarantäne',
+      details: 'Details anzeigen',
+      toastFehler: 'Sync-Fehler: {fehler}',
+      quarantineTitel: 'Sync-Quarantäne',
+      quarantineHinweis:
+        'Diese Änderungen wurden vom Server dauerhaft abgelehnt. Erneut versuchen oder lokal verwerfen.',
+      erneutVersuchen: 'Erneut versuchen',
+      verwerfen: 'Verwerfen',
+      verwerfenFrage:
+        'Diesen Quarantäne-Eintrag endgültig verwerfen? Er wird nie wieder zum Server gepusht.',
+      freigegeben: 'Eintrag freigegeben — wird beim nächsten Sync erneut versucht.',
+      verworfen: 'Eintrag verworfen.',
+      ungeloest: 'Ungelöst',
+      lokalNichtGespeichert: 'Nicht auf Server gespeichert',
+    },
   },
   view: {
     dashboard: {

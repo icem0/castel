@@ -8,7 +8,7 @@ import {
   UnbekannteReferenzError,
   ValidationError,
 } from '../domain/errors.js'
-import { pushPayloadSchema } from '../domain/validierung.js'
+import { pushPayloadSchema, reconcileSchema } from '../domain/validierung.js'
 import type { PushOp } from '../sync/resolver.js'
 
 describe('Resolver — Strategie', () => {
@@ -220,5 +220,21 @@ describe('pushPayloadSchema — einstellung', () => {
       ],
     })
     expect(r.success).toBe(false)
+  })
+})
+
+describe('reconcileSchema', () => {
+  it('akzeptiert 1 bis 500 IDs', () => {
+    expect(reconcileSchema.safeParse({ ids: ['b1'] }).success).toBe(true)
+    expect(
+      reconcileSchema.safeParse({ ids: Array.from({ length: 500 }, (_, i) => `b${i}`) }).success,
+    ).toBe(true)
+  })
+
+  it('lehnt leere und zu große Batches ab', () => {
+    expect(reconcileSchema.safeParse({ ids: [] }).success).toBe(false)
+    expect(
+      reconcileSchema.safeParse({ ids: Array.from({ length: 501 }, (_, i) => `b${i}`) }).success,
+    ).toBe(false)
   })
 })

@@ -284,4 +284,31 @@ describe('Sync-Resolver — Storno-Kette', () => {
     expect(row(state, 'x-1').storno).toBe(true)
     expect(row(state, 'x-1').storniertDurch).toBe('s-2')
   })
+
+  it('bereits vorhandene Buchung wird als skipped gemeldet, nicht als accepted', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const state = makeState([
+      {
+        id: 'x-1',
+        artikelId: 'a-1',
+        standortId: 's-1',
+        typ: 'einlagerung',
+        menge: 10,
+        storno: false,
+        stornoVon: null,
+        storniertDurch: null,
+      },
+    ])
+
+    const result = await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(basis('x-1'))],
+      'u-1',
+      'user',
+    )
+
+    expect(result.accepted).toEqual([])
+    expect(result.skipped).toEqual([{ id: 'x-1', reason: 'DUPLICATE_ID' }])
+    expect(state.buchungen).toHaveLength(1)
+  })
 })

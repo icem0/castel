@@ -7,11 +7,17 @@ import { z } from 'zod'
 const schema = z.object({
   // Postgres
   DATABASE_URL: z.string().url(),
+  /** Abort a single SQL statement instead of blocking a sync request forever. */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  /** Abort connections that leave a transaction idle (prevents lock pile-ups). */
+  DB_IDLE_TX_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
 
   // HTTP
   PORT: z.coerce.number().int().positive().default(3000),
   HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /** Hard limit for slow/half-open client connections (sync uploads included). */
+  HTTP_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(65000),
 
   // Auth
   JWT_SECRET: z.string().min(32, 'JWT_SECRET muss mindestens 32 Zeichen haben'),

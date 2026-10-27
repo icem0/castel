@@ -233,6 +233,13 @@ async function stornoAufheben(s: Buchung): Promise<void> {
           <td>{{ nameStandort(b.standortId) }}</td>
           <td>
             <span class="badge">{{ formatTyp(b.typ) }}</span>
+            <span
+              v-if="b.nichtGespeichert"
+              class="badge badge-nicht-gespeichert"
+              :title="b.skipBemerkung ?? t('app.sync.lokalNichtGespeichert')"
+            >
+              {{ t('app.sync.lokalNichtGespeichert') }}
+            </span>
           </td>
           <td :class="b.menge > 0 ? 'num-plus' : b.menge < 0 ? 'num-minus' : 'num'">
             {{ b.menge > 0 ? '+' : '' }}{{ b.menge }}
@@ -290,5 +297,11 @@ async function stornoAufheben(s: Buchung): Promise<void> {
 .data .storno td.num-plus,
 .data .storno td.num-minus {
   color: var(--text-muted, #888);
+}
+.badge-nicht-gespeichert {
+  margin-left: 0.35rem;
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.5);
 }
 </style>
