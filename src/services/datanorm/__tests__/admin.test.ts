@@ -73,13 +73,17 @@ describe('services/datanorm/admin', () => {
       gesendet = opts?.body as FormData
       return Promise.resolve({
         importId: 'imp-1',
-        status: 'fertig',
+        status: 'erfolg',
         artikelAnzahl: 5,
-        artikelNeu: 5,
-        artikelAktualisiert: 0,
-        artikelDeaktiviert: 0,
+        neu: 5,
+        aktualisiert: 0,
+        deaktiviert: 0,
+        uebersprungen: 0,
         fehlerAnzahl: 0,
-        gestartetAm: '2026-01-01T00:00:00Z',
+        fehlerDetails: [],
+        encoding: 'cp850',
+        version: 4,
+        auffaelligkeiten: [],
       })
     })
 
@@ -94,7 +98,7 @@ describe('services/datanorm/admin', () => {
     expect(gesendet!.get('lieferantId')).toBe('l1')
     expect(gesendet!.get('encoding')).toBe('cp850')
     expect(gesendet!.get('datei')).toBe(file)
-    expect(res).toMatchObject({ importId: 'imp-1', status: 'fertig' })
+    expect(res).toMatchObject({ importId: 'imp-1', status: 'erfolg', artikelAnzahl: 5, neu: 5 })
   })
 
   it('ladeImporte ruft GET /api/datanorm/importe', async () => {

@@ -115,7 +115,16 @@ export function erzeugeStreamDecoder(
 ): (chunk: Buffer, final?: boolean) => string {
   if (encoding === 'utf-8') {
     const dec = new TextDecoder('utf-8', { fatal: false })
-    return (chunk: Buffer, final = false) => dec.decode(chunk, { stream: !final })
+    let bomGeprueft = false
+    return (chunk: Buffer, final = false) => {
+      const text = dec.decode(chunk, { stream: !final })
+      if (bomGeprueft || text.length === 0) return text
+      bomGeprueft = true
+      // The BOM sits in the first chunk — it has to go, otherwise the
+      // first line starts with U+FEFF, the record-marker check fails and
+      // the version detection falls back to v4.
+      return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
+    }
   }
   // iconv-lite: CP850 is single-byte, so no character can straddle a chunk
   // boundary and decoding chunk-by-chunk is lossless. win1252 likewise.

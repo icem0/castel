@@ -16,6 +16,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { ApiError } from '../auth/api'
 import type { HerstellerArtikel, Lieferant, LookupAntwort } from '../services/datanorm/lookup'
 import { ladeLieferanten, sucheHerstellerArtikel } from '../services/datanorm/lookup'
 import {
@@ -24,6 +25,7 @@ import {
   patchLieferant,
   uploadDatanormDatei,
   type DatanormImportZeile,
+  type DatanormUploadErgebnis,
 } from '../services/datanorm/admin'
 
 const { t, locale } = useI18n()
@@ -104,8 +106,55 @@ const uploadLaufend = ref(false)
 const fortschritt = ref<{ phase: string; prozent: number; hinweis: string } | null>(null)
 const uploadFehler = ref('')
 const uploadFertig = ref<string | null>(null)
+/** Result of the last upload (the server response). */
+const uploadErgebnis = ref<DatanormUploadErgebnis | null>(null)
 
 const prozentFortschritt = computed(() => fortschritt.value?.prozent ?? 0)
+
+/** One-line summary of the last import. */
+const ergebnisText = computed(() => {
+  const e = uploadErgebnis.value
+  if (!e) return ''
+  if (e.status === 'duplikat') return t('view.artikelKataloge.importDuplikat')
+  if (e.status === 'teilfehler') {
+    return t('view.artikelKataloge.importTeilfehler', {
+      anzahl: e.artikelAnzahl,
+      fehler: e.fehlerAnzahl,
+    })
+  }
+  return t('view.artikelKataloge.importErfolg', {
+    anzahl: e.artikelAnzahl,
+    neu: e.neu,
+    aktualisiert: e.aktualisiert,
+  })
+})
+
+/** Localised label for the status column of the import history. */
+function statusText(status: string): string {
+  switch (status) {
+    case 'erfolg':
+      return t('view.artikelKataloge.statusErfolg')
+    case 'teilfehler':
+      return t('view.artikelKataloge.statusTeilfehler')
+    case 'fehler':
+      return t('view.artikelKataloge.statusFehler')
+    case 'duplikat':
+      return t('view.artikelKataloge.statusDuplikat')
+    case 'gestartet':
+      return t('view.artikelKataloge.statusGestartet')
+    default:
+      return status
+  }
+}
+
+/** Turns an upload error into a message the admin can act on. */
+function uploadFehlerText(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 413) return `${t('view.artikelKataloge.uploadZuGross')} (${e.message})`
+    return e.message
+  }
+  return e instanceof Error ? e.message : String(e)
+}
 
 let eventSource: EventSource | null = null
 
@@ -121,18 +170,26 @@ async function uploadStarten(): Promise<void> {
   fortschritt.value = null
   uploadFehler.value = ''
   uploadFertig.value = null
+  uploadErgebnis.value = null
   try {
     const ergebnis = await uploadDatanormDatei(
       uploadFile.value,
       uploadLieferantId.value,
       uploadEncoding.value === '' ? undefined : uploadEncoding.value,
     )
+    // The import runs inline on the server: the response IS the result.
+    // The UI must not wait for an SSE event to unblock — otherwise the
+    // button stays on "…" forever whenever the stream does not deliver
+    // its closing event.
+    uploadLaufend.value = false
+    uploadErgebnis.value = ergebnis
     if (ergebnis.status === 'fehler') {
       uploadFehler.value = t('view.artikelKataloge.importFehlgeschlagen')
     } else {
       uploadFertig.value = ergebnis.importId
     }
-    // SSE nur noch für den laufenden Import nötig.
+    void ladeImporteListe()
+    // SSE for the progress ticks and the final confirmation.
     if (eventSource === null) {
       eventSource = new EventSource(`/api/datanorm/import/${ergebnis.importId}/progress`)
       eventSource.addEventListener('fortschritt', (e) => {
@@ -161,7 +218,7 @@ async function uploadStarten(): Promise<void> {
     }
   } catch (e) {
     uploadLaufend.value = false
-    uploadFehler.value = e instanceof Error ? e.message : String(e)
+    uploadFehler.value = uploadFehlerText(e)
   }
 }
 
@@ -174,6 +231,7 @@ function uploadZuruecksetzen(): void {
   fortschritt.value = null
   uploadFehler.value = ''
   uploadFertig.value = null
+  uploadErgebnis.value = null
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +468,7 @@ onBeforeUnmount(schliesseEventSource)
 
         <p v-if="uploadFehler" class="fehler" role="alert">{{ uploadFehler }}</p>
 
-        <div v-if="uploadLaufend" class="fortschritt">
+        <div v-if="uploadLaufend || fortschritt" class="fortschritt">
           <div class="balken">
             <div class="fuellung" :style="{ width: `${prozentFortschritt}%` }"></div>
           </div>
@@ -418,9 +476,18 @@ onBeforeUnmount(schliesseEventSource)
             {{ fortschritt?.hinweis ?? t('view.artikelKataloge.importLaeuft') }}
           </small>
         </div>
-        <p v-else-if="uploadFertig" class="hint hint-ok">
+        <p v-if="uploadFertig" class="hint hint-ok">
           {{ t('view.artikelKataloge.importFertig') }}
         </p>
+        <p v-if="uploadErgebnis && ergebnisText" class="hint hint-ok">
+          {{ ergebnisText }}
+        </p>
+        <ul
+          v-if="uploadErgebnis && uploadErgebnis.auffaelligkeiten.length > 0"
+          class="auffaelligkeiten"
+        >
+          <li v-for="a in uploadErgebnis.auffaelligkeiten" :key="a">{{ a }}</li>
+        </ul>
 
         <div class="form-actions">
           <button
@@ -459,7 +526,7 @@ onBeforeUnmount(schliesseEventSource)
           <tbody>
             <tr v-for="i in importe" :key="i.id">
               <td>{{ i.originalDateiname }}</td>
-              <td>{{ i.status }}</td>
+              <td>{{ statusText(i.status) }}</td>
               <td>{{ i.artikelAnzahl }}</td>
               <td>{{ i.artikelNeu }}</td>
               <td>{{ i.artikelAktualisiert }}</td>
@@ -642,6 +709,12 @@ h2 {
   height: 100%;
   background: var(--accent, #2f6f9f);
   transition: width 300ms ease;
+}
+.auffaelligkeiten {
+  margin: 0.25rem 0 0.75rem;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--warning, #8a6100);
 }
 .data {
   width: 100%;

@@ -27,6 +27,7 @@ import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
 import { pgDumpMajor, serverVersionMajor } from './admin/backup.js'
 
 import { datanormRoutes } from './datanorm/routes.js'
+import { pruefeDatanormAblage } from './datanorm/import-service.js'
 import { starteDatanormCron, stoppeDatanormCron } from './datanorm/cleanup-cron.js'
 import { closeDb } from './db/client.js'
 import { buildNotificationGateway } from './services/notification-gateway.js'
@@ -197,6 +198,7 @@ async function main() {
     }
     starteBackupCron(app.log)
     starteDatanormCron(app.log)
+    await pruefeDatanormAblage(app.log)
   } catch (err) {
     app.log.error(err)
     process.exit(1)

@@ -14,8 +14,8 @@
 // step so a parse failure does not hold locks.
 
 import { createHash } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
+import { createWriteStream, constants } from 'node:fs'
+import { access, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
@@ -34,6 +34,7 @@ export { DatanormFehler } from './parse-pass1.js'
 import { loeseAuf } from './resolve.js'
 import { persistiereArtikel } from './persist.js'
 import { MAX_FEHLER_DETAILS } from './parse-pass1.js'
+import { kanalFuer, meldeFertig } from './progress.js'
 import type { DatanormEncoding, ImportFortschritt, Parserfehler } from './types.js'
 
 /** Cap on stored error details, mirroring the parser's own cap. */
@@ -111,6 +112,35 @@ export function istPreisdatei(name: string): boolean {
 }
 
 /**
+ * Checks at startup that DATANORM_DIR exists and is writable.
+ *
+ * The directory lives on a named volume. If the image does not create it
+ * (or the volume carries the wrong owner), the container's non-root user
+ * cannot write there and EVERY catalogue upload fails with EACCES. A loud
+ * log at startup is far easier to diagnose than a 500 in the middle of an
+ * upload.
+ *
+ * Returns true when the directory is usable.
+ */
+export async function pruefeDatanormAblage(log: FastifyBaseLogger): Promise<boolean> {
+  try {
+    await mkdir(config.DATANORM_DIR, { recursive: true })
+    await access(config.DATANORM_DIR, constants.W_OK)
+    log.info({ dir: config.DATANORM_DIR }, '[datanorm] Ablageverzeichnis bereit')
+    return true
+  } catch (err) {
+    log.error(
+      { err, dir: config.DATANORM_DIR },
+      '[datanorm] DATANORM_DIR ist nicht anlegbar/schreibbar — Katalog-Uploads ' +
+        'werden fehlschlagen. Rechte im Container pruefen: ' +
+        'docker compose exec --user root api chown -R castel:castel ' +
+        config.DATANORM_DIR,
+    )
+    return false
+  }
+}
+
+/**
  * Runs one full import: stream -> hash -> store -> parse -> resolve -> upsert.
  *
  * Never throws for data problems (a bad file is a report, not a 500). Throws
@@ -135,6 +165,12 @@ export async function importiereDatanorm(
 
   // ---- Report row (created before parsing so failures are traceable) ---
   const importId = crypto.randomUUID()
+  // The progress channel has to exist BEFORE the first tick: the SSE
+  // endpoint only creates it when a browser subscribes, which happens
+  // after the upload response (the import runs inline). Without this the
+  // ticks were dropped and 'fertig' was lost — the client then waited
+  // forever on a stream that never closed.
+  kanalFuer(importId)
   const gestartet = new Date()
   await db.insert(datanormImporte).values({
     id: importId,
@@ -217,6 +253,9 @@ export async function importiereDatanorm(
       })
       .where(sql`${datanormImporte.id} = ${importId}`)
     log.error({ err, importId }, '[datanorm] Import fehlgeschlagen')
+    // The SSE stream must close even on failure, otherwise the admin
+    // watches a progress bar that never ends.
+    meldeFertig(importId, err instanceof Error ? err.message : String(err))
     throw err
   }
 
@@ -237,6 +276,7 @@ export async function importiereDatanorm(
       .where(sql`${datanormImporte.id} = ${importId}`)
     // Our copy of the file is redundant — remove it.
     await rm(zielPfad, { force: true }).catch(() => {})
+    meldeFertig(importId)
     return {
       importId,
       status: 'duplikat',
@@ -350,6 +390,8 @@ export async function importiereDatanorm(
     gesamt: aufgeloest.artikel.length,
     fehler: alleFehler.length,
   })
+
+  meldeFertig(importId)
 
   log.info(
     {

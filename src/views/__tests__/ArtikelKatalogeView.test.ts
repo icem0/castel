@@ -8,6 +8,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAuthStore } from '../../stores/auth'
+import { ApiError } from '../../auth/api'
 import de from '../../locales/de-DE'
 import ArtikelKatalogeView from '../ArtikelKatalogeView.vue'
 import * as admin from '../../services/datanorm/admin'
@@ -284,13 +285,17 @@ describe('ArtikelKatalogeView', () => {
   it('lädt eine DATANORM-Datei hoch und verfolgt den Fortschritt (Admin)', async () => {
     vi.mocked(admin.uploadDatanormDatei).mockResolvedValue({
       importId: 'imp-1',
-      status: 'fertig',
-      artikelAnzahl: 1,
-      artikelNeu: 1,
-      artikelAktualisiert: 0,
-      artikelDeaktiviert: 0,
+      status: 'erfolg',
+      artikelAnzahl: 120,
+      neu: 118,
+      aktualisiert: 2,
+      deaktiviert: 0,
+      uebersprungen: 0,
       fehlerAnzahl: 0,
-      gestartetAm: '2026-01-01T00:00:00.000Z',
+      fehlerDetails: [],
+      encoding: 'cp850',
+      version: 4,
+      auffaelligkeiten: [],
     })
 
     const eventSources: Array<{
@@ -333,6 +338,12 @@ describe('ArtikelKatalogeView', () => {
     expect(admin.uploadDatanormDatei).toHaveBeenCalledWith(file, 'l1', undefined)
     expect(eventSources).toHaveLength(1)
 
+    // Der Import läuft serverseitig inline — mit der Antwort ist er fertig.
+    // Die UI darf deshalb nicht auf ein SSE-Ereignis warten (Button blieb
+    // sonst dauerhaft auf "…").
+    expect(wrapper.find('[data-testid="upload-start"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('120 Artikel')
+
     // Ein Fortschritts-Tick des Servers muss die Anzeige füllen.
     eventSources[0]!.emit('fortschritt', { phase: 'parse', verarbeitet: 30, gesamt: 120 })
     await flushPromises()
@@ -341,6 +352,28 @@ describe('ArtikelKatalogeView', () => {
     eventSources[0]!.emit('abschluss', { status: 'fertig' })
     await flushPromises()
     vi.unstubAllGlobals()
+  })
+
+  it('zeigt beim Upload-Fehler eine lesbare Meldung (z. B. 413)', async () => {
+    vi.mocked(admin.uploadDatanormDatei).mockRejectedValue(
+      new ApiError(413, 'HTTP_413', 'HTTP 413: Request Entity Too Large'),
+    )
+
+    const { wrapper } = setup('admin')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="upload-lieferant"]').setValue('l1')
+    const file = new File(['x'], 'mueller.dat', { type: 'application/octet-stream' })
+    const fileInput = wrapper.find('[data-testid="upload-datei"]')
+    Object.defineProperty(fileInput.element, 'files', { value: [file] })
+    await fileInput.trigger('change')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="upload-start"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('zu groß')
+    expect(wrapper.find('[data-testid="upload-start"]').attributes('disabled')).toBeUndefined()
   })
 
   it('zeigt den Offline-Hinweis, wenn die Lieferantenliste nicht lädt', async () => {

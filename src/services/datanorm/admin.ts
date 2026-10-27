@@ -50,16 +50,38 @@ export interface DatanormUploadBody {
   encoding?: 'utf-8' | 'cp850' | 'windows-1252'
 }
 
-/** Ergebnis von POST /api/datanorm/upload. */
+/** Status eines Imports — spiegelt `datanorm_importe.status` (Server). */
+export type DatanormImportStatus = 'erfolg' | 'teilfehler' | 'fehler' | 'duplikat'
+
+/**
+ * Ergebnis von POST /api/datanorm/upload.
+ *
+ * Deckt sich mit `ImportErgebnis` auf dem Server (server/src/datanorm/
+ * import-service.ts). Die Zähler heissen dort `neu`/`aktualisiert`/
+ * `deaktiviert` — NICHT `artikelNeu` (das ist die DB-Spalte und nur im
+ * Importverlauf so benannt).
+ */
 export interface DatanormUploadErgebnis {
   importId: string
-  status: 'fertig' | 'fehler'
+  status: DatanormImportStatus
   artikelAnzahl: number
-  artikelNeu: number
-  artikelAktualisiert: number
-  artikelDeaktiviert: number
+  neu: number
+  aktualisiert: number
+  deaktiviert: number
+  uebersprungen: number
   fehlerAnzahl: number
-  gestartetAm: string
+  fehlerDetails: Array<{
+    satzart: string
+    zeile: number
+    code: string
+    meldung: string
+  }>
+  encoding: 'utf-8' | 'cp850' | 'windows-1252' | null
+  version: number | null
+  /** Gesetzt, wenn dieselbe Datei für diesen Lieferanten schon importiert wurde. */
+  vorhandenerImportId?: string
+  /** Hinweise des Parsers, z. B. "das ist eine DATPREIS-Preisdatei". */
+  auffaelligkeiten: string[]
 }
 
 /** DATANORM-Datei hochladen und importieren. Admin nur. */

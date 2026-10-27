@@ -65,13 +65,21 @@ COPY --from=build  /app/dist          ./dist
 COPY --from=build  /app/src/db/migrations ./dist/migrations
 COPY package.json ./
 
-# Verzeichnisse für Foto-Speicher und Backups. Absolute Pfade, weil
-# der Container-User (castel) relativ zum Working-Dir (/app) keine
-# Schreibrechte hat. BACKUP_DIR wird zusaetzlich in docker-compose.yml
+# Verzeichnisse für Foto-Speicher, Backups und DATANORM-Kataloge. Absolute
+# Pfade, weil der Container-User (castel) relativ zum Working-Dir (/app)
+# keine Schreibrechte hat. BACKUP_DIR wird zusaetzlich in docker-compose.yml
 # als ENV gesetzt und auf das Volume 'backups-data' gemountet.
-RUN mkdir -p /var/lib/castel/fotos /var/lib/castel/backups
+#
+# WICHTIG: /var/lib/castel/datanorm MUSS hier angelegt werden. Fehlt der
+# Pfad im Image, legt Docker ihn beim Mount des named Volume
+# 'datanorm-data' als root:root 0755 an — der Non-Root-User 'castel' kann
+# dann kein Unterverzeichnis anlegen und JEDER Katalog-Upload scheitert
+# mit EACCES (HTTP 500). Genau wie fotos/backups gehört datanorm in die
+# chown-Liste unten.
+RUN mkdir -p /var/lib/castel/fotos /var/lib/castel/backups /var/lib/castel/datanorm
 ENV FOTOS_DIR=/var/lib/castel/fotos
 ENV BACKUP_DIR=/var/lib/castel/backups
+ENV DATANORM_DIR=/var/lib/castel/datanorm
 
 # Non-root-User
 RUN groupadd -r castel && useradd -r -g castel castel \

@@ -30,10 +30,10 @@ interface Eintrag {
 
 const registry = new Map<string, Eintrag>()
 
-/** Registers (or returns the existing) progress channel for an import. */
-export function kanalFuer(importId: string): EventEmitter {
+/** Returns the entry for an import, creating it on first access. */
+function holeOderErzeuge(importId: string): Eintrag {
   const vorhanden = registry.get(importId)
-  if (vorhanden) return vorhanden.emitter
+  if (vorhanden) return vorhanden
 
   const emitter = new EventEmitter()
   // Many browser tabs may watch one import; the default limit of 10 is
@@ -41,7 +41,12 @@ export function kanalFuer(importId: string): EventEmitter {
   emitter.setMaxListeners(50)
   const eintrag: Eintrag = { emitter, letzte: null, fertig: false, timer: null }
   registry.set(importId, eintrag)
-  return emitter
+  return eintrag
+}
+
+/** Registers (or returns the existing) progress channel for an import. */
+export function kanalFuer(importId: string): EventEmitter {
+  return holeOderErzeuge(importId).emitter
 }
 
 /** Publishes a progress tick for an import. */
@@ -52,10 +57,16 @@ export function meldeFortschritt(f: ImportFortschritt): void {
   eintrag.emitter.emit('fortschritt', f)
 }
 
-/** Marks an import as finished so the SSE stream can close cleanly. */
+/**
+ * Marks an import as finished so the SSE stream can close cleanly.
+ *
+ * The entry is created on demand: the browser usually subscribes AFTER
+ * the import has already run (the upload runs inline), so the 'fertig'
+ * flag has to survive a subscription that comes too late. Without this
+ * the stream waited forever and the upload button stayed disabled.
+ */
 export function meldeFertig(importId: string, fehler?: string): void {
-  const eintrag = registry.get(importId)
-  if (!eintrag) return
+  const eintrag = holeOderErzeuge(importId)
   eintrag.fertig = true
   eintrag.emitter.emit('abschluss', fehler ? { fehler } : {})
   if (eintrag.timer) clearTimeout(eintrag.timer)

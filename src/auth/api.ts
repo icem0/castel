@@ -127,8 +127,16 @@ export async function apiFetch<T = unknown>(path: string, opts: ApiOptions = {})
 
   if (!res.ok) {
     const code = (payload as { code?: string } | null)?.code ?? `HTTP_${res.status}`
-    const message =
-      (payload as { message?: string } | null)?.message ?? res.statusText ?? 'Server-Fehler'
+    // HTTP/2 kennt keine Reason-Phrase — dort ist `res.statusText` leer.
+    // Mit `??` greift der Fallback bei '' nicht, die Meldung bleibt dann
+    // leer und jede UI mit `v-if="fehler"` zeigt gar nichts (so verschwand
+    // der nginx-413 beim DATANORM-Upload). Deshalb: trimmen und mit `||`
+    // verketten, damit die Meldung nie leer ist, und den Statuscode immer
+    // mit ausgeben.
+    const serverText = (payload as { message?: string } | null)?.message?.trim() ?? ''
+    const statusText = res.statusText?.trim() ?? ''
+    const detail = serverText || statusText
+    const message = detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status} (${code})`
     if (res.status === 401 && !opts.noLogoutOn401 && on401Handler) {
       // Auth-Store bekommt die Chance, den Server-User-State neu zu pruefen.
       // Wir blockieren die Antwort NICHT — der Aufrufer sieht den 401 sofort.

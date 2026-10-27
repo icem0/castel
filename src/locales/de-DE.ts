@@ -406,6 +406,17 @@ export default {
       importLaeuft: 'Import läuft …',
       importFertig: 'Import abgeschlossen.',
       importFehlgeschlagen: 'Import fehlgeschlagen — siehe Import-Historie.',
+      importErfolg:
+        'Import abgeschlossen: {anzahl} Artikel ({neu} neu, {aktualisiert} aktualisiert).',
+      importTeilfehler: 'Import mit Fehlern beendet: {anzahl} Artikel, {fehler} Fehler.',
+      importDuplikat:
+        'Diese Datei wurde für diesen Lieferanten bereits importiert — der Katalog blieb unverändert.',
+      uploadZuGross: 'Upload abgewiesen: Die Datei ist zu groß (Limit des Reverse-Proxys).',
+      statusErfolg: 'erfolg',
+      statusTeilfehler: 'Teilfehler',
+      statusFehler: 'Fehler',
+      statusDuplikat: 'Duplikat',
+      statusGestartet: 'läuft',
       historie: 'Import-Historie',
       historieLeer: 'Noch keine Importe.',
       colDatei: 'Datei',

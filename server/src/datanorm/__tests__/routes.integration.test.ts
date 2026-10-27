@@ -161,6 +161,22 @@ describe.skipIf(!HAT_DB)('DATANORM HTTP (Integration)', () => {
     expect(rows).toHaveLength(2)
   })
 
+  it('schliesst den SSE-Stream sofort, wenn der Import schon fertig ist', async () => {
+    const res = await upload('DATANORM.004', datei(BEISPIEL_V5))
+    expect(res.statusCode).toBe(200)
+    const importId = res.json<{ importId: string }>().importId
+
+    // Der Browser subscribed erst NACH der Upload-Antwort — der Import ist
+    // dann längst fertig. Der Stream muss dann sofort mit 'abschluss'
+    // enden, sonst wartet die UI endlos auf das Event.
+    const sse = await app.inject({
+      method: 'GET',
+      url: `/api/datanorm/import/${importId}/progress`,
+    })
+    expect(sse.statusCode).toBe(200)
+    expect(sse.payload).toContain('event: abschluss')
+  })
+
   it('aktualisiert den Katalog bei einer geänderten Datei', async () => {
     const geaendert = [
       'V;5.0;20240201;EUR;E2E;E2E Lieferant GmbH',

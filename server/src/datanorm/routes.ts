@@ -21,7 +21,7 @@ import {
   lieferanten,
 } from '../db/schema.js'
 import { DatanormFehler, importiereDatanorm } from './import-service.js'
-import { istFertig, kanalFuer, letzterFortschritt, meldeFertig, meldeFortschritt } from './progress.js'
+import { istFertig, kanalFuer, letzterFortschritt, meldeFortschritt } from './progress.js'
 import { raeumeAlteDateien } from './cleanup.js'
 import type { DatanormEncoding } from './types.js'
 
@@ -354,7 +354,6 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
           log: req.log,
           onFortschritt: meldeFortschritt,
         })
-        meldeFertig(ergebnis.importId, ergebnis.status === 'fehler' ? 'Import fehlgeschlagen' : undefined)
         return reply.send(ergebnis)
       } catch (err) {
         if (err instanceof DatanormFehler) {
