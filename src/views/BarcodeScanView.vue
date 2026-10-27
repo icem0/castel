@@ -3,16 +3,20 @@
 // Strategie:
 //   - Wenn Artikel mit passendem barcode, passender bestellnummer ODER
 //     passender id existiert → /buchung/neu?artikelId=...
-//   - Sonst: kurzer Dialog "Neuen Artikel anlegen oder weiter scannen?"
+//   - Sonst: Dialog mit zwei Wegen — neuen Artikel mit dem Code anlegen
+//     ODER den Code einem bestehenden Artikel zuweisen (mit Artikelsuche).
 //     Beim Anlegen wird der gescannte Code als `barcode` an die Form
 //     weitergereicht (route.query.barcode), damit der Folge-Scan den
 //     frisch angelegten Artikel findet.
 
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, nextTick, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
 import { useBarcode } from '../composables/useBarcode'
+import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const artikelStore = useArtikelStore()
 onMounted(() => artikelStore.start())
@@ -21,6 +25,21 @@ const videoEl = ref<HTMLVideoElement | null>(null)
 const manuelleEingabe = ref('')
 const gefunden = ref<string | null>(null)
 let startLaeuft = false
+
+/**
+ * Schritte des "Code nicht gefunden"-Dialogs.
+ *   auswahl — Wahl zwischen neuem Artikel und Zuweisung an bestehenden
+ *   suche  — Artikelsuche, danach wird der Barcode geschrieben
+ */
+type DialogSchritt = 'auswahl' | 'suche'
+
+const dialogOffen = ref(false)
+const dialogCode = ref('')
+const dialogSchritt = ref<DialogSchritt>('auswahl')
+const gewaehlterArtikelId = ref('')
+const zuweisungLaeuft = ref(false)
+const zuweisungFehler = ref('')
+const sucheRef = ref<InstanceType<typeof ArtikelSucheSelect> | null>(null)
 
 const {
   start,
@@ -31,6 +50,24 @@ const {
   onDetected: (code, format) => {
     void codeVerarbeiten(code, format)
   },
+})
+
+/** Kandidaten für die Barcode-Zuweisung — der komplette Artikelbestand. */
+const artikelKandidaten = computed(() => artikelStore.artikel)
+
+/** Der im Suchschritt gewählte Artikel. */
+const gewaehlterArtikel = computed(
+  () => artikelStore.artikel.find((a) => a.id === gewaehlterArtikelId.value) ?? null,
+)
+
+/**
+ * Barcode, den der gewählte Artikel bereits trägt. Beim Zuweisen wird er
+ * ersetzt — der User soll das vorher wissen.
+ */
+const ersetzterBarcode = computed(() => {
+  const alt = gewaehlterArtikel.value?.barcode ?? null
+  if (!alt || alt === dialogCode.value) return null
+  return alt
 })
 
 async function codeVerarbeiten(code: string, _format: string): Promise<void> {
@@ -45,14 +82,54 @@ async function codeVerarbeiten(code: string, _format: string): Promise<void> {
     void router.push({ name: 'buchung-neu', query: { artikelId: artikel.id, from: 'scan' } })
     return
   }
-  // Nicht gefunden — User fragen. Der gescannte Code wird als
-  // route.query.barcode an die Artikel-Form durchgereicht, damit der
-  // frisch angelegte Artikel beim nächsten Scan gefunden wird.
-  const anlegen = confirm(`Code "${code}" nicht im Bestand. Neuen Artikel anlegen?`)
-  if (anlegen) {
-    void router.push({ name: 'artikel-neu', query: { barcode: code } })
-  } else {
-    gefunden.value = null
+  // Nicht gefunden — Dialog öffnen. Der User wählt zwischen "neuen Artikel
+  // anlegen" und "bestehenden Artikel mit dem Code versehen".
+  dialogCode.value = code
+  dialogSchritt.value = 'auswahl'
+  gewaehlterArtikelId.value = ''
+  zuweisungFehler.value = ''
+  dialogOffen.value = true
+}
+
+/** Neuen Artikel anlegen — der Code wandert als `barcode` in die Form. */
+function neuenArtikelAnlegen(): void {
+  const code = dialogCode.value
+  dialogOffen.value = false
+  void router.push({ name: 'artikel-neu', query: { barcode: code } })
+}
+
+/** Dialog schließen und den Scanner für den nächsten Code wieder wecken. */
+function dialogSchliessen(): void {
+  dialogOffen.value = false
+  gefunden.value = null
+  void scannerFortsetzen()
+}
+
+/** In den Artikelsuche-Schritt wechseln und das Suchfeld fokussieren. */
+async function zurArtikelsuche(): Promise<void> {
+  dialogSchritt.value = 'suche'
+  await nextTick()
+  sucheRef.value?.focusSuche()
+}
+
+/**
+ * Den gescannten Code dem gewählten Artikel zuweisen und direkt in die
+ * Buchungsmaske des Artikels springen (wie beim Treffer im Scan).
+ */
+async function barcodeZuweisen(): Promise<void> {
+  const artikelId = gewaehlterArtikelId.value
+  const code = dialogCode.value
+  if (!artikelId || !code || zuweisungLaeuft.value) return
+  zuweisungLaeuft.value = true
+  zuweisungFehler.value = ''
+  try {
+    await artikelStore.aktualisieren(artikelId, { barcode: code })
+    dialogOffen.value = false
+    void router.push({ name: 'buchung-neu', query: { artikelId, from: 'scan' } })
+  } catch (e) {
+    zuweisungFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    zuweisungLaeuft.value = false
   }
 }
 
@@ -72,6 +149,12 @@ async function kameraStarten(): Promise<void> {
   }
 }
 
+/** Scanner wieder anwerfen — nur wenn kein Dialog offen ist. */
+async function scannerFortsetzen(): Promise<void> {
+  if (dialogOffen.value) return
+  await kameraStarten()
+}
+
 async function scannerNeustarten(): Promise<void> {
   stop()
   await kameraStarten()
@@ -80,17 +163,27 @@ async function scannerNeustarten(): Promise<void> {
 function onVisibilityChange(): void {
   if (document.visibilityState !== 'visible') return
   if (aktiv.value || scannerFehler.value) return
+  if (dialogOffen.value) return
   void kameraStarten()
+}
+
+/** Escape schließt den Dialog — die Combobox hat ihre eigene Escape-Logik. */
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape' || !dialogOffen.value) return
+  if (e.defaultPrevented) return
+  dialogSchliessen()
 }
 
 onMounted(async () => {
   await new Promise((r) => setTimeout(r, 100))
   await kameraStarten()
   document.addEventListener('visibilitychange', onVisibilityChange)
+  document.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  document.removeEventListener('keydown', onKeydown)
   stop()
 })
 </script>
@@ -98,15 +191,15 @@ onBeforeUnmount(() => {
 <template>
   <section class="view barcode">
     <header class="view-head">
-      <h1>Barcode-Scan</h1>
-      <p class="hint">Halte die Kamera auf den Barcode des Artikels.</p>
+      <h1>{{ t('view.scan.h1') }}</h1>
+      <p class="hint">{{ t('view.scan.hint') }}</p>
     </header>
 
     <div
       class="scanner-area"
       :class="{ 'is-ok': gefunden, 'is-err': scannerFehler }"
       role="region"
-      aria-label="Kamera-Vorschau"
+      :aria-label="t('view.scan.kameraLabel')"
       :aria-busy="!aktiv && !scannerFehler ? 'true' : undefined"
     >
       <video v-show="aktiv" ref="videoEl" class="scanner-video" playsinline muted autoplay></video>
@@ -117,30 +210,32 @@ onBeforeUnmount(() => {
         <div class="scanner-reticle-corner tr"></div>
         <div class="scanner-reticle-corner bl"></div>
         <div class="scanner-reticle-corner br"></div>
-        <span class="scanner-reticle-label">Barcode im Rahmen halten</span>
+        <span class="scanner-reticle-label">{{ t('view.scan.reticleLabel') }}</span>
       </div>
 
       <div v-if="!aktiv && !scannerFehler" class="scanner-overlay">
         <div class="scanner-status">
           <span class="scanner-spinner" aria-hidden="true"></span>
-          <p>Scanner startet …</p>
+          <p>{{ t('view.scan.scannerStartet') }}</p>
         </div>
       </div>
 
       <div v-if="scannerFehler" class="scanner-overlay scanner-error" role="alert">
         <div class="scanner-status">
-          <p><strong>Kamera nicht verfügbar</strong></p>
+          <p>
+            <strong>{{ t('view.scan.kameraNichtVerfuegbar') }}</strong>
+          </p>
           <p class="scanner-error-detail">{{ scannerFehler }}</p>
-          <p class="hint">Tipp: Browser-Berechtigung erteilen oder Code unten manuell eingeben.</p>
+          <p class="hint">{{ t('view.scan.kameraTipp') }}</p>
           <button type="button" class="scanner-retry" @click="scannerNeustarten">
-            Erneut versuchen
+            {{ t('view.scan.erneutVersuchen') }}
           </button>
         </div>
       </div>
 
       <div v-if="gefunden" class="scanner-overlay scanner-found" role="status" aria-live="polite">
         <div class="scanner-status">
-          <p class="scanner-found-label">Erkannt</p>
+          <p class="scanner-found-label">{{ t('view.scan.erkannt') }}</p>
           <code class="scanner-found-code">{{ gefunden }}</code>
         </div>
       </div>
@@ -152,10 +247,12 @@ onBeforeUnmount(() => {
         type="text"
         inputmode="text"
         autocomplete="off"
-        placeholder="Oder Code manuell eingeben …"
-        aria-label="Code manuell eingeben"
+        :placeholder="t('view.scan.manuellerCode')"
+        :aria-label="t('view.scan.manuellerCodeLabel')"
       />
-      <button type="submit" class="primary" :disabled="!manuelleEingabe.trim()">Übernehmen</button>
+      <button type="submit" class="primary" :disabled="!manuelleEingabe.trim()">
+        {{ t('view.scan.uebernehmen') }}
+      </button>
     </form>
 
     <button
@@ -163,13 +260,91 @@ onBeforeUnmount(() => {
       class="manual-buchen-btn primary"
       @click="router.push({ name: 'buchung-neu', query: { from: 'scan' } })"
     >
-      Manuell buchen
+      {{ t('view.scan.manuellBuchen') }}
     </button>
 
-    <p class="hint hint-bottom">
-      Hinweis: Die Kamera-Berechtigung muss im Browser erteilt sein. Auf mobilen Geräten muss die
-      App ggf. über "Zum Startbildschirm hinzufügen" installiert sein.
-    </p>
+    <p class="hint hint-bottom">{{ t('view.scan.fussHinweis') }}</p>
+
+    <!-- Dialog: Code keinem Artikel zugeordnet. -->
+    <div
+      v-if="dialogOffen"
+      class="scan-dialog-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="scan-dialog-titel"
+    >
+      <div class="scan-dialog">
+        <header class="scan-dialog-head">
+          <h2 id="scan-dialog-titel">
+            {{
+              dialogSchritt === 'auswahl'
+                ? t('view.scan.dialogTitel')
+                : t('view.scan.dialogTitelSuche')
+            }}
+          </h2>
+          <button
+            type="button"
+            class="scan-dialog-close"
+            :aria-label="t('view.scan.dialogSchliessen')"
+            @click="dialogSchliessen"
+          >
+            ×
+          </button>
+        </header>
+
+        <p class="scan-dialog-code">
+          <code>{{ dialogCode }}</code>
+        </p>
+
+        <!-- Schritt 1: Wahl -->
+        <div v-if="dialogSchritt === 'auswahl'" class="scan-dialog-body">
+          <p class="hint">{{ t('view.scan.dialogHinweis') }}</p>
+          <button type="button" class="primary" @click="neuenArtikelAnlegen">
+            {{ t('view.scan.neuenArtikelAnlegen') }}
+          </button>
+          <button type="button" class="secondary" @click="zurArtikelsuche">
+            {{ t('view.scan.bestehendenArtikelZuordnen') }}
+          </button>
+          <button type="button" class="ghost" @click="dialogSchliessen">
+            {{ t('view.scan.abbrechen') }}
+          </button>
+        </div>
+
+        <!-- Schritt 2: Artikelsuche und Zuweisung -->
+        <div v-else class="scan-dialog-body">
+          <p class="hint">{{ t('view.scan.zuordnenHinweis') }}</p>
+          <ArtikelSucheSelect
+            id="scan-artikel-suche"
+            ref="sucheRef"
+            v-model="gewaehlterArtikelId"
+            :items="artikelKandidaten"
+            :placeholder="t('view.scan.artikelSuchen')"
+          />
+          <p v-if="ersetzterBarcode" class="scan-dialog-warnung" role="status">
+            {{ t('view.scan.barcodeErsetzt', { code: ersetzterBarcode }) }}
+          </p>
+          <p v-if="zuweisungFehler" class="scan-dialog-fehler" role="alert">
+            {{ zuweisungFehler }}
+          </p>
+          <button
+            type="button"
+            class="primary"
+            :disabled="!gewaehlterArtikelId || zuweisungLaeuft"
+            @click="barcodeZuweisen"
+          >
+            {{ zuweisungLaeuft ? t('view.scan.speichert') : t('view.scan.barcodeZuweisen') }}
+          </button>
+          <div class="scan-dialog-zeilen">
+            <button type="button" class="ghost" @click="dialogSchritt = 'auswahl'">
+              {{ t('view.scan.zurueck') }}
+            </button>
+            <button type="button" class="ghost" @click="dialogSchliessen">
+              {{ t('view.scan.abbrechen') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -243,8 +418,7 @@ onBeforeUnmount(() => {
 .scanner-reticle-corner.br {
   bottom: 0;
   right: 0;
-  border-width: 0 3px 3px 0;
-  border-bottom-right-radius: 0.25rem;
+  border-width: 3px 3px 0 0;
 }
 .scanner-reticle-label {
   position: absolute;
@@ -369,5 +543,134 @@ onBeforeUnmount(() => {
   font-size: 0.8rem;
   text-align: center;
   margin-top: 0.75rem;
+}
+
+/* Dialog "Code nicht gefunden" */
+.scan-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.55);
+  animation: scan-dialog-fade 0.18s ease-out;
+}
+
+@keyframes scan-dialog-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.scan-dialog {
+  width: 100%;
+  max-width: 28rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  padding: 1rem 1.1rem 1.1rem;
+}
+
+.scan-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.scan-dialog-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.scan-dialog-close {
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  justify-content: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+.scan-dialog-close:hover {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+}
+
+.scan-dialog-code {
+  margin: 0.6rem 0 0.9rem;
+}
+.scan-dialog-code code {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 600;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.6rem;
+  word-break: break-all;
+}
+
+.scan-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+/* Die Trefferliste der Artikelsuche darf den Dialog nicht aus dem Bild
+   schieben — hoeher wird sie ohnehin nicht. */
+.scan-dialog :deep(.treffer-liste) {
+  max-height: 12rem;
+}
+.scan-dialog-body .hint {
+  margin: 0 0 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.scan-dialog-body > button {
+  width: 100%;
+  justify-content: center;
+  min-height: 2.6rem;
+}
+.scan-dialog-body > button.secondary {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+  color: var(--text-strong);
+}
+.scan-dialog-body > button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+.scan-dialog-body > button.ghost:hover {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.scan-dialog-zeilen {
+  display: flex;
+  gap: 0.5rem;
+}
+.scan-dialog-zeilen button {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.scan-dialog-fehler {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.scan-dialog-warnung {
+  margin: 0;
+  color: var(--warning);
+  font-size: 0.85rem;
 }
 </style>

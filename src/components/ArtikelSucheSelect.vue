@@ -145,6 +145,13 @@ function trefferText(a: Artikel): string {
   const meta = [a.typ, a.bestellnummer, a.lieferant].filter(Boolean).join(' · ')
   return meta ? `${a.titel} — ${meta}` : a.titel
 }
+
+/** Oeffnet die Liste und setzt den Fokus ins Suchfeld (Dialoge/Scan). */
+function focusSuche(): void {
+  oeffnen()
+}
+
+defineExpose({ focusSuche })
 </script>
 
 <template>
