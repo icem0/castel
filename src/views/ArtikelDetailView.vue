@@ -9,6 +9,9 @@ import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
 import { useBarcodeRender } from '../composables/useBarcodeRender'
+import HerstellerKatalogDrawer, {
+  type UebernahmeFelder,
+} from '../components/HerstellerKatalogDrawer.vue'
 import { centZuEuro, euroZuCent, formatiereCent } from '../domain/geld'
 import type { Artikel, ArtikelStatus, Buchung } from '../db/types'
 import FotoUpload from './components/FotoUpload.vue'
@@ -157,9 +160,66 @@ function waehleHersteller(): void {
   if (h) f.lieferant = h.name
 }
 
+// ---------- Catalogue takeover (same drawer as the "new article" form) ----------
+
+const katalogDrawerOffen = ref(false)
+
+/** Current edit values — drives the diff preview inside the drawer. */
+const drawerWerte = computed<UebernahmeFelder>(() => {
+  const f = formular.value
+  return {
+    titel: f?.titel ?? '',
+    barcode: f?.barcode ?? '',
+    bestellnummer: f?.bestellnummer ?? '',
+    lieferant: f?.lieferant ?? '',
+    listenpreis: f?.listenpreis ?? null,
+    verpackungseinheit: f?.verpackungseinheit ?? 1,
+  }
+})
+
+/**
+ * Another article already owns the barcode currently in the form.
+ *
+ * Catalogues ship the same EANs with every upload, so a takeover can quietly
+ * give two articles the same code. Here (unlike the create form) the current
+ * article is excluded — its own barcode is not a conflict.
+ */
+const barcodeKonflikt = computed<{ id: string; titel: string } | null>(() => {
+  const f = formular.value
+  const a = artikel.value
+  const code = f?.barcode.trim() ?? ''
+  if (!a || code === '') return null
+  const andere = artikelStore.artikel.find((x) => x.id !== a.id && x.barcode === code)
+  return andere ? { id: andere.id, titel: andere.titel } : null
+})
+
+/** Copies the ticked catalogue fields into the edit form without saving. */
+function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
+  const f = formular.value
+  if (!f) return
+  if (felder.titel !== undefined) f.titel = felder.titel
+  if (felder.barcode !== undefined) f.barcode = felder.barcode
+  if (felder.bestellnummer !== undefined) f.bestellnummer = felder.bestellnummer
+  if (felder.listenpreis !== undefined) f.listenpreis = felder.listenpreis
+  if (felder.lieferant !== undefined) {
+    f.lieferant = felder.lieferant
+    // The catalogue only knows a supplier name. If the article has no
+    // manufacturer yet, link an identically named master-data entry.
+    if (!f.herstellerId) {
+      const match = herstellerStore.byName(felder.lieferant.trim())
+      if (match) f.herstellerId = match.id
+    }
+  }
+}
+
+function katalogSchliessen(): void {
+  katalogDrawerOffen.value = false
+}
+
 function bearbeitenAbbrechen(): void {
   bearbeitet.value = false
   formular.value = null
+  katalogDrawerOffen.value = false
   bearbeitFehler.value = ''
 }
 
@@ -192,6 +252,7 @@ async function bearbeitenSpeichern(): Promise<void> {
     })
     bearbeitet.value = false
     formular.value = null
+    katalogDrawerOffen.value = false
   } catch (e) {
     bearbeitFehler.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -226,7 +287,12 @@ onMounted(() => {
           <RouterLink :to="`/etiketten?artikelId=${artikel.id}`" class="btn">
             {{ t('view.artikel.detail.etikettDrucken') }}
           </RouterLink>
-          <button type="button" class="btn" @click="bearbeitenStart">
+          <button
+            type="button"
+            class="btn"
+            data-testid="artikel-detail-bearbeiten"
+            @click="bearbeitenStart"
+          >
             {{ t('view.artikel.detail.bearbeiten') }}
           </button>
           <button
@@ -349,6 +415,30 @@ onMounted(() => {
           <span>{{ t('view.artikel.form.lieferant') }}</span>
           <input v-model="formular.lieferant" autocomplete="off" :disabled="bearbeitLaufend" />
         </label>
+
+        <div class="katalog-aktion">
+          <button
+            type="button"
+            class="btn-katalog"
+            data-testid="artikel-detail-katalog-oeffnen"
+            :disabled="bearbeitLaufend"
+            @click="katalogDrawerOffen = true"
+          >
+            {{ t('datanorm.drawer.oeffnen') }}
+          </button>
+          <small class="hint">{{ t('datanorm.drawer.oeffnenHint') }}</small>
+        </div>
+
+        <div v-if="barcodeKonflikt" class="duplikat-banner">
+          <p>{{ t('view.artikel.form.duplikatHinweis', { titel: barcodeKonflikt.titel }) }}</p>
+          <RouterLink
+            :to="{ name: 'artikel-detail', params: { id: barcodeKonflikt.id } }"
+            class="primary"
+          >
+            {{ t('view.artikel.form.duplikatZumArtikel') }}
+          </RouterLink>
+        </div>
+
         <div class="row">
           <label>
             <span>{{ t('view.artikel.form.ve') }}</span>
@@ -463,6 +553,13 @@ onMounted(() => {
         </tr>
       </tbody>
     </table>
+
+    <HerstellerKatalogDrawer
+      :offen="katalogDrawerOffen"
+      :aktuell="drawerWerte"
+      @schliessen="katalogSchliessen"
+      @uebernehmen="felderUebernehmen"
+    />
   </section>
   <section v-else class="view">
     <p class="muted">Lade…</p>
@@ -488,6 +585,42 @@ onMounted(() => {
   display: flex;
   gap: 0.4rem;
   flex-wrap: wrap;
+}
+.katalog-aktion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.btn-katalog {
+  align-self: flex-start;
+  border: 1px dashed var(--border, #d7dde3);
+  background: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  color: var(--accent, #2f6f9f);
+  font-size: 0.9rem;
+}
+.btn-katalog:hover:not(:disabled) {
+  background: #f2f7fb;
+}
+.btn-katalog:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.duplikat-banner {
+  border: 1px solid #d9a441;
+  background: #fdf6e7;
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.duplikat-banner p {
+  margin: 0;
+  flex: 1 1 240px;
 }
 .row {
   display: grid;

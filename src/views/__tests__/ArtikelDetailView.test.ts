@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -7,28 +7,95 @@ import { i18n } from '../../i18n'
 import { useArtikelStore } from '../../stores/artikel'
 import { resetDbForTests } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
+import * as lookup from '../../services/datanorm/lookup'
+
+vi.mock('../../services/datanorm/lookup', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/datanorm/lookup')>()
+  return {
+    ...actual,
+    ladeLieferanten: vi.fn(),
+    sucheHerstellerArtikel: vi.fn(),
+    leseLetztenLieferant: vi.fn(() => null),
+    speichereLetztenLieferant: vi.fn(),
+    leseLetztesBeispiel: vi.fn(() => null),
+    speichereLetztesBeispiel: vi.fn(),
+  }
+})
+
+const LIEFERANTEN = [
+  {
+    id: 'l1',
+    name: 'Mueller GmbH',
+    matchcode: 'MUE',
+    aktiv: true,
+    ort: null,
+    format: 'auto' as const,
+    geaendertAm: '',
+  },
+]
+
+const TREFFER = {
+  id: 'a1',
+  matchcode: 'ART-1001',
+  matchcode2: null,
+  ean: '4006381333931',
+  titel: 'Bleistift HB',
+  beschreibung: 'Härtegrad HB',
+  mengeneinheit: 'STK',
+  preiseinheit: null,
+  inhalt: null,
+  warengruppe: 'WG-1',
+  preisNettoCent: 249,
+  preisBruttoCent: 299,
+  gueltigAb: null,
+  ersatzMatchcode: null,
+  deaktiviert: false,
+  deaktiviertAm: null,
+  geaendertAm: '',
+}
 
 let pinia: Pinia
 
 beforeEach(async () => {
   resetDbForTests()
   await clearLocalDbForTests()
+  document.body.innerHTML = ''
   pinia = createPinia()
   setActivePinia(pinia)
   i18n.global.locale.value = 'de-DE'
+
+  vi.clearAllMocks()
+  vi.mocked(lookup.ladeLieferanten).mockResolvedValue(LIEFERANTEN)
+  vi.mocked(lookup.sucheHerstellerArtikel).mockResolvedValue({
+    lieferant: { id: 'l1', name: 'Mueller GmbH' },
+    suchstrategie: 'titel',
+    treffer: [TREFFER],
+    page: 1,
+    pageSize: 25,
+    total: 1,
+    hasMore: false,
+  })
 })
 
 afterEach(async () => {
   await clearLocalDbForTests()
+  document.body.innerHTML = ''
 })
 
-async function setupView(barcode: string | null) {
+async function setupView(
+  barcode: string | null,
+  weitere: Array<{ titel: string; barcode: string | null }> = [],
+) {
   const store = useArtikelStore(pinia)
   const artikel = await store.anlegen({ titel: 'Schraube M6', typ: 'Material', barcode })
+  const andere = []
+  for (const r of weitere) {
+    andere.push(await store.anlegen({ titel: r.titel, typ: 'Material', barcode: r.barcode }))
+  }
 
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/artikel/:id', component: { template: '<div />' } }],
+    routes: [{ path: '/artikel/:id', name: 'artikel-detail', component: { template: '<div />' } }],
   })
   await router.push(`/artikel/${artikel.id}`)
   await router.isReady()
@@ -42,7 +109,44 @@ async function setupView(barcode: string | null) {
   await flushPromises()
   await new Promise<void>((resolve) => setTimeout(resolve, 30))
   await flushPromises()
-  return { w, artikel }
+  return { w, artikel, andere }
+}
+
+function knopf(text: string): HTMLButtonElement | undefined {
+  return Array.from(document.body.querySelectorAll('button')).find((b) =>
+    (b.textContent ?? '').trim().startsWith(text),
+  ) as HTMLButtonElement | undefined
+}
+
+async function setzeWert(input: HTMLSelectElement | HTMLInputElement, wert: string): Promise<void> {
+  input.value = wert
+  input.dispatchEvent(new Event(input instanceof HTMLInputElement ? 'input' : 'change'))
+  await flushPromises()
+}
+
+async function warte(timeout = 10): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, timeout))
+  await flushPromises()
+}
+
+function eingabeFuer(wrapper: { element: Element }, labelText: string): HTMLInputElement {
+  const labels = Array.from(wrapper.element.querySelectorAll('label'))
+  const label = labels.find((l) => (l.textContent ?? '').trim().startsWith(labelText))
+  const input = label?.querySelector('input')
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error(`Kein Eingabefeld für ${labelText}`)
+  }
+  return input
+}
+
+async function fuehreKataloguebernahmeDurch(
+  wrapper: { element: Element },
+  barcode: string | null,
+): Promise<void> {
+  if (barcode !== null) {
+    const barcodeFeld = eingabeFuer(wrapper, 'Barcode')
+    await setzeWert(barcodeFeld, barcode)
+  }
 }
 
 describe('ArtikelDetailView — Barcode', () => {
@@ -55,6 +159,65 @@ describe('ArtikelDetailView — Barcode', () => {
     const svg = w.find('.barcode-row svg')
     expect(svg.exists()).toBe(true)
     expect(svg.findAll('rect').length).toBeGreaterThan(0)
+
+    w.unmount()
+  })
+})
+
+describe('ArtikelDetailView — Katalogübernahme', () => {
+  it('zeigt im Bearbeitungsformular einen Katalog-Button und schreibt übernommene Werte ins Formular', async () => {
+    const { w } = await setupView(null)
+
+    await w.get('[data-testid="artikel-detail-bearbeiten"]').trigger('click')
+    await flushPromises()
+
+    const katalogKnopf = w.get('[data-testid="artikel-detail-katalog-oeffnen"]')
+    expect(katalogKnopf.text()).toContain('Katalog')
+
+    await katalogKnopf.trigger('click')
+    await warte(20)
+
+    const lieferantSelect = document.body.querySelector(
+      '.drawer-body select',
+    ) as HTMLSelectElement | null
+    const suchInput = document.body.querySelector('input[type="search"]') as HTMLInputElement | null
+    expect(lieferantSelect).not.toBeNull()
+    expect(suchInput).not.toBeNull()
+    if (!lieferantSelect || !suchInput) return
+
+    await setzeWert(lieferantSelect, 'l1')
+    await setzeWert(suchInput, 'Bleistift')
+    knopf('Suchen')?.click()
+    await flushPromises()
+
+    expect(knopf('Übernehmen')).toBeDefined()
+    knopf('Übernehmen')?.click()
+    await warte()
+
+    expect(eingabeFuer(w, 'Titel').value).toBe('Bleistift HB')
+    expect(eingabeFuer(w, 'Barcode').value).toBe('4006381333931')
+    expect(eingabeFuer(w, 'Bestellnummer').value).toBe('ART-1001')
+    expect(eingabeFuer(w, 'Listenpreis').value).toBe('2.49')
+    expect(document.body.querySelector('.drawer-backdrop')).toBeNull()
+
+    w.unmount()
+  })
+
+  it('warnt vor einem bereits anderweitig vergebenen Barcode', async () => {
+    const { w, andere } = await setupView(null, [{ titel: 'Zwilling', barcode: '4006381333931' }])
+    const duplikat = andere[0]
+    expect(duplikat).toBeDefined()
+
+    await w.get('[data-testid="artikel-detail-bearbeiten"]').trigger('click')
+    await flushPromises()
+    await fuehreKataloguebernahmeDurch(w, '4006381333931')
+
+    const banner = w.element.querySelector('.duplikat-banner')
+    expect(banner).not.toBeNull()
+    expect(banner?.textContent).toContain('Zwilling')
+
+    const link = banner?.querySelector('a') as HTMLAnchorElement | null
+    expect(link?.getAttribute('href')).toBe(`/artikel/${duplikat?.id}`)
 
     w.unmount()
   })
