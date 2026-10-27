@@ -5,7 +5,7 @@
 // und Sortierung. Schreibaktionen sind Admin-only — Mitarbeiter sehen
 // die Liste nur lesend.
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAkkutauschStore } from '../../stores/akkutausch'
 import { useAuthStore } from '../../stores/auth'
@@ -13,6 +13,20 @@ import { useSettingsStore } from '../../stores/settings'
 import { formatDatum, formatKapazitaet } from '../../domain/akkutausch/formatierung'
 import { quartalVonDatum } from '../../domain/akkutausch/berechnung'
 import type { Netzteil } from '../../domain/akkutausch/types'
+import { ImportValidierungError } from '../../domain/errors'
+import { parseCsv, type ParsedCsv } from '../../services/import/csv-parser'
+import {
+  defaultNetzteilMapping,
+  NETZTEIL_FELD_BESCHREIBUNG,
+  type NetzteilFeld,
+  type NetzteilMapping,
+} from '../../services/import/netzteil-mapping'
+import {
+  importNetzteileAusCsv,
+  validiereNetzteilDaten,
+  type NetzteilImportBericht,
+} from '../../services/import/netzteil-import'
+import type { ValidierungsErgebnis } from '../../services/import/validierung'
 import NetzteilForm from './NetzteilForm.vue'
 
 const { t } = useI18n()
@@ -26,6 +40,29 @@ const nurFaellig = ref(false)
 const sortierung = ref<'faelligkeit' | 'bezeichnung'>('faelligkeit')
 const bearbeitet = ref<Netzteil | null>(null)
 const formOffen = ref(false)
+
+const importOffen = ref(false)
+const importDatei = ref<File | null>(null)
+const importParsed = ref<ParsedCsv | null>(null)
+const importMapping = ref<NetzteilMapping>({})
+const importValidierung = ref<ValidierungsErgebnis | null>(null)
+const importBericht = ref<NetzteilImportBericht | null>(null)
+const importLaeuft = ref(false)
+const importFehler = ref('')
+
+const netzteilFeldOptionen: NetzteilFeld[] = [
+  'anlage',
+  'objekt',
+  'name',
+  'einbaudatum',
+  'intervallJahre',
+  'kapazitaetAh',
+  'anzahl',
+  'gruppe',
+  'plz',
+  'vdsAnerkennung',
+  'faelligkeit',
+]
 
 const gefiltert = computed(() => {
   const q = suche.value.trim().toLowerCase()
@@ -56,6 +93,18 @@ const gefiltert = computed(() => {
   })
 })
 
+const importValidOk = computed(() => {
+  const v = importValidierung.value
+  return v ? v.ok : false
+})
+
+const importHinweis = computed(() => {
+  const v = importValidierung.value
+  if (!v) return t('view.akkutausch.netzteilImportValidierung')
+  if (v.ok) return t('view.akkutausch.netzteilImportValidierungOk')
+  return t('view.akkutausch.netzteilImportProbleme', { anzahl: v.probleme.length })
+})
+
 function neuesNetzteil(): void {
   bearbeitet.value = null
   formOffen.value = true
@@ -81,6 +130,103 @@ async function loeschen(n: Netzteil): Promise<void> {
   if (!window.confirm(frage)) return
   await store.netzteilLoeschen(n.id)
 }
+
+function importeroeffnen(): void {
+  importOffen.value = true
+  importDatei.value = null
+  importParsed.value = null
+  importMapping.value = {}
+  importValidierung.value = null
+  importBericht.value = null
+  importLaeuft.value = false
+  importFehler.value = ''
+}
+
+function importerSchliessen(): void {
+  importOffen.value = false
+  importDatei.value = null
+  importParsed.value = null
+  importMapping.value = {}
+  importValidierung.value = null
+  importBericht.value = null
+  importLaeuft.value = false
+  importFehler.value = ''
+}
+
+async function importerDateiAendern(e: Event): Promise<void> {
+  const file = (e.target as HTMLInputElement).files?.[0] ?? null
+  importDatei.value = file
+  importBericht.value = null
+  importFehler.value = ''
+
+  if (!file) {
+    importParsed.value = null
+    importMapping.value = {}
+    importValidierung.value = null
+    return
+  }
+
+  try {
+    const parsedCsv = parseCsv(await file.text())
+    if (parsedCsv.headers.length === 0) {
+      importParsed.value = null
+      importMapping.value = {}
+      importValidierung.value = null
+      importFehler.value = t('view.akkutausch.netzteilImportKeineSpalten')
+      return
+    }
+
+    importParsed.value = parsedCsv
+    importMapping.value = defaultNetzteilMapping(parsedCsv.headers)
+    validiereNetzteilImport()
+  } catch (err) {
+    importParsed.value = null
+    importMapping.value = {}
+    importValidierung.value = null
+    importFehler.value = fehlermeldung(err)
+  }
+}
+
+function validiereNetzteilImport(): void {
+  if (!importParsed.value) {
+    importValidierung.value = null
+    return
+  }
+  importValidierung.value = validiereNetzteilDaten(
+    importMapping.value,
+    importParsed.value.rows,
+    importParsed.value.headers,
+  )
+}
+
+async function importerAusfuehren(): Promise<void> {
+  if (!importParsed.value) return
+  importLaeuft.value = true
+  importFehler.value = ''
+  try {
+    importBericht.value = await importNetzteileAusCsv({
+      rows: importParsed.value.rows,
+      headers: importParsed.value.headers,
+      mapping: importMapping.value,
+    })
+  } catch (e) {
+    importFehler.value = fehlermeldung(e)
+  } finally {
+    importLaeuft.value = false
+  }
+}
+
+function fehlermeldung(e: unknown): string {
+  if (e instanceof ImportValidierungError) return e.message
+  if (e instanceof Error) return e.message
+  return String(e)
+}
+
+watch(
+  () => [importParsed.value, importMapping.value],
+  () => validiereNetzteilImport(),
+  { deep: true },
+)
 </script>
 
 <template>
@@ -88,6 +234,9 @@ async function loeschen(n: Netzteil): Promise<void> {
     <div v-if="auth.istAdmin && !formOffen" class="card">
       <button type="button" class="primary" @click="neuesNetzteil">
         {{ t('view.akkutausch.neuesNetzteil') }}
+      </button>
+      <button type="button" @click="importeroeffnen">
+        {{ t('view.akkutausch.netzteilImportieren') }}
       </button>
     </div>
 
@@ -104,6 +253,131 @@ async function loeschen(n: Netzteil): Promise<void> {
         @save="speichern"
         @cancel="formSchliessen"
       />
+    </div>
+
+    <div v-if="importOffen && !formOffen" class="card">
+      <h2 class="card-titel">{{ t('view.akkutausch.netzteilImportTitel') }}</h2>
+      <p>{{ t('view.akkutausch.netzteilImportHinweis') }}</p>
+
+      <div class="filter-bar">
+        <label>
+          <span>{{ t('view.akkutausch.netzteilImportDatei') }}</span>
+          <input type="file" accept=".csv,text/csv" @change="importerDateiAendern" />
+        </label>
+      </div>
+
+      <p v-if="importDatei && importParsed" class="hint">
+        {{ importDatei.name }} ({{
+          t('view.akkutausch.netzteilImportZeilen', {
+            anzahl: importParsed.rowCount,
+          })
+        }})
+      </p>
+
+      <p v-if="importFehler" class="fehler">{{ importFehler }}</p>
+
+      <div v-if="importParsed" class="card">
+        <h3 class="card-titel">{{ t('view.akkutausch.netzteilImportMapping') }}</h3>
+        <table class="data">
+          <thead>
+            <tr>
+              <th>{{ t('view.akkutausch.netzteilImportSpalte') }}</th>
+              <th>{{ t('view.akkutausch.netzteilImportFeld') }}</th>
+              <th>{{ t('view.akkutausch.netzteilImportFormatBedeutung') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="h in importParsed.headers" :key="h">
+              <td>{{ h }}</td>
+              <td>
+                <select v-model="importMapping[h]">
+                  <option :value="null">{{ t('view.akkutausch.netzteilImportIgnorieren') }}</option>
+                  <option v-for="f in netzteilFeldOptionen" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </td>
+              <td class="beschreibung">
+                <template v-if="importMapping[h]">
+                  <div class="format">
+                    {{ NETZTEIL_FELD_BESCHREIBUNG[importMapping[h] as NetzteilFeld].format }}
+                  </div>
+                  <div class="bedeutung">
+                    {{ NETZTEIL_FELD_BESCHREIBUNG[importMapping[h] as NetzteilFeld].bedeutung }}
+                  </div>
+                </template>
+                <span v-else>{{ t('view.akkutausch.netzteilImportIgnoriert') }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p v-if="importParsed" class="hint">{{ importHinweis }}</p>
+
+      <ul v-if="importValidierung && !importValidierung.ok">
+        <li v-for="(p, i) in importValidierung.probleme" :key="i">{{ p.meldung }}</li>
+      </ul>
+
+      <div class="actions-cell">
+        <button
+          type="button"
+          class="primary"
+          :disabled="!importValidOk || importLaeuft"
+          @click="importerAusfuehren"
+        >
+          {{
+            importLaeuft
+              ? t('view.akkutausch.netzteilImportLaeuft')
+              : t('view.akkutausch.netzteilImportAusfuehren')
+          }}
+        </button>
+        <button type="button" :disabled="importLaeuft" @click="validiereNetzteilImport">
+          {{ t('view.akkutausch.netzteilImportErneut') }}
+        </button>
+        <button type="button" :disabled="importLaeuft" @click="importerSchliessen">
+          {{ t('view.akkutausch.abbrechen') }}
+        </button>
+      </div>
+
+      <div v-if="importBericht" class="card">
+        <h3 class="card-titel">{{ t('view.akkutausch.netzteilImportErgebnis') }}</h3>
+        <ul>
+          <li>
+            {{
+              t('view.akkutausch.netzteilImportAngelegt', {
+                anzahl: importBericht.netzteilAngelegt,
+              })
+            }}
+          </li>
+          <li>
+            {{
+              t('view.akkutausch.netzteilImportAktualisiert', {
+                anzahl: importBericht.netzteilAktualisiert,
+              })
+            }}
+          </li>
+          <li>
+            {{
+              t('view.akkutausch.netzteilImportUebersprungen', {
+                anzahl: importBericht.netzteilUebersprungen,
+              })
+            }}
+          </li>
+        </ul>
+
+        <template v-if="importBericht.warnungen.length">
+          <h4>{{ t('view.akkutausch.netzteilImportWarnungen') }}</h4>
+          <ul>
+            <li v-for="(w, i) in importBericht.warnungen" :key="i">{{ w }}</li>
+          </ul>
+        </template>
+
+        <template v-if="importBericht.konflikte.length">
+          <h4>{{ t('view.akkutausch.netzteilImportKonflikte') }}</h4>
+          <ul>
+            <li v-for="(c, i) in importBericht.konflikte" :key="i">{{ c }}</li>
+          </ul>
+        </template>
+      </div>
     </div>
 
     <div class="filter-bar">
@@ -160,5 +434,19 @@ async function loeschen(n: Netzteil): Promise<void> {
 .card-titel {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
+}
+
+.beschreibung {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.beschreibung .format {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.beschreibung .bedeutung {
+  margin-top: 0.15rem;
 }
 </style>

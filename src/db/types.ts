@@ -157,7 +157,14 @@ export interface Einstellung {
 export interface AuditLogEintrag {
   id: string
   aktion: string
-  entitaet: 'artikel' | 'standort' | 'buchung' | 'kommission' | 'einstellung'
+  entitaet:
+    | 'artikel'
+    | 'standort'
+    | 'buchung'
+    | 'kommission'
+    | 'einstellung'
+    | 'akku_netzteil'
+    | 'akku_projekt'
   entitaetId: string
   daten: string // JSON-serialisiert
   zeit: Iso
