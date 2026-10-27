@@ -1769,3 +1769,37 @@ describe('Sync — skipped & reconcile', () => {
     }
   })
 })
+
+describe('Sync — Fehlerdiagnose', () => {
+  it('refreshStatus löscht die Fehlermeldung eines fehlgeschlagenen Syncs nicht', async () => {
+    await outboxAdd('artikel', 'create', artikelAnlage(neueUuid(), 'A1'))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    )
+    const { runSync, refreshStatus, getSyncStatus } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+    expect(getSyncStatus().status).toBe('offline')
+    expect(getSyncStatus().lastError).toContain('Failed to fetch')
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              serverTime: new Date().toISOString(),
+              counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    )
+    await refreshStatus({ token: null, apiBase: 'http://test.local' })
+
+    expect(getSyncStatus().status).toBe('offline')
+    expect(getSyncStatus().lastError).toContain('Failed to fetch')
+  })
+})

@@ -1469,6 +1469,11 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     if (_runToken !== runToken) return
     const counts = await syncCountPatch()
     if (_runToken !== runToken) return
+    console.error('[sync]', code, msg, {
+      source,
+      status: newFailure.status,
+      step: _status.lastStep,
+    })
     const failurePatch: Partial<SyncStatus> = {
       lastError: msg,
       ...counts,
@@ -1577,7 +1582,9 @@ export async function refreshStatus(opts: {
   let localCounts: TableCounts | null = _status.localCounts
   let serverCounts: TableCounts | null = _status.serverCounts
   let serverTime: string | null = _status.serverTime
-  let lastError: string | null = null
+  // This is a lightweight count refresh, not a sync run. A successful
+  // status probe must not wipe the diagnosis of the last failed sync.
+  let lastError: string | null = _status.lastError
 
   try {
     localCounts = await getLocalCounts()

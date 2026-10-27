@@ -402,9 +402,16 @@ async function copyVersion(): Promise<void> {
 }
 
 function buildErrorText(): string {
-  const f = sync.status.lastFailure
+  const st = sync.status
+  const f = st.lastFailure
   const parts: string[] = []
-  if (sync.status.lastError) parts.push(`Letzter Fehler: ${sync.status.lastError}`)
+  if (syncFehlerDetail.value) parts.push(`Letzter Fehler: ${syncFehlerDetail.value}`)
+  if (st.lastErrorAt) parts.push(`Fehlerzeit: ${st.lastErrorAt}`)
+  if (st.lastStep) parts.push(`Letzter Schritt: ${st.lastStep} (${st.lastStepAt ?? '—'})`)
+  if (st.localCounts || st.serverCounts) {
+    parts.push(`Lokal: ${JSON.stringify(st.localCounts)}`)
+    parts.push(`Server: ${JSON.stringify(st.serverCounts)}`)
+  }
   if (f) {
     parts.push(`Diagnose: ${f.message}`)
     if (f.source) parts.push(`Schritt: ${f.source}`)
@@ -412,6 +419,10 @@ function buildErrorText(): string {
     if (f.code) parts.push(`Code: ${f.code}`)
     if (f.rejectedItems > 0) parts.push(`Abgelehnt: ${f.rejectedItems}`)
     for (const e of f.sampleErrors) {
+      parts.push(`Server-Fehler: ${e.code}: ${e.message} (id ${e.id})`)
+      if (typeof e.currentBestand === 'number') {
+        parts.push(`Aktueller Bestand: ${e.currentBestand}`)
+      }
       if (e.stack) parts.push(`Stack: ${e.stack}`)
       if (e.payload !== undefined) parts.push(`Payload: ${JSON.stringify(e.payload)}`)
     }
@@ -502,19 +513,45 @@ const syncBannerSichtbar = computed(
       nichtGespeicherteBuchungen.value.length > 0),
 )
 
-const syncBannerText = computed((): string => {
-  if (nichtGespeicherteBuchungen.value.length > 0) {
-    return t('app.sync.nichtGespeichert', { anzahl: nichtGespeicherteBuchungen.value.length })
+/**
+ * Build a human-readable one-liner from the structured failure data. The
+ * banner used to read only `lastError`, which could be empty (or reset by a
+ * successful count refresh) and left the user with "unknown error".
+ */
+const syncFehlerDetail = computed((): string | null => {
+  const st = sync.status
+  const f = st.lastFailure
+  const message = st.lastError ?? f?.message ?? null
+  const code = st.lastErrorCode ?? f?.code ?? null
+  if (!message && !code) return null
+
+  const parts: string[] = []
+  if (code) parts.push(`[${code}]`)
+  if (message) parts.push(message)
+  if (f?.status !== null && f?.status !== undefined) parts.push(`HTTP ${f.status}`)
+  const sample = f?.sampleErrors?.[0]
+  if (sample && !(message ?? '').includes(sample.message)) {
+    parts.push(`${sample.code}: ${sample.message}`)
   }
-  if (sync.status.lastError) {
-    return t('app.sync.fehler', { fehler: sync.status.lastError })
+  const step = f?.source ?? st.lastStep
+  if (step) parts.push(`Schritt: ${step}`)
+  return parts.join(' · ')
+})
+
+const syncBannerText = computed((): string => {
+  const parts: string[] = []
+  if (nichtGespeicherteBuchungen.value.length > 0) {
+    parts.push(t('app.sync.nichtGespeichert', { anzahl: nichtGespeicherteBuchungen.value.length }))
+  }
+  if (syncFehlerDetail.value) {
+    parts.push(t('app.sync.fehler', { fehler: syncFehlerDetail.value }))
   }
   if (sync.status.quarantined > 0) {
-    return t('app.sync.quarantaene', { anzahl: sync.status.quarantined })
+    parts.push(t('app.sync.quarantaene', { anzahl: sync.status.quarantined }))
+  } else if (parts.length === 0 && sync.status.pending > 0) {
+    parts.push(t('app.sync.ausstehend', { anzahl: sync.status.pending }))
   }
-  if (sync.status.pending > 0) {
-    return t('app.sync.ausstehend', { anzahl: sync.status.pending })
-  }
+  if (parts.length > 0) return parts.join(' · ')
   return t('app.sync.fehler', { fehler: t('app.sync.fehlerUnbekannt') })
 })
 
@@ -529,7 +566,7 @@ watch(
     toast.show({
       id: 'sync-fehler',
       text: t('app.sync.toastFehler', {
-        fehler: sync.status.lastError ?? t('app.sync.fehlerUnbekannt'),
+        fehler: syncFehlerDetail.value ?? t('app.sync.fehlerUnbekannt'),
       }),
       status: 'error',
       timeoutMs: 8_000,
@@ -586,13 +623,13 @@ const syncZustandLabel = computed((): string => {
 
 const syncZustandTitel = computed(() => {
   const basis = `DB-Sync: ${syncZustandLabel.value}`
-  if (sync.status.lastError) return `${basis} — ${lastErrorMitVersion.value}`
+  if (lastErrorMitVersion.value) return `${basis} — ${lastErrorMitVersion.value}`
   return basis
 })
 
 const lastErrorMitVersion = computed(() => {
-  if (!sync.status.lastError) return null
-  return `${sync.status.lastError} (v${version})`
+  if (!syncFehlerDetail.value) return null
+  return `${syncFehlerDetail.value} (v${version})`
 })
 
 /**
@@ -951,7 +988,7 @@ function formatRelativ(iso: string | null): string {
           <dt>{{ t('app.sync.quarantineTitel') }}</dt>
           <dd class="wert-warn">{{ sync.status.quarantined }}</dd>
         </div>
-        <div v-if="sync.status.lastError" class="flex items-center gap-2">
+        <div v-if="lastErrorMitVersion" class="flex items-center gap-2">
           <dt>Letzter Fehler</dt>
           <dd class="wert-fehler">{{ lastErrorMitVersion }}</dd>
           <button
