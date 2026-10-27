@@ -63,6 +63,7 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       { name: 'buchungen', description: 'Append-only Buchungen' },
       { name: 'kommissionen', description: 'Kommissionen/Projekte' },
       { name: 'mindestbestand', description: 'Mindestbestand-Ereignisse' },
+      { name: 'fotos', description: 'Produktbilder' },
       { name: 'audit', description: 'Audit-Log (admin)' },
     ],
     components: {
@@ -127,6 +128,17 @@ export function buildOpenApiSpec(): Record<string, unknown> {
             total: { type: 'integer' },
             limit: { type: 'integer' },
             offset: { type: 'integer' },
+          },
+        },
+        Foto: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            artikelId: { type: 'string' },
+            url: { type: 'string', description: 'Relativer Pfad zum Bild (/fotos/...)' },
+            contentType: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp'] },
+            groesse: { type: 'integer', description: 'Bytes' },
+            erstelltAm: { type: 'string', format: 'date-time' },
           },
         },
       },
@@ -377,6 +389,64 @@ export function buildOpenApiSpec(): Record<string, unknown> {
             ...paginationParams(),
           ],
           responses: { '200': { description: 'Liste' } },
+        },
+      },
+      '/api/v1/artikel/{id}/fotos': {
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        get: {
+          tags: ['fotos'],
+          summary: 'Bilder eines Artikels auflisten',
+          security,
+          responses: {
+            '200': { description: 'Liste der Bilder' },
+            '404': errorResponse,
+          },
+        },
+        post: {
+          tags: ['fotos'],
+          summary: 'Produktbild hochladen',
+          description:
+            'Multipart-Upload mit genau einem Bild (JPEG, PNG oder WebP). ' +
+            'Die Bildgroesse ist durch FOTOS_MAX_BYTES begrenzt, die Anzahl der ' +
+            'Bilder pro Artikel durch FOTOS_MAX_PER_ARTIKEL.',
+          security,
+          requestBody: {
+            required: true,
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  required: ['foto'],
+                  properties: {
+                    foto: { type: 'string', format: 'binary' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            '201': {
+              description: 'Bild gespeichert',
+              content: { 'application/json': { schema: { $ref: '#/components/schemas/Foto' } } },
+            },
+            '400': errorResponse,
+            '404': errorResponse,
+            '413': errorResponse,
+            '415': errorResponse,
+          },
+        },
+      },
+      '/api/v1/fotos/{id}': {
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        delete: {
+          tags: ['fotos'],
+          summary: 'Produktbild loeschen (admin)',
+          security,
+          responses: {
+            '204': { description: 'Geloescht' },
+            '403': errorResponse,
+            '404': errorResponse,
+          },
         },
       },
       '/api/v1/audit': {

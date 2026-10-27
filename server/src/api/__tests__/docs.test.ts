@@ -26,6 +26,8 @@ describe('buildOpenApiSpec', () => {
       '/api/v1/buchungen/{id}/kommission',
       '/api/v1/kommissionen',
       '/api/v1/mindestbestand',
+      '/api/v1/artikel/{id}/fotos',
+      '/api/v1/fotos/{id}',
       '/api/v1/audit',
     ]) {
       expect(spec.paths).toHaveProperty(path)
@@ -37,5 +39,19 @@ describe('buildOpenApiSpec', () => {
     expect(spec.components.securitySchemes).toHaveProperty('apiKeyHeader')
     expect(spec.components.schemas).toHaveProperty('BuchungCreate')
     expect(spec.components.schemas).toHaveProperty('Artikel')
+  })
+
+  it('documents the multipart upload for product images', () => {
+    const pfad = spec.paths['/api/v1/artikel/{id}/fotos'] as {
+      post: {
+        requestBody: {
+          content: Record<string, { schema: { properties: Record<string, unknown> } }>
+        }
+      }
+    }
+    const multipart = pfad.post.requestBody.content['multipart/form-data']
+    expect(multipart).toBeDefined()
+    expect(multipart!.schema.properties).toHaveProperty('foto')
+    expect(spec.components.schemas).toHaveProperty('Foto')
   })
 })

@@ -16,6 +16,7 @@ import { setupRoutes } from './auth/setup-routes.js'
 import { apiKeyRoutes } from './auth/api-key-routes.js'
 import { registerApiAuthDecorators } from './auth/api-key-auth.js'
 import { apiV1Routes } from './api/v1/routes.js'
+import { apiV1FotoRoutes } from './api/v1/foto-routes.js'
 import { buildOpenApiSpec } from './api/docs.js'
 import { mcpRoutes } from './mcp/routes.js'
 import { syncRoutes } from './sync/routes.js'
@@ -108,6 +109,19 @@ async function main() {
   // Bewusst VOR den JWT-Bloecken: diese Routen bringen ihre Auth selbst mit.
   await apiV1Routes(app, notificationGateway)
   await mcpRoutes(app, notificationGateway)
+
+  // Agent API: product images. Own scope, so that the multipart limits
+  // (FOTOS_MAX_BYTES) only apply to these routes and not to the JSON
+  // routes of the agent API.
+  await app.register(async (instance) => {
+    await instance.register(fastifyMultipart, {
+      limits: {
+        fileSize: config.FOTOS_MAX_BYTES,
+        files: 1,
+      },
+    })
+    await apiV1FotoRoutes(instance)
+  })
 
   // /fotos/* statische Auslieferung — OHNE Auth. <img src> schickt
   // keinen Authorization-Header, also muss der Handler vor dem

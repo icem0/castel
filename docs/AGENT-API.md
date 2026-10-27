@@ -31,9 +31,9 @@ X-API-Key: castel_ab12cd34_...
 
 | Scope | Allows |
 | --- | --- |
-| `read` | List/read articles, locations, stock, bookings, commissions and minimum-stock events |
-| `write` | Create/update articles, create bookings, cancel bookings, reassign commissions |
-| `admin` | Read the audit log. Implies `read` and `write` |
+| `read` | List/read articles, locations, stock, bookings, commissions, minimum-stock events and product images |
+| `write` | Create/update articles, create bookings, cancel bookings, reassign commissions, upload product images |
+| `admin` | Read the audit log, delete product images. Implies `read` and `write` |
 
 `write` does **not** imply `read`. A key can hold multiple scopes. Only
 admin users may create a key with `admin`.
@@ -94,6 +94,34 @@ curl -s -X POST -H "Authorization: Bearer $CASTEL_KEY" \
 Create a booking supports an optional client `id` (UUID) for idempotent
 retries: the same UUID is not booked twice.
 
+### Product images
+
+Upload one image per request as `multipart/form-data` with the file field
+named `foto` (any field name works, the first file is used):
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $CASTEL_KEY" \
+  -F "foto=@produktbild.jpg" \
+  "$CASTEL_URL/api/v1/artikel/<uuid>/fotos"
+```
+
+```json
+{
+  "id": "0f6c…",
+  "artikelId": "<uuid>",
+  "url": "/fotos/<artikelId>/9f3a….jpg",
+  "contentType": "image/jpeg",
+  "groesse": 48213,
+  "erstelltAm": "2026-10-27T09:12:44.000Z"
+}
+```
+
+The image is stored on the server (`FOTOS_DIR`) and served under `/fotos/…`.
+Accepted formats: JPEG, PNG, WebP. The size per image is limited by
+`FOTOS_MAX_BYTES` (default 512 kB), the number of images per article by
+`FOTOS_MAX_PER_ARTIKEL` (default 5). Uploading is a `write` operation,
+deleting an image requires the `admin` scope.
+
 ## Endpoints
 
 | Method | Path | Scope | Purpose |
@@ -115,6 +143,9 @@ retries: the same UUID is not booked twice.
 | POST | `/api/v1/buchungen/:id/kommission` | write | Cancel and rebook under another commission |
 | GET | `/api/v1/kommissionen` | read | List commissions/projects |
 | GET | `/api/v1/mindestbestand` | read | Minimum-stock events |
+| GET | `/api/v1/artikel/:id/fotos` | read | List product images of an article |
+| POST | `/api/v1/artikel/:id/fotos` | write | Upload a product image (multipart) |
+| DELETE | `/api/v1/fotos/:id` | admin | Delete a product image |
 | GET | `/api/v1/audit` | admin | Audit log |
 
 Pagination uses `limit` (1–200, default 50) and `offset`.
