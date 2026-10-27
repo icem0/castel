@@ -47,6 +47,11 @@ import {
   sollteWarnungAusloesen,
 } from '../domain/mindestbestand.js'
 import { parseAkkuTypenWert } from '../domain/akkutausch.js'
+import {
+  mergeKommissionen,
+  parseGespeicherteKommissionen,
+  parseKommissionenWert,
+} from '../domain/kommissionen.js'
 import { applyLastWriterWinsMock } from './__test-helpers__.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 
@@ -1198,10 +1203,16 @@ async function resolveUmlagerungPaar(
 const ADMIN_ONLY_KEYS = new Set<string>([
   'artikelTypen',
   'akkuTypen',
-  'kommissionen',
   'companyName',
   'barcodeTyp',
 ])
+
+// Global keys that every user may ADD to (never remove). The server merges
+// the incoming value with the stored state (union) — see resolveEinstellung.
+// `kommissionen` is the commission/project list: it is offered as a dropdown
+// in the booking form, and every user should be able to create a new
+// commission there.
+const ADD_ONLY_KEYS = new Set<string>(['kommissionen'])
 
 async function resolveEinstellung(
   tx: Tx,
@@ -1242,7 +1253,17 @@ async function resolveEinstellung(
     }
   }
 
-  // 4) LWW-Upsert auf (key, userId)
+  // 4) `kommissionen` ist ein JSON-Array der Kommission-Namen. Auch dieser
+  //    Wert wird validiert — ein kaputter Wert wuerde die Auswahl in jedem
+  //    Client leeren.
+  if (p.key === 'kommissionen') {
+    const geprueft = parseKommissionenWert(p.value)
+    if (geprueft.fehler.length > 0) {
+      throw new ValidationError('einstellung.value', geprueft.fehler.join('; '))
+    }
+  }
+
+  // 5) LWW-Upsert auf (key, userId)
   const incomingGeaendertAm = new Date(p.geaendertAm)
   const where = and(
     eq(einstellungen.key, p.key),
@@ -1265,6 +1286,28 @@ async function resolveEinstellung(
   const existingRow = existing[0]
   if (!existingRow) return true
   const existingGeaendertAm = toDateOrThrow(existingRow.geaendertAm)
+
+  // 6) Add-only keys: non-admins may only ADD entries. The server merges
+  //    the incoming list with the stored one (union) and stores the result
+  //    with a timestamp that is newer than both versions — so the client
+  //    picks up the merged list on the next pull. A stale client can thus
+  //    never empty the list. Admins keep the plain replace semantics.
+  if (ADD_ONLY_KEYS.has(p.key) && benutzerRolle !== 'admin') {
+    const bestehend = parseGespeicherteKommissionen(existingRow.value)
+    const eingehend = parseKommissionenWert(p.value).kommissionen
+    const vereinigt = mergeKommissionen(bestehend, eingehend)
+    const mergedValue = JSON.stringify(vereinigt)
+    if (mergedValue === existingRow.value) return false
+    const mergedGeaendertAm = new Date(
+      Math.max(existingGeaendertAm.getTime(), incomingGeaendertAm.getTime()) + 1,
+    )
+    await tx
+      .update(einstellungen)
+      .set({ value: mergedValue, geaendertAm: mergedGeaendertAm })
+      .where(where)
+    return true
+  }
+
   if (incomingGeaendertAm.getTime() <= existingGeaendertAm.getTime()) {
     return false
   }

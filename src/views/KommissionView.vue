@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
+import KommissionSelect from '../components/KommissionSelect.vue'
 import type { Buchung } from '../db/types'
 
 const { t } = useI18n()
@@ -76,16 +77,12 @@ function abbrechen(): void {
 
     <div class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label>
-          <span>{{ t('view.kommission.neuesProjekt') }} *</span>
-          <input
-            v-model="neuesProjekt"
-            required
-            autocomplete="off"
-            inputmode="text"
-            :disabled="laufend"
-          />
-        </label>
+        <KommissionSelect
+          v-model="neuesProjekt"
+          :label="`${t('view.kommission.neuesProjekt')} *`"
+          required
+          :disabled="laufend"
+        />
 
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
 

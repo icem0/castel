@@ -287,6 +287,12 @@ export default {
       neuesProjekt: 'New project',
       speichern: 'Run commission',
       abbrechen: 'Cancel',
+      keineAuswahl: '— no commission —',
+      neueAnlegen: 'Create new commission',
+      namePlatzhalter: 'e.g. Project Müller',
+      angelegt: 'added',
+      verwalten: 'Manage commissions',
+      fehlerZuLang: 'Name is too long (max. {max} characters).',
     },
     standort: {
       h1: 'Locations',
@@ -686,7 +692,7 @@ export default {
     },
     kommissionen: {
       h1: 'Commissions',
-      hint: 'Order = display order. Commissions appear in the transaction form as the project field.',
+      hint: 'Order = display order. Commissions are offered as a dropdown in the transaction form — every user can create a new commission there. Sorting and removing stay admin-only.',
       neueKommission: 'New commission',
       hinzufuegen: 'Add',
       konfigurierte: 'Configured commissions',

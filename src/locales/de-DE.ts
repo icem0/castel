@@ -297,6 +297,12 @@ export default {
       neuesProjekt: 'Neues Projekt',
       speichern: 'Kommission ausführen',
       abbrechen: 'Abbrechen',
+      keineAuswahl: '— keine Kommission —',
+      neueAnlegen: 'Neue Kommission anlegen',
+      namePlatzhalter: 'z. B. Projekt Müller',
+      angelegt: 'hinzugefügt',
+      verwalten: 'Kommissionen verwalten',
+      fehlerZuLang: 'Name ist zu lang (max. {max} Zeichen).',
     },
     standort: {
       h1: 'Standorte',
@@ -703,7 +709,7 @@ export default {
     },
     kommissionen: {
       h1: 'Kommissionen',
-      hint: 'Reihenfolge = Anzeige-Reihenfolge. Kommissionen erscheinen im Buchungsformular als Projekt-Eintrag.',
+      hint: 'Reihenfolge = Anzeige-Reihenfolge. Kommissionen erscheinen im Buchungsformular als Auswahl — dort kann jeder User eine neue Kommission anlegen. Sortieren und Entfernen bleiben Admin-Sache.',
       neueKommission: 'Neue Kommission',
       hinzufuegen: 'Hinzufügen',
       konfigurierte: 'Konfigurierte Kommissionen',

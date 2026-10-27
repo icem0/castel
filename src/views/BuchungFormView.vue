@@ -17,6 +17,7 @@ import {
 } from '../domain/errors'
 import { validiereBuchungsEingabe } from '../domain/buchung-form-validation'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
+import KommissionSelect from '../components/KommissionSelect.vue'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -374,10 +375,11 @@ function typIcon(wert: BuchungsTyp): string {
           </div>
         </div>
 
-        <label>
-          <span>{{ t('view.buchung.form.projekt') }}</span>
-          <input v-model="projekt" autocomplete="off" inputmode="text" :disabled="laufend" />
-        </label>
+        <KommissionSelect
+          v-model="projekt"
+          :label="t('view.buchung.form.projekt')"
+          :disabled="laufend"
+        />
         <label>
           <span>{{ t('view.buchung.form.kommentar') }}</span>
           <input v-model="kommentar" autocomplete="off" inputmode="text" :disabled="laufend" />

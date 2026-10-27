@@ -9,6 +9,8 @@ import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
 import { useArtikelStore } from '../../stores/artikel'
 import { useStandortStore } from '../../stores/standort'
 import { useToastStore } from '../../stores/toast'
+import { useSettingsStore } from '../../stores/settings'
+import { getDb } from '../../db/database'
 import { sessionSchreiben } from '../../auth/session'
 import { jetztIso } from '../../domain/ids'
 
@@ -109,5 +111,34 @@ describe('BuchungFormView — Scan-Workflow', () => {
     expect(toast.toasts[0]?.text).toBe('Buchung am Server angekommen')
 
     standortStore.stop()
+  })
+})
+
+describe('BuchungFormView — Kommission', () => {
+  it('übernimmt die ausgewählte Kommission in die Buchung', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await settings.setKommissionen(['Projekt Müller'])
+    await new Promise<void>((resolve) => setTimeout(resolve, 60))
+
+    const { w, standortStore } = await setupView()
+
+    const select = w
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.attributes('value') === 'Projekt Müller'))
+    expect(select).toBeDefined()
+    await select!.setValue('Projekt Müller')
+
+    await w.find('form').trigger('submit')
+    await flushPromises()
+    await new Promise<void>((resolve) => setTimeout(resolve, 50))
+    await flushPromises()
+
+    const buchungen = await getDb().buchungen.toArray()
+    expect(buchungen).toHaveLength(1)
+    expect(buchungen[0]?.projekt).toBe('Projekt Müller')
+
+    standortStore.stop()
+    settings.stop()
   })
 })
