@@ -106,6 +106,8 @@ function start(props: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(lookup.leseLetztenLieferant).mockReturnValue(null)
+  vi.mocked(lookup.leseLetztesBeispiel).mockReturnValue(null)
   vi.mocked(lookup.ladeLieferanten).mockResolvedValue(LIEFERANTEN)
   vi.mocked(lookup.sucheHerstellerArtikel).mockResolvedValue({
     lieferant: { id: 'l1', name: 'Mueller GmbH' },
@@ -142,6 +144,81 @@ describe('HerstellerKatalogDrawer', () => {
 
     await w.waehleUndSuche('l1', '')
     expect(w.knopf('Suchen')?.disabled).toBe(false)
+  })
+
+  it('belegt Lieferant und Suchfeld aus der Bestellnummer des Artikels und startet die Suche', async () => {
+    const w = start({
+      aktuell: {
+        ...AKTUELL,
+        titel: 'Bleistift HB',
+        bestellnummer: 'ART-1001',
+        lieferant: 'Mueller GmbH',
+      },
+    })
+    await flushPromises()
+
+    const select = w.body.querySelector('select') as HTMLSelectElement
+    const input = w.body.querySelector('input[type="search"]') as HTMLInputElement
+    expect(select.value).toBe('l1')
+    expect(input.value).toBe('ART-1001')
+    expect(lookup.sucheHerstellerArtikel).toHaveBeenCalledWith({
+      lieferantId: 'l1',
+      q: 'ART-1001',
+      limit: 25,
+      inklDeaktivierte: true,
+    })
+  })
+
+  it('sucht nach dem Artikelnamen, wenn keine Bestellnummer vorhanden ist', async () => {
+    const w = start({
+      aktuell: { ...AKTUELL, titel: 'Bleistift HB', lieferant: 'Sanitaer Meier' },
+    })
+    await flushPromises()
+
+    const select = w.body.querySelector('select') as HTMLSelectElement
+    const input = w.body.querySelector('input[type="search"]') as HTMLInputElement
+    expect(select.value).toBe('l2')
+    expect(input.value).toBe('Bleistift HB')
+    expect(lookup.sucheHerstellerArtikel).toHaveBeenCalledWith(
+      expect.objectContaining({ lieferantId: 'l2', q: 'Bleistift HB' }),
+    )
+  })
+
+  it('fällt auf den zuletzt benutzten Lieferanten zurück, wenn der Artikel-Lieferant nicht im Katalog steht', async () => {
+    vi.mocked(lookup.leseLetztenLieferant).mockReturnValue('l1')
+    const w = start({
+      aktuell: { ...AKTUELL, bestellnummer: 'B-42', lieferant: 'Unbekannt GmbH' },
+    })
+    await flushPromises()
+
+    const select = w.body.querySelector('select') as HTMLSelectElement
+    expect(select.value).toBe('l1')
+    expect(lookup.sucheHerstellerArtikel).toHaveBeenCalledWith(
+      expect.objectContaining({ lieferantId: 'l1', q: 'B-42' }),
+    )
+  })
+
+  it('füllt das Suchfeld auch ohne auffindbaren Lieferanten, startet aber keine Suche', async () => {
+    const w = start({
+      aktuell: { ...AKTUELL, bestellnummer: 'B-42', lieferant: 'Unbekannt GmbH' },
+    })
+    await flushPromises()
+
+    const select = w.body.querySelector('select') as HTMLSelectElement
+    const input = w.body.querySelector('input[type="search"]') as HTMLInputElement
+    expect(select.value).toBe('')
+    expect(input.value).toBe('B-42')
+    expect(lookup.sucheHerstellerArtikel).not.toHaveBeenCalled()
+  })
+
+  it('sucht nicht automatisch nach dem zuletzt benutzten Katalog-Beispiel', async () => {
+    vi.mocked(lookup.leseLetztesBeispiel).mockReturnValue('ART-ALT')
+    const w = start()
+    await flushPromises()
+
+    const input = w.body.querySelector('input[type="search"]') as HTMLInputElement
+    expect(input.value).toBe('ART-ALT')
+    expect(lookup.sucheHerstellerArtikel).not.toHaveBeenCalled()
   })
 
   it('übernimmt Titel, EAN, Bestellnummer und Preis aus dem Treffer', async () => {

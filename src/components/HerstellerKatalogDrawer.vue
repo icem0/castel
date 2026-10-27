@@ -124,6 +124,33 @@ const gewaehlterLieferant = computed(
 )
 
 /**
+ * Search term derived from the article the drawer was opened for.
+ *
+ * The order number is the most precise key a catalogue has; the title is the
+ * fallback. Both are empty for a brand-new article without any input yet.
+ */
+const artikelBegriff = computed<string>(
+  () => props.aktuell.bestellnummer.trim() || props.aktuell.titel.trim(),
+)
+
+/**
+ * Catalogue supplier whose name matches the article's supplier field.
+ *
+ * The article stores a free-text supplier name, the catalogue knows the
+ * supplier of the imported DATANORM file — the names are usually identical
+ * but not guaranteed. An exact match wins; a prefix match is only accepted
+ * when it is unambiguous, so a wrong supplier is never picked silently.
+ */
+function findeLieferantZuName(name: string): Lieferant | null {
+  const needle = name.trim().toLowerCase()
+  if (needle === '') return null
+  const exakt = lieferanten.value.find((l) => l.name.trim().toLowerCase() === needle)
+  if (exakt) return exakt
+  const praefix = lieferanten.value.filter((l) => l.name.trim().toLowerCase().startsWith(needle))
+  return praefix.length === 1 ? praefix[0]! : null
+}
+
+/**
  * Fields that would change the form, with the current and catalogue values.
  * Drives the yellow (overwrite) / grey (fill empty) colouring.
  */
@@ -301,6 +328,24 @@ async function oeffne(): Promise<void> {
   offline.value = false
   await nextTick()
   await ladeLieferantenListe()
+
+  // Supplier: the article's supplier wins over the last used one, which
+  // `ladeLieferantenListe` has already preselected.
+  const passend = findeLieferantZuName(props.aktuell.lieferant)
+  if (passend) lieferantId.value = passend.id
+
+  // Search term: order number, otherwise the article title.
+  const begriff = artikelBegriff.value
+  if (begriff !== '') {
+    suchbegriff.value = begriff
+    // Both fields are filled — start the search right away so the user gets
+    // the hit list without an extra click.
+    if (lieferantId.value !== '') await suchen()
+    return
+  }
+
+  // The article has neither order number nor title: offer the last applied
+  // catalogue entry, but do not search for it automatically.
   const gemerkt = leseLetztesBeispiel()
   if (gemerkt && suchbegriff.value === '') suchbegriff.value = gemerkt
 }

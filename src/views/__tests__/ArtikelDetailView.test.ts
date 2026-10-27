@@ -226,6 +226,39 @@ describe('ArtikelDetailView — Katalogübernahme', () => {
     w.unmount()
   })
 
+  it('belegt den Katalog-Drawer aus dem Artikel und startet die Suche', async () => {
+    const { w } = await setupView(null, [], {
+      bestellnummer: 'B-42',
+      lieferant: 'Mueller GmbH',
+    })
+
+    await w.get('[data-testid="artikel-detail-bearbeiten"]').trigger('click')
+    await flushPromises()
+
+    await w.get('[data-testid="artikel-detail-katalog-oeffnen"]').trigger('click')
+    await warte(20)
+
+    const lieferantSelect = document.body.querySelector(
+      '.drawer-body select',
+    ) as HTMLSelectElement | null
+    const suchInput = document.body.querySelector('input[type="search"]') as HTMLInputElement | null
+    expect(lieferantSelect).not.toBeNull()
+    expect(suchInput).not.toBeNull()
+    if (!lieferantSelect || !suchInput) return
+
+    // Lieferant aus dem Artikel gewaehlt, Bestellnummer als Suchbegriff.
+    expect(lieferantSelect.value).toBe('l1')
+    expect(suchInput.value).toBe('B-42')
+
+    // Die Suche laeuft bereits, die Trefferliste ist sichtbar.
+    expect(lookup.sucheHerstellerArtikel).toHaveBeenCalledWith(
+      expect.objectContaining({ lieferantId: 'l1', q: 'B-42' }),
+    )
+    expect(document.body.querySelector('.treffer')?.textContent).toContain('Bleistift HB')
+
+    w.unmount()
+  })
+
   it('warnt vor einem bereits anderweitig vergebenen Barcode', async () => {
     const { w, andere } = await setupView(null, [{ titel: 'Zwilling', barcode: '4006381333931' }])
     const duplikat = andere[0]
