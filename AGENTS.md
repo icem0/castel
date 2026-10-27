@@ -42,6 +42,33 @@ der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
   - API-Seitig: `npm run test:run` und `npm run typecheck` in `server/`
 - Build muss sauber durchlaufen: `npm run build`.
 
+## Todo-Liste (Pflicht, keine Ausnahme)
+
+Die Todo-Liste ist **kein Nice-to-have**, sondern das Protokoll des Laufs.
+Ein Lauf ohne gepflegte Liste ist ein **Regelverstoß** — genau wie ein Lauf
+ohne Lint/Tests. Wiederholtes Vergessen ist ein gemeldeter, gravierender
+Fehler; die folgenden Regeln sind hart:
+
+- **Anlegen bei ≥ 3 Teilschritten** (und immer, wenn der User eine Liste
+  verlangt): sofort zu Beginn via `todowrite`, alle Schritte als `pending`.
+- **Genau ein `in_progress` zur Zeit.** Vor dem ersten Tool-Aufruf eines
+  Schritts wird dieser auf `in_progress` gesetzt — nie mehrere gleichzeitig.
+- **`completed` sofort nach Abschluss des Schritts**, im selben Tool-Batch
+  wie der nächste Schritt. **Niemals sammeln, nachtragen oder am Ende
+  pauschal abhaken.** Wer drei Schritte erledigt und die Liste erst danach
+  aktualisiert, hat die Regel bereits verletzt.
+- **`completed` erst nach tatsächlicher Verifikation** (z. B. Lint/Test/Build
+  wirklich gelaufen, Datei wirklich geschrieben) — nicht nach Absicht.
+- **Blockiert** → Schritt bleibt `in_progress`, zusätzlicher `pending`-
+  Folgeschritt benennt den Blocker. Kein stilles Überspringen.
+- **Abgebrochene/unnötige Schritte** werden `cancelled`, nicht gelöscht.
+- **Vor der Abschluss-Antwort** ist die Liste vollständig aktuell: keine
+  `pending`/`in_progress`-Reste, die nicht ausdrücklich als offen gemeldet
+  werden.
+
+Der Statusbericht am Ende (Commit-/Push-/Build-Status) beschreibt den
+tatsächlichen Zustand der Liste, nicht die Erinnerung daran.
+
 ## Commits & Versionierung
 
 - **Conventional Commits sind Pflicht.** Commit-Messages folgen dem Format
