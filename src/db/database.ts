@@ -2,10 +2,10 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v14 (Hersteller-Stammdaten + Bestellstatus auf Artikel,
-// siehe Kommentar bei v14). Frühere Versionen (v1–v13) sind nur noch für
+// Aktuelles Schema: v16 (Akkutausch — Netzteile + Projektakkus, siehe
+// Kommentar bei v16). Frühere Versionen (v1–v15) sind nur noch für
 // Migration existierender Browser-DBs. Wenn du eine frische DB anlegst,
-// wird direkt v14 verwendet.
+// wird direkt v16 verwendet.
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -14,14 +14,16 @@
 import Dexie, { type Table } from 'dexie'
 import type {
   Artikel,
+  ArtikelStandortMindestbestand,
   AuditLogEintrag,
   Buchung,
   Einstellung,
   Hersteller,
-  ArtikelStandortMindestbestand,
   MindestbestandEreignis,
+  Netzteil,
   OutboxEintrag,
   Projekt,
+  Projektakku,
   Standort,
 } from './types'
 
@@ -52,6 +54,10 @@ export class CastelDb extends Dexie {
    * den Admin-View `/einstellungen/mindestbestand`.
    */
   mindestbestandEreignisse!: Table<MindestbestandEreignis, string>
+  /** Akkutausch: eingebaute Netzteile (Akku-Tausch in festem Intervall). */
+  akkuNetzteile!: Table<Netzteil, string>
+  /** Akkutausch: Projektbatterien je Quartal. */
+  akkuProjekte!: Table<Projektakku, string>
 
   constructor(name = DB_NAME) {
     super(name)
@@ -406,6 +412,15 @@ export class CastelDb extends Dexie {
           await tx.table('artikelStandortMindestbestaende').bulkPut(rows)
         }
       })
+
+    // v16: Akkutausch — Netzteile und Projektakkus. Zwei neue Tabellen,
+    //      die 1:1 die Server-Tabellen `akku_netzteile` / `akku_projekte`
+    //      spiegeln (LWW ueber `geaendertAm`). Geloeschte Zeilen bleiben als
+    //      Tombstone in der DB (`geloescht`), die Anzeige filtert sie heraus.
+    this.version(16).stores({
+      akkuNetzteile: 'id, anlage, geaendertAm',
+      akkuProjekte: 'id, [jahr+quartal], geaendertAm',
+    })
   }
 }
 

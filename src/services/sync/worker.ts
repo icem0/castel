@@ -22,9 +22,11 @@ import type {
   Einstellung,
   Hersteller,
   MindestbestandEreignis,
+  Netzteil,
   OutboxEintrag,
   OutboxOp,
   Projekt,
+  Projektakku,
   Standort,
 } from '../../db/types'
 import { jetztIso, neueUuid } from '../../domain/ids'
@@ -80,6 +82,8 @@ export function zaehleAbweichungen(l: TableCounts | null, s: TableCounts | null)
   if ((l.artikelStandortMindestbestand ?? 0) !== (s.artikelStandortMindestbestand ?? 0)) {
     n++
   }
+  if ((l.akkuNetzteile ?? 0) !== (s.akkuNetzteile ?? 0)) n++
+  if ((l.akkuProjekte ?? 0) !== (s.akkuProjekte ?? 0)) n++
   return n
 }
 
@@ -271,6 +275,11 @@ export interface SyncSnapshot {
   /** Mindestbestand je (Artikel, Standort), sparse. Optional, damit
    *  aeltere Server-Antworten und Test-Fixtures weiter laden. */
   artikelStandortMindestbestaende?: ArtikelStandortMindestbestand[]
+  /** Akkutausch: eingebaute Netzteile. Optional (aeltere Server-Versionen
+   *  kennen die Tabelle nicht). */
+  akkuNetzteile?: Netzteil[]
+  /** Akkutausch: Projektbatterien je Quartal. Optional. */
+  akkuProjekte?: Projektakku[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
   /**
@@ -311,6 +320,10 @@ export interface TableCounts {
   hersteller?: number
   /** Optional, damit aeltere Server-/Test-Fixtures ohne den Zaehler laden. */
   artikelStandortMindestbestand?: number
+  /** Optional, damit aeltere Server-/Test-Fixtures ohne die Zaehler laden. */
+  akkuNetzteile?: number
+  /** Optional, damit aeltere Server-/Test-Fixtures ohne die Zaehler laden. */
+  akkuProjekte?: number
 }
 
 export interface ServerStatus {
@@ -694,13 +707,24 @@ async function reconcileBookings(
 
 async function getLocalCounts(): Promise<TableCounts> {
   const db = getDb()
-  const [artikel, standorte, projekte, buchungen, hersteller, mindestbestand] = await Promise.all([
+  const [
+    artikel,
+    standorte,
+    projekte,
+    buchungen,
+    hersteller,
+    mindestbestand,
+    akkuNetzteile,
+    akkuProjekte,
+  ] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
     db.commission.count(),
     db.buchungen.count(),
     db.hersteller.count(),
     db.artikelStandortMindestbestaende.count(),
+    db.akkuNetzteile.count(),
+    db.akkuProjekte.count(),
   ])
   return {
     artikel,
@@ -709,6 +733,8 @@ async function getLocalCounts(): Promise<TableCounts> {
     buchungen,
     hersteller,
     artikelStandortMindestbestand: mindestbestand,
+    akkuNetzteile,
+    akkuProjekte,
   }
 }
 
@@ -914,6 +940,8 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       db.buchungen,
       db.einstellungen,
       db.mindestbestandEreignisse,
+      db.akkuNetzteile,
+      db.akkuProjekte,
     ],
     async () => {
       // Artikel
@@ -944,6 +972,24 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
           await db.artikelStandortMindestbestaende.add(m)
         } else if (m.geaendertAm > existing.geaendertAm) {
           await db.artikelStandortMindestbestaende.put(m)
+        }
+      }
+      // Akkutausch: Netzteile — LWW auf geaendertAm.
+      for (const n of snap.akkuNetzteile ?? []) {
+        const existing = await db.akkuNetzteile.get(n.id)
+        if (!existing) {
+          await db.akkuNetzteile.add(n)
+        } else if (n.geaendertAm > existing.geaendertAm) {
+          await db.akkuNetzteile.put(n)
+        }
+      }
+      // Akkutausch: Projektakkus — LWW auf geaendertAm.
+      for (const p of snap.akkuProjekte ?? []) {
+        const existing = await db.akkuProjekte.get(p.id)
+        if (!existing) {
+          await db.akkuProjekte.add(p)
+        } else if (p.geaendertAm > existing.geaendertAm) {
+          await db.akkuProjekte.put(p)
         }
       }
       // Standorte

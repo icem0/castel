@@ -185,6 +185,14 @@ export interface ArtikelStandortMindestbestand {
   erstelltAm: Iso
 }
 
+/**
+ * Akkutausch: eingebaute Netzteile und Projektakkus.
+ *
+ * Die Domänen-Definitionen liegen in `src/domain/akkutausch/types.ts` —
+ * die PWA spiegelt sie 1:1 in IndexedDB (Dexie v16).
+ */
+export type { Netzteil, Projektakku } from '../domain/akkutausch/types'
+
 /** Rolle des eingeloggten Users (Spiegel des Server-Users). */
 export type UserRolle = 'admin' | 'user'
 
@@ -212,6 +220,8 @@ export type OutboxEntity =
   | 'foto'
   | 'einstellung'
   | 'artikel_standort_mindestbestand'
+  | 'akku_netzteil'
+  | 'akku_projekt'
 export type OutboxOp = 'create' | 'update' | 'delete' | 'upload' | 'upsert'
 
 export interface OutboxEintrag {

@@ -1866,3 +1866,70 @@ describe('Sync — Fehlerdiagnose', () => {
     expect(getSyncStatus().lastError).toContain('Failed to fetch')
   })
 })
+
+describe('Sync — Akkutausch-Snapshot', () => {
+  it('applySnapshot speichert Netzteile und Projektakkus mit LWW', async () => {
+    const { applySnapshot } = await import('../worker')
+    const netzteil = {
+      id: 'n-1',
+      anlage: 'Anlage 1',
+      objekt: 'Objekt 1',
+      name: 'Notlichtaggregat',
+      einbaudatum: '2020-01-15',
+      intervallJahre: 5,
+      kapazitaetAh: 12.5,
+      anzahl: 2,
+      gruppe: null,
+      plz: null,
+      vdsAnerkennung: null,
+      bemerkung: null,
+      geloescht: false,
+      geaendertAm: '2026-04-14T10:00:00.000Z',
+      erstelltAm: '2026-04-14T09:00:00.000Z',
+    }
+    const projekt = {
+      id: 'p-1',
+      projekt: 'Bauvorhaben',
+      menge: 4,
+      artAh: 100,
+      quartal: 1,
+      jahr: 2027,
+      geloescht: false,
+      geaendertAm: '2026-04-14T10:00:00.000Z',
+      erstelltAm: '2026-04-14T09:00:00.000Z',
+    }
+
+    await applySnapshot({
+      serverTime: '2026-04-14T11:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [],
+      akkuNetzteile: [netzteil],
+      akkuProjekte: [projekt],
+    })
+
+    expect((await getDb().akkuNetzteile.get('n-1'))?.kapazitaetAh).toBe(12.5)
+    expect((await getDb().akkuProjekte.get('p-1'))?.menge).toBe(4)
+
+    // Älterer Snapshot darf die neuere lokale Zeile nicht überschreiben.
+    await applySnapshot({
+      serverTime: '2026-04-14T12:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      mindestbestandEreignisse: [],
+      akkuNetzteile: [
+        { ...netzteil, anlage: 'alte Anlage', geaendertAm: '2026-04-14T08:00:00.000Z' },
+      ],
+      akkuProjekte: [],
+    })
+    expect((await getDb().akkuNetzteile.get('n-1'))?.anlage).toBe('Anlage 1')
+  })
+})

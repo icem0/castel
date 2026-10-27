@@ -48,6 +48,8 @@ export interface ResetLocalDbResult {
     einstellungen: number
     mindestbestandEreignisse: number
     artikelStandortMindestbestaende: number
+    akkuNetzteile: number
+    akkuProjekte: number
   }
   /**
    * Was `window.location.reload()` triggered at the end? Set by the caller
@@ -75,6 +77,8 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
       db.buchungen,
       db.einstellungen,
       db.mindestbestandEreignisse,
+      db.akkuNetzteile,
+      db.akkuProjekte,
     ],
     async () => {
       if (data.artikel.length > 0) await db.artikel.bulkPut(data.artikel)
@@ -97,6 +101,13 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
       // after the reset, so a plain bulkPut is enough.
       if (data.mindestbestandEreignisse?.length > 0) {
         await db.mindestbestandEreignisse.bulkPut(data.mindestbestandEreignisse)
+      }
+      // Akkutausch: nach dem Reset ist die Tabelle leer — bulkPut reicht.
+      if ((data.akkuNetzteile?.length ?? 0) > 0) {
+        await db.akkuNetzteile.bulkPut(data.akkuNetzteile ?? [])
+      }
+      if ((data.akkuProjekte?.length ?? 0) > 0) {
+        await db.akkuProjekte.bulkPut(data.akkuProjekte ?? [])
       }
       if (data.einstellungen.length > 0) {
         // Settings arrive with userId=null; the IndexedDB convention is ''
@@ -185,6 +196,8 @@ export async function resetLocalDbAndPull(opts: {
       einstellungen: data.einstellungen.length,
       mindestbestandEreignisse: data.mindestbestandEreignisse?.length ?? 0,
       artikelStandortMindestbestaende: data.artikelStandortMindestbestaende?.length ?? 0,
+      akkuNetzteile: data.akkuNetzteile?.length ?? 0,
+      akkuProjekte: data.akkuProjekte?.length ?? 0,
     },
     reloaded: false,
   }

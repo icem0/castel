@@ -382,6 +382,8 @@ describe('collectReseedPlan', () => {
       kommission: 1,
       buchungen: 1,
       einstellungen: 2,
+      akkuNetzteile: 0,
+      akkuProjekte: 0,
     })
   })
 })
@@ -456,6 +458,8 @@ describe('reseedServer End-to-End', () => {
       kommission: 1,
       buchungen: 3,
       einstellungen: 1,
+      akkuNetzteile: 0,
+      akkuProjekte: 0,
     })
     expect(result.pendingLeft).toBe(0)
     expect(result.quarantinedLeft).toBe(0)
