@@ -742,7 +742,7 @@ h2 {
   gap: 0.5rem;
 }
 .treffer-zeile {
-  border: 1px solid var(--border, #d7dde3);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.55rem 0.7rem;
   display: flex;
@@ -752,7 +752,7 @@ h2 {
 }
 .treffer-zeile.zurueckgezogen .treffer-titel {
   text-decoration: line-through;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
 }
 .treffer-titel {
   font-weight: 600;
@@ -762,20 +762,20 @@ h2 {
   gap: 0.6rem;
   flex-wrap: wrap;
   font-size: 0.85rem;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
 }
 .beschreibung {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   white-space: pre-line;
 }
 .badge {
   font-size: 0.75rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: #fdecec;
-  color: #97231f;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger);
 }
 .fortschritt {
   display: flex;
@@ -786,20 +786,20 @@ h2 {
 .balken {
   width: 100%;
   height: 8px;
-  background: #eef2f5;
+  background: var(--bg-input);
   border-radius: 4px;
   overflow: hidden;
 }
 .fuellung {
   height: 100%;
-  background: var(--accent, #2f6f9f);
+  background: var(--accent);
   transition: width 300ms ease;
 }
 .auffaelligkeiten {
   margin: 0.25rem 0 0.75rem;
   padding-left: 1.1rem;
   font-size: 0.85rem;
-  color: var(--warning, #8a6100);
+  color: var(--warning);
 }
 .data {
   width: 100%;
@@ -809,10 +809,10 @@ h2 {
 .data td {
   text-align: left;
   padding: 0.4rem 0.5rem;
-  border-bottom: 1px solid var(--border, #d7dde3);
+  border-bottom: 1px solid var(--border);
 }
 .data th {
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 .row {

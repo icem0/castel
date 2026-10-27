@@ -264,12 +264,12 @@ onMounted(() => {
   margin-bottom: 1rem;
 }
 .endpoints code {
-  background: var(--surface-2, rgba(127, 127, 127, 0.15));
+  background: var(--bg-input);
   border-radius: 4px;
   padding: 0.1rem 0.3rem;
 }
 .key-neu {
-  border: 1px solid var(--accent, #3b82f6);
+  border: 1px solid var(--accent);
   margin-bottom: 1rem;
 }
 .key-zeile {
@@ -282,7 +282,7 @@ onMounted(() => {
 .key-zeile code {
   flex: 1 1 18rem;
   word-break: break-all;
-  background: var(--surface-2, rgba(127, 127, 127, 0.15));
+  background: var(--bg-input);
   border-radius: 4px;
   padding: 0.4rem 0.5rem;
 }

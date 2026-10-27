@@ -441,9 +441,9 @@ const settingsDirty = ref(false)
 .form input {
   padding: 0.4rem 0.6rem;
   font-size: 1em;
-  border: 1px solid var(--border, #ccc);
+  border: 1px solid var(--border);
   border-radius: 0.3rem;
-  background: var(--input-bg, #fff);
+  background: var(--bg-input);
   color: inherit;
 }
 .form-actions {

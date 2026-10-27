@@ -533,10 +533,11 @@ function onTaste(e: KeyboardEvent): void {
 .drawer {
   width: min(440px, 100vw);
   height: var(--app-vh, 100vh);
-  background: var(--surface, #fff);
+  background: var(--bg-card);
+  color: var(--text);
   display: flex;
   flex-direction: column;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.35);
   animation: einschieben 160ms ease-out;
   transition: transform 0.2s ease-out;
 }
@@ -558,7 +559,7 @@ function onTaste(e: KeyboardEvent): void {
   align-items: center;
   justify-content: space-between;
   padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--border, #d7dde3);
+  border-bottom: 1px solid var(--border);
 }
 .drawer-head h2 {
   margin: 0;
@@ -591,7 +592,7 @@ function onTaste(e: KeyboardEvent): void {
 }
 .laden,
 .leer {
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   padding: 0.6rem 0;
 }
 .treffer {
@@ -603,17 +604,17 @@ function onTaste(e: KeyboardEvent): void {
   gap: 0.4rem;
 }
 .treffer-zeile.aktiv .treffer-button {
-  border-color: var(--accent, #2f6f9f);
-  box-shadow: inset 0 0 0 1px var(--accent, #2f6f9f);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 .treffer-zeile.zurueckgezogen .treffer-titel {
   text-decoration: line-through;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
 }
 .treffer-button {
   width: 100%;
   text-align: left;
-  border: 1px solid var(--border, #d7dde3);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: none;
   padding: 0.5rem 0.6rem;
@@ -630,23 +631,24 @@ function onTaste(e: KeyboardEvent): void {
   gap: 0.6rem;
   flex-wrap: wrap;
   font-size: 0.85rem;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
 }
 .einheit,
 .ersatz {
   font-size: 0.8rem;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
 }
 .badge {
   align-self: flex-start;
   font-size: 0.75rem;
   padding: 0.1rem 0.4rem;
   border-radius: 999px;
-  background: #fdecec;
-  color: #97231f;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 .auswahl {
-  border-top: 1px solid var(--border, #d7dde3);
+  border-top: 1px solid var(--border);
   padding-top: 0.8rem;
 }
 .auswahl h3 {
@@ -662,7 +664,7 @@ function onTaste(e: KeyboardEvent): void {
   gap: 0.5rem;
 }
 .diff-zeile {
-  border: 1px solid var(--border, #d7dde3);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.45rem 0.6rem;
   display: flex;
@@ -670,11 +672,12 @@ function onTaste(e: KeyboardEvent): void {
   gap: 0.2rem;
 }
 .diff-zeile.ueberschreiben {
-  border-color: #d9a441;
-  background: #fdf6e7;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.1);
 }
 .diff-zeile.neu {
-  background: #f2f7fb;
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
 }
 .diff-kopf {
   display: flex;
@@ -694,11 +697,11 @@ function onTaste(e: KeyboardEvent): void {
   font-weight: 600;
 }
 .diff-aktuell {
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   text-decoration: line-through;
 }
 .diff-leer {
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   font-style: italic;
   font-size: 0.85rem;
 }
@@ -706,7 +709,7 @@ function onTaste(e: KeyboardEvent): void {
   align-self: flex-start;
   border: none;
   background: none;
-  color: var(--accent, #2f6f9f);
+  color: var(--accent);
   cursor: pointer;
   padding: 0;
   font-size: 0.82rem;
@@ -714,7 +717,7 @@ function onTaste(e: KeyboardEvent): void {
 }
 .beschreibung {
   font-size: 0.88rem;
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   white-space: pre-line;
   margin: 0.4rem 0 0;
 }
@@ -724,7 +727,7 @@ function onTaste(e: KeyboardEvent): void {
   margin-top: 0.8rem;
 }
 .hinweis {
-  color: var(--muted, #5b6770);
+  color: var(--text-muted);
   font-size: 0.88rem;
 }
 </style>

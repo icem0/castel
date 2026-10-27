@@ -319,7 +319,7 @@ function formatDatum(iso: string | null): string {
   z-index: 50;
 }
 .reset-dialog-card {
-  background: var(--bg);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1.5rem;
@@ -345,7 +345,7 @@ function formatDatum(iso: string | null): string {
   font-family: var(--mono);
   font-size: 1.1rem;
   letter-spacing: 0.05em;
-  background: #f3f4f6;
+  background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
@@ -364,7 +364,7 @@ function formatDatum(iso: string | null): string {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg);
+  background: var(--bg-input);
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -392,6 +392,6 @@ function formatDatum(iso: string | null): string {
   cursor: pointer;
 }
 .text-btn:hover {
-  background: #f3f4f6;
+  background: var(--accent-bg);
 }
 </style>
