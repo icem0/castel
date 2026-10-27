@@ -22,6 +22,7 @@ import {
 import { getDb } from '../../db/client.js'
 import {
   artikel,
+  artikelStandortMindestbestaende,
   auditLog,
   buchungen,
   mindestbestandEreignisse,
@@ -83,10 +84,50 @@ function isoRequired(value: unknown): string {
 
 function alsOp(
   op: 'create' | 'update' | 'delete',
-  entity: 'artikel' | 'standort' | 'kommission' | 'buchung',
+  entity: 'artikel' | 'standort' | 'kommission' | 'buchung' | 'artikel_standort_mindestbestand',
   payload: unknown,
 ): PushOp {
   return { op, entity, payload } as PushOp
+}
+
+/**
+ * Der Werks-/Standardstandort ist in der App das "Hauptlager". Der
+ * Mindestbestand der Agenten-API v1 (`artikel.mindestbestand`) wird aus
+ * Kompatibilitaetsgruenden in dessen Konfiguration gespiegelt.
+ */
+async function standardStandortId(): Promise<string | null> {
+  const rows = await getDb()
+    .select({ id: standorte.id })
+    .from(standorte)
+    .where(and(eq(standorte.standard, true), eq(standorte.archiviert, false)))
+    .limit(1)
+  return rows[0]?.id ?? null
+}
+
+async function setzeStandardMindestbestand(
+  artikelId: string,
+  wert: number | null | undefined,
+  auth: ApiAuthContext,
+): Promise<void> {
+  if (wert === undefined) return
+  const standortId = await standardStandortId()
+  if (standortId === null) return
+  const now = new Date().toISOString()
+  const payload = { artikelId, standortId, geaendertAm: now, erstelltAm: now }
+  if (wert === null || wert <= 0) {
+    // Sparse: kein Wert = keine Zeile. Delete ist idempotent.
+    await fuehreOpsAus(
+      [alsOp('delete', 'artikel_standort_mindestbestand', { ...payload, mindestbestand: 0 })],
+      auth,
+    )
+    return
+  }
+  const op: PushOp = {
+    op: 'create',
+    entity: 'artikel_standort_mindestbestand',
+    payload: { ...payload, mindestbestand: wert },
+  }
+  await fuehreOpsAus([op], auth)
 }
 
 function checkResolverResult(result: {
@@ -100,7 +141,7 @@ function checkResolverResult(result: {
         ? 422
         : err.code === 'VALIDATION'
           ? 400
-          : err.code === 'HAS_DEPENDENCIES'
+          : err.code === 'HAS_DEPENDENCIES' || err.code === 'PROTECTED_STANDORT'
             ? 409
             : 500
     throw new ApiV1Error(status, err.code, err.message, {
@@ -248,6 +289,8 @@ export async function listeArtikel(params: ArtikelListeParams): Promise<{
 export interface ArtikelDetail extends ArtikelDto {
   bestand: Array<{ standortId: string; standortName: string; menge: number }>
   bestandGesamt: number
+  /** Mindestbestand je Lager. Nur konfigurierte Lager sind enthalten. */
+  mindestbestandJeStandort: Array<{ standortId: string; mindestbestand: number }>
 }
 
 export async function getArtikel(id: string): Promise<ArtikelDetail> {
@@ -256,7 +299,16 @@ export async function getArtikel(id: string): Promise<ArtikelDetail> {
   const row = rows[0]
   if (!row) throw new ApiV1Error(404, 'NOT_FOUND', `Artikel ${id} nicht gefunden`)
   const bestaende = await berechneBestaendeProArtikel(db, id)
-  const standortRows = await db.select().from(standorte)
+  const [standortRows, mindestRows] = await Promise.all([
+    db.select().from(standorte),
+    db
+      .select({
+        standortId: artikelStandortMindestbestaende.standortId,
+        mindestbestand: artikelStandortMindestbestaende.mindestbestand,
+      })
+      .from(artikelStandortMindestbestaende)
+      .where(eq(artikelStandortMindestbestaende.artikelId, id)),
+  ])
   const namen = new Map(standortRows.map((s) => [s.id, s.name]))
   return {
     ...artikelDto(row),
@@ -266,6 +318,10 @@ export async function getArtikel(id: string): Promise<ArtikelDetail> {
       menge: b.menge,
     })),
     bestandGesamt: bestaende.reduce((sum, b) => sum + b.menge, 0),
+    mindestbestandJeStandort: mindestRows.map((r) => ({
+      standortId: r.standortId,
+      mindestbestand: r.mindestbestand,
+    })),
   }
 }
 
@@ -296,6 +352,7 @@ export async function createArtikel(
     erstelltAm: now,
   }
   await fuehreOpsAus([alsOp('create', 'artikel', payload)], auth)
+  await setzeStandardMindestbestand(payload.id, input.mindestbestand, auth)
   return getArtikel(payload.id)
 }
 
@@ -314,6 +371,7 @@ export async function updateArtikel(
     geaendertAm: new Date().toISOString(),
   }
   await fuehreOpsAus([alsOp('update', 'artikel', payload)], auth)
+  await setzeStandardMindestbestand(id, patch.mindestbestand, auth)
   return getArtikel(id)
 }
 
@@ -991,12 +1049,13 @@ export async function getStatus(): Promise<{
   counts: Record<string, number>
 }> {
   const db = getDb()
-  const [a, s, p, b, m] = await Promise.all([
+  const [a, s, p, b, m, mw] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
     db.select({ c: sql<number>`count(*)::int` }).from(buchungen),
     db.select({ c: sql<number>`count(*)::int` }).from(mindestbestandEreignisse),
+    db.select({ c: sql<number>`count(*)::int` }).from(artikelStandortMindestbestaende),
   ])
   return {
     serverTime: new Date().toISOString(),
@@ -1006,6 +1065,7 @@ export async function getStatus(): Promise<{
       commission: p[0]?.c ?? 0,
       buchungen: b[0]?.c ?? 0,
       mindestbestandEreignisse: m[0]?.c ?? 0,
+      artikelStandortMindestbestand: mw[0]?.c ?? 0,
     },
   }
 }

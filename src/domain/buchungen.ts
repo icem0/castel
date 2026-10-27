@@ -44,6 +44,20 @@ async function assertReferenzenExistieren(
 }
 
 /**
+ * Liest den Mindestbestand des Paares (Artikel, Standort). Die Schwelle
+ * ist sparse konfiguriert; `0` bzw. eine fehlende Zeile bedeutet "kein
+ * Mindestbestand an diesem Lager" → `null`.
+ *
+ * Der veraltete globale Wert `artikel.mindestbestand` wird bewusst NICHT
+ * als Fallback verwendet.
+ */
+async function leseMindestbestand(artikelId: string, standortId: string): Promise<number | null> {
+  const row = await getDb().artikelStandortMindestbestaende.get([artikelId, standortId])
+  const wert = row?.mindestbestand ?? 0
+  return wert > 0 ? wert : null
+}
+
+/**
  * Erzeugt ggf. eine `MindestbestandWarnung`, wenn der voraussichtliche
  * Bestand nach einer Entnahme den Mindestbestand des Artikels
  * unterschreitet. Gibt `null` zurück, wenn der Artikel keinen
@@ -128,7 +142,7 @@ export async function createEntnahme(eingabe: BuchungsEingabe): Promise<Entnahme
   assertPflichtfeld('standortId', eingabe.standortId)
   assertPflichtfeld('erstelltVon', eingabe.erstelltVon)
   if (eingabe.erstelltAm) assertKeinZukunftsDatum(eingabe.erstelltAm)
-  const artikel = await assertReferenzenExistieren(eingabe.artikelId, eingabe.standortId)
+  await assertReferenzenExistieren(eingabe.artikelId, eingabe.standortId)
   const db = getDb()
 
   // Bestand muss innerhalb der Transaktion berechnet werden,
@@ -136,6 +150,9 @@ export async function createEntnahme(eingabe: BuchungsEingabe): Promise<Entnahme
   let warnung: NegativerBestandWarnung | null = null
   let mindest: MindestbestandWarnung | null = null
   const buchung = standardEingabeZuBuchung(eingabe, 'entnahme', { menge: -eingabe.menge })
+  // Schwelle VOR der Transaktion lesen — Dexie erlaubt keinen Zugriff auf
+  // Tabellen, die nicht im Transaktions-Scope liegen.
+  const schwelle = await leseMindestbestand(eingabe.artikelId, eingabe.standortId)
 
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
     const aktuelle = await db.buchungen.where('artikelId').equals(eingabe.artikelId).toArray()
@@ -152,7 +169,7 @@ export async function createEntnahme(eingabe: BuchungsEingabe): Promise<Entnahme
       eingabe.artikelId,
       eingabe.standortId,
       bestand - eingabe.menge,
-      artikel.mindestbestand,
+      schwelle,
     )
     await db.buchungen.add(buchung)
     await queueOp('buchung', 'create', buchung)
@@ -189,7 +206,7 @@ export async function createUmlagerung(e: UmlagerungEingabe): Promise<Umlagerung
   assertPflichtfeld('erstelltVon', e.erstelltVon)
   if (e.vonId === e.nachId) throw new GleicherStandortError()
   if (e.erstelltAm) assertKeinZukunftsDatum(e.erstelltAm)
-  const artikel = await assertReferenzenExistieren(e.artikelId, e.vonId, e.nachId)
+  await assertReferenzenExistieren(e.artikelId, e.vonId, e.nachId)
 
   const db = getDb()
   const paarId = neueUuid()
@@ -216,6 +233,8 @@ export async function createUmlagerung(e: UmlagerungEingabe): Promise<Umlagerung
   const einlagerung: Buchung = { ...entnahme, id: neueUuid(), standortId: e.nachId, menge: e.menge }
   let warnung: NegativerBestandWarnung | null = null
   let mindest: MindestbestandWarnung | null = null
+  // Schwelle VOR der Transaktion lesen (siehe createEntnahme).
+  const schwelle = await leseMindestbestand(e.artikelId, e.vonId)
 
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
     const aktuelle = await db.buchungen.where('artikelId').equals(e.artikelId).toArray()
@@ -223,7 +242,7 @@ export async function createUmlagerung(e: UmlagerungEingabe): Promise<Umlagerung
     if (bestand < e.menge) {
       warnung = new NegativerBestandWarnung(e.artikelId, e.vonId, bestand, e.menge)
     }
-    mindest = mindestbestandWarnung(e.artikelId, e.vonId, bestand - e.menge, artikel.mindestbestand)
+    mindest = mindestbestandWarnung(e.artikelId, e.vonId, bestand - e.menge, schwelle)
     await db.buchungen.bulkAdd([entnahme, einlagerung])
     await Promise.all([
       queueOp('buchung', 'create', entnahme),

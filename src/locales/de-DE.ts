@@ -199,6 +199,9 @@ export default {
         loeschenHatBuchungen:
           'Löschen nicht möglich — der Artikel hat bereits Buchungen. Erst alle Buchungen stornieren.',
         loeschenFehler: 'Löschen fehlgeschlagen: {msg}',
+        bestellnummerKopieren: 'Bestellnummer in die Zwischenablage kopieren',
+        bestellnummerKopiert: 'Kopiert',
+        bestellnummerKopierFehler: 'Kopieren fehlgeschlagen',
       },
       form: {
         h1: 'Neuer Artikel',
@@ -213,6 +216,9 @@ export default {
         lieferant: 'Lieferant',
         ve: 'Verpackungseinheit',
         mindestbestand: 'Mindestbestand',
+        mindestbestandProLager: 'Mindestbestand je Lager',
+        mindestbestandProLagerHint:
+          '0 = kein Mindestbestand an diesem Lager. Es gibt keinen globalen Fallback.',
         bestellnummer: 'Bestellnummer',
         barcode: 'Barcode',
         barcodeHint: 'EAN, Code128 oder QR. Wird vom Scanner gelesen.',

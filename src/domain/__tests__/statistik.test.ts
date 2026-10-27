@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { Artikel, Buchung, BuchungsTyp, Standort } from '../../db/types'
+import type {
+  Artikel,
+  ArtikelStandortMindestbestand,
+  Buchung,
+  BuchungsTyp,
+  Standort,
+} from '../../db/types'
 import {
   berechneKpis,
   bestandGesamt,
@@ -32,6 +38,20 @@ function artikel(overrides: Partial<Artikel> & { id: string }): Artikel {
     bestelltAm: null,
     bestelltVon: null,
     geaendertAm: null,
+    erstelltAm: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function mindestbestand(
+  artikelId: string,
+  standortId: string,
+  wert: number,
+): ArtikelStandortMindestbestand {
+  return {
+    artikelId,
+    standortId,
+    mindestbestand: wert,
+    geaendertAm: '2026-01-01T00:00:00.000Z',
     erstelltAm: '2026-01-01T00:00:00.000Z',
   }
 }
@@ -177,10 +197,45 @@ describe('statistik', () => {
         erstelltAm: '2026-05-01T12:00:00.000Z',
       }),
     ]
-    const result = handlungsbedarf(artikelRows, rows, standorte)
+    const result = handlungsbedarf(artikelRows, rows, standorte, [mindestbestand('a', 's', 5)])
     expect(result.anzahl).toBe(2)
     expect(result.eintraege.map((e) => e.artikelId)).toEqual(['a', 'b'])
     expect(result.eintraege[0]).toMatchObject({ bestand: 2, mindestbestand: 5, defizit: 3 })
+  })
+
+  it('ignoriert den veralteten globalen Mindestbestand (kein Fallback)', () => {
+    // `artikel.mindestbestand` wird nicht mehr ausgewertet — die Schwelle
+    // gilt ausschliesslich pro (Artikel, Standort).
+    const artikelRows = [artikel({ id: 'a', titel: 'A', mindestbestand: 5 })]
+    const standorte = [standort('s', 'Hauptlager')]
+    const rows = [
+      buchung({
+        id: '1',
+        artikelId: 'a',
+        standortId: 's',
+        menge: 2,
+        typ: 'einlagerung',
+        erstelltAm: '2026-05-01T10:00:00.000Z',
+      }),
+    ]
+    expect(handlungsbedarf(artikelRows, rows, standorte).anzahl).toBe(0)
+  })
+
+  it('ignoriert eine Konfiguration mit Wert 0', () => {
+    const artikelRows = [artikel({ id: 'a', titel: 'A' })]
+    const standorte = [standort('s', 'Hauptlager')]
+    const rows = [
+      buchung({
+        id: '1',
+        artikelId: 'a',
+        standortId: 's',
+        menge: 2,
+        typ: 'einlagerung',
+        erstelltAm: '2026-05-01T10:00:00.000Z',
+      }),
+    ]
+    const result = handlungsbedarf(artikelRows, rows, standorte, [mindestbestand('a', 's', 0)])
+    expect(result.anzahl).toBe(0)
   })
 
   it('buckets movements per day without double-counting umlagerung', () => {
@@ -335,7 +390,14 @@ describe('statistik', () => {
         erstelltAm: new Date(2026, 4, 9, 10).toISOString(),
       }),
     ]
-    const kpis = berechneKpis({ artikel: artikelRows, buchungen: rows, standorte, tage: 30, jetzt })
+    const kpis = berechneKpis({
+      artikel: artikelRows,
+      buchungen: rows,
+      standorte,
+      mindestbestaende: [mindestbestand('a', 's', 10)],
+      tage: 30,
+      jetzt,
+    })
     expect(kpis.aktiveArtikel).toBe(1)
     expect(kpis.aktiveStandorte).toBe(1)
     expect(kpis.bestandGesamt).toBe(5)

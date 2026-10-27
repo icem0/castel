@@ -63,6 +63,18 @@ export const herstellerSchema = z.object({
   erstelltAm: iso,
 })
 
+/**
+ * Mindestbestand je (Artikel, Standort). Identitaet ist das Paar — es gibt
+ * keine eigene UUID. `mindestbestand <= 0` bedeutet "kein Alarm".
+ */
+export const artikelStandortMindestbestandSchema = z.object({
+  artikelId: id,
+  standortId: id,
+  mindestbestand: z.number().int(),
+  geaendertAm: iso,
+  erstelltAm: iso,
+})
+
 export const standortSchema = z.object({
   id,
   name: z.string().min(1),
@@ -154,6 +166,11 @@ export const pushPayloadSchema = z.object({
           op: z.enum(['create', 'update', 'delete']),
           entity: z.literal('standort'),
           payload: standortSchema,
+        }),
+        z.object({
+          op: z.enum(['create', 'update', 'delete']),
+          entity: z.literal('artikel_standort_mindestbestand'),
+          payload: artikelStandortMindestbestandSchema,
         }),
         z.object({
           op: z.enum(['create', 'update', 'delete']),

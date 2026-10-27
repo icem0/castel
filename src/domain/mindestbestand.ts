@@ -31,7 +31,8 @@ export interface MindestbestandArtikel {
  * geschrieben werden soll.
  *
  * Bedingungen (alle müssen erfüllt sein):
- *   1) Der Artikel hat einen Mindestbestand gesetzt (≠ null).
+ *   1) Der Mindestbestand ist gesetzt und positiv (≠ null, > 0).
+ *      `0` bedeutet "kein Mindestbestand an diesem Lager".
  *   2) Der neue Bestand am Standort ist kleiner als der Mindestbestand
  *      (`bestandDanach < mindestbestand`).
  *
@@ -46,6 +47,7 @@ export function sollteWarnungAusloesen(
   bestandDanach: number,
 ): boolean {
   if (mindestbestand === null) return false
+  if (mindestbestand <= 0) return false
   if (bestandDanach < mindestbestand) return true
   return false
 }
@@ -72,10 +74,7 @@ export function berechneDefizit(mindestbestand: number, bestandDanach: number): 
  * Vergleich gegen den LIVE-Bestand, und der darf nicht ins Negative
  * laufen (ein Bestand über dem Mindestbestand hat kein Defizit).
  */
-export function berechneDefizitAktuell(
-  mindestbestand: number,
-  aktuellerBestand: number,
-): number {
+export function berechneDefizitAktuell(mindestbestand: number, aktuellerBestand: number): number {
   const differenz = mindestbestand - aktuellerBestand
   if (differenz < 0) return 0
   return differenz

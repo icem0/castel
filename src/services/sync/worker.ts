@@ -17,6 +17,7 @@
 import { getDb } from '../../db/database'
 import type {
   Artikel,
+  ArtikelStandortMindestbestand,
   Buchung,
   Einstellung,
   Hersteller,
@@ -76,6 +77,9 @@ export function zaehleAbweichungen(l: TableCounts | null, s: TableCounts | null)
   if (l.commission !== s.commission) n++
   if (l.buchungen !== s.buchungen) n++
   if ((l.hersteller ?? 0) !== (s.hersteller ?? 0)) n++
+  if ((l.artikelStandortMindestbestand ?? 0) !== (s.artikelStandortMindestbestand ?? 0)) {
+    n++
+  }
   return n
 }
 
@@ -103,6 +107,13 @@ export function payloadIdFor(entity: OutboxEintrag['entity'], payload: unknown):
     const userPart = p.userId === null || p.userId === undefined ? 'global' : p.userId
     if (typeof userPart !== 'string' || userPart.length === 0) return null
     return `${p.key}#${userPart}`
+  }
+  if (entity === 'artikel_standort_mindestbestand') {
+    if (!payload || typeof payload !== 'object') return null
+    const p = payload as { artikelId?: unknown; standortId?: unknown }
+    if (typeof p.artikelId !== 'string' || p.artikelId.length === 0) return null
+    if (typeof p.standortId !== 'string' || p.standortId.length === 0) return null
+    return `${p.artikelId}#${p.standortId}`
   }
   if (payload && typeof payload === 'object' && 'id' in payload) {
     const id = (payload as { id: unknown }).id
@@ -257,6 +268,9 @@ export interface SyncSnapshot {
   /** Hersteller-Stammdaten (Bestellkontakt), LWW wie die uebrigen Stammdaten.
    *  Optional, damit aeltere Server-Antworten und Test-Fixtures weiter laden. */
   hersteller?: Hersteller[]
+  /** Mindestbestand je (Artikel, Standort), sparse. Optional, damit
+   *  aeltere Server-Antworten und Test-Fixtures weiter laden. */
+  artikelStandortMindestbestaende?: ArtikelStandortMindestbestand[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
   /**
@@ -295,6 +309,8 @@ export interface TableCounts {
   buchungen: number
   /** Optional, damit aeltere Server-/Test-Fixtures ohne Hersteller-Zaehler laden. */
   hersteller?: number
+  /** Optional, damit aeltere Server-/Test-Fixtures ohne den Zaehler laden. */
+  artikelStandortMindestbestand?: number
 }
 
 export interface ServerStatus {
@@ -678,14 +694,22 @@ async function reconcileBookings(
 
 async function getLocalCounts(): Promise<TableCounts> {
   const db = getDb()
-  const [artikel, standorte, projekte, buchungen, hersteller] = await Promise.all([
+  const [artikel, standorte, projekte, buchungen, hersteller, mindestbestand] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
     db.commission.count(),
     db.buchungen.count(),
     db.hersteller.count(),
+    db.artikelStandortMindestbestaende.count(),
   ])
-  return { artikel, standorte, commission: projekte, buchungen, hersteller }
+  return {
+    artikel,
+    standorte,
+    commission: projekte,
+    buchungen,
+    hersteller,
+    artikelStandortMindestbestand: mindestbestand,
+  }
 }
 
 // ---------- Outbox-Helfer ----------
@@ -884,6 +908,7 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
     [
       db.artikel,
       db.hersteller,
+      db.artikelStandortMindestbestaende,
       db.standorte,
       db.commission,
       db.buchungen,
@@ -907,6 +932,18 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
           await db.hersteller.add(h)
         } else if ((h.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
           await db.hersteller.put(h)
+        }
+      }
+      // Mindestbestand je (Artikel, Standort) — LWW auf geaendertAm,
+      // Identitaet ist das Paar. Sparse: es gibt keine Loeschungen im
+      // Snapshot (Cross-Device-Delete wird bewusst nicht propagiert; der
+      // Server bleibt Source of Truth fuer die Ereignisse).
+      for (const m of snap.artikelStandortMindestbestaende ?? []) {
+        const existing = await db.artikelStandortMindestbestaende.get([m.artikelId, m.standortId])
+        if (!existing) {
+          await db.artikelStandortMindestbestaende.add(m)
+        } else if (m.geaendertAm > existing.geaendertAm) {
+          await db.artikelStandortMindestbestaende.put(m)
         }
       }
       // Standorte

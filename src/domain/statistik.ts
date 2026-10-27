@@ -12,7 +12,7 @@
 //   * Einkaufspreise sind vertraulich und nur in Admin-Auswertungen
 //     enthalten
 
-import type { Artikel, Buchung, Iso, Standort } from '../db/types'
+import type { Artikel, ArtikelStandortMindestbestand, Buchung, Iso, Standort } from '../db/types'
 
 const TAG_MS = 24 * 60 * 60 * 1000
 
@@ -138,20 +138,28 @@ export function handlungsbedarf(
   artikel: Artikel[],
   buchungen: Buchung[],
   standorte: Standort[],
+  mindestbestaende: ArtikelStandortMindestbestand[] = [],
   limit = 5,
 ): { anzahl: number; eintraege: HandlungsbedarfEintrag[] } {
   const artikelById = new Map(artikel.map((a) => [a.id, a]))
   const standortById = new Map(standorte.map((s) => [s.id, s]))
+  const minimumByPaar = new Map(
+    mindestbestaende
+      .filter((m) => m.mindestbestand > 0)
+      .map((m) => [`${m.artikelId}#${m.standortId}`, m.mindestbestand] as const),
+  )
   const eintraege: HandlungsbedarfEintrag[] = []
 
   for (const paar of bestandProPaar(buchungen)) {
     const a = artikelById.get(paar.artikelId)
     if (!a || a.status === 'archiviert') continue
+    const minimum = minimumByPaar.get(`${paar.artikelId}#${paar.standortId}`) ?? null
     const negativ = paar.menge < 0
-    const unterMinimum = a.mindestbestand !== null && paar.menge < a.mindestbestand
+    // Only a positive per-location threshold triggers the minimum warning.
+    // There is deliberately no fallback to the deprecated global value.
+    const unterMinimum = minimum !== null && paar.menge < minimum
     if (!negativ && !unterMinimum) continue
 
-    const minimum = a.mindestbestand
     eintraege.push({
       artikelId: a.id,
       artikelTitel: a.titel,
@@ -334,6 +342,8 @@ export interface KpiEingabe {
   artikel: Artikel[]
   buchungen: Buchung[]
   standorte: Standort[]
+  /** Mindestbestand je (Artikel, Standort); leer = keine Schwellen. */
+  mindestbestaende?: ArtikelStandortMindestbestand[]
   tage: ZeitraumTage
   jetzt?: Date
 }
@@ -342,6 +352,7 @@ export function berechneKpis({
   artikel,
   buchungen,
   standorte,
+  mindestbestaende = [],
   tage,
   jetzt = new Date(),
 }: KpiEingabe): KpiWerte {
@@ -354,7 +365,7 @@ export function berechneKpis({
   const buchungenImZeitraum = buchungen.filter(
     (b) => istAktiveBuchung(b) && istImZeitraum(b.erstelltAm, vonMs, bisMs),
   ).length
-  const bedarf = handlungsbedarf(artikel, buchungen, standorte)
+  const bedarf = handlungsbedarf(artikel, buchungen, standorte, mindestbestaende)
   const wert = lagerwertAuswertung(artikel, buchungen, standorte)
 
   return {

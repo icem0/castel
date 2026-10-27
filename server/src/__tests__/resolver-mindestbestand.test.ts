@@ -24,6 +24,12 @@ interface MockBooking {
 interface MockState {
   artikel: Array<Record<string, unknown>>
   standort: Array<Record<string, unknown>>
+  /**
+   * Mindestbestand je (Artikel, Standort). Die Schwellen liegen nicht mehr
+   * am Artikel, sondern pro Paar — der Trigger liest ausschliesslich
+   * diese Tabelle (kein globaler Fallback).
+   */
+  mindestbestaende: Array<{ artikelId: string; standortId: string; mindestbestand: number }>
   /** Committed bookings — the only rows visible on the pooled connection. */
   committed: MockBooking[]
   /** Bookings inserted in the still-open transaction (tx-only). */
@@ -104,6 +110,20 @@ function makeSelect(state: MockState, scope: 'db' | 'tx') {
           where: (clause: unknown) => {
             const wanted = extractParams(clause).find((p) => typeof p === 'string')
             return rowsPromise(visible.filter((r) => r.id === wanted))
+          },
+        }
+      }
+
+      if (id === 'artikel_standort_mindestbestaende') {
+        return {
+          where: (clause: unknown) => {
+            const params = extractParams(clause).filter((p): p is string => typeof p === 'string')
+            const [artikelId, standortId] = params
+            return rowsPromise(
+              state.mindestbestaende.filter(
+                (m) => m.artikelId === artikelId && m.standortId === standortId,
+              ),
+            )
           },
         }
       }
@@ -198,6 +218,68 @@ describe('Sync-Resolver — Mindestbestand-Trigger', () => {
     expect(sollteWarnungAusloesen(null, 0)).toBe(false)
     expect(sollteWarnungAusloesen(5, 5)).toBe(false)
     expect(sollteWarnungAusloesen(5, 4)).toBe(true)
+    // 0 = "kein Mindestbestand" → kein Alarm.
+    expect(sollteWarnungAusloesen(0, 0)).toBe(false)
+  })
+
+  it('kein Alarm, wenn fuer das Lager kein Mindestbestand konfiguriert ist', async () => {
+    // Kein globaler Fallback: `artikel.mindestbestand` wird nicht mehr
+    // ausgewertet. Ohne Konfiguration (Artikel, Standort) kein Event.
+    const { resolvePush } = await import('../sync/resolver.js')
+    const state: MockState = {
+      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      standort: [{ id: 's-1' }],
+      mindestbestaende: [],
+      committed: [{ id: 'b-0', standortId: 's-1', menge: 60, storno: false }],
+      pending: [],
+      eventInserts: [],
+    }
+    await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(entnahme('b-1', -20))],
+      'u-1',
+      'user',
+    )
+    expect(state.eventInserts).toEqual([])
+  })
+
+  it('kein Alarm, wenn der Mindestbestand 0 ist', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const state: MockState = {
+      artikel: [{ id: 'a-1' }],
+      standort: [{ id: 's-1' }],
+      mindestbestaende: [{ artikelId: 'a-1', standortId: 's-1', mindestbestand: 0 }],
+      committed: [{ id: 'b-0', standortId: 's-1', menge: 60, storno: false }],
+      pending: [],
+      eventInserts: [],
+    }
+    await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(entnahme('b-1', -20))],
+      'u-1',
+      'user',
+    )
+    expect(state.eventInserts).toEqual([])
+  })
+
+  it('Mindestbestand gilt nur fuer das konfigurierte Lager', async () => {
+    const { resolvePush } = await import('../sync/resolver.js')
+    const state: MockState = {
+      artikel: [{ id: 'a-1' }],
+      standort: [{ id: 's-1' }],
+      // Schwelle 50 nur fuer Lager s-2, die Buchung laeuft gegen s-1.
+      mindestbestaende: [{ artikelId: 'a-1', standortId: 's-2', mindestbestand: 50 }],
+      committed: [{ id: 'b-0', standortId: 's-1', menge: 60, storno: false }],
+      pending: [],
+      eventInserts: [],
+    }
+    await resolvePush(
+      makeMockDb(state) as never,
+      [buchungOp(entnahme('b-1', -20))],
+      'u-1',
+      'user',
+    )
+    expect(state.eventInserts).toEqual([])
   })
 
   it('liest den Bestand in der offenen Transaktion (kein Stale-Read)', async () => {
@@ -206,7 +288,8 @@ describe('Sync-Resolver — Mindestbestand-Trigger', () => {
     // ein Stale-Read ergäbe 60 und damit KEIN Event.
     const { resolvePush } = await import('../sync/resolver.js')
     const state: MockState = {
-      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      artikel: [{ id: 'a-1' }],
+      mindestbestaende: [{ artikelId: 'a-1', standortId: 's-1', mindestbestand: 50 }],
       standort: [{ id: 's-1' }],
       committed: [],
       pending: [],
@@ -236,7 +319,8 @@ describe('Sync-Resolver — Mindestbestand-Trigger', () => {
     // vorherige Buchung), korrekt sind 40 und 32.
     const { resolvePush } = await import('../sync/resolver.js')
     const state: MockState = {
-      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      artikel: [{ id: 'a-1' }],
+      mindestbestaende: [{ artikelId: 'a-1', standortId: 's-1', mindestbestand: 50 }],
       standort: [{ id: 's-1' }],
       committed: [],
       pending: [],
@@ -255,7 +339,8 @@ describe('Sync-Resolver — Mindestbestand-Trigger', () => {
   it('kein Event, wenn der Bestand danach über dem Mindestbestand liegt', async () => {
     const { resolvePush } = await import('../sync/resolver.js')
     const state: MockState = {
-      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      artikel: [{ id: 'a-1' }],
+      mindestbestaende: [{ artikelId: 'a-1', standortId: 's-1', mindestbestand: 50 }],
       standort: [{ id: 's-1' }],
       committed: [{ id: 'b-0', standortId: 's-1', menge: 60, storno: false }],
       pending: [],
@@ -277,7 +362,8 @@ describe('Sync-Resolver — Mindestbestand-Trigger', () => {
   it('Notification-Gateway wird mit korrekt berechnetem Event gefüttert', async () => {
     const { resolvePush } = await import('../sync/resolver.js')
     const state: MockState = {
-      artikel: [{ id: 'a-1', mindestbestand: 50 }],
+      artikel: [{ id: 'a-1' }],
+      mindestbestaende: [{ artikelId: 'a-1', standortId: 's-1', mindestbestand: 50 }],
       standort: [{ id: 's-1' }],
       committed: [{ id: 'b-0', standortId: 's-1', menge: 40, storno: false }],
       pending: [],

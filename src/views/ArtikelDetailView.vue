@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
 import { useHerstellerStore } from '../stores/hersteller'
 import { useStandortStore } from '../stores/standort'
+import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
@@ -22,6 +23,7 @@ const router = useRouter()
 const artikelStore = useArtikelStore()
 const herstellerStore = useHerstellerStore()
 const standortStore = useStandortStore()
+const mindestbestandStore = useArtikelStandortMindestbestandStore()
 const buchungStore = useBuchungStore()
 const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
@@ -40,12 +42,59 @@ const { el: barcodeEl, fehler: barcodeFehler } = useBarcodeRender(barcodeQuelle,
   displayValue: false,
 })
 
+// ---------- Copy order number to clipboard ----------
+
+const bestellnummerKopierStatus = ref<'idle' | 'ok' | 'fehler'>('idle')
+let bestellnummerKopierTimer: ReturnType<typeof setTimeout> | null = null
+
+async function kopiereBestellnummer(): Promise<void> {
+  const text = artikel.value?.bestellnummer?.trim() ?? ''
+  if (text === '') return
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      // Fallback for older browsers/WebViews without the async Clipboard API.
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.setAttribute('readonly', '')
+      ta.style.position = 'absolute'
+      ta.style.left = '-9999px'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (!ok) throw new Error('execCommand(copy) failed')
+    }
+    bestellnummerKopierStatus.value = 'ok'
+  } catch {
+    bestellnummerKopierStatus.value = 'fehler'
+  } finally {
+    if (bestellnummerKopierTimer !== null) clearTimeout(bestellnummerKopierTimer)
+    bestellnummerKopierTimer = setTimeout(() => {
+      bestellnummerKopierStatus.value = 'idle'
+    }, 2000)
+  }
+}
+
 const bestaende = computed<Array<{ name: string; menge: number; standortId: string }>>(() => {
   if (!artikel.value) return []
   const map = buchungStore.getBestandProStandort(artikel.value.id)
   return standortStore.aktive
     .map((s) => ({ standortId: s.id, name: s.name, menge: map.get(s.id) ?? 0 }))
     .filter((x) => x.menge !== 0)
+})
+
+const konfigurierteMindestbestaende = computed(() => {
+  if (!artikel.value) return []
+  return mindestbestandStore
+    .fuerArtikel(artikel.value.id)
+    .filter((m) => m.mindestbestand > 0)
+    .map((m) => ({
+      standortId: m.standortId,
+      name: nameStandort(m.standortId),
+      wert: m.mindestbestand,
+    }))
 })
 
 const historie = computed<Buchung[]>(() => {
@@ -55,6 +104,11 @@ const historie = computed<Buchung[]>(() => {
 
 function nameStandort(id: string): string {
   return standortStore.byId(id)?.name ?? '—'
+}
+
+function schwelleFuer(standortId: string): number {
+  if (!artikel.value) return 0
+  return mindestbestandStore.wertFuer(artikel.value.id, standortId)
 }
 
 const archivLaufend = ref(false)
@@ -112,7 +166,8 @@ interface BearbeitungsForm {
   herstellerId: string
   lieferant: string
   verpackungseinheit: number
-  mindestbestand: number | null
+  /** Mindestbestand je aktivem Lager. `0` = kein Mindestbestand. */
+  mindestbestaende: Record<string, number>
   bestellnummer: string
   barcode: string
   listenpreis: number | null
@@ -143,7 +198,9 @@ function bearbeitenStart(): void {
     herstellerId: a.herstellerId ?? '',
     lieferant: a.lieferant ?? '',
     verpackungseinheit: a.verpackungseinheit ?? 1,
-    mindestbestand: a.mindestbestand,
+    mindestbestaende: Object.fromEntries(
+      standortStore.aktive.map((s) => [s.id, mindestbestandStore.wertFuer(a.id, s.id)]),
+    ),
     bestellnummer: a.bestellnummer ?? '',
     barcode: a.barcode ?? '',
     listenpreis: a.listenpreis,
@@ -241,7 +298,6 @@ async function bearbeitenSpeichern(): Promise<void> {
       herstellerId: f.herstellerId || null,
       lieferant: f.lieferant.trim() || null,
       verpackungseinheit: f.verpackungseinheit,
-      mindestbestand: f.mindestbestand,
       bestellnummer: f.bestellnummer.trim() || null,
       barcode: f.barcode.trim() || null,
       listenpreis: f.listenpreis,
@@ -250,6 +306,9 @@ async function bearbeitenSpeichern(): Promise<void> {
       // wird. Der Server ignoriert es zusaetzlich fuer Nicht-Admins.
       ...(auth.istAdmin ? { einkaufspreis: euroZuCent(f.einkaufspreis) } : {}),
     })
+    for (const [standortId, wert] of Object.entries(f.mindestbestaende)) {
+      await mindestbestandStore.setzen(a.id, standortId, wert)
+    }
     bearbeitet.value = false
     formular.value = null
     katalogDrawerOffen.value = false
@@ -267,6 +326,7 @@ function formatDatum(iso: string): string {
 onMounted(() => {
   artikelStore.start()
   herstellerStore.start()
+  mindestbestandStore.start()
 })
 </script>
 
@@ -341,7 +401,67 @@ onMounted(() => {
         </div>
         <div v-if="artikel.bestellnummer">
           <dt>{{ t('view.artikel.form.bestellnummer') }}</dt>
-          <dd>{{ artikel.bestellnummer }}</dd>
+          <dd class="bestellnummer-row">
+            <span>{{ artikel.bestellnummer }}</span>
+            <button
+              type="button"
+              class="copy-btn"
+              :class="`state-${bestellnummerKopierStatus}`"
+              data-testid="artikel-detail-bestellnummer-kopieren"
+              :title="
+                bestellnummerKopierStatus === 'ok'
+                  ? t('view.artikel.detail.bestellnummerKopiert')
+                  : bestellnummerKopierStatus === 'fehler'
+                    ? t('view.artikel.detail.bestellnummerKopierFehler')
+                    : t('view.artikel.detail.bestellnummerKopieren')
+              "
+              :aria-label="t('view.artikel.detail.bestellnummerKopieren')"
+              @click="kopiereBestellnummer"
+            >
+              <svg
+                v-if="bestellnummerKopierStatus === 'idle'"
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg
+                v-else-if="bestellnummerKopierStatus === 'ok'"
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <svg
+                v-else
+                class="icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+            </button>
+          </dd>
         </div>
         <div v-if="artikel.barcode">
           <dt>{{ t('view.artikel.form.barcode') }}</dt>
@@ -359,9 +479,17 @@ onMounted(() => {
           <dt>{{ t('view.artikel.form.einkaufspreis') }}</dt>
           <dd>{{ formatiereCent(artikel.einkaufspreis, locale) }}</dd>
         </div>
-        <div v-if="artikel.mindestbestand != null">
+        <div v-if="konfigurierteMindestbestaende.length > 0">
           <dt>{{ t('view.artikel.form.mindestbestand') }}</dt>
-          <dd>{{ artikel.mindestbestand }}</dd>
+          <dd>
+            <span
+              v-for="k in konfigurierteMindestbestaende"
+              :key="k.standortId"
+              class="mindestbestand-lager"
+            >
+              {{ k.name }}: {{ k.wert }}
+            </span>
+          </dd>
         </div>
       </dl>
     </div>
@@ -449,16 +577,20 @@ onMounted(() => {
               :disabled="bearbeitLaufend"
             />
           </label>
-          <label>
-            <span>{{ t('view.artikel.form.mindestbestand') }}</span>
+        </div>
+        <fieldset class="mindestbestand-lager">
+          <legend>{{ t('view.artikel.form.mindestbestandProLager') }}</legend>
+          <small class="hint">{{ t('view.artikel.form.mindestbestandProLagerHint') }}</small>
+          <label v-for="s in standortStore.aktive" :key="s.id">
+            <span>{{ s.name }}</span>
             <input
-              v-model.number="formular.mindestbestand"
+              v-model.number="formular.mindestbestaende[s.id]"
               type="number"
               min="0"
               :disabled="bearbeitLaufend"
             />
           </label>
-        </div>
+        </fieldset>
         <label>
           <span>{{ t('view.artikel.form.bestellnummer') }}</span>
           <input v-model="formular.bestellnummer" autocomplete="off" :disabled="bearbeitLaufend" />
@@ -520,7 +652,7 @@ onMounted(() => {
         <span>{{ b.name }}</span>
         <span
           v-if="
-            b.menge < 0 || (artikel?.mindestbestand !== null && b.menge < artikel.mindestbestand)
+            b.menge < 0 || (schwelleFuer(b.standortId) > 0 && b.menge < schwelleFuer(b.standortId))
           "
           class="attention-badge"
           :title="t('view.artikel.spalten.aufmerksamkeit')"
@@ -567,6 +699,42 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.bestellnummer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.copy-btn:hover {
+  color: var(--text-strong);
+  border-color: var(--text-strong);
+}
+.copy-btn .icon {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+}
+.copy-btn.state-ok {
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.copy-btn.state-fehler {
+  color: #e35d6a;
+  border-color: #e35d6a;
+}
 .barcode-row {
   display: flex;
   align-items: center;

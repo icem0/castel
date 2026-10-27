@@ -18,6 +18,7 @@ import type {
   Buchung,
   Einstellung,
   Hersteller,
+  ArtikelStandortMindestbestand,
   MindestbestandEreignis,
   OutboxEintrag,
   Projekt,
@@ -31,6 +32,12 @@ export class CastelDb extends Dexie {
   artikel!: Table<Artikel, string>
   /** Hersteller-Stammdaten (Bestellkontakt) — LWW-synchron wie Artikel. */
   hersteller!: Table<Hersteller, string>
+  /**
+   * Mindestbestand je (Artikel, Standort), sparse. Identitaet ist das Paar
+   * `[artikelId+standortId]`; eine Zeile existiert nur bei konfiguriertem
+   * Wert. `mindestbestand <= 0` = kein Alarm.
+   */
+  artikelStandortMindestbestaende!: Table<ArtikelStandortMindestbestand, [string, string]>
   standorte!: Table<Standort, string>
   buchungen!: Table<Buchung, string>
   commission!: Table<Projekt, string>
@@ -364,6 +371,39 @@ export class CastelDb extends Dexie {
         }
         if (alle.length > 0) {
           await tx.table('artikel').bulkPut(alle)
+        }
+      })
+
+    // v15: Mindestbestand je (Artikel, Standort). Sparse: eine Zeile
+    //      entsteht nur bei einem positiven Wert. Der bisherige globale
+    //      Wert (`artikel.mindestbestand`) wandert lokal in das Hauptlager
+    //      (aktiver Standard-Standort) — identisch zum Server-Backfill in
+    //      Migration 0020. Die Spalte bleibt als deprecated erhalten.
+    this.version(15)
+      .stores({
+        artikelStandortMindestbestaende:
+          '[artikelId+standortId], artikelId, standortId, geaendertAm',
+      })
+      .upgrade(async (tx) => {
+        const standorte = (await tx.table('standorte').toArray()) as Array<Record<string, unknown>>
+        const standard = standorte.find((s) => s['standard'] === true && s['archiviert'] !== true)
+        if (!standard) return
+        const standortId = String(standard['id'])
+        const artikel = (await tx.table('artikel').toArray()) as Array<Record<string, unknown>>
+        const now = new Date().toISOString()
+        const rows = artikel
+          .filter(
+            (a) => typeof a['mindestbestand'] === 'number' && (a['mindestbestand'] as number) > 0,
+          )
+          .map((a) => ({
+            artikelId: String(a['id']),
+            standortId,
+            mindestbestand: a['mindestbestand'] as number,
+            geaendertAm: now,
+            erstelltAm: now,
+          }))
+        if (rows.length > 0) {
+          await tx.table('artikelStandortMindestbestaende').bulkPut(rows)
         }
       })
   }

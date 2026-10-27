@@ -37,6 +37,7 @@ const CLEARED_DOMAIN_TABLES = [
   'fotos',
   'buchungen',
   'commission',
+  'artikel_standort_mindestbestaende',
   'artikel',
   'standorte',
   'einstellungen',

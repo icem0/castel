@@ -13,6 +13,12 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Bestand ist die Summe von Buchungen.** Es gibt keine überschreibenden Mengenupdates.
 - Jede Buchung hat eine **UUID** (kein auto-increment, keine laufende Nummer) und einen Zeitstempel.
 - Buchungen sind unveränderlich. Korrekturen erfolgen durch Storno- oder Gegenbuchungen.
+- **Mindestbestand gilt je (Artikel, Standort)** — nicht mehr global pro Artikel. Die Konfiguration liegt in `artikel_standort_mindestbestaende` (PK = `(artikel_id, standort_id)`, LWW auf `geaendert_am`, Migration `0020`).
+  - **Sparse**: eine Zeile existiert nur für einen *positiven* Wert. `0` bzw. ein leeres Feld = „kein Mindestbestand" (kein Alarm) und löscht die Zeile (Outbox-`delete`).
+  - **Kein globaler Fallback**: `artikel.mindestbestand` ist deprecated und wird **nicht** ausgewertet. Der Server-Backfill (Migration 0020) und der lokale Dexie-Upgrade (v15) wandern bestehende globale Werte ins Hauptlager (aktiver Standard-Standort).
+  - **Identität ist das Paar** (`artikelId#standortId`), keine eigene UUID — analog `einstellung` (`key#userId`). `entitaetIdFor` (Server) und `payloadIdFor` (PWA) bilden denselben String.
+  - **Der Standard-Standort (Hauptlager) ist geschützt**: weder löschbar noch archivierbar (`PROTECTED_STANDORT`, DB-seitig geprüft).
+  - Ein gelöschter Artikel/Standort nimmt seine Konfigurationen per `ON DELETE CASCADE` mit — das Löschen wird dadurch nicht blockiert (Buchungen und Mindestbestand-Ereignisse tun das weiterhin).
 
 ### Konfiguration vs. Einstellungen
 
@@ -20,7 +26,7 @@ Klar trennen — beides kommt **nicht** zusammen in der DB ab:
 
 - **Konfiguration** (App-weit, ENV, beim Container-Start): `JWT_SECRET`, `CORS_ORIGIN`, `FOTOS_MAX_BYTES`, `RATE_LIMIT_*`, `LOG_LEVEL`, `COOKIE_*`, `DB_*`. Wird vom API-Container aus der `.env` gelesen, lebt nicht in PostgreSQL.
 - **Postgres-Loglevel**: `PG_LOG_LEVEL` in der `.env` (Postgres-GUC `log_min_messages`, Werte `debug5`..`panic`). Wenn leer, wird aus `LOG_LEVEL` gemappt (`trace→debug2`, `debug→debug1`, `info→info`, `warn→warning`, `error→error`); Default ohne beide: `warning`. Bei `debug*/info/notice` aktiviert der `db.command:` in `docker-compose.yml` zusätzlich `log_statement=all` + `log_duration=on` → **jedes** SQL-Statement landet im Log. Nur zum Debuggen setzen, danach wieder auf `warning`/`error` (Log-Flut!).
-- **Einstellungen** (User-/Fach-Präferenzen, änderbar zur Laufzeit, Cross-Device-synchronisiert): `artikelTypen` (global, Admin-only), `sprache` und `standardStandortId` (per-User). Liegen in der `einstellungen`-Tabelle (PK = `(key, user_id)`), LWW auf `geaendert_am`. Die PWA spiegelt sie zusätzlich in IndexedDB (Dexie, Compound-Key `[key+userId]` seit Dexie-Schema v5/v6, aktueller Schema-Stand v14 in `src/db/database.ts`; `userId = ''` als globaler Marker — Domäne arbeitet mit `null`).
+- **Einstellungen** (User-/Fach-Präferenzen, änderbar zur Laufzeit, Cross-Device-synchronisiert): `artikelTypen` (global, Admin-only), `sprache` und `standardStandortId` (per-User). Liegen in der `einstellungen`-Tabelle (PK = `(key, user_id)`), LWW auf `geaendert_am`. Die PWA spiegelt sie zusätzlich in IndexedDB (Dexie, Compound-Key `[key+userId]` seit Dexie-Schema v5/v6, aktueller Schema-Stand v15 in `src/db/database.ts`; `userId = ''` als globaler Marker — Domäne arbeitet mit `null`).
 - **Persistenz**: `einstellungen` läuft über das `pgdata`-Volume des API-Containers, nicht über ein eigenes Volume. Backups via `pg_dump`.
 
 ## Build-Metadaten in der PWA

@@ -29,7 +29,8 @@ export interface MindestbestandArtikel {
  * geschrieben werden soll.
  *
  * Bedingungen (alle müssen erfüllt sein):
- *   1) Der Artikel hat einen Mindestbestand gesetzt (≠ null).
+ *   1) Der Mindestbestand ist gesetzt und positiv (≠ null, > 0).
+ *      `0` bedeutet "kein Mindestbestand an diesem Lager".
  *   2) Der neue Bestand am Standort ist kleiner als der Mindestbestand
  *      (`bestandDanach < mindestbestand`).
  *
@@ -44,6 +45,7 @@ export function sollteWarnungAusloesen(
   bestandDanach: number,
 ): boolean {
   if (mindestbestand === null) return false
+  if (mindestbestand <= 0) return false
   if (bestandDanach < mindestbestand) return true
   return false
 }

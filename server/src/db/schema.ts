@@ -17,6 +17,7 @@ import {
   boolean,
   jsonb,
   index,
+  primaryKey,
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
@@ -108,6 +109,10 @@ export const artikel = pgTable(
     typ: text('typ').notNull().default(''),
     lieferant: text('lieferant'),
     verpackungseinheit: integer('verpackungseinheit').notNull().default(1),
+    /** @deprecated Globaler Mindestbestand. Wird nicht mehr ausgewertet;
+     *  die Schwelle gilt pro (Artikel, Standort) in
+     *  `artikel_standort_mindestbestaende`. Bleibt fuer alte Clients und
+     *  die Agenten-API v1 erhalten. */
     mindestbestand: integer('mindestbestand'),
     nachbestellHinweis: text('nachbestell_hinweis', {
       enum: ['i.O', 'bald', 'dringend'],
@@ -265,6 +270,38 @@ export const buchungen = pgTable(
   ],
 )
 
+/**
+ * Mindestbestand je Artikel UND Standort.
+ *
+ * Frueher war `artikel.mindestbestand` ein globaler Wert fuer alle Lager.
+ * Ab Migration 0020 gilt die Schwelle pro Paar; die Tabelle ist sparse
+ * (eine Zeile entsteht nur, wenn fuer das Lager tatsaechlich ein Wert
+ * konfiguriert wurde). `mindestbestand <= 0` = kein Alarm.
+ *
+ * Beide FKs sind `ON DELETE CASCADE`: das Loeschen von Artikel/Standort
+ * nimmt die Konfiguration mit und wird nicht blockiert (Buchungen und
+ * Mindestbestand-Events blockieren weiterhin).
+ */
+export const artikelStandortMindestbestaende = pgTable(
+  'artikel_standort_mindestbestaende',
+  {
+    artikelId: text('artikel_id')
+      .notNull()
+      .references(() => artikel.id, { onDelete: 'cascade' }),
+    standortId: text('standort_id')
+      .notNull()
+      .references(() => standorte.id, { onDelete: 'cascade' }),
+    mindestbestand: integer('mindestbestand').notNull().default(0),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artikelId, t.standortId] }),
+    // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
+    index('artikel_standort_mindestbestaende_geaendert_am_idx').on(t.geaendertAm),
+  ],
+)
+
 // ---------- Fotos ----------
 
 export const fotos = pgTable(
@@ -306,6 +343,7 @@ export const auditLog = pgTable(
         'hersteller',
         'hersteller_artikel',
         'datanorm_import',
+        'artikel_standort_mindestbestand',
       ],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),

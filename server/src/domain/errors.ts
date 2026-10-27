@@ -77,6 +77,17 @@ export class NotFoundError extends DomainError {
   }
 }
 
+/** Das Hauptlager (Standard-Standort) ist geschützt: es darf weder
+ *  gelöscht noch archiviert werden. */
+export class ProtectedStandortError extends DomainError {
+  constructor(public readonly id: string) {
+    super(
+      'PROTECTED_STANDORT',
+      `Standort ${id} ist das Hauptlager und kann nicht gelöscht oder archiviert werden`,
+    )
+  }
+}
+
 /** Löschen nicht möglich, weil andere Zeilen noch referenzieren.
  *  Wird vom Resolver geworfen, wenn z. B. ein Artikel noch Buchungen
  *  hat und deshalb nicht entfernt werden darf. Spiegel der

@@ -163,10 +163,15 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
             <button v-if="!s.archiviert && !s.standard" type="button" @click="setStandard(s.id)">
               {{ t('view.standort.spalten.standard') }}
             </button>
-            <button v-if="!s.archiviert" type="button" @click="archivieren(s.id)">
+            <button v-if="!s.archiviert && !s.standard" type="button" @click="archivieren(s.id)">
               {{ t('view.artikel.detail.archivieren') }}
             </button>
-            <button v-if="!s.archiviert" type="button" class="danger" @click="loeschen(s.id)">
+            <button
+              v-if="!s.archiviert && !s.standard"
+              type="button"
+              class="danger"
+              @click="loeschen(s.id)"
+            >
               {{ t('view.standort.loeschen') }}
             </button>
             <button v-else type="button" @click="wiederherstellen(s.id)">

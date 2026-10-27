@@ -26,6 +26,7 @@ import type { Artikel, MindestbestandEreignis } from '../db/types'
 import { jetztIso, neueUuid } from '../domain/ids'
 import { berechneDefizitAktuell, sollteWarnungAusloesen } from '../domain/mindestbestand'
 import { useArtikelStore } from './artikel'
+import { useArtikelStandortMindestbestandStore } from './artikelStandortMindestbestand'
 import { useBuchungStore } from './buchung'
 
 const GESEHEN_KEY = 'mindestbestand.letzteGesehenAm'
@@ -75,16 +76,21 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
   // die Glocke (admin-only) den Mindestbestand-Store instanziiert.
   const buchungStore = useBuchungStore()
   const artikelStore = useArtikelStore()
+  const konfigStore = useArtikelStandortMindestbestandStore()
 
   function schwelleFuer(ev: MindestbestandEreignis, a: Artikel | undefined): number | null {
-    // Artikel geladen: es gilt die HEUTE gesetzte Schwelle. `null` heißt
-    // "Admin hat keinen Mindestbestand gesetzt" — dann ist der Alarm
-    // erledigt und darf nicht vom historischen Snapshot am Leben
-    // gehalten werden.
-    if (a) return a.mindestbestand
+    // Artikel geladen: es gilt die HEUTE gesetzte Schwelle des Paares
+    // (Artikel, Standort). Fehlt die Konfiguration oder ist sie <= 0, ist
+    // der Alarm erledigt und darf nicht vom historischen Snapshot am
+    // Leben gehalten werden. Bewusst KEIN Fallback auf den globalen
+    // `artikel.mindestbestand`.
+    if (a) {
+      const wert = konfigStore.wertFuer(ev.artikelId, ev.standortId)
+      return wert > 0 ? wert : null
+    }
     // Artikel nicht geladen (gelöscht oder noch nicht gespiegelt): der
     // Snapshot ist die beste verfügbare Information.
-    return ev.mindestbestand
+    return ev.mindestbestand > 0 ? ev.mindestbestand : null
   }
 
   /** Alle Ereignisse, jeweils live gegen den aktuellen Bestand geprüft. */
@@ -97,8 +103,7 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
         aktuellerBestand,
         schwelle,
         defizit: schwelle === null ? 0 : berechneDefizitAktuell(schwelle, aktuellerBestand),
-        offen:
-          schwelle !== null && sollteWarnungAusloesen(schwelle, aktuellerBestand),
+        offen: schwelle !== null && sollteWarnungAusloesen(schwelle, aktuellerBestand),
       }
     }),
   )
@@ -107,6 +112,9 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
   const offeneZeilen = computed(() => zeilen.value.filter((z) => z.offen))
 
   function start() {
+    // Die Alarm-Schwelle kommt aus der Konfig-Tabelle, also muss deren
+    // Spiegel ebenfalls live sein.
+    konfigStore.start()
     if (subscription) return
     subscription = liveQuery(() =>
       getDb().mindestbestandEreignisse.orderBy('erstelltAm').reverse().toArray(),

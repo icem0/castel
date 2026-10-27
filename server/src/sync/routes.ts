@@ -5,6 +5,7 @@ import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
   artikel,
+  artikelStandortMindestbestaende,
   buchungen,
   einstellungen,
   hersteller,
@@ -23,13 +24,15 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   commission: number
   buchungen: number
   hersteller: number
+  artikelStandortMindestbestand: number
 }> {
-  const [a, s, p, b, h] = await Promise.all([
+  const [a, s, p, b, h, m] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
     db.select({ c: sql<number>`count(*)::int` }).from(buchungen),
     db.select({ c: sql<number>`count(*)::int` }).from(hersteller),
+    db.select({ c: sql<number>`count(*)::int` }).from(artikelStandortMindestbestaende),
   ])
   return {
     artikel: a[0]?.c ?? 0,
@@ -37,6 +40,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     commission: p[0]?.c ?? 0,
     buchungen: b[0]?.c ?? 0,
     hersteller: h[0]?.c ?? 0,
+    artikelStandortMindestbestand: m[0]?.c ?? 0,
   }
 }
 
@@ -74,6 +78,7 @@ export async function syncRoutes(
         einstellungRows,
         eventRows,
         herstellerRows,
+        mindestbestandRows,
       ] = await Promise.all([
         db.select().from(artikel).where(sql`${artikel.geaendertAm} > ${sinceIso}`),
         db.select().from(standorte).where(sql`${standorte.geaendertAm} > ${sinceIso}`),
@@ -101,6 +106,11 @@ export async function syncRoutes(
         // Hersteller-Stammdaten (Bestellkontakt) — inkrementell wie die
         // übrigen Stammdaten.
         db.select().from(hersteller).where(sql`${hersteller.geaendertAm} > ${sinceIso}`),
+        // Mindestbestand je (Artikel, Standort) — LWW ueber `geaendert_am`.
+        db
+          .select()
+          .from(artikelStandortMindestbestaende)
+          .where(sql`${artikelStandortMindestbestaende.geaendertAm} > ${sinceIso}`),
       ])
 
       return reply.send({
@@ -116,6 +126,13 @@ export async function syncRoutes(
         commission: projektRows,
         buchungen: buchungRows,
         hersteller: herstellerRows,
+        artikelStandortMindestbestaende: mindestbestandRows.map((r) => ({
+          artikelId: r.artikelId,
+          standortId: r.standortId,
+          mindestbestand: r.mindestbestand,
+          geaendertAm: r.geaendertAm.toISOString(),
+          erstelltAm: r.erstelltAm.toISOString(),
+        })),
         einstellungen: einstellungRows.map((r) => ({
           key: r.key,
           userId: r.userId,

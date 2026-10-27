@@ -47,6 +47,7 @@ export interface ResetLocalDbResult {
     buchungen: number
     einstellungen: number
     mindestbestandEreignisse: number
+    artikelStandortMindestbestaende: number
   }
   /**
    * Was `window.location.reload()` triggered at the end? Set by the caller
@@ -68,6 +69,7 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
     [
       db.artikel,
       db.hersteller,
+      db.artikelStandortMindestbestaende,
       db.standorte,
       db.commission,
       db.buchungen,
@@ -77,6 +79,9 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
     async () => {
       if (data.artikel.length > 0) await db.artikel.bulkPut(data.artikel)
       if ((data.hersteller?.length ?? 0) > 0) await db.hersteller.bulkPut(data.hersteller ?? [])
+      if ((data.artikelStandortMindestbestaende?.length ?? 0) > 0) {
+        await db.artikelStandortMindestbestaende.bulkPut(data.artikelStandortMindestbestaende ?? [])
+      }
       if (data.standorte.length > 0) await db.standorte.bulkPut(data.standorte)
       if (data.commission.length > 0) await db.commission.bulkPut(data.commission)
       if (data.buchungen.length > 0) {
@@ -179,6 +184,7 @@ export async function resetLocalDbAndPull(opts: {
       buchungen: data.buchungen.length,
       einstellungen: data.einstellungen.length,
       mindestbestandEreignisse: data.mindestbestandEreignisse?.length ?? 0,
+      artikelStandortMindestbestaende: data.artikelStandortMindestbestaende?.length ?? 0,
     },
     reloaded: false,
   }

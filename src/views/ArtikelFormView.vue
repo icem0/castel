@@ -4,6 +4,8 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
 import { useHerstellerStore } from '../stores/hersteller'
+import { useStandortStore } from '../stores/standort'
+import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
 import HerstellerKatalogDrawer, {
@@ -17,6 +19,8 @@ const route = useRoute()
 const router = useRouter()
 const artikelStore = useArtikelStore()
 const herstellerStore = useHerstellerStore()
+const standortStore = useStandortStore()
+const mindestbestandStore = useArtikelStandortMindestbestandStore()
 const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
 
@@ -27,7 +31,8 @@ interface Form {
   herstellerId: string
   lieferant: string
   verpackungseinheit: number
-  mindestbestand: number | null
+  /** Mindestbestand je aktivem Lager. `0` = kein Mindestbestand. */
+  mindestbestaende: Record<string, number>
   bestellnummer: string
   barcode: string
   listenpreis: number | null
@@ -43,7 +48,7 @@ const initialForm: Form = (() => {
     herstellerId: '',
     lieferant: '',
     verpackungseinheit: 1,
-    mindestbestand: null,
+    mindestbestaende: {},
     bestellnummer: '',
     barcode: '',
     listenpreis: null,
@@ -122,7 +127,7 @@ const dirty = computed(() => {
     f.herstellerId !== initialForm.herstellerId ||
     f.lieferant !== initialForm.lieferant ||
     f.verpackungseinheit !== initialForm.verpackungseinheit ||
-    f.mindestbestand !== initialForm.mindestbestand ||
+    JSON.stringify(f.mindestbestaende) !== JSON.stringify(initialForm.mindestbestaende) ||
     f.bestellnummer !== initialForm.bestellnummer ||
     f.barcode !== initialForm.barcode ||
     f.listenpreis !== initialForm.listenpreis ||
@@ -223,6 +228,8 @@ function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
 
 onMounted(() => {
   herstellerStore.start()
+  standortStore.start()
+  mindestbestandStore.start()
   // Wenn der Scanner einen Code geliefert hat, im Barcode-Feld
   // vorbefüllen. Das ist der zentrale Bugfix: vorher wurde der
   // gescannte Code per Query-Param uebergeben, aber das Form hat
@@ -247,14 +254,13 @@ async function speichern(): Promise<void> {
   }
   laufend.value = true
   try {
-    await artikelStore.anlegen({
+    const neu = await artikelStore.anlegen({
       titel: formular.value.titel.trim(),
       typ: formular.value.typ,
       status: formular.value.status,
       herstellerId: formular.value.herstellerId || null,
       lieferant: formular.value.lieferant.trim() || null,
       verpackungseinheit: formular.value.verpackungseinheit,
-      mindestbestand: formular.value.mindestbestand,
       bestellnummer: formular.value.bestellnummer.trim() || null,
       barcode: formular.value.barcode.trim() || null,
       listenpreis: formular.value.listenpreis,
@@ -262,6 +268,9 @@ async function speichern(): Promise<void> {
       // anderen wird es gar nicht erst in den Payload aufgenommen.
       einkaufspreis: auth.istAdmin ? euroZuCent(formular.value.einkaufspreis) : null,
     })
+    for (const [standortId, wert] of Object.entries(formular.value.mindestbestaende)) {
+      await mindestbestandStore.setzen(neu.id, standortId, wert)
+    }
     void router.push('/artikel')
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
@@ -387,16 +396,20 @@ const statusOptionen: ArtikelStatus[] = [
               :disabled="laufend"
             />
           </label>
-          <label>
-            <span>{{ t('view.artikel.form.mindestbestand') }}</span>
+        </div>
+        <fieldset class="mindestbestand-lager">
+          <legend>{{ t('view.artikel.form.mindestbestandProLager') }}</legend>
+          <small class="hint">{{ t('view.artikel.form.mindestbestandProLagerHint') }}</small>
+          <label v-for="s in standortStore.aktive" :key="s.id">
+            <span>{{ s.name }}</span>
             <input
-              v-model.number="formular.mindestbestand"
+              v-model.number="formular.mindestbestaende[s.id]"
               type="number"
               min="0"
               :disabled="laufend"
             />
           </label>
-        </div>
+        </fieldset>
         <label>
           <span>{{ t('view.artikel.form.bestellnummer') }}</span>
           <input v-model="formular.bestellnummer" autocomplete="off" :disabled="laufend" />

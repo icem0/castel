@@ -21,6 +21,9 @@ export interface Artikel {
   typ: string
   lieferant: string | null
   verpackungseinheit: number
+  /** @deprecated Globaler Mindestbestand; nicht mehr ausgewertet. Die
+   *  Schwelle gilt pro (Artikel, Standort) in
+   *  `ArtikelStandortMindestbestand`. */
   mindestbestand: number | null
   nachbestellHinweis: NachbestellHinweis
   bestellnummer: string | null
@@ -167,6 +170,21 @@ export interface MindestbestandEreignis {
   erstelltAm: Iso
 }
 
+/**
+ * Mindestbestand je (Artikel, Standort).
+ *
+ * Sparse: eine Zeile existiert nur, wenn fuer dieses Lager ein Wert
+ * konfiguriert ist. Identitaet ist das Paar — es gibt keine eigene UUID.
+ * `mindestbestand <= 0` = kein Alarm (wird beim Leeren geloescht).
+ */
+export interface ArtikelStandortMindestbestand {
+  artikelId: string
+  standortId: string
+  mindestbestand: number
+  geaendertAm: Iso
+  erstelltAm: Iso
+}
+
 /** Rolle des eingeloggten Users (Spiegel des Server-Users). */
 export type UserRolle = 'admin' | 'user'
 
@@ -186,7 +204,14 @@ export interface BuchungsEingabe {
 // ---------- Sync (PLAN §4.7–4.9) ----------
 
 export type OutboxEntity =
-  'artikel' | 'buchung' | 'standort' | 'kommission' | 'hersteller' | 'foto' | 'einstellung'
+  | 'artikel'
+  | 'buchung'
+  | 'standort'
+  | 'kommission'
+  | 'hersteller'
+  | 'foto'
+  | 'einstellung'
+  | 'artikel_standort_mindestbestand'
 export type OutboxOp = 'create' | 'update' | 'delete' | 'upload' | 'upsert'
 
 export interface OutboxEintrag {

@@ -872,6 +872,19 @@ describe('Sync — payloadIdFor (Einstellungen haben keine `id`)', () => {
     expect(payloadIdFor('artikel', { titel: 'x' })).toBeNull()
     expect(payloadIdFor('einstellung', { userId: 'u1', value: 'de' })).toBeNull()
   })
+
+  it('artikel_standort_mindestbestand: artikelId#standortId (Paar-Identitaet)', async () => {
+    const { payloadIdFor } = await import('../worker')
+    expect(
+      payloadIdFor('artikel_standort_mindestbestand', {
+        artikelId: 'a-1',
+        standortId: 's-1',
+        mindestbestand: 5,
+      }),
+    ).toBe('a-1#s-1')
+    expect(payloadIdFor('artikel_standort_mindestbestand', { artikelId: 'a-1' })).toBeNull()
+    expect(payloadIdFor('artikel_standort_mindestbestand', { standortId: 's-1' })).toBeNull()
+  })
 })
 
 describe('Sync — einstellung/upsert End-to-End', () => {
@@ -1463,6 +1476,56 @@ describe('Sync — Self-Healing: lastPullAt ungültig → voller Re-Pull', () =>
 // ---------------------------------------------------------------------------
 // Mindestbestand-Ereignis-Snapshot
 // ---------------------------------------------------------------------------
+
+describe('Sync — Mindestbestand je (Artikel, Standort)', () => {
+  it('applySnapshot speichert die Konfiguration und nutzt LWW auf geaendertAm', async () => {
+    const { applySnapshot } = await import('../worker')
+    await applySnapshot({
+      serverTime: '2026-04-14T11:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      artikelStandortMindestbestaende: [
+        {
+          artikelId: 'a-1',
+          standortId: 's-1',
+          mindestbestand: 5,
+          geaendertAm: '2026-04-14T10:00:00.000Z',
+          erstelltAm: '2026-04-14T09:00:00.000Z',
+        },
+      ],
+      mindestbestandEreignisse: [],
+    })
+    const row = await getDb().artikelStandortMindestbestaende.get(['a-1', 's-1'])
+    expect(row?.mindestbestand).toBe(5)
+
+    // Älterer Snapshot darf die neuere lokale Zeile nicht überschreiben.
+    await applySnapshot({
+      serverTime: '2026-04-14T12:00:00.000Z',
+      since: '1970-01-01T00:00:00.000Z',
+      artikel: [],
+      standorte: [],
+      commission: [],
+      buchungen: [],
+      einstellungen: [],
+      artikelStandortMindestbestaende: [
+        {
+          artikelId: 'a-1',
+          standortId: 's-1',
+          mindestbestand: 2,
+          geaendertAm: '2026-04-14T08:00:00.000Z',
+          erstelltAm: '2026-04-14T07:00:00.000Z',
+        },
+      ],
+      mindestbestandEreignisse: [],
+    })
+    const nachher = await getDb().artikelStandortMindestbestaende.get(['a-1', 's-1'])
+    expect(nachher?.mindestbestand).toBe(5)
+  })
+})
 
 describe('Sync — Mindestbestand-Ereignis-Snapshot', () => {
   it('applySnapshot legt neue Mindestbestand-Ereignisse in Dexie ab', async () => {

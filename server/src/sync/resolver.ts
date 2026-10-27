@@ -22,6 +22,7 @@ import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import * as schema from '../db/schema.js'
 import {
   artikel,
+  artikelStandortMindestbestaende,
   buchungen,
   einstellungen,
   hersteller,
@@ -34,6 +35,7 @@ import { berechneBestand, type BestandQuerier } from '../domain/bestand.js'
 import {
   HatAbhaengigkeitenError,
   NegativerBestandError,
+  ProtectedStandortError,
   UnbekannteReferenzError,
   ValidationError,
 } from '../domain/errors.js'
@@ -63,6 +65,11 @@ const pushSchema = z.discriminatedUnion('entity', [
   z.object({
     op: z.enum(['create', 'update', 'delete']),
     entity: z.literal('standort'),
+    payload: z.any(),
+  }),
+  z.object({
+    op: z.enum(['create', 'update', 'delete']),
+    entity: z.literal('artikel_standort_mindestbestand'),
     payload: z.any(),
   }),
   z.object({
@@ -199,6 +206,9 @@ export async function resolvePush(
           case 'standort':
             await resolveStandort(tx, op)
             break
+          case 'artikel_standort_mindestbestand':
+            await resolveArtikelStandortMindestbestand(tx, op)
+            break
           case 'kommission':
             await resolveProjekt(tx, op)
             break
@@ -270,6 +280,10 @@ function entitaetIdFor(op: PushOp): string {
     const userPart = p.userId === null || p.userId === undefined ? 'global' : p.userId
     return `${String(p.key)}#${String(userPart)}`
   }
+  if (op.entity === 'artikel_standort_mindestbestand') {
+    const p = op.payload as { artikelId?: unknown; standortId?: unknown }
+    return `${String(p.artikelId)}#${String(p.standortId)}`
+  }
   return (op.payload as { id: string }).id
 }
 
@@ -302,7 +316,8 @@ function pushBuchungsError(
   } else if (
     err instanceof UnbekannteReferenzError ||
     err instanceof ValidationError ||
-    err instanceof HatAbhaengigkeitenError
+    err instanceof HatAbhaengigkeitenError ||
+    err instanceof ProtectedStandortError
   ) {
     result.errors.push({
       id,
@@ -504,11 +519,34 @@ async function resolveStandort(
       await tx.insert(standorte).values(normalizeStammdatenTimestamps(op.payload) as never)
     }
   } else if (op.op === 'update') {
+    // Das Hauptlagers (Standard-Standort) darf nicht archiviert werden.
+    // Sonst gaebe es keinen Standard mehr, obwohl die App fest davon
+    // ausgeht ("es gibt immer ein Hauptlager").
+    if (op.payload.archiviert === true) {
+      const existing = await tx
+        .select({ standard: standorte.standard })
+        .from(standorte)
+        .where(eq(standorte.id, op.payload.id))
+        .limit(1)
+      if (existing[0]?.standard === true) throw new ProtectedStandortError(op.payload.id)
+    }
     await applyLastWriterWins(tx, standorte, op.payload)
   } else if (op.op === 'delete') {
-    // `buchungen.standort_id` und `buchungen.standort_ziel_id` referenzieren
-    // `standorte.id` ohne ON DELETE CASCADE — vorher prüfen.
-    const [qRes, zRes] = await Promise.all([
+    // Das Hauptlager ist unloeschbar. Der Standard-Flag wird aus der DB
+    // gelesen (nicht aus dem Payload) — ein alter oder manipulierter
+    // Client darf den Schutz nicht umgehen koennen.
+    const current = await tx
+      .select({ standard: standorte.standard })
+      .from(standorte)
+      .where(eq(standorte.id, op.payload.id))
+      .limit(1)
+    if (current[0]?.standard === true) throw new ProtectedStandortError(op.payload.id)
+    // `buchungen.standort_id`, `buchungen.standort_ziel_id` und
+    // `mindestbestand_ereignisse.standort_id` referenzieren `standorte.id`
+    // ohne ON DELETE CASCADE — vorher prüfen. Die Mindestbestand-
+    // Konfigurationen haengen dagegen mit CASCADE am Standort und werden
+    // beim Loeschen mitentfernt (bewusst kein Blockieren).
+    const [qRes, zRes, eRes] = await Promise.all([
       tx
         .select({ c: count() })
         .from(buchungen)
@@ -517,12 +555,100 @@ async function resolveStandort(
         .select({ c: count() })
         .from(buchungen)
         .where(eq(buchungen.standortZielId, op.payload.id)),
+      tx
+        .select({ c: count() })
+        .from(mindestbestandEreignisse)
+        .where(eq(mindestbestandEreignisse.standortId, op.payload.id)),
     ])
     assertKeineAbhaengigkeiten('standort', op.payload.id, [
       { entity: 'buchungen', anzahl: Number(qRes[0]?.c ?? 0) + Number(zRes[0]?.c ?? 0) },
+      { entity: 'mindestbestand_ereignisse', anzahl: Number(eRes[0]?.c ?? 0) },
     ])
     await tx.delete(standorte).where(eq(standorte.id, op.payload.id))
   }
+}
+
+/**
+ * Mindestbestand je (Artikel, Standort). Last-Writer-Wins auf
+ * `geaendertAm`, Identitaet ist das Paar (keine eigene UUID). Der
+ * Resolver prueft die Referenzen vorab, damit ein fehlender Artikel oder
+ * Standort als `UNKNOWN_REFERENCE` in der Quarantaene landet statt als
+ * Postgres-FK-Fehler.
+ */
+async function resolveArtikelStandortMindestbestand(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'artikel_standort_mindestbestand' }>,
+): Promise<void> {
+  const payload = op.payload as {
+    artikelId: string
+    standortId: string
+    mindestbestand: number
+    geaendertAm: string
+    erstelltAm: string
+  }
+  if (op.op === 'delete') {
+    await tx
+      .delete(artikelStandortMindestbestaende)
+      .where(
+        and(
+          eq(artikelStandortMindestbestaende.artikelId, payload.artikelId),
+          eq(artikelStandortMindestbestaende.standortId, payload.standortId),
+        ),
+      )
+    return
+  }
+
+  const [aRes, sRes] = await Promise.all([
+    tx.select({ id: artikel.id }).from(artikel).where(eq(artikel.id, payload.artikelId)).limit(1),
+    tx
+      .select({ id: standorte.id })
+      .from(standorte)
+      .where(eq(standorte.id, payload.standortId))
+      .limit(1),
+  ])
+  if (aRes.length === 0) throw new UnbekannteReferenzError('artikel', payload.artikelId)
+  if (sRes.length === 0) throw new UnbekannteReferenzError('standort', payload.standortId)
+
+  const incomingGeaendertAm = toDateOrThrow(payload.geaendertAm)
+  const existing = await tx
+    .select()
+    .from(artikelStandortMindestbestaende)
+    .where(
+      and(
+        eq(artikelStandortMindestbestaende.artikelId, payload.artikelId),
+        eq(artikelStandortMindestbestaende.standortId, payload.standortId),
+      ),
+    )
+    .limit(1)
+  const current = existing[0]
+  if (!current) {
+    await tx.insert(artikelStandortMindestbestaende).values({
+      artikelId: payload.artikelId,
+      standortId: payload.standortId,
+      mindestbestand: payload.mindestbestand,
+      geaendertAm: incomingGeaendertAm,
+      erstelltAm: toDateOrThrow(payload.erstelltAm),
+    })
+    return
+  }
+  const serverGeaendertAm = toDateOrThrow(current.geaendertAm)
+  applyLastWriterWinsMock({
+    serverGeaendertAm,
+    incomingGeaendertAm,
+    id: `${payload.artikelId}#${payload.standortId}`,
+  })
+  await tx
+    .update(artikelStandortMindestbestaende)
+    .set({
+      mindestbestand: payload.mindestbestand,
+      geaendertAm: incomingGeaendertAm,
+    })
+    .where(
+      and(
+        eq(artikelStandortMindestbestaende.artikelId, payload.artikelId),
+        eq(artikelStandortMindestbestaende.standortId, payload.standortId),
+      ),
+    )
 }
 
 async function resolveProjekt(
@@ -678,7 +804,8 @@ export interface BuchungPayload {
  * die Trennung von Audit-Log.
  *
  * Trigger für Mindestbestand-Ereignisse: nach erfolgreichem Insert wird
- * der neue Bestand gegen `artikel.mindestbestand` geprüft. Bei
+ * der neue Bestand gegen den Mindestbestand des Paares
+ * (Artikel, Standort) geprüft (`artikel_standort_mindestbestaende`). Bei
  * Unterschreitung schreibt der Resolver eine Zeile in
  * `mindestbestand_ereignisse` — INNERHALB derselben Transaktion, damit
  * Konsistenz zwischen DB und Event-Zähler gewahrt bleibt. Der
@@ -744,7 +871,7 @@ export async function resolveBuchungCreate(
 
   // 3) Referenz-Check + Mindestbestand laden
   const a = await tx
-    .select({ id: artikel.id, mindestbestand: artikel.mindestbestand })
+    .select({ id: artikel.id })
     .from(artikel)
     .where(eq(artikel.id, b.artikelId))
     .limit(1)
@@ -763,7 +890,20 @@ export async function resolveBuchungCreate(
       .limit(1)
     if (s2.length === 0) throw new UnbekannteReferenzError('standort', b.standortZielId)
   }
-  const mindestbestand = a[0]?.mindestbestand ?? null
+  // The threshold is per (Artikel, Standort). There is deliberately NO
+  // fallback to the deprecated global `artikel.mindestbestand`: a missing
+  // row means "no minimum at this location".
+  const mindestbestandRow = await tx
+    .select({ mindestbestand: artikelStandortMindestbestaende.mindestbestand })
+    .from(artikelStandortMindestbestaende)
+    .where(
+      and(
+        eq(artikelStandortMindestbestaende.artikelId, b.artikelId),
+        eq(artikelStandortMindestbestaende.standortId, b.standortId),
+      ),
+    )
+    .limit(1)
+  const mindestbestand = mindestbestandRow[0]?.mindestbestand ?? null
 
   // 5) Insert. Timestamp-Felder muessen als Date an Drizzle gehen (siehe
   //    normalizeBuchungTimestamps-Kommentar).

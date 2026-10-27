@@ -30,10 +30,15 @@ let testDb: CastelDb
 const A = (n: number) => `art-${n}`
 const S = (n: number) => `std-${n}`
 
+/**
+ * Legt einen Artikel an. `schwelle` wird als Mindestbestand des Paares
+ * (Artikel, S(1)) konfiguriert — die Schwellen liegen nicht mehr am
+ * Artikel selbst, sondern in der Konfig-Tabelle.
+ */
 async function seedArtikel(
   id: string,
   name: string,
-  mindestbestand: number | null = null,
+  schwelle: number | null = null,
 ): Promise<void> {
   const artikel: Artikel = {
     id,
@@ -43,7 +48,8 @@ async function seedArtikel(
     typ: 'Test',
     lieferant: null,
     verpackungseinheit: 1,
-    mindestbestand,
+    // Globaler Wert ist deprecated und wird nicht mehr ausgewertet.
+    mindestbestand: null,
     nachbestellHinweis: null,
     bestellnummer: null,
     barcode: null,
@@ -58,6 +64,15 @@ async function seedArtikel(
     erstelltAm: '2025-01-01T00:00:00.000Z',
   }
   await testDb.artikel.add(artikel)
+  if (schwelle !== null && schwelle > 0) {
+    await testDb.artikelStandortMindestbestaende.put({
+      artikelId: id,
+      standortId: S(1),
+      mindestbestand: schwelle,
+      geaendertAm: '2025-01-01T00:00:00.000Z',
+      erstelltAm: '2025-01-01T00:00:00.000Z',
+    })
+  }
 }
 
 async function seedStandort(id: string, name: string, standard = false): Promise<void> {
@@ -438,7 +453,7 @@ describe('Validierung: Referenzen, Zeit, Mindestbestand', () => {
   })
 
   it('createEntnahme liefert MindestbestandWarnung bei Unterschreitung', async () => {
-    // A(3) hat mindestbestand=5
+    // A(3) hat am Lager S(1) einen Mindestbestand von 5
     await createEinlagerung({ artikelId: A(3), standortId: S(1), menge: 6, erstelltVon: 't' })
     const r = await createEntnahme({
       artikelId: A(3),
@@ -450,6 +465,22 @@ describe('Validierung: Referenzen, Zeit, Mindestbestand', () => {
     expect(r.mindestbestandWarnung).not.toBeNull()
     expect(r.mindestbestandWarnung?.mindestbestand).toBe(5)
     expect(r.mindestbestandWarnung?.bestand).toBe(4)
+  })
+
+  it('createEntnahme ignoriert den veralteten globalen Mindestbestand', async () => {
+    // `artikel.mindestbestand` wird nicht mehr ausgewertet — ohne
+    // Konfiguration (Artikel, Lager) gibt es keine Warnung.
+    const artikel = await testDb.artikel.get(A(1))
+    await testDb.artikel.update(A(1), { mindestbestand: 5 })
+    expect(artikel?.mindestbestand).toBeNull()
+    await createEinlagerung({ artikelId: A(1), standortId: S(1), menge: 6, erstelltVon: 't' })
+    const r = await createEntnahme({
+      artikelId: A(1),
+      standortId: S(1),
+      menge: 2,
+      erstelltVon: 't',
+    })
+    expect(r.mindestbestandWarnung).toBeNull()
   })
 
   it('createEntnahme ohne Unterschreitung — keine MindestbestandWarnung', async () => {

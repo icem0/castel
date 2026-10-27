@@ -33,6 +33,7 @@
 import { getDb } from '../../db/database'
 import type {
   Artikel,
+  ArtikelStandortMindestbestand,
   Buchung,
   Einstellung,
   Hersteller,
@@ -85,6 +86,7 @@ export interface ReseedPlan {
   standorte: number
   hersteller: number
   artikel: number
+  artikelStandortMindestbestaende: number
   kommission: number
   buchungen: number
   einstellungen: number
@@ -105,6 +107,7 @@ async function collectRows(): Promise<{
   standorte: Standort[]
   hersteller: Hersteller[]
   artikel: Artikel[]
+  artikelStandortMindestbestaende: ArtikelStandortMindestbestand[]
   kommission: Projekt[]
   buchungen: Buchung[]
   einstellungen: Array<{ key: string; userId: string | null; value: string; geaendertAm: string }>
@@ -115,6 +118,7 @@ async function collectRows(): Promise<{
   const standorte = await db.standorte.toArray()
   const hersteller = await db.hersteller.toArray()
   const artikel = await db.artikel.toArray()
+  const artikelStandortMindestbestaende = await db.artikelStandortMindestbestaende.toArray()
   const kommission = await db.commission.toArray()
   const buchungen = sortBuchungenForReseed(await db.buchungen.toArray())
 
@@ -129,7 +133,15 @@ async function collectRows(): Promise<{
     if (e) einstellungen.push(e)
   }
 
-  return { standorte, hersteller, artikel, kommission, buchungen, einstellungen }
+  return {
+    standorte,
+    hersteller,
+    artikel,
+    artikelStandortMindestbestaende,
+    kommission,
+    buchungen,
+    einstellungen,
+  }
 }
 
 /**
@@ -141,6 +153,7 @@ export async function collectReseedPlan(): Promise<ReseedPlan> {
     standorte: rows.standorte.length,
     hersteller: rows.hersteller.length,
     artikel: rows.artikel.length,
+    artikelStandortMindestbestaende: rows.artikelStandortMindestbestaende.length,
     kommission: rows.kommission.length,
     buchungen: rows.buchungen.length,
     einstellungen: rows.einstellungen.length,
@@ -213,7 +226,8 @@ function serverHasData(counts: TableCounts): boolean {
     counts.standorte > 0 ||
     counts.commission > 0 ||
     counts.buchungen > 0 ||
-    (counts.hersteller ?? 0) > 0
+    (counts.hersteller ?? 0) > 0 ||
+    (counts.artikelStandortMindestbestand ?? 0) > 0
   )
 }
 
@@ -257,6 +271,7 @@ export async function reseedServer(opts: {
     rows.standorte.length +
     rows.hersteller.length +
     rows.artikel.length +
+    rows.artikelStandortMindestbestaende.length +
     rows.kommission.length +
     rows.buchungen.length
   if (total === 0) {
@@ -277,6 +292,9 @@ export async function reseedServer(opts: {
   for (const a of rows.artikel) {
     await queueOp('artikel', 'create', normalizeStammdaten(a), nextTs())
   }
+  for (const m of rows.artikelStandortMindestbestaende) {
+    await queueOp('artikel_standort_mindestbestand', 'create', m, nextTs())
+  }
   for (const p of rows.kommission) {
     await queueOp('kommission', 'create', normalizeStammdaten(p), nextTs())
   }
@@ -293,6 +311,7 @@ export async function reseedServer(opts: {
     ...rows.standorte.map((s) => s.id),
     ...rows.hersteller.map((h) => h.id),
     ...rows.artikel.map((a) => a.id),
+    ...rows.artikelStandortMindestbestaende.map((m) => `${m.artikelId}#${m.standortId}`),
     ...rows.kommission.map((p) => p.id),
     ...rows.buchungen.map((b) => b.id),
   ])
@@ -335,6 +354,7 @@ export async function reseedServer(opts: {
       standorte: rows.standorte.length,
       hersteller: rows.hersteller.length,
       artikel: rows.artikel.length,
+      artikelStandortMindestbestaende: rows.artikelStandortMindestbestaende.length,
       kommission: rows.kommission.length,
       buchungen: rows.buchungen.length,
       einstellungen: rows.einstellungen.length,
@@ -372,6 +392,12 @@ function payloadIdOfOutbox(o: OutboxEintrag): string | null {
     if (typeof p.key !== 'string' || p.key.length === 0) return null
     const userPart = p.userId === null || p.userId === undefined ? 'global' : String(p.userId)
     return `${p.key}#${userPart}`
+  }
+  if (o.entity === 'artikel_standort_mindestbestand') {
+    const p = payload as { artikelId?: unknown; standortId?: unknown }
+    if (typeof p.artikelId !== 'string' || p.artikelId.length === 0) return null
+    if (typeof p.standortId !== 'string' || p.standortId.length === 0) return null
+    return `${p.artikelId}#${p.standortId}`
   }
   const id = (payload as { id?: unknown }).id
   return typeof id === 'string' && id.length > 0 ? id : null

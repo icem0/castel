@@ -97,6 +97,10 @@ export const useStandortStore = defineStore('standort', () => {
   }
 
   async function archivieren(id: string): Promise<void> {
+    const existing = await getDb().standorte.get(id)
+    if (existing?.standard) {
+      throw new Error('Das Hauptlager kann nicht archiviert werden.')
+    }
     const now = jetztIso()
     await getDb().standorte.update(id, { archiviert: true, standard: false, geaendertAm: now })
     const updated = await getDb().standorte.get(id)
@@ -113,6 +117,9 @@ export const useStandortStore = defineStore('standort', () => {
   async function loeschen(id: string): Promise<void> {
     const existing = await getDb().standorte.get(id)
     if (!existing) return
+    if (existing.standard) {
+      throw new Error('Das Hauptlager kann nicht gelöscht werden.')
+    }
     await getDb().standorte.delete(id)
     await queueOp('standort', 'delete', existing)
   }

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from './stores/settings'
 import { useStandortStore } from './stores/standort'
 import { useArtikelStore } from './stores/artikel'
+import { useArtikelStandortMindestbestandStore } from './stores/artikelStandortMindestbestand'
 import { useHerstellerStore } from './stores/hersteller'
 import { useBuchungStore } from './stores/buchung'
 import { useProjektStore } from './stores/projekt'
@@ -44,6 +45,7 @@ const route = useRoute()
 const settings = useSettingsStore()
 const standort = useStandortStore()
 const artikel = useArtikelStore()
+const artikelMindestbestand = useArtikelStandortMindestbestandStore()
 const hersteller = useHerstellerStore()
 const buchung = useBuchungStore()
 const projekt = useProjektStore()
@@ -110,6 +112,7 @@ onMounted(() => {
     settings.start()
     standort.start()
     artikel.start()
+    artikelMindestbestand.start()
     hersteller.start()
     buchung.start()
     projekt.start()
@@ -128,6 +131,7 @@ onBeforeUnmount(() => {
   settings.stop()
   standort.stop()
   artikel.stop()
+  artikelMindestbestand.stop()
   hersteller.stop()
   buchung.stop()
   projekt.stop()
@@ -145,6 +149,7 @@ watchEffect(() => {
     settings.start()
     standort.start()
     artikel.start()
+    artikelMindestbestand.start()
     hersteller.start()
     buchung.start()
     projekt.start()
@@ -169,6 +174,7 @@ watchEffect(() => {
     settings.stop()
     standort.stop()
     artikel.stop()
+    artikelMindestbestand.stop()
     hersteller.stop()
     buchung.stop()
     projekt.stop()

@@ -229,7 +229,10 @@ export const useArtikelStore = defineStore('artikel', () => {
     const rows = await getDb().buchungen.where('artikelId').equals(artikelId).toArray()
     const bestand = berechneBestand(rows, standortId)
     if (bestand < 0) return true
-    if (a.mindestbestand !== null && bestand < a.mindestbestand) return true
+    // Threshold is per (Artikel, Standort), sparse. No global fallback.
+    const konfig = await getDb().artikelStandortMindestbestaende.get([artikelId, standortId])
+    const schwelle = konfig?.mindestbestand ?? 0
+    if (schwelle > 0 && bestand < schwelle) return true
     return false
   }
 

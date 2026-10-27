@@ -192,6 +192,9 @@ export default {
         loeschenHatBuchungen:
           'Cannot delete — this item already has transactions. Cancel them first.',
         loeschenFehler: 'Delete failed: {msg}',
+        bestellnummerKopieren: 'Copy order number to clipboard',
+        bestellnummerKopiert: 'Copied',
+        bestellnummerKopierFehler: 'Copy failed',
       },
       form: {
         h1: 'New item',
@@ -206,6 +209,8 @@ export default {
         lieferant: 'Supplier',
         ve: 'Packaging unit',
         mindestbestand: 'Minimum stock',
+        mindestbestandProLager: 'Minimum stock per location',
+        mindestbestandProLagerHint: '0 = no minimum at this location. There is no global fallback.',
         bestellnummer: 'Order no.',
         barcode: 'Barcode',
         barcodeHint: 'EAN, Code128 or QR. Used by the scanner.',

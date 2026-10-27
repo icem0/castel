@@ -57,36 +57,57 @@ export async function importArtikelAusCsv(e: ArtikelImportEingabe): Promise<Impo
     konflikte: [],
   }
 
-  await db.transaction('rw', [db.artikel, db.outbox, db.auditLog], async () => {
-    for (let i = 0; i < e.rows.length; i++) {
-      const row = e.rows[i]
-      if (!row) continue
-      const a: Artikel = mappeArtikelZeile(row, e.headers, e.mapping)
-      const existierend =
-        a.sharePointId != null
-          ? await db.artikel.where('sharePointId').equals(a.sharePointId).first()
-          : await db.artikel.where('titel').equals(a.titel).first()
-      if (existierend) {
-        bericht.konflikte.push(`Artikel "${a.titel}" existiert bereits (Zeile ${i + 2}).`)
-        continue
-      }
-      await db.artikel.add(a)
-      bericht.artikelAngelegt += 1
-      await queueOp('artikel', 'create', a)
-    }
+  // CSV has no location column. A minimum stock from the file therefore
+  // belongs to the main warehouse (active standard location), mirroring
+  // the server backfill. Without this, imported thresholds would be
+  // silently ignored (the global `artikel.mindestbestand` is deprecated).
+  const standardStandort = await db.standorte.where('standard').equals(1).first()
 
-    await db.auditLog.add({
-      id: neueUuid(),
-      aktion: 'csv-import.artikel',
-      entitaet: 'artikel',
-      entitaetId: 'batch',
-      daten: JSON.stringify({
-        artikelAngelegt: bericht.artikelAngelegt,
-        konflikte: bericht.konflikte.length,
-      }),
-      zeit: jetztIso(),
-    })
-  })
+  await db.transaction(
+    'rw',
+    [db.artikel, db.artikelStandortMindestbestaende, db.outbox, db.auditLog],
+    async () => {
+      for (let i = 0; i < e.rows.length; i++) {
+        const row = e.rows[i]
+        if (!row) continue
+        const a: Artikel = mappeArtikelZeile(row, e.headers, e.mapping)
+        const existierend =
+          a.sharePointId != null
+            ? await db.artikel.where('sharePointId').equals(a.sharePointId).first()
+            : await db.artikel.where('titel').equals(a.titel).first()
+        if (existierend) {
+          bericht.konflikte.push(`Artikel "${a.titel}" existiert bereits (Zeile ${i + 2}).`)
+          continue
+        }
+        await db.artikel.add(a)
+        bericht.artikelAngelegt += 1
+        await queueOp('artikel', 'create', a)
+        if (standardStandort && a.mindestbestand !== null && a.mindestbestand > 0) {
+          const konfig = {
+            artikelId: a.id,
+            standortId: standardStandort.id,
+            mindestbestand: a.mindestbestand,
+            geaendertAm: a.geaendertAm ?? a.erstelltAm,
+            erstelltAm: a.erstelltAm,
+          }
+          await db.artikelStandortMindestbestaende.put(konfig)
+          await queueOp('artikel_standort_mindestbestand', 'create', konfig)
+        }
+      }
+
+      await db.auditLog.add({
+        id: neueUuid(),
+        aktion: 'csv-import.artikel',
+        entitaet: 'artikel',
+        entitaetId: 'batch',
+        daten: JSON.stringify({
+          artikelAngelegt: bericht.artikelAngelegt,
+          konflikte: bericht.konflikte.length,
+        }),
+        zeit: jetztIso(),
+      })
+    },
+  )
 
   return bericht
 }

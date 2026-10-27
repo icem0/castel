@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
+import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
 import { useBuchungStore } from '../stores/buchung'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
 import { useArtikelFilter } from '../composables/useArtikelFilter'
@@ -17,6 +18,7 @@ import type { Artikel, ArtikelStatus } from '../db/types'
 const { t } = useI18n()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
+const mindestbestandStore = useArtikelStandortMindestbestandStore()
 const buchungStore = useBuchungStore()
 const { alleBenutzten } = useArtikelTypen()
 const sync = useSyncStore()
@@ -76,6 +78,7 @@ function onSyncStatus(next: { status: string }): void {
 }
 
 onMounted(() => {
+  mindestbestandStore.start()
   void ladeThumbnails()
   window.addEventListener('online', onOnline)
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -144,7 +147,8 @@ function bestandBenotigtAufmerksamkeit(artikelId: string, standortId: string): b
   if (!a) return false
   const bestand = buchungStore.getBestand(artikelId, standortId)
   if (bestand < 0) return true
-  if (a.mindestbestand !== null && bestand < a.mindestbestand) return true
+  const schwelle = mindestbestandStore.wertFuer(artikelId, standortId)
+  if (schwelle > 0 && bestand < schwelle) return true
   return false
 }
 

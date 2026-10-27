@@ -5,6 +5,7 @@ import { RouterLink } from 'vue-router'
 import { useArtikelStore } from '../stores/artikel'
 import { useBuchungStore } from '../stores/buchung'
 import { useStandortStore } from '../stores/standort'
+import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
 import { useAuthStore } from '../stores/auth'
 import { formatiereCent } from '../domain/geld'
 import {
@@ -29,6 +30,7 @@ const { t, locale } = useI18n()
 const artikelStore = useArtikelStore()
 const buchungStore = useBuchungStore()
 const standortStore = useStandortStore()
+const mindestbestandStore = useArtikelStandortMindestbestandStore()
 const auth = useAuthStore()
 
 const zeitraum = ref<ZeitraumTage>(30)
@@ -43,6 +45,7 @@ const kpis = computed(() =>
     artikel: artikelStore.artikel,
     buchungen: buchungStore.buchungen,
     standorte: standortStore.standorte,
+    mindestbestaende: mindestbestandStore.eintraege,
     tage: zeitraum.value,
   }),
 )
@@ -96,7 +99,13 @@ const standortBalken = computed<BalkenEintrag[]>(() =>
 )
 
 const bedarf = computed(() =>
-  handlungsbedarf(artikelStore.artikel, buchungStore.buchungen, standortStore.standorte, 5),
+  handlungsbedarf(
+    artikelStore.artikel,
+    buchungStore.buchungen,
+    standortStore.standorte,
+    mindestbestandStore.eintraege,
+    5,
+  ),
 )
 
 const topBewegung = computed<BalkenEintrag[]>(() =>
