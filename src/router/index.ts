@@ -27,6 +27,7 @@ import SettingsView from '../views/SettingsView.vue'
 import DevelopmentView from '../views/DevelopmentView.vue'
 import ArtikelTypenView from '../views/ArtikelTypenView.vue'
 import AkkuTypenView from '../views/AkkuTypenView.vue'
+import AkkutauschView from '../views/AkkutauschView.vue'
 import KommissionenView from '../views/KommissionenView.vue'
 import ArtikelKatalogeView from '../views/ArtikelKatalogeView.vue'
 import ImportView from '../views/ImportView.vue'
@@ -133,6 +134,7 @@ const routes: RouteRecordRaw[] = [
     name: 'etiketten',
     component: BarcodeErzeugenView,
   },
+  { path: '/akkutausch', name: 'akkutausch', component: AkkutauschView },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 

@@ -215,6 +215,7 @@ onBeforeUnmount(() => {
     <h2>{{ t('view.settings.stammdaten') }}</h2>
     <div class="card quick-links">
       <RouterLink to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
+      <RouterLink to="/akkutausch">{{ t('view.akkutausch.h1') }}</RouterLink>
       <RouterLink v-if="auth.istAdmin" to="/einstellungen/artikel-typen">{{
         t('view.artikelTypen.h1')
       }}</RouterLink>

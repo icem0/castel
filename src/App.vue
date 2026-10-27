@@ -755,6 +755,7 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/">{{ t('app.nav.dashboard') }}</RouterLink>
         <RouterLink to="/artikel">{{ t('app.nav.artikel') }}</RouterLink>
         <RouterLink to="/buchungen">{{ t('app.nav.buchungen') }}</RouterLink>
+        <RouterLink to="/akkutausch">{{ t('app.nav.akkutausch') }}</RouterLink>
         <RouterLink to="/scan" class="scan-link">{{ t('app.nav.scan') }}</RouterLink>
       </nav>
       <div class="header-right">
@@ -857,6 +858,10 @@ function formatRelativ(iso: string | null): string {
       <RouterLink to="/buchungen" active-class="active">
         <span class="bn-icon" aria-hidden="true">⇄</span>
         <span class="bn-label">{{ t('app.nav.buchungen') }}</span>
+      </RouterLink>
+      <RouterLink to="/akkutausch" active-class="active">
+        <span class="bn-icon" aria-hidden="true">⚡</span>
+        <span class="bn-label">{{ t('app.nav.akkutausch') }}</span>
       </RouterLink>
     </nav>
 
