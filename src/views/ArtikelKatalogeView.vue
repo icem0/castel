@@ -17,7 +17,12 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ApiError } from '../auth/api'
-import type { HerstellerArtikel, Lieferant, LookupAntwort } from '../services/datanorm/lookup'
+import type {
+  HerstellerArtikel,
+  Lieferant,
+  LookupAntwort,
+  DatanormFormat,
+} from '../services/datanorm/lookup'
 import { ladeLieferanten, sucheHerstellerArtikel } from '../services/datanorm/lookup'
 import {
   anlageLieferant,
@@ -101,6 +106,14 @@ async function suchen(): Promise<void> {
 const uploadFile = ref<File | null>(null)
 const uploadLieferantId = ref('')
 const uploadEncoding = ref<'utf-8' | 'cp850' | 'windows-1252' | ''>('')
+/**
+ * DATANORM format of the file.
+ *
+ * 'auto' reads the version from the Vorlaufsatz (or the field count of the
+ * first A record). 'v4'/'v5' force it — the escape hatch for suppliers
+ * whose export deviates from the standard.
+ */
+const uploadFormat = ref<DatanormFormat>('auto')
 const uploadLaufend = ref(false)
 /** Latest SSE tick, mirrored from the server's ImportFortschritt. */
 const fortschritt = ref<{ phase: string; prozent: number; hinweis: string } | null>(null)
@@ -176,6 +189,7 @@ async function uploadStarten(): Promise<void> {
       uploadFile.value,
       uploadLieferantId.value,
       uploadEncoding.value === '' ? undefined : uploadEncoding.value,
+      uploadFormat.value,
     )
     // The import runs inline on the server: the response IS the result.
     // The UI must not wait for an SSE event to unblock — otherwise the
@@ -252,9 +266,20 @@ async function ladeImporteListe(): Promise<void> {
   }
 }
 
+/**
+ * The DATANORM format is a property of the supplier's export — when the
+ * admin picks a supplier, its remembered format is proposed.
+ */
+function uploadLieferantGewechselt(): void {
+  const l = lieferanten.value.find((x) => x.id === uploadLieferantId.value)
+  uploadFormat.value = l?.format ?? 'auto'
+  void ladeImporteListe()
+}
+
 const neuLieferantName = ref('')
 const neuLieferantMatchcode = ref('')
 const neuLieferantOrt = ref('')
+const neuLieferantFormat = ref<DatanormFormat>('auto')
 const lieferantLaufend = ref(false)
 const lieferantFehler = ref('')
 
@@ -268,10 +293,12 @@ async function lieferantAnlegen(): Promise<void> {
       matchcode: neuLieferantMatchcode.value.trim() || undefined,
       ort: neuLieferantOrt.value.trim() || undefined,
       aktiv: true,
+      format: neuLieferantFormat.value,
     })
     neuLieferantName.value = ''
     neuLieferantMatchcode.value = ''
     neuLieferantOrt.value = ''
+    neuLieferantFormat.value = 'auto'
     await ladeLieferantenListe()
   } catch (e) {
     lieferantFehler.value = e instanceof Error ? e.message : String(e)
@@ -285,6 +312,21 @@ async function aktivUmschalten(l: Lieferant): Promise<void> {
   lieferantFehler.value = ''
   try {
     await patchLieferant(l.id, { aktiv: !l.aktiv })
+    await ladeLieferantenListe()
+  } catch (e) {
+    lieferantFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    lieferantLaufend.value = false
+  }
+}
+
+/** Remembers the supplier's DATANORM format for the next upload. */
+async function formatSetzen(l: Lieferant, format: DatanormFormat): Promise<void> {
+  if (l.format === format) return
+  lieferantLaufend.value = true
+  lieferantFehler.value = ''
+  try {
+    await patchLieferant(l.id, { format })
     await ladeLieferantenListe()
   } catch (e) {
     lieferantFehler.value = e instanceof Error ? e.message : String(e)
@@ -440,7 +482,7 @@ onBeforeUnmount(schliesseEventSource)
             v-model="uploadLieferantId"
             data-testid="upload-lieferant"
             :disabled="uploadLaufend"
-            @change="ladeImporteListe"
+            @change="uploadLieferantGewechselt"
           >
             <option value="" disabled>{{ t('view.artikelKataloge.lieferantWaehlen') }}</option>
             <option v-for="l in lieferanten" :key="l.id" :value="l.id">{{ l.name }}</option>
@@ -465,6 +507,15 @@ onBeforeUnmount(schliesseEventSource)
             <option value="windows-1252">Windows-1252</option>
           </select>
         </label>
+        <label class="feld">
+          <span>{{ t('view.artikelKataloge.format') }}</span>
+          <select v-model="uploadFormat" data-testid="upload-format" :disabled="uploadLaufend">
+            <option value="auto">{{ t('view.artikelKataloge.formatAuto') }}</option>
+            <option value="v4">DATANORM 4.0</option>
+            <option value="v5">DATANORM 5.0</option>
+          </select>
+          <small class="hint">{{ t('view.artikelKataloge.formatHint') }}</small>
+        </label>
 
         <p v-if="uploadFehler" class="fehler" role="alert">{{ uploadFehler }}</p>
 
@@ -481,6 +532,13 @@ onBeforeUnmount(schliesseEventSource)
         </p>
         <p v-if="uploadErgebnis && ergebnisText" class="hint hint-ok">
           {{ ergebnisText }}
+        </p>
+        <p v-if="uploadErgebnis && uploadErgebnis.version" class="hint">
+          {{
+            t('view.artikelKataloge.erkanntesFormat', {
+              format: `DATANORM ${uploadErgebnis.version}.0`,
+            })
+          }}
         </p>
         <ul
           v-if="uploadErgebnis && uploadErgebnis.auffaelligkeiten.length > 0"
@@ -569,6 +627,18 @@ onBeforeUnmount(schliesseEventSource)
                 :disabled="lieferantLaufend"
               />
             </label>
+            <label>
+              <span>{{ t('view.artikelKataloge.format') }}</span>
+              <select
+                v-model="neuLieferantFormat"
+                data-testid="lieferant-format"
+                :disabled="lieferantLaufend"
+              >
+                <option value="auto">{{ t('view.artikelKataloge.formatAuto') }}</option>
+                <option value="v4">DATANORM 4.0</option>
+                <option value="v5">DATANORM 5.0</option>
+              </select>
+            </label>
           </div>
           <div class="form-actions">
             <button
@@ -589,6 +659,7 @@ onBeforeUnmount(schliesseEventSource)
               <th>{{ t('view.artikelKataloge.colName') }}</th>
               <th>{{ t('view.artikelKataloge.colMatchcode') }}</th>
               <th>{{ t('view.artikelKataloge.colOrt') }}</th>
+              <th>{{ t('view.artikelKataloge.format') }}</th>
               <th>{{ t('view.artikelKataloge.colAktiv') }}</th>
             </tr>
           </thead>
@@ -597,6 +668,20 @@ onBeforeUnmount(schliesseEventSource)
               <td>{{ l.name }}</td>
               <td>{{ l.matchcode ?? '—' }}</td>
               <td>{{ l.ort ?? '—' }}</td>
+              <td>
+                <select
+                  :value="l.format"
+                  data-testid="lieferant-format-liste"
+                  :disabled="lieferantLaufend"
+                  @change="
+                    formatSetzen(l, ($event.target as HTMLSelectElement).value as DatanormFormat)
+                  "
+                >
+                  <option value="auto">{{ t('view.artikelKataloge.formatAuto') }}</option>
+                  <option value="v4">DATANORM 4.0</option>
+                  <option value="v5">DATANORM 5.0</option>
+                </select>
+              </td>
               <td>
                 <label class="schalter">
                   <input

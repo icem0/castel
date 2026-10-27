@@ -194,8 +194,7 @@ export default {
         duplikatHinweis: 'An item with this barcode already exists: “{titel}".',
         duplikatZumArtikel: 'To existing item',
         pflicht: 'Required',
-        ungespeichertVerlassen:
-          'You have unsaved changes. Leave anyway?',
+        ungespeichertVerlassen: 'You have unsaved changes. Leave anyway?',
       },
     },
     buchung: {
@@ -390,6 +389,10 @@ export default {
       datei: 'DATANORM file',
       encoding: 'Encoding',
       encodingAuto: 'Detect automatically',
+      format: 'Format',
+      formatAuto: 'Detect automatically',
+      formatHint:
+        'DATANORM 4 and 5 use different field layouts. When in doubt, use “Detect automatically”.',
       hochladen: 'Upload & import',
       zuruecksetzen: 'Reset',
       importLaeuft: 'Import running …',
@@ -399,6 +402,7 @@ export default {
       importTeilfehler: 'Import finished with errors: {anzahl} articles, {fehler} errors.',
       importDuplikat:
         'This file was already imported for this supplier — the catalogue is unchanged.',
+      erkanntesFormat: 'Detected format: {format}',
       uploadZuGross: 'Upload rejected: the file is too large (reverse proxy limit).',
       statusErfolg: 'success',
       statusTeilfehler: 'partial errors',

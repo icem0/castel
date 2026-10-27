@@ -5,30 +5,42 @@ import { erkenneEncoding, dekodiere } from '../encoding.js'
 import {
   DatanormFehler,
   erkenneVersion,
+  erkenneVersionAusFeldern,
   parseP,
   parseArtikel,
   parseB,
   parseD,
   parseT,
+  parseVorsatz,
   sammleDatanorm,
   zerlegeSatz,
 } from '../parse-pass1.js'
-import { normalisiereEan, parseDatum, parsePreisCent, parseZahl } from '../layout.js'
 import {
+  normalisiereEan,
+  parseDatum,
+  parsePreisCent,
+  parsePreiseinheit,
+  parseZahl,
+} from '../layout.js'
+import {
+  aV4,
   aV5,
-  BEISPIEL_V5,
   BEISPIEL_V4,
-  BEISPIEL_V5_MIT_DELETE,
+  BEISPIEL_V4_MIT_DELETE,
+  BEISPIEL_V5,
   BEISPIEL_V5_UNBEKANNT,
+  bV4,
   datei,
-  d,
-  pEintraege,
-  t,
+  dV4,
+  pV4,
+  tV4,
+  v4Vorsatz,
+  v5Vorsatz,
 } from './fixtures.js'
 
 describe('encoding', () => {
   it('erkennt UTF-8 ohne Ersetzungszeichen', () => {
-    const buf = Buffer.from('A ART-1 Schraube M8 Bördel — Größe 8\n', 'utf-8')
+    const buf = Buffer.from('A;N;ART-1;00;Schraube M8 Bördel — Größe 8\n', 'utf-8')
     const e = erkenneEncoding(buf)
     expect(e.encoding).toBe('utf-8')
     expect(e.ersetzungen).toBe(0)
@@ -38,7 +50,7 @@ describe('encoding', () => {
   it('fällt auf cp850 zurück, wenn Umlaute als Einzelbytes kommen', () => {
     // 0x81 = ü in CP850, 0x94 = ö. In UTF-8 sind das ungültige Sequenzen.
     const buf = Buffer.concat([
-      Buffer.from('A ART-1 Schraube M8 B', 'latin1'),
+      Buffer.from('A;N;ART-1;00;Schraube M8 B', 'latin1'),
       Buffer.from([0x81, 0x94, 0x9f, 0x0a]),
     ])
     const e = erkenneEncoding(buf)
@@ -55,12 +67,26 @@ describe('encoding', () => {
 })
 
 describe('layout helpers', () => {
-  it('parsePreisCent rundet statt zu schneiden', () => {
-    expect(parsePreisCent('2.495')).toBe(250)
+  it('parsePreisCent liest den Preis als Cent (ohne Faktor 100)', () => {
+    // DATANORM preise stehen in Cent: "4700" = 47,00 EUR.
+    expect(parsePreisCent('4700')).toBe(4700)
     expect(parsePreisCent('2,49')).toBe(249)
+    expect(parsePreisCent('2.495')).toBe(2495)
     expect(parsePreisCent('0')).toBe(0)
+    expect(parsePreisCent('-1200')).toBe(-1200)
     expect(parsePreisCent('  ')).toBeNull()
     expect(parsePreisCent('kein Preis')).toBeNull()
+  })
+
+  it('parsePreiseinheit übersetzt den v4-Code in den Faktor', () => {
+    // v4: 0 = je 1, 1 = je 10, 2 = je 100, 3 = je 1000 Einheiten.
+    expect(parsePreiseinheit('0', 4)).toBe(1)
+    expect(parsePreiseinheit('1', 4)).toBe(10)
+    expect(parsePreiseinheit('2', 4)).toBe(100)
+    expect(parsePreiseinheit('3', 4)).toBe(1000)
+    // v5: das Feld ist der Faktor selbst.
+    expect(parsePreiseinheit('10', 5)).toBe(10)
+    expect(parsePreiseinheit('', 4)).toBeNull()
   })
 
   it('parseZahl liest Dezimalwerte', () => {
@@ -87,171 +113,225 @@ describe('layout helpers', () => {
 
 describe('satz zerlegen + version', () => {
   it('erkennt bekannte Satzzeichen', () => {
-    expect(zerlegeSatz('ATEST', 1).satzart).toBe('A')
-    expect(zerlegeSatz('DTEST', 1).satzart).toBe('D')
+    expect(zerlegeSatz('A;N;ART-1', 1).satzart).toBe('A')
+    expect(zerlegeSatz('D;N;ART-1', 1).satzart).toBe('D')
     expect(zerlegeSatz('€nknown', 1).satzart).toBe('unbekannt')
-    expect(zerlegeSatz('ATEST', 7).zeile).toBe(7)
+    expect(zerlegeSatz('A;N;ART-1', 7).zeile).toBe(7)
   })
 
-  it('erkennt die Version aus dem Vorsatz', () => {
-    expect(erkenneVersion('V;5.0;20240115;EUR')).toBe(5)
-    expect(erkenneVersion('V4.0 20240115 EUR')).toBe(4)
-    expect(erkenneVersion('ATEST')).toBeNull()
+  it('erkennt die Version aus dem v4-Vorsatz (fest breit, "04EUR" am Ende)', () => {
+    expect(erkenneVersion(v4Vorsatz())).toBe(4)
+  })
+
+  it('erkennt die Version aus dem v5-Vorsatz (Semikolon, Feld 2 = "050")', () => {
+    expect(erkenneVersion(v5Vorsatz())).toBe(5)
+  })
+
+  it('erkennt die Version aus der Feldzahl des A-Satzes', () => {
+    // v4: 13 Felder (+ abschliessendes ';' → 14). v5: 23 (+ 1 → 24).
+    expect(erkenneVersionAusFeldern(13)).toBe(4)
+    expect(erkenneVersionAusFeldern(14)).toBe(4)
+    expect(erkenneVersionAusFeldern(23)).toBe(5)
+    expect(erkenneVersionAusFeldern(24)).toBe(5)
+  })
+
+  it('liest Währung und Datum aus dem v4-Vorsatz', () => {
+    const v = parseVorsatz(v4Vorsatz('Muster GmbH', '150124'), 4, 1)
+    expect(v.waehrung).toBe('EUR')
+    expect(v.stichtag).toBe('2024-01-15')
+    expect(v.lieferantName).toBe('Muster GmbH')
+  })
+
+  it('liest Währung und Datum aus dem v5-Vorsatz', () => {
+    const v = parseVorsatz(v5Vorsatz('Muster GmbH', '20240115'), 5, 1)
+    expect(v.waehrung).toBe('EUR')
+    expect(v.stichtag).toBe('2024-01-15')
   })
 })
 
 describe('einzelne Sätze parsen', () => {
-  it('A-Satz v5 mit Preisen und Stichtag', () => {
+  it('A-Satz v5 liest Preis, EAN und Langtextschlüssel', () => {
     const zeile = aV5({
-      matchcode: 'ART-1',
+      artikelnummer: 'ART-1',
       ean: '4006381333931',
-      kurztext: 'Schraube M8',
-      mengeneinheit: 'STK',
-      warengruppe: 'WG-7',
-      preisNetto: '2.49',
-      preisBrutto: '2.99',
-      gueltigAb: '20240115',
+      kurztext1: 'Schraube M8',
+      mengeneinheit: 'PCE',
+      preisKennzeichen: '2',
+      preis: '249',
+      hauptwarengruppe: 'WG7',
     })
-    const a = parseArtikel(zeile.slice(1), 5, 12)
+    const a = parseArtikel(zeile, 5, 12)
     expect(a).not.toBeNull()
     expect(a!.matchcode).toBe('ART-1')
     expect(a!.ean).toBe('4006381333931')
     expect(a!.kurztext).toBe('Schraube M8')
     expect(a!.preisNettoCent).toBe(249)
-    expect(a!.preisBruttoCent).toBe(299)
-    expect(a!.gueltigAb).toBe('2024-01-15')
-    expect(a!.warengruppe).toBe('WG-7')
+    expect(a!.preisBruttoCent).toBeNull()
+    expect(a!.warengruppe).toBe('WG7')
+    expect(a!.preiseinheit).toBe(1)
   })
 
-  it('A-Satz v4 interpretiert die Mengeneinheit als Faktor', () => {
-    // Layout v4: matchcode(14) kurztext(40) mengeneinheit(5) preiseinheit(2)
-    //             preisNetto(10) preisBrutto(10) warengruppe(8)
-    const zeile =
-      'A' +
-      'V4-ART1'.padEnd(14, ' ') +
-      'Kupferrohr 15mm'.padEnd(40, ' ') +
-      'M'.padEnd(5, ' ') +
-      '10'.padEnd(2, ' ') +
-      '12,90'.padEnd(10, ' ') +
-      '15,48'.padEnd(10, ' ') +
-      'ROHR'.padEnd(8, ' ')
-    const a = parseArtikel(zeile.slice(1), 4, 3)
+  it('A-Satz v4 liest Artikelnummer, Kurztext und Preis aus den richtigen Feldern', () => {
+    const zeile = aV4({
+      artikelnummer: 'V4-ART1',
+      textkennzeichen: '01',
+      kurztext1: 'Kupferrohr 15mm',
+      preisKennzeichen: '2',
+      preisEinheit: '1',
+      mengeneinheit: 'M',
+      preis: '1290',
+      hauptwarengruppe: 'ROHR',
+    })
+    const a = parseArtikel(zeile, 4, 3)
     expect(a!.matchcode).toBe('V4-ART1')
+    expect(a!.kurztext).toBe('Kupferrohr 15mm')
     expect(a!.mengeneinheit).toBe('M')
+    // v4-Preiseinheit 1 = "Preis je 10 Einheiten".
     expect(a!.preiseinheit).toBe(10)
-    expect(a!.inhalt).toBe(10)
     expect(a!.preisNettoCent).toBe(1290)
+    expect(a!.warengruppe).toBe('ROHR')
   })
 
-  it('A-Satz ohne Matchcode wird verworfen', () => {
-    expect(parseArtikel(' '.repeat(60), 5, 9)).toBeNull()
+  it('A-Satz v4 setzt Kurztext 1 und 2 zu einem Titel zusammen', () => {
+    const zeile = aV4({
+      artikelnummer: '63-1211456-',
+      // Textkennzeichen 0 = "Kurztext 1 + Kurztext 2" — beide Felder
+      // tragen EINEN Text, der vom Export in der Mitte getrennt wurde.
+      textkennzeichen: '01',
+      kurztext1: '19"-Rack-Montagesatz Front- und Rücks',
+      kurztext2: 'eite, 1 HE',
+    })
+    const a = parseArtikel(zeile, 4, 1)
+    expect(a!.kurztext).toBe('19"-Rack-Montagesatz Front- und Rückseite, 1 HE')
   })
 
-  it('B-Satz v4 trägt die EAN, v5 ist Delete-Marker', () => {
-    const zeile4 = 'B' + 'V4-ART1'.padEnd(14, ' ') + '4001234567890'
-    const b4 = parseB(zeile4.slice(1), 4, 4)
-    expect(b4!.ean).toBe('4001234567890')
-    expect(b4!.isDelete).toBe(false)
-
-    const zeile5 = 'B' + 'ART-2001'.padEnd(20, ' ') + 'D         '
-    const b5 = parseB(zeile5.slice(1), 5, 5)
-    expect(b5!.matchcode).toBe('ART-2001')
-    expect(b5!.isDelete).toBe(true)
+  it('A-Satz ohne Artikelnummer wird verworfen', () => {
+    expect(parseArtikel('A;N', 4, 9)).toBeNull()
   })
 
-  it('D-Satz führt zwei Textspalten zusammen', () => {
-    const zeile = 'D' + 'ART-1'.padEnd(14, ' ') + '001' + 'Erste Hälfte'.padEnd(40, ' ') + 'zweite Hälfte'.padEnd(40, ' ')
-    const dr = parseD(zeile.slice(1), 8)
-    expect(dr!.matchcode).toBe('ART-1')
-    expect(dr!.laufendeNr).toBe('001')
-    expect(dr!.text).toBe('Erste Hälfte zweite Hälfte')
+  it('B-Satz v4 trägt die EAN, Verpackungsmenge und Ersatzartikel', () => {
+    const zeile = bV4({
+      artikelnummer: 'V4-ART1',
+      matchcode: 'MC-1',
+      ean: '4001234567890',
+      verpackungsmenge: '12',
+      ersatz: 'V4-ART2',
+    })
+    const b = parseB(zeile, 4, 4)
+    expect(b!.ean).toBe('4001234567890')
+    expect(b!.matchcode2).toBe('MC-1')
+    expect(b!.verpackungsmenge).toBe(12)
+    expect(b!.ersatzMatchcode).toBe('V4-ART2')
+    expect(b!.isDelete).toBe(false)
   })
 
-  it('T-Satz merkt sich Text-ID und optionalen Matchcode', () => {
-    const zeile = t('TEXT-77', '001', 'ART-2', 'Ein langer Text')
-    const tr = parseT(zeile.slice(1), 9)
-    expect(tr!.textId).toBe('TEXT-77')
-    expect(tr!.matchcode).toBe('ART-2')
+  it('B-Satz mit "L" ist ein Loeschhinweis', () => {
+    const zeile = bV4({ artikelnummer: 'ART-2001', verarbeitung: 'L' })
+    expect(parseB(zeile, 5, 5)!.isDelete).toBe(true)
+  })
+
+  it('D-Satz liefert je Textblock einen Beschreibungseintrag', () => {
+    const zeile = dV4('ART-1', [
+      { nr: '1', text: 'Erste Zeile' },
+      { nr: '2', text: 'Zweite Zeile' },
+    ])
+    const dr = parseD(zeile, 4, 8)
+    expect(dr).toHaveLength(2)
+    expect(dr[0]!.matchcode).toBe('ART-1')
+    expect(dr[0]!.laufendeNr).toBe('1')
+    expect(dr[0]!.text).toBe('Erste Zeile')
+    expect(dr[1]!.text).toBe('Zweite Zeile')
+  })
+
+  it('T-Satz merkt sich die Textnummer und die Zeilen', () => {
+    const zeile = tV4('T000001', [
+      { nr: '1', text: 'Ein langer Text' },
+      { nr: '2', text: 'Noch ein Text' },
+    ])
+    const tr = parseT(zeile, 4, 9)
+    expect(tr).toHaveLength(2)
+    expect(tr[0]!.textId).toBe('T000001')
+    expect(tr[0]!.text).toBe('Ein langer Text')
+    expect(tr[1]!.laufendeNr).toBe('2')
   })
 
   it('P-Satz liefert mehrere Produkt/Preis-Paare pro Zeile', () => {
-    const zeile = pEintraege([
-      { matchcode: 'A-1', preis: '2.50' },
-      { matchcode: 'A-2', preis: '3.75' },
-      { matchcode: 'A-3', preis: '1.00' },
+    const zeile = pV4([
+      { artikelnummer: 'A-1', preis: '250' },
+      { artikelnummer: 'A-2', preis: '375' },
+      { artikelnummer: 'A-3', preis: '100' },
     ])
-    const p = parseP(zeile.slice(1), 5, 11)
+    const p = parseP(zeile, 4, 11)
     expect(p.aenderungen).toHaveLength(3)
     expect(p.aenderungen.map((a) => a.matchcode)).toEqual(['A-1', 'A-2', 'A-3'])
     expect(p.aenderungen[1]!.preisCent).toBe(375)
+    expect(p.aenderungen[1]!.preisKennzeichen).toBe(2)
   })
 
   it('P-Satz mit leeren Slots liefert nur die belegten Paare', () => {
-    const zeile = pEintraege([{ matchcode: 'A-1', preis: '2.50' }])
-    const p = parseP(zeile.slice(1), 5, 12)
+    const zeile = pV4([{ artikelnummer: 'A-1', preis: '250' }])
+    const p = parseP(zeile, 4, 12)
     expect(p.aenderungen).toHaveLength(1)
   })
 })
 
 describe('Pass 1 — sammleDatanorm', () => {
+  it('liest einen v4-Katalog vollständig und findet die EAN im B-Satz', async () => {
+    const s = await sammleDatanorm(datei(BEISPIEL_V4), { encoding: 'cp850' })
+    expect(s.version).toBe(4)
+    expect(s.artikel.size).toBe(2)
+
+    const a = s.artikel.get('63-1211456-')!
+    expect(a.kurztext).toBe('19"-Rack-Montagesatz Front- und Rückseite, 1 HE')
+    expect(a.preisNettoCent).toBe(4700)
+    expect(a.mengeneinheit).toBe('STK')
+    // Der A-Satz in v4 hat kein EAN-Feld; der B-Satz trägt es.
+    expect(a.ean).toBeNull()
+    expect(s.bRecords.get('63-1211456-')!.ean).toBe('4012345678905')
+
+    // Cross-Reference: D-Block liegt hinter dem A-Satz, wird aber gefunden.
+    expect(s.descriptions.get('63-1211456-')).toHaveLength(2)
+    // T-Block unter der Langtextnummer, die der A-Satz referenziert.
+    expect(s.texte.get('T000001')).toHaveLength(2)
+
+    expect(s.vorsatz).not.toBeNull()
+    expect(s.vorsatz!.waehrung).toBe('EUR')
+    expect(s.fehler).toHaveLength(0)
+  })
+
   it('liest einen v5-Katalog vollständig', async () => {
-    const s = await sammleDatanorm(datei(BEISPIEL_V5), { encoding: 'cp850', version: 5 })
+    const s = await sammleDatanorm(datei(BEISPIEL_V5), { encoding: 'cp850' })
     expect(s.version).toBe(5)
     expect(s.artikel.size).toBe(2)
 
     const a1 = s.artikel.get('ART-1001')!
     expect(a1.kurztext).toBe('Bleistift HB')
+    expect(a1.ean).toBe('4006381333931')
     expect(a1.preisNettoCent).toBe(249)
 
-    // Cross-Reference: D-Block liegt hinter dem A-Satz, wird aber gefunden.
-    const dblock = s.descriptions.get('ART-1001')
-    expect(dblock).toBeDefined()
-    expect(dblock).toHaveLength(2)
+    const a2 = s.artikel.get('ART-1002')!
+    expect(a2.kurztext).toBe('Radiergummi weich 65x23x35mm')
 
-    // T-Block mit eigener ID und direktem Matchcode.
-    expect(s.texte.get('TEXT-77')).toHaveLength(1)
-    expect(s.texteNachMatchcode.get('ART-1002')).toHaveLength(1)
-
-    // P-Sätze sind pro Matchcode indiziert.
-    expect(s.preise.get('ART-1001')).toHaveLength(1)
-    expect(s.preise.get('ART-1001')![0]!.aenderungen[0]!.preisCent).toBe(259)
-    expect(s.preise.get('ART-1002')![0]!.aenderungen[0]!.preisCent).toBe(85)
-
-    expect(s.vorsatz).not.toBeNull()
     expect(s.vorsatz!.waehrung).toBe('EUR')
     expect(s.vorsatz!.stichtag).toBe('2024-01-15')
     expect(s.fehler).toHaveLength(0)
   })
 
-  it('liest einen v4-Katalog und nimmt die EAN aus dem B-Satz', async () => {
-    const s = await sammleDatanorm(datei(BEISPIEL_V4), { encoding: 'cp850' })
-    expect(s.version).toBe(4)
-    expect(s.artikel.size).toBe(1)
-    const a = s.artikel.get('V4-ART1')!
-    expect(a.kurztext).toBe('Kupferrohr 15mm')
-    expect(a.preiseinheit).toBe(1)
-    // Der A-Satz in v4 hat kein EAN-Feld; der B-Satz trägt es.
-    expect(a.ean).toBeNull()
-    expect(s.bRecords.get('V4-ART1')!.ean).toBe('4001234567890')
-  })
-
   it('erkennt die EAN-Übernahme aus dem v4-B-Satz als eigenes Signal', async () => {
     const s = await sammleDatanorm(datei(BEISPIEL_V4), { encoding: 'cp850' })
-    const b = s.bRecords.get('V4-ART1')!
-    expect(b.ean).toBe('4001234567890')
+    const b = s.bRecords.get('63-1211456-')!
+    expect(b.ean).toBe('4012345678905')
     expect(b.isDelete).toBe(false)
   })
 
-  it('liest einen v5-Delete-Marker', async () => {
-    const s = await sammleDatanorm(datei(BEISPIEL_V5_MIT_DELETE), { encoding: 'cp850', version: 5 })
-    const b = s.bRecords.get('ART-2001')!
-    expect(b.isDelete).toBe(true)
-    // Der Artikel selbst bleibt im Bestand, wird nur als deaktiviert markiert.
-    expect(s.artikel.has('ART-2001')).toBe(true)
+  it('liest einen Loeschhinweis ("L") im A-Satz', async () => {
+    const s = await sammleDatanorm(datei(BEISPIEL_V4_MIT_DELETE), { encoding: 'cp850' })
+    expect(s.artikel.get('ART-2002')!.isDelete).toBe(true)
+    expect(s.artikel.get('ART-2001')!.isDelete).toBe(false)
   })
 
   it('ist tolerant bei unbekannten Satzzeichen', async () => {
-    const s = await sammleDatanorm(datei(BEISPIEL_V5_UNBEKANNT), { encoding: 'cp850', version: 5 })
+    const s = await sammleDatanorm(datei(BEISPIEL_V5_UNBEKANNT), { encoding: 'cp850' })
     expect(s.artikel.size).toBe(1)
     const unbekanntFehler = s.fehler.filter((f) => f.code === 'DATANORM_SATZ_UNBEKANNT')
     expect(unbekanntFehler).toHaveLength(2)
@@ -259,33 +339,44 @@ describe('Pass 1 — sammleDatanorm', () => {
   })
 
   it('bricht bei leerer Datei ohne A-Sätze ab', async () => {
-    const s = datei(['V;5.0;20240115;EUR;X;X GmbH', 'Z'])
-    await expect(sammleDatanorm(s, { encoding: 'cp850', version: 5 })).rejects.toThrow(DatanormFehler)
+    const s = datei([v5Vorsatz(), 'Z'])
+    await expect(sammleDatanorm(s, { encoding: 'cp850' })).rejects.toThrow(DatanormFehler)
   })
 
   it('bricht bei Strict-Mode beim ersten Fehler ab', async () => {
     await expect(
-      sammleDatanorm(datei(BEISPIEL_V5_UNBEKANNT), { encoding: 'cp850', version: 5, strict: true }),
+      sammleDatanorm(datei(BEISPIEL_V5_UNBEKANNT), { encoding: 'cp850', strict: true }),
     ).rejects.toThrow(/Satzzeichen/)
   })
 
   it('respect maxBytes', async () => {
     await expect(
-      sammleDatanorm(datei(BEISPIEL_V5), { encoding: 'cp850', version: 5, maxBytes: 10 }),
+      sammleDatanorm(datei(BEISPIEL_V5), { encoding: 'cp850', maxBytes: 10 }),
     ).rejects.toThrow(DatanormFehler)
   })
 
   it('zählt Duplikate als Fehler und behält den ersten Datensatz', async () => {
     const zeilen = [
-      'V;5.0;20240115;EUR;X;X GmbH',
-      aV5({ matchcode: 'DUP', kurztext: 'Erste Fassung', preisNetto: '1.00' }),
-      aV5({ matchcode: 'DUP', kurztext: 'Zweite Fassung', preisNetto: '2.00' }),
+      v5Vorsatz(),
+      aV5({ artikelnummer: 'DUP', kurztext1: 'Erste Fassung', preis: '100' }),
+      aV5({ artikelnummer: 'DUP', kurztext1: 'Zweite Fassung', preis: '200' }),
       'Z',
     ]
-    const s = await sammleDatanorm(datei(zeilen), { encoding: 'cp850', version: 5 })
+    const s = await sammleDatanorm(datei(zeilen), { encoding: 'cp850' })
     expect(s.artikel.size).toBe(1)
     expect(s.artikel.get('DUP')!.kurztext).toBe('Erste Fassung')
     expect(s.fehler.some((f) => f.code === 'DATANORM_A_DOPPELT')).toBe(true)
+  })
+
+  it('erzwingt das Format, wenn der Admin es festlegt', async () => {
+    // Ohne Vorsatz und ohne erkennbare Version: der Admin erzwingt v4.
+    const zeilen = [
+      aV4({ artikelnummer: 'X-1', kurztext1: 'Test', preis: '100' }),
+      'Z',
+    ]
+    const s = await sammleDatanorm(datei(zeilen), { encoding: 'cp850', format: 'v4' })
+    expect(s.version).toBe(4)
+    expect(s.artikel.get('X-1')!.kurztext).toBe('Test')
   })
 })
 
@@ -296,9 +387,9 @@ describe('Realitätscheck: CP850-Bytes und Streaming', () => {
     // sind keine gültigen UTF-8-Startbytes) — genau so sehen echte
     // Lieferanten-Dateien aus.
     const zeilen = [
-      'V;5.0;20240115;EUR;MUELLER;Mueller GmbH',
-      aV5({ matchcode: 'UML-1', kurztext: 'Kupferschraube M8 Größe', preisNetto: '1.23' }),
-      aV5({ matchcode: 'UML-2', kurztext: 'Wandhaken Schraube Fuß', preisNetto: '4.56' }),
+      v4Vorsatz(),
+      aV4({ artikelnummer: 'UML-1', kurztext1: 'Kupferschraube M8 Größe', preis: '123' }),
+      aV4({ artikelnummer: 'UML-2', kurztext1: 'Wandhaken Schraube Fuß', preis: '456' }),
       'Z',
     ]
     const text = zeilen.join('\r\n') + '\r\n'
@@ -316,8 +407,8 @@ describe('Realitätscheck: CP850-Bytes und Streaming', () => {
   })
 
   it('verarbeitet einen Chunk-Strom identisch zum Buffer', async () => {
-    const buf = datei(BEISPIEL_V5)
-    const ausBuffer = await sammleDatanorm(buf, { encoding: 'cp850', version: 5 })
+    const buf = datei(BEISPIEL_V4)
+    const ausBuffer = await sammleDatanorm(buf, { encoding: 'cp850' })
 
     // In kleine Chunks zerlegen, damit readline mehrere Zeilenumbrüche
     // und Umlaut-Grenzfälle über Chunk-Grenzen hinweg sieht.
@@ -328,14 +419,12 @@ describe('Realitätscheck: CP850-Bytes und Streaming', () => {
     }
     const ausStrom = await sammleDatanorm(Readable.from(chunkStrom()), {
       encoding: 'cp850',
-      version: 5,
     })
 
     expect(ausStrom.artikel.size).toBe(ausBuffer.artikel.size)
-    expect(ausStrom.artikel.get('ART-1001')!.kurztext).toBe(
-      ausBuffer.artikel.get('ART-1001')!.kurztext,
+    expect(ausStrom.artikel.get('63-1211456-')!.kurztext).toBe(
+      ausBuffer.artikel.get('63-1211456-')!.kurztext,
     )
-    expect(ausStrom.descriptions.get('ART-1001')).toHaveLength(2)
-    expect(ausStrom.preise.size).toBe(ausBuffer.preise.size)
+    expect(ausStrom.descriptions.get('63-1211456-')).toHaveLength(2)
   })
 })

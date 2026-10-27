@@ -29,8 +29,8 @@ vi.mock('../../services/datanorm/lookup', async (importOriginal) => {
 })
 
 const LIEFERANTEN = [
-  { id: 'l1', name: 'Mueller GmbH', matchcode: 'MUE', aktiv: true, ort: null, geaendertAm: '' },
-  { id: 'l2', name: 'Sanitaer Meier', matchcode: 'MEI', aktiv: true, ort: null, geaendertAm: '' },
+  { id: 'l1', name: 'Mueller GmbH', matchcode: 'MUE', aktiv: true, ort: null, format: 'auto' as const, geaendertAm: '' },
+  { id: 'l2', name: 'Sanitaer Meier', matchcode: 'MEI', aktiv: true, ort: null, format: 'auto' as const, geaendertAm: '' },
 ]
 
 const TREFFER = {

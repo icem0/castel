@@ -1,198 +1,270 @@
-// DATANORM field layout constants.
+// DATANORM field layout.
 //
-// DATANORM is a proprietary format with no public specification. The
-// offsets below were reconstructed from real supplier files and match the
-// documented structure of the format (Satzzeichen in column 0, followed by
-// fixed-width fields).
+// DATANORM is a proprietary legacy format. The tables below follow the
+// de-facto specification ("Technische Spezifikationen der DATANORM-Dateien",
+// Haufe/Lexware), cross-checked against two independent open-source parsers
+// (EulandaConnect/Convert-FromDatanorm.ps1 and the skava.io DATANORM
+// viewer) and against real supplier exports.
 //
-// IMPORTANT: these offsets are the single source of truth for the parser.
-// When a supplier deviates, we do NOT hardcode a workaround here — the
-// parser tolerates short lines (pads with spaces) and reports unparsable
-// records into the import report. Per-supplier quirks are handled by
-// configurable mapping later, not by patching these tables.
+// CRITICAL: DATANORM records are SEMICOLON-separated in BOTH v4 and v5 — the
+// A, B, D, T and P records. Only the Vorlaufsatz (V) of v4 is a fixed-width
+// 128-character record; the v5 V record is semicolon-separated again.
+// An earlier version of this module assumed fixed-width columns for every
+// record type. That matched no real supplier file and shredded every
+// catalogue: with a v4 file "A;N;63-1211456-;01;19\"-Rack-Montagesatz…"
+// the fixed-width slice produced the article number ";N;63-1211456-" and the
+// title ";01;19\"-Rack-Montagesatz Front- und Rücks".
 //
-// Field widths are in characters and apply to the payload *after* the
-// 1-character record marker.
+// Field numbers below are the INDEX of the field after splitting the record
+// at ';' — i.e. field 0 is the record marker itself ("Satzkennzeichen").
+// This differs from the numbering in the printed specification, which counts
+// the "Stellen" of the copper-weight block of the B record as one field
+// while the file carries three.
 
 import type { DatanormVersion, Satzart } from './types.js'
 
 /** Characters a single text field may hold (monospace printer heritage). */
 export const TEXTFELD_BREITE = 40
 
-// ---------- V-Satz (Vorlaufsatz) ----------
-//
-// Only ever the first line of a file. It carries the format version and,
-// depending on the version, the price-validity date. Fields are
-// semicolon-separated in v5 and fixed-width in v4.
-
-export interface LayoutVorsatz {
-  /** Width/positions of the semicolon-separated fields (v5). */
-  v5Felder: string[]
-  /** Fixed-width slices after the marker (v4). */
-  v4Slices: Array<{ name: string; von: number; bis: number }>
-}
-
-export const LAYOUT_VORSATZ: Record<DatanormVersion, LayoutVorsatz> = {
-  5: {
-    // V5: `V;5.0;20240101;EUR;...`
-    v5Felder: ['version', 'stichtag', 'waehrung', 'lieferantMatchcode', 'lieferantName'],
-    v4Slices: [],
-  },
-  4: {
-    v5Felder: [],
-    // V4: fixed width, e.g. `V4.0 20240101 EUR`
-    v4Slices: [
-      { name: 'version', von: 1, bis: 5 },
-      { name: 'stichtag', von: 6, bis: 14 },
-      { name: 'waehrung', von: 15, bis: 18 },
-    ],
-  },
-}
-
 // ---------- A-Satz (Artikel-Stammsatz) ----------
-//
-// The core record. Both versions use fixed-width fields; only the field
-// order changed between v4 and v5. Offsets are relative to the payload
-// (marker already stripped).
 
-export interface LayoutFeld {
-  name: string
-  von: number
-  bis: number
+export interface A_Felder {
+  /** Verarbeitungskennzeichen: N = Neu, A = Änderung, L = Löschen. */
+  verarbeitung: number
+  /** Artikelnummer (the matchcode of the article). */
+  artikelnummer: number
+  /** Textkennzeichen (2 digits) — v4 only. */
+  textkennzeichen: number | null
+  /** Kurztextzeile 1. */
+  kurztext1: number
+  /** Kurztextzeile 2 — the continuation of the short text. */
+  kurztext2: number | null
+  /** Mengeneinheit. */
+  mengeneinheit: number
+  /** Preiskennzeichen: 1 = Brutto/Listenpreis, 2 = Netto. */
+  preisKennzeichen: number
+  /** Preiseinheit: v4 a code, v5 the factor itself. */
+  preisEinheit: number
+  /** Preis in Cent (integer). */
+  preis: number
+  /** Hauptwarengruppe. */
+  hauptwarengruppe: number
+  /** Langtextschlüssel — reference to the T record's text number. */
+  langtextschluessel: number | null
+  /** EAN — v5 carries it in the A record, v4 in the B record. */
+  ean: number | null
+  /** Verpackungsmenge (pack size) — v5 only. */
+  verpackungsmenge: number | null
 }
 
-export interface LayoutSatzart {
-  felder: LayoutFeld[]
-  /** Whether the fields are semicolon-separated (v5 style) or fixed-width. */
-  semikolon: boolean
-}
-
-export const LAYOUT_A: Record<DatanormVersion, LayoutSatzart> = {
-  5: {
-    semikolon: true,
-    // v5 A-Satz, semicolon-separated in practice for the text fields.
-    // Numeric/identifier fields keep fixed positions within their slot.
-    felder: [
-      { name: 'matchcode', von: 0, bis: 20 },
-      { name: 'matchcode2', von: 20, bis: 30 },
-      { name: 'ean', von: 30, bis: 45 },
-      { name: 'kurztext', von: 45, bis: 85 },
-      { name: 'mengeneinheit', von: 85, bis: 90 },
-      { name: 'warengruppe', von: 90, bis: 100 },
-      { name: 'preisNetto', von: 100, bis: 112 },
-      { name: 'preisBrutto', von: 112, bis: 124 },
-      { name: 'preisAktion', von: 124, bis: 136 },
-      { name: 'gueltigAb', von: 136, bis: 144 },
-      { name: 'ersatzMatchcode', von: 144, bis: 164 },
-    ],
-  },
+export const LAYOUT_A: Record<DatanormVersion, A_Felder> = {
   4: {
-    semikolon: false,
-    // v4 A-Satz, classic fixed-width.
-    felder: [
-      { name: 'matchcode', von: 0, bis: 14 },
-      { name: 'kurztext', von: 14, bis: 54 },
-      { name: 'mengeneinheit', von: 54, bis: 59 },
-      // v4 restricts the price unit to 1/10/100/1000 — a FACTOR, not a quantity.
-      { name: 'preiseinheit', von: 59, bis: 61 },
-      { name: 'preisNetto', von: 61, bis: 71 },
-      { name: 'preisBrutto', von: 71, bis: 81 },
-      { name: 'warengruppe', von: 81, bis: 89 },
-    ],
+    verarbeitung: 1,
+    artikelnummer: 2,
+    textkennzeichen: 3,
+    kurztext1: 4,
+    kurztext2: 5,
+    mengeneinheit: 8,
+    preisKennzeichen: 6,
+    preisEinheit: 7,
+    preis: 9,
+    hauptwarengruppe: 11,
+    langtextschluessel: 12,
+    ean: null,
+    verpackungsmenge: null,
+  },
+  5: {
+    verarbeitung: 1,
+    artikelnummer: 2,
+    textkennzeichen: null,
+    kurztext1: 3,
+    kurztext2: 4,
+    mengeneinheit: 5,
+    preisKennzeichen: 6,
+    preisEinheit: 7,
+    preis: 8,
+    hauptwarengruppe: 10,
+    langtextschluessel: 11,
+    ean: 18,
+    verpackungsmenge: 20,
   },
 }
 
 // ---------- B-Satz ----------
-//
-// v4: extra article data, most importantly the EAN (the A-Satz has no room
-//     for it in v4).
-// v5: delete marker — the supplier announces a product as deprecated.
 
-export const LAYOUT_B: Record<DatanormVersion, LayoutSatzart> = {
-  5: {
-    semikolon: true,
-    felder: [
-      { name: 'matchcode', von: 0, bis: 20 },
-      { name: 'aktion', von: 20, bis: 30 },
-    ],
-  },
+export interface B_Felder {
+  verarbeitung: number
+  /** Artikelnummer — the article this record belongs to. */
+  artikelnummer: number
+  /** Matchcode (supplier-internal article number). */
+  matchcode: number
+  /** Alternativ-/Ersatz-Artikelnummer. */
+  ersatz: number
+  /** EAN — v4 carries the EAN here, the A record has no room for it. */
+  ean: number
+  /** Warengruppe. */
+  warengruppe: number
+  /** Verpackungsmenge (pack size). */
+  verpackungsmenge: number
+}
+
+export const LAYOUT_B: Record<DatanormVersion, B_Felder> = {
   4: {
-    semikolon: false,
-    felder: [
-      { name: 'matchcode', von: 0, bis: 14 },
-      { name: 'ean', von: 14, bis: 29 },
-    ],
+    verarbeitung: 1,
+    artikelnummer: 2,
+    matchcode: 3,
+    ersatz: 4,
+    ean: 9,
+    warengruppe: 11,
+    verpackungsmenge: 13,
   },
-}
-
-// ---------- D-Satz (Beschreibung) ----------
-//
-// One line of a product's long description. Several D records per article,
-// each with a 3-digit line number so the reader can reassemble the block.
-
-export const LAYOUT_D: LayoutSatzart = {
-  semikolon: false,
-  felder: [
-    { name: 'matchcode', von: 0, bis: 14 },
-    { name: 'laufendeNr', von: 14, bis: 17 },
-    { name: 'text1', von: 17, bis: 57 },
-    { name: 'text2', von: 57, bis: 97 },
-  ],
-}
-
-// ---------- T-Satz (Langtext-Block) ----------
-//
-// T records carry their own text id, unrelated to the article matchcode. An
-// article references the block by id. In v5 the T record often *does* carry
-// a matchcode directly (suppliers using T as a cheaper D).
-
-export const LAYOUT_T: LayoutSatzart = {
-  semikolon: false,
-  felder: [
-    { name: 'textId', von: 0, bis: 14 },
-    { name: 'laufendeNr', von: 14, bis: 17 },
-    { name: 'matchcode', von: 17, bis: 31 },
-    { name: 'text1', von: 31, bis: 71 },
-    { name: 'text2', von: 71, bis: 111 },
-  ],
-}
-
-// ---------- P-Satz (Preisänderung) ----------
-//
-// Up to three product/price pairs on a single line — this is the detail
-// that trips up naive parsers.
-
-export interface LayoutPreisPaar {
-  von: number
-  bis: number
-}
-
-export const LAYOUT_P: Record<DatanormVersion, { paare: LayoutPreisPaar[] }> = {
   5: {
-    paare: [
-      { von: 0, bis: 25 },
-      { von: 25, bis: 50 },
-      { von: 50, bis: 75 },
-    ],
+    // v5 merged A and B: the B record only announces deletions and article
+    // number changes. The article number is still field 2.
+    verarbeitung: 1,
+    artikelnummer: 2,
+    matchcode: 3,
+    ersatz: 4,
+    ean: -1,
+    warengruppe: -1,
+    verpackungsmenge: -1,
   },
-  4: {
-    paare: [
-      { von: 0, bis: 25 },
-      { von: 25, bis: 50 },
-      { von: 50, bis: 75 },
-    ],
-  },
+}
+
+// ---------- D-Satz (Dimensionstext) ----------
+
+export interface D_Felder {
+  verarbeitung: number
+  artikelnummer: number
+  /** Index of the first text block. */
+  blockStart: number
+  /** Fields per text block. */
+  blockGroesse: number
+  /** Offset of the line number inside the block. */
+  zeilennummer: number
+  /** Offset of the sub-flag (F = free text, T/E = text block). */
+  unterkennzeichen: number
+  /** Offset of the text inside the block. */
+  text: number
 }
 
 /**
- * Within one P-Satz price slot: matchcode, then the price, then the
- * validity date. Offsets relative to the slot start.
+ * v4 D record:
+ * `D;N;Artikelnummer;1;F;;Dimensionstext;2;F;;Dimensionstext;`
+ * Header: marker, flag, article number. Then blocks of four fields:
+ * line number, sub-flag, text key, text.
  */
-export const LAYOUT_P_PAAR: LayoutFeld[] = [
-  { name: 'matchcode', von: 0, bis: 14 },
-  { name: 'preis', von: 14, bis: 23 },
-  { name: 'gueltigAb', von: 23, bis: 31 },
-]
+export const LAYOUT_D: Record<DatanormVersion, D_Felder> = {
+  4: {
+    verarbeitung: 1,
+    artikelnummer: 2,
+    blockStart: 3,
+    blockGroesse: 4,
+    zeilennummer: 0,
+    unterkennzeichen: 1,
+    text: 3,
+  },
+  5: {
+    verarbeitung: 1,
+    artikelnummer: 2,
+    blockStart: 3,
+    blockGroesse: 4,
+    zeilennummer: 0,
+    unterkennzeichen: 1,
+    text: 3,
+  },
+}
+
+// ---------- T-Satz (Langtext) ----------
+
+export interface T_Felder {
+  verarbeitung: number
+  /** Langtextnummer — the key the A record references. */
+  langtextnummer: number
+  /** Index of the first text block. */
+  blockStart: number
+  /** Fields per text block. */
+  blockGroesse: number
+  /** Offset of the line number inside the block. */
+  zeilennummer: number
+  /** Offset of the text inside the block. */
+  text: number
+}
+
+/**
+ * v4 T record:
+ * `T;N;Langtext-Nummer;;1;;Text Langtextzeile 1;2;;Text Langtextzeile 2;`
+ * Header: marker, flag, text number, dummy. Then blocks of three fields:
+ * line number, sub-flag, text.
+ */
+export const LAYOUT_T: Record<DatanormVersion, T_Felder> = {
+  4: {
+    verarbeitung: 1,
+    langtextnummer: 2,
+    blockStart: 4,
+    blockGroesse: 3,
+    zeilennummer: 0,
+    text: 2,
+  },
+  5: {
+    verarbeitung: 1,
+    langtextnummer: 2,
+    blockStart: 4,
+    blockGroesse: 3,
+    zeilennummer: 0,
+    text: 2,
+  },
+}
+
+// ---------- P-Satz (Preisänderung) ----------
+
+export interface P_Felder {
+  verarbeitung: number
+  /** Index of the first article block. */
+  blockStart: number
+  /** Fields per article block. */
+  blockGroesse: number
+  /** Offset of the article number inside the block. */
+  artikelnummer: number
+  /** Offset of the price flag inside the block (1 = Brutto, 2 = Netto). */
+  preisKennzeichen: number
+  /** Offset of the price inside the block (Cent). */
+  preis: number
+}
+
+/**
+ * v4 P record: `P;A;Artikelnummer;Preiskennzeichen;Preis;…` — the fields 3
+ * to 11 repeat for every further article on the line, i.e. blocks of nine.
+ */
+export const LAYOUT_P: Record<DatanormVersion, P_Felder> = {
+  4: {
+    verarbeitung: 1,
+    blockStart: 2,
+    blockGroesse: 9,
+    artikelnummer: 0,
+    preisKennzeichen: 1,
+    preis: 2,
+  },
+  5: {
+    verarbeitung: 1,
+    blockStart: 2,
+    blockGroesse: 9,
+    artikelnummer: 0,
+    preisKennzeichen: 1,
+    preis: 2,
+  },
+}
+
+// ---------- Vorlaufsatz (V) ----------
+
+/**
+ * The v4 Vorlaufsatz is a fixed-width record of 128 characters:
+ * `V` + free + date (TTMMJJ) + three info texts + version (04) + currency.
+ * The v5 Vorlaufsatz is semicolon-separated again
+ * (`V;050;…;JJJJMMTT;EUR;…`).
+ */
+export const V_VERSION_POS_V4 = 123
+export const V_WAEHRUNG_POS_V4 = 125
 
 // ---------- Satz-Zeichen ----------
 
@@ -207,17 +279,46 @@ export const SATZZEICHEN: Record<string, Satzart> = {
   R: 'R',
   S: 'S',
   Z: 'Z',
+  // G = Grafik-Anbindung (v5), E = Endesatz (v5), W = Warengruppe
+  G: 'G',
+  E: 'E',
 }
 
 // ---------- Hilfsfunktionen ----------
 
+/** Splits a record into its semicolon-separated fields, trimmed. */
+export function zerlegeFelder(inhalt: string): string[] {
+  return inhalt.split(';').map((f) => f.trim())
+}
+
+/** Reads a field by index, '' when the record is too short. */
+export function feld(felder: string[], index: number): string {
+  if (index < 0 || index >= felder.length) return ''
+  return felder[index] ?? ''
+}
+
 /**
- * Extracts a fixed-width slice, padding short input with spaces so a
- * truncated supplier line never throws. Returns '' for an all-blank slice.
+ * Joins the two short-text fields of an A record.
+ *
+ * The exporter splits the short text over two fields of 40 characters —
+ * sometimes cutting a word in half. The Textkennzeichen (first digit) says
+ * which texts are combined: 0 = "Kurztext 1 + Kurztext 2", 4/5/6 = the same
+ * plus long/dimension text. In those cases both fields carry ONE text and
+ * must be glued together — a space would produce "…Rücks eitseite" instead
+ * of "…Rückseite".
  */
-export function schneide(text: string, von: number, bis: number): string {
-  const slice = text.slice(von, bis)
-  return slice.trim()
+export function joinedKurztext(
+  kurztext1: string,
+  kurztext2: string,
+  textkennzeichen = '',
+): string {
+  const a = kurztext1.trim()
+  const b = kurztext2.trim()
+  if (a === '') return b
+  if (b === '') return a
+  const ersteZiffer = textkennzeichen.trim().charAt(0)
+  if (ersteZiffer !== '' && '0456'.includes(ersteZiffer)) return `${a}${b}`
+  return `${a} ${b}`
 }
 
 /** Reads a decimal number, returning null for blank/garbage input. */
@@ -229,17 +330,50 @@ export function parseZahl(roh: string): number | null {
 }
 
 /**
- * Reads a price in DATANORM units and converts it to cents.
+ * Reads a DATANORM price.
  *
- * DATANORM prices are decimal numbers (not cent-integers) and carry no
- * currency field, which is safe because the format is de-facto Germany/
- * Austria only. We round rather than truncate — 2.995 EUR is a price the
- * supplier meant, and losing a cent here would silently under-price stock.
+ * DATANORM prices are integer CENT — "1234" means 12,34 EUR. The last two
+ * digits are always the decimals, there is no decimal separator and no
+ * thousands separator in the file. A supplier that writes "12,34" anyway
+ * still means 1234 cent (the digits are read as a whole).
+ *
+ * The previous implementation multiplied by 100, which turned every price
+ * into a hundredfold too large value.
  */
 export function parsePreisCent(roh: string): number | null {
-  const n = parseZahl(roh)
-  if (n === null) return null
-  return Math.round(n * 100)
+  const s = roh.trim()
+  if (s === '') return null
+  const negativ = s.startsWith('-')
+  const ziffern = s.replace(/\D/g, '')
+  if (ziffern === '') return null
+  const cent = Number.parseInt(ziffern, 10)
+  if (!Number.isFinite(cent)) return null
+  return negativ ? -cent : cent
+}
+
+/**
+ * Converts the v4 preis-einheit code into the factor it stands for.
+ *
+ * v4: 0 = per unit, 1 = per 10 units, 2 = per 100 units, 3 = per 1000 units.
+ * v5: the field holds the factor itself.
+ */
+export function parsePreiseinheit(roh: string, version: DatanormVersion): number | null {
+  const s = roh.trim()
+  if (s === '') return null
+  const n = Number.parseInt(s, 10)
+  if (!Number.isFinite(n)) return null
+  if (version === 5) return n > 0 ? n : null
+  switch (n) {
+    case 1:
+      return 10
+    case 2:
+      return 100
+    case 3:
+      return 1000
+    default:
+      // 0 = "je Mengeneinheit" — der Preis gilt für eine Einheit.
+      return 1
+  }
 }
 
 /**

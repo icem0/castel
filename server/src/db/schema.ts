@@ -385,6 +385,14 @@ export const lieferanten = pgTable(
     email: text('email'),
     ustIdnr: text('ust_idnr'),
     aktiv: boolean('aktiv').notNull().default(false),
+    /**
+     * DATANORM-Format des Lieferanten: 'auto' (erkennen), 'v4' oder 'v5'.
+     *
+     * Das Format ist eine Eigenschaft des Lieferanten-Export und ändert
+     * sich nicht von Upload zu Upload — deshalb wird es am Lieferanten
+     * gespeichert und beim nächsten Upload vorgeschlagen.
+     */
+    format: text('format').notNull().default('auto'),
     geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -392,6 +400,7 @@ export const lieferanten = pgTable(
     uniqueIndex('lieferanten_matchcode_lower_idx').on(sql`LOWER(${t.matchcode})`),
     index('lieferanten_aktiv_idx').on(t.aktiv),
     index('lieferanten_geaendert_am_idx').on(t.geaendertAm),
+    index('lieferanten_format_idx').on(t.format),
   ],
 )
 
@@ -469,6 +478,13 @@ export const datanormDateien = pgTable(
     dateiHash: text('datei_hash').notNull(),
     encoding: text('encoding'),
     versionErkannt: integer('version_erkannt'),
+    /**
+     * Version of the parser that produced the imported rows. A file that
+     * was imported with an older parser is not a duplicate of the same
+     * file today — otherwise a corrected import would be skipped and the
+     * broken rows would stay.
+     */
+    parserVersion: integer('parser_version').notNull().default(1),
     abgelegtAm: timestamp('abgelegt_am', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

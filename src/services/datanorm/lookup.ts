@@ -9,6 +9,9 @@
 
 import { apiFetch } from '../../auth/api'
 
+/** DATANORM-Format: automatisch erkennen oder fest v4/v5. */
+export type DatanormFormat = 'auto' | 'v4' | 'v5'
+
 /** A supplier whose DATANORM catalogue has been imported. */
 export interface Lieferant {
   id: string
@@ -16,6 +19,8 @@ export interface Lieferant {
   matchcode: string | null
   aktiv: boolean
   ort: string | null
+  /** The supplier's export format — remembered so the admin picks it once. */
+  format: DatanormFormat
   geaendertAm: string
 }
 

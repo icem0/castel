@@ -23,7 +23,7 @@ import {
 import { DatanormFehler, importiereDatanorm } from './import-service.js'
 import { istFertig, kanalFuer, letzterFortschritt, meldeFortschritt } from './progress.js'
 import { raeumeAlteDateien } from './cleanup.js'
-import type { DatanormEncoding } from './types.js'
+import type { DatanormEncoding, DatanormFormat } from './types.js'
 
 const MAX_PAGE = 100
 const DEFAULT_PAGE = 20
@@ -46,6 +46,11 @@ function istGueltigesEncoding(raw: unknown): DatanormEncoding | undefined {
     : undefined
 }
 
+/** Format override: 'auto' (default), 'v4' or 'v5'. */
+function istGueltigesFormat(raw: unknown): DatanormFormat {
+  return raw === 'v4' || raw === 'v5' ? raw : 'auto'
+}
+
 export async function datanormRoutes(app: FastifyInstance): Promise<void> {
   // ---------- GET /api/lieferanten ----------
   // Supplier list for the picker's first step. Returns active suppliers by
@@ -66,6 +71,7 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
         matchcode: lieferanten.matchcode,
         aktiv: lieferanten.aktiv,
         ort: lieferanten.ort,
+        format: lieferanten.format,
         geaendertAm: lieferanten.geaendertAm,
       })
       .from(lieferanten)
@@ -127,7 +133,7 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
   // ---------- PATCH /api/lieferanten/:id ----------
   app.patch<{
     Params: { id: string }
-    Body: { name?: string; aktiv?: boolean; matchcode?: string; ort?: string }
+    Body: { name?: string; aktiv?: boolean; matchcode?: string; ort?: string; format?: string }
   }>('/api/lieferanten/:id', { preHandler: app.requireAdmin }, async (req, reply) => {
     const db = getDb()
     const sets: Record<string, unknown> = { geaendertAm: new Date() }
@@ -139,6 +145,9 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
       sets['matchcode'] = req.body.matchcode.trim().toUpperCase() || null
     }
     if (typeof req.body?.ort === 'string') sets['ort'] = req.body.ort.trim() || null
+    if (req.body?.format === 'auto' || req.body?.format === 'v4' || req.body?.format === 'v5') {
+      sets['format'] = req.body.format
+    }
 
     const rows = await db
       .update(lieferanten)
@@ -318,6 +327,7 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
     async (req: FastifyRequest, reply: FastifyReply) => {
       let lieferantId = ''
       let encodingRaw = ''
+      let formatRaw = ''
       let dateiname = ''
       let dateiBytes: Buffer | null = null
 
@@ -335,6 +345,8 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
             lieferantId = String(part.value ?? '').trim()
           } else if (part.fieldname === 'encoding') {
             encodingRaw = String(part.value ?? '').trim()
+          } else if (part.fieldname === 'format') {
+            formatRaw = String(part.value ?? '').trim()
           }
         }
 
@@ -351,6 +363,7 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
           stream: Readable.from(dateiBytes),
           benutzerId: req.authUser?.sub ?? null,
           encoding: istGueltigesEncoding(encodingRaw),
+          format: istGueltigesFormat(formatRaw),
           log: req.log,
           onFortschritt: meldeFortschritt,
         })

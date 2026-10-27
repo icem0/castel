@@ -10,7 +10,15 @@ vi.mock('../../../auth/api', () => ({
 const apiFetchMock = vi.mocked(api.apiFetch)
 
 const LIEFERANTEN = [
-  { id: 'l1', name: 'Mueller GmbH', matchcode: 'MUE', aktiv: true, ort: null, geaendertAm: '' },
+  {
+    id: 'l1',
+    name: 'Mueller GmbH',
+    matchcode: 'MUE',
+    aktiv: true,
+    ort: null,
+    format: 'auto' as const,
+    geaendertAm: '',
+  },
 ]
 
 const IMPORTE = [

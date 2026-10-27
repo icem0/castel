@@ -6,7 +6,7 @@
 // befüllt.
 
 import { apiFetch } from '../../auth/api'
-import type { Lieferant } from './lookup'
+import type { DatanormFormat, Lieferant } from './lookup'
 
 export interface AnlageLieferantBody {
   name: string
@@ -17,6 +17,8 @@ export interface AnlageLieferantBody {
   telefon?: string | null
   email?: string | null
   aktiv?: boolean
+  /** DATANORM format of the supplier's export. */
+  format?: DatanormFormat
 }
 
 /** Lieferantenliste (aktive, bzw. alle für Admin). */
@@ -48,6 +50,8 @@ export async function patchLieferant(
 export interface DatanormUploadBody {
   lieferantId: string
   encoding?: 'utf-8' | 'cp850' | 'windows-1252'
+  /** 'auto' (default), 'v4' or 'v5'. */
+  format?: DatanormFormat
 }
 
 /** Status eines Imports — spiegelt `datanorm_importe.status` (Server). */
@@ -89,11 +93,13 @@ export async function uploadDatanormDatei(
   file: File,
   lieferantId: string,
   encoding?: 'utf-8' | 'cp850' | 'windows-1252',
+  format?: DatanormFormat,
 ): Promise<DatanormUploadErgebnis> {
   const form = new FormData()
   form.append('datei', file)
   form.append('lieferantId', lieferantId)
   if (encoding) form.append('encoding', encoding)
+  if (format) form.append('format', format)
 
   return apiFetch<DatanormUploadErgebnis>('/api/datanorm/upload', {
     method: 'POST',

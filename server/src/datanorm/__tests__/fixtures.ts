@@ -1,99 +1,185 @@
 // DATANORM test fixtures.
 //
-// Layout in this file mirrors the real format: the record marker sits in
-// column 0, followed by fixed-width fields (see ../layout.ts for the exact
-// offsets). Fixtures are deliberately small but exercise every code path
-// Pass 1 cares about: cross-references, D/T descriptions, B records with
-// different v4/v5 semantics, and multi-product P records.
+// The records below follow the REAL DATANORM layout — semicolon-separated
+// fields, one record per line, CRLF line endings, CP850 encoding:
+//
+//   v4 A: A;N;Artikelnummer;Textkennzeichen;Kurztext 1;Kurztext 2;
+//          Preiskennzeichen;Preiseinheit;Mengeneinheit;Preis;Rabattgruppe;
+//          Hauptwarengruppe;Langtextschlüssel;
+//   v4 B: B;N;Artikelnummer;Matchcode;Ersatz;Katalogseite;Kupfer…;EAN;
+//          Anbindungsnummer;Warengruppe;Kostenart;Verpackungsmenge;Referenz…;
+//   v4 D: D;N;Artikelnummer;Zeilennummer;Unterkennzeichen;Langtextschlüssel;Text;
+//   v4 T: T;N;Langtextnummer;;Zeilennummer;Unterkennzeichen;Text;
+//   v4 P: P;A;Artikelnummer;Preiskennzeichen;Preis;Rabatt…  (3–11 wiederholt sich)
+//
+// The v5 A record merges A and B: the EAN moved into the A record.
+//
+// The first article of BEISPIEL_V4 is a real-world sample (a 19" rack
+// mounting set) — it guards the case where the supplier truncates the short
+// text at 40 characters and continues in the second text field.
 
 import iconv from 'iconv-lite'
 
-/** Pads/truncates a value to the exact field width (matches slice+trim). */
-export function f(value: string, breite: number): string {
-  return value.slice(0, breite).padEnd(breite, ' ')
+/** The v4 Vorlaufsatz is a fixed-width record of 128 characters. */
+export function v4Vorsatz(firma = 'Muster Handel GmbH', datum = '150124'): string {
+  const info1 = firma.slice(0, 40).padEnd(40, ' ')
+  const info2 = ''.padEnd(40, ' ')
+  const info3 = ''.padEnd(35, ' ')
+  return `V ${datum}${info1}${info2}${info3}04EUR`
 }
 
-/** Builds one A record (v5, semicolon-aware but fixed offsets). */
-export function aV5(p: {
-  matchcode: string
-  matchcode2?: string
-  ean?: string
-  kurztext: string
-  mengeneinheit?: string
-  warengruppe?: string
-  preisNetto?: string
-  preisBrutto?: string
-  gueltigAb?: string
-  ersatz?: string
-}): string {
-  return (
-    'A' +
-    f(p.matchcode, 20) +
-    f(p.matchcode2 ?? '', 10) +
-    f(p.ean ?? '', 15) +
-    f(p.kurztext, 40) +
-    f(p.mengeneinheit ?? '', 5) +
-    f(p.warengruppe ?? '', 10) +
-    f(p.preisNetto ?? '', 12) +
-    f(p.preisBrutto ?? '', 12) +
-    f(p.preisAktion ?? '', 12) +
-    f(p.gueltigAb ?? '', 8) +
-    f(p.ersatz ?? '', 20)
-  )
+/** The v5 Vorlaufsatz is semicolon-separated again. */
+export function v5Vorsatz(firma = 'Muster Handel GmbH', datum = '20240115'): string {
+  return `V;050;1;${datum};EUR;${firma};`
 }
 
-/** Builds one A record (v4, fixed-width, price unit = factor). */
+/** Builds one v4 A record (article master data). */
 export function aV4(p: {
-  matchcode: string
-  kurztext: string
+  artikelnummer: string
+  verarbeitung?: string
+  textkennzeichen?: string
+  kurztext1?: string
+  kurztext2?: string
+  preisKennzeichen?: string
+  preisEinheit?: string
   mengeneinheit?: string
-  preiseinheit?: string
-  preisNetto?: string
-  preisBrutto?: string
-  warengruppe?: string
+  /** Price in cents ("4700" = 47,00 EUR). */
+  preis?: string
+  rabattgruppe?: string
+  hauptwarengruppe?: string
+  langtextschluessel?: string
 }): string {
-  return (
-    'A' +
-    f(p.matchcode, 14) +
-    f(p.kurztext, 40) +
-    f(p.mengeneinheit ?? '', 5) +
-    f(p.preiseinheit ?? '', 2) +
-    f(p.preisNetto ?? '', 10) +
-    f(p.preisBrutto ?? '', 10) +
-    f(p.warengruppe ?? '', 8)
-  )
+  return [
+    'A',
+    p.verarbeitung ?? 'N',
+    p.artikelnummer,
+    p.textkennzeichen ?? '00',
+    p.kurztext1 ?? '',
+    p.kurztext2 ?? '',
+    p.preisKennzeichen ?? '2',
+    p.preisEinheit ?? '0',
+    p.mengeneinheit ?? '',
+    p.preis ?? '',
+    p.rabattgruppe ?? '',
+    p.hauptwarengruppe ?? '',
+    p.langtextschluessel ?? '',
+    '',
+  ].join(';')
 }
 
-/** Builds a D record (description line, two text slots). */
-export function d(matchcode: string, nr: string, text1: string, text2 = ''): string {
-  return 'D' + f(matchcode, 14) + f(nr, 3) + f(text1, 40) + f(text2, 40)
+/** Builds one v5 A record (A and B merged, EAN inside the A record). */
+export function aV5(p: {
+  artikelnummer: string
+  verarbeitung?: string
+  kurztext1?: string
+  kurztext2?: string
+  mengeneinheit?: string
+  preisKennzeichen?: string
+  /** The factor itself in v5 (1, 10, 100, …). */
+  preisEinheit?: string
+  preis?: string
+  rabattgruppe?: string
+  hauptwarengruppe?: string
+  langtextschluessel?: string
+  marke?: string
+  ean?: string
+  verpackungsmenge?: string
+}): string {
+  return [
+    'A',
+    p.verarbeitung ?? 'N',
+    p.artikelnummer,
+    p.kurztext1 ?? '',
+    p.kurztext2 ?? '',
+    p.mengeneinheit ?? '',
+    p.preisKennzeichen ?? '2',
+    p.preisEinheit ?? '1',
+    p.preis ?? '',
+    p.rabattgruppe ?? '',
+    p.hauptwarengruppe ?? '',
+    p.langtextschluessel ?? '',
+    '',
+    '',
+    '',
+    p.marke ?? '',
+    '',
+    p.artikelnummer,
+    p.ean ?? '',
+    '',
+    p.verpackungsmenge ?? '',
+    '',
+    '0',
+    '',
+  ].join(';')
 }
 
-/** Builds a T record (long-text block with its own id). */
-export function t(textId: string, nr: string, matchcode: string, text1: string): string {
-  return 'T' + f(textId, 14) + f(nr, 3) + f(matchcode, 14) + f(text1, 40) + f('', 40)
+/** Builds one v4 B record (EAN, matchcode, pack size). */
+export function bV4(p: {
+  artikelnummer: string
+  verarbeitung?: string
+  matchcode?: string
+  ersatz?: string
+  ean?: string
+  warengruppe?: string
+  verpackungsmenge?: string
+}): string {
+  return [
+    'B',
+    p.verarbeitung ?? 'N',
+    p.artikelnummer,
+    p.matchcode ?? '',
+    p.ersatz ?? '',
+    '',
+    '0',
+    '0',
+    '0',
+    p.ean ?? '',
+    '',
+    p.warengruppe ?? '',
+    '0',
+    p.verpackungsmenge ?? '',
+    '',
+    '',
+    '',
+  ].join(';')
 }
 
-/** Builds a B record (v5 = delete marker). */
-export function bV5(matchcode: string, aktion: string): string {
-  return 'B' + f(matchcode, 20) + f(aktion, 10)
+/** Builds one v4 D record (dimension text) with any number of text blocks. */
+export function dV4(
+  artikelnummer: string,
+  bloecke: Array<{ nr: string; unterkennzeichen?: string; text: string }>,
+): string {
+  const f = ['D', 'N', artikelnummer]
+  for (const b of bloecke) {
+    f.push(b.nr, b.unterkennzeichen ?? 'F', '', b.text)
+  }
+  f.push('')
+  return f.join(';')
 }
 
-/** Builds a B record (v4 = EAN carrier). */
-export function bV4(matchcode: string, ean: string): string {
-  return 'B' + f(matchcode, 14) + f(ean, 15)
+/** Builds one v4 T record (long text block) with any number of text lines. */
+export function tV4(
+  langtextnummer: string,
+  bloecke: Array<{ nr: string; text: string }>,
+): string {
+  const f = ['T', 'N', langtextnummer, '']
+  for (const b of bloecke) {
+    f.push(b.nr, '', b.text)
+  }
+  f.push('')
+  return f.join(';')
 }
 
-/** Builds a P record carrying up to three product/price slots. */
-export function pEintraege(paare: Array<{ matchcode: string; preis?: string; gueltigAb?: string }>): string {
-  const slots = [0, 1, 2].map((i) => {
-    const e = paare[i]
-    if (!e) return f('', 25)
-    return (
-      f(e.matchcode, 14) + f(e.preis ?? '', 9) + f(e.gueltigAb ?? '', 2)
-    )
-  })
-  return 'P' + slots.join('')
+/** Builds one v4 P record (price change) with up to three articles per line. */
+export function pV4(
+  paare: Array<{ artikelnummer: string; preisKennzeichen?: string; preis?: string }>,
+): string {
+  const f = ['P', 'A']
+  for (const p of paare) {
+    f.push(p.artikelnummer, p.preisKennzeichen ?? '2', p.preis ?? '', '0', '', '0', '', '0', '')
+  }
+  f.push('')
+  return f.join(';')
 }
 
 /**
@@ -107,81 +193,111 @@ export function datei(zeilen: string[]): Buffer {
   return iconv.encode(zeilen.join('\r\n') + '\r\n', 'cp850')
 }
 
-/** Same as `datei`, but UTF-8 (for v5 files that ship as UTF-8). */
+/** Same as `datei`, but UTF-8 (for files that ship as UTF-8). */
 export function dateiUtf8(zeilen: string[]): Buffer {
   return Buffer.from(zeilen.join('\r\n') + '\r\n', 'utf-8')
 }
 
-/** A complete, well-formed v5 catalogue. */
-export const BEISPIEL_V5 = [
-  'V;5.0;20240115;EUR;MUELLER;Mueller GmbH',
-  aV5({
-    matchcode: 'ART-1001',
-    ean: '4006381333931',
-    kurztext: 'Bleistift HB',
-    mengeneinheit: 'STK',
-    warengruppe: 'WG-01',
-    preisNetto: '2.49',
-    preisBrutto: '2.99',
-    gueltigAb: '20240115',
-  }),
-  aV5({
-    matchcode: 'ART-1002',
-    ean: '4012345678905',
-    kurztext: 'Radiergummi',
-    mengeneinheit: 'STK',
-    warengruppe: 'WG-01',
-    preisNetto: '0.79',
-    preisBrutto: '0.95',
-  }),
-  // Cross-reference: the D block sits AFTER the A record.
-  d('ART-1001', '001', 'Bleistift, Härtegrad HB, hexagonal'),
-  d('ART-1001', '002', 'Lieferung in Kartons à 12 Stück'),
-  // T block with its own id, referenced by nothing but stored.
-  t('TEXT-77', '001', 'ART-1002', 'Radiergummi, weich, 65x23x35mm'),
-  // P record with two different products on one line.
-  pEintraege([
-    { matchcode: 'ART-1001', preis: '2.59' },
-    { matchcode: 'ART-1002', preis: '0.85' },
-  ]),
-  'Z',
-]
-
-/** A v4 catalogue. The B record carries the EAN (v4 A has no room for it). */
+/**
+ * A complete, well-formed v4 catalogue.
+ *
+ * The first article is a real supplier sample: the short text is cut off at
+ * 40 characters and continues in the second text field, the price is 4700
+ * cent (47,00 EUR) and the EAN lives in the B record.
+ */
 export const BEISPIEL_V4 = [
-  'V4.0 20240115 EUR',
+  v4Vorsatz('Muster Handel GmbH', '150124'),
   aV4({
-    matchcode: 'V4-ART1',
-    kurztext: 'Kupferrohr 15mm',
-    mengeneinheit: 'M',
-    preiseinheit: '1',
-    preisNetto: '12.90',
-    preisBrutto: '15.48',
-    warengruppe: 'ROHR',
+    artikelnummer: '63-1211456-',
+    textkennzeichen: '01',
+    kurztext1: '19"-Rack-Montagesatz Front- und Rücks',
+    kurztext2: 'eite, 1 HE',
+    preisKennzeichen: '2',
+    preisEinheit: '0',
+    mengeneinheit: 'STK',
+    preis: '4700',
+    rabattgruppe: 'R01',
+    hauptwarengruppe: 'H01',
+    langtextschluessel: 'T000001',
   }),
-  bV4('V4-ART1', '4001234567890'),
-  d('V4-ART1', '001', 'Kupferrohr, DIN EN 1057'),
+  bV4({
+    artikelnummer: '63-1211456-',
+    matchcode: 'HEK-1001',
+    ean: '4012345678905',
+    verpackungsmenge: '1',
+    warengruppe: 'W01',
+  }),
+  dV4('63-1211456-', [
+    { nr: '1', text: 'Rack-Montagesatz für 19-Zoll-Technik, Front- und Rückseite.' },
+    { nr: '2', text: 'Lieferung lose.' },
+  ]),
+  tV4('T000001', [
+    { nr: '1', text: 'Montagesatz mit 2 HE, Front- und Rückseite.' },
+    { nr: '2', text: 'Inkl. Befestigungsmaterial.' },
+  ]),
+  aV4({
+    artikelnummer: '50-0500449-',
+    textkennzeichen: '00',
+    kurztext1: 'ABS-Gewindering M20',
+    preisKennzeichen: '2',
+    mengeneinheit: 'STK',
+    preis: '0',
+    rabattgruppe: 'R01',
+    hauptwarengruppe: 'H02',
+  }),
+  bV4({ artikelnummer: '50-0500449-', ean: '4012345678912' }),
   'Z',
 ]
 
-/** An A record that a v5 B record later marks as withdrawn. */
-export const BEISPIEL_V5_MIT_DELETE = [
-  'V;5.0;20240115;EUR;MUELLER;Mueller GmbH',
+/** A complete, well-formed v5 catalogue (A and B merged, EAN in the A record). */
+export const BEISPIEL_V5 = [
+  v5Vorsatz('Muster Handel GmbH', '20240115'),
   aV5({
-    matchcode: 'ART-2001',
+    artikelnummer: 'ART-1001',
+    kurztext1: 'Bleistift HB',
+    mengeneinheit: 'PCE',
+    preisKennzeichen: '2',
+    preisEinheit: '1',
+    preis: '249',
+    rabattgruppe: 'R01',
+    hauptwarengruppe: 'H01',
+    marke: 'Muster',
     ean: '4006381333931',
-    kurztext: 'Altes Produkt',
-    preisNetto: '5.00',
   }),
-  bV5('ART-2001', 'D'),
+  aV5({
+    artikelnummer: 'ART-1002',
+    kurztext1: 'Radiergummi',
+    kurztext2: 'weich 65x23x35mm',
+    mengeneinheit: 'PCE',
+    preisKennzeichen: '2',
+    preis: '79',
+    hauptwarengruppe: 'H01',
+    ean: '4012345678905',
+  }),
+  'Z',
+]
+
+/** A v4 article that the supplier withdrew ("L" = Löschen). */
+export const BEISPIEL_V4_MIT_DELETE = [
+  v4Vorsatz(),
+  aV4({
+    artikelnummer: 'ART-2001',
+    kurztext1: 'Altes Produkt',
+    preis: '500',
+  }),
+  aV4({
+    artikelnummer: 'ART-2002',
+    verarbeitung: 'L',
+    kurztext1: 'Zurückgezogenes Produkt',
+  }),
   'Z',
 ]
 
 /** A file with a supplier-specific record marker we do not know. */
 export const BEISPIEL_V5_UNBEKANNT = [
-  'V;5.0;20240115;EUR;MUELLER;Mueller GmbH',
-  aV5({ matchcode: 'ART-3001', kurztext: 'Normaler Artikel', preisNetto: '1.00' }),
-  'Xirgendwas;Herstellerspezifische Ergaenzung',
+  v5Vorsatz(),
+  aV5({ artikelnummer: 'ART-3001', kurztext1: 'Normaler Artikel', preis: '100' }),
+  'Xirgendwas;Herstellerspezifische Ergänzung',
   '€onderbar;Noch eine Zeile',
   'Z',
 ]

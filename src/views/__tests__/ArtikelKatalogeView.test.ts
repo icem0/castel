@@ -43,8 +43,24 @@ vi.mock('../../services/datanorm/lookup', async (importOriginal) => {
 })
 
 const LIEFERANTEN = [
-  { id: 'l1', name: 'Mueller GmbH', matchcode: 'MUE', aktiv: true, ort: null, geaendertAm: '' },
-  { id: 'l2', name: 'Sanitaer Meier', matchcode: 'MEI', aktiv: true, ort: 'Bern', geaendertAm: '' },
+  {
+    id: 'l1',
+    name: 'Mueller GmbH',
+    matchcode: 'MUE',
+    aktiv: true,
+    ort: null,
+    format: 'auto' as const,
+    geaendertAm: '',
+  },
+  {
+    id: 'l2',
+    name: 'Sanitaer Meier',
+    matchcode: 'MEI',
+    aktiv: true,
+    ort: 'Bern',
+    format: 'auto' as const,
+    geaendertAm: '',
+  },
 ]
 
 const TREFFER = {
@@ -243,6 +259,7 @@ describe('ArtikelKatalogeView', () => {
       matchcode: 'NEU',
       ort: 'Köln',
       aktiv: true,
+      format: 'auto',
     })
   })
 
@@ -335,7 +352,7 @@ describe('ArtikelKatalogeView', () => {
     await wrapper.find('[data-testid="upload-start"]').trigger('click')
     await flushPromises()
 
-    expect(admin.uploadDatanormDatei).toHaveBeenCalledWith(file, 'l1', undefined)
+    expect(admin.uploadDatanormDatei).toHaveBeenCalledWith(file, 'l1', undefined, 'auto')
     expect(eventSources).toHaveLength(1)
 
     // Der Import läuft serverseitig inline — mit der Antwort ist er fertig.

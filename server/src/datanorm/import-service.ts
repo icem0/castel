@@ -19,13 +19,14 @@ import { access, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
 import { getDb } from '../db/client.js'
 import {
   auditLog,
   datanormDateien,
   datanormImporte,
+  herstellerArtikel,
   lieferanten,
 } from '../db/schema.js'
 import { config } from '../config/config.js'
@@ -35,7 +36,7 @@ import { loeseAuf } from './resolve.js'
 import { persistiereArtikel } from './persist.js'
 import { MAX_FEHLER_DETAILS } from './parse-pass1.js'
 import { kanalFuer, meldeFertig } from './progress.js'
-import type { DatanormEncoding, ImportFortschritt, Parserfehler } from './types.js'
+import type { DatanormEncoding, DatanormFormat, ImportFortschritt, Parserfehler } from './types.js'
 
 /** Cap on stored error details, mirroring the parser's own cap. */
 const FEHLER_DETAILS_LIMIT = MAX_FEHLER_DETAILS
@@ -69,8 +70,40 @@ export interface ImportOptionen {
   benutzerId: string | null
   /** Admin override when auto-detection was not confident. */
   encoding?: DatanormEncoding
+  /** Admin override for the format (auto detection or a forced version). */
+  format?: DatanormFormat
   log: FastifyBaseLogger
   onFortschritt?: (f: ImportFortschritt) => void
+}
+
+/**
+ * Version of the parser logic.
+ *
+ * Bumped whenever the interpretation of a file changes (new field layout,
+ * corrected price logic, …). A file that was imported with an older parser
+ * is NOT a duplicate of the same file today — otherwise a corrected import
+ * would be silently skipped and the broken catalogue rows would stay.
+ *
+ * 1 = the first implementation (fixed-width columns — wrong for every real
+ *     supplier file)
+ * 2 = semicolon-separated fields per the DATANORM specification
+ */
+export const PARSER_VERSION = 2
+
+/** The file row for these bytes, regardless of the parser version. */
+async function findeDatei(
+  lieferantId: string,
+  hash: string,
+): Promise<{ id: string; parserVersion: number } | null> {
+  const db = getDb()
+  const datei = await db
+    .select({ id: datanormDateien.id, parserVersion: datanormDateien.parserVersion })
+    .from(datanormDateien)
+    .where(
+      sql`${datanormDateien.lieferantId} = ${lieferantId} AND ${datanormDateien.dateiHash} = ${hash}`,
+    )
+    .limit(1)
+  return datei[0] ?? null
 }
 
 /** Maps an existing upload of the same bytes to its import id. */
@@ -83,7 +116,7 @@ async function findeDuplikat(
     .select({ id: datanormDateien.id })
     .from(datanormDateien)
     .where(
-      sql`${datanormDateien.lieferantId} = ${lieferantId} AND ${datanormDateien.dateiHash} = ${hash}`,
+      sql`${datanormDateien.lieferantId} = ${lieferantId} AND ${datanormDateien.dateiHash} = ${hash} AND ${datanormDateien.parserVersion} = ${PARSER_VERSION}`,
     )
     .limit(1)
   if (datei.length === 0) return null
@@ -221,6 +254,7 @@ export async function importiereDatanorm(
     // for the file, once for the parser), so we pipe the tee into both.
     const sammelPromise = sammleDatanorm(tee, {
       encoding: opts.encoding,
+      format: opts.format,
       onFortschritt: (n, hinweis) => {
         opts.onFortschritt?.({
           importId,
@@ -295,18 +329,53 @@ export async function importiereDatanorm(
   }
 
   // ---- Register the file ---------------------------------------------
-  const dateiId = crypto.randomUUID()
-  await db.insert(datanormDateien).values({
-    id: dateiId,
-    lieferantId: opts.lieferantId,
-    pfad: relativPfad,
-    originalName: opts.originalDateiname,
-    byteGroesse: byteGroesse,
-    dateiHash,
-    encoding: sammel.encoding,
-    versionErkannt: sammel.version,
-    abgelegtAm: new Date(),
-  })
+  // The file may already be known from an import with an OLDER parser
+  // version. Its rows were produced with the wrong field layout, so they
+  // are worthless: the supplier's mirror is cleared and the file is
+  // imported again from scratch. The file row is reused (the bytes are
+  // identical) instead of inserting a second row for the same hash.
+  const bekannteDatei = await findeDatei(opts.lieferantId, dateiHash)
+  let dateiId: string
+  if (bekannteDatei) {
+    dateiId = bekannteDatei.id
+    const geloescht = await db
+      .delete(herstellerArtikel)
+      .where(eq(herstellerArtikel.lieferantId, opts.lieferantId))
+      .returning({ id: herstellerArtikel.id })
+    log.info(
+      {
+        importId,
+        lieferantId: opts.lieferantId,
+        alteParserVersion: bekannteDatei.parserVersion,
+        geloeschteArtikel: geloescht.length,
+      },
+      '[datanorm] Datei wurde mit einer älteren Parser-Version importiert — Katalog wird neu aufgebaut',
+    )
+    await db
+      .update(datanormDateien)
+      .set({
+        pfad: relativPfad,
+        encoding: sammel.encoding,
+        versionErkannt: sammel.version,
+        parserVersion: PARSER_VERSION,
+        abgelegtAm: new Date(),
+      })
+      .where(sql`${datanormDateien.id} = ${dateiId}`)
+  } else {
+    dateiId = crypto.randomUUID()
+    await db.insert(datanormDateien).values({
+      id: dateiId,
+      lieferantId: opts.lieferantId,
+      pfad: relativPfad,
+      originalName: opts.originalDateiname,
+      byteGroesse: byteGroesse,
+      dateiHash,
+      encoding: sammel.encoding,
+      versionErkannt: sammel.version,
+      parserVersion: PARSER_VERSION,
+      abgelegtAm: new Date(),
+    })
+  }
 
   // ---- Resolve + persist ---------------------------------------------
   const aufgeloest = loeseAuf(sammel, (v, g) => {

@@ -201,8 +201,7 @@ export default {
         duplikatHinweis: 'Ein Artikel mit diesem Barcode existiert bereits: „{titel}".',
         duplikatZumArtikel: 'Zum vorhandenen Artikel',
         pflicht: 'Pflichtfeld',
-        ungespeichertVerlassen:
-          'Du hast ungespeicherte Änderungen. Wirklich verlassen?',
+        ungespeichertVerlassen: 'Du hast ungespeicherte Änderungen. Wirklich verlassen?',
       },
     },
     buchung: {
@@ -401,6 +400,10 @@ export default {
       datei: 'DATANORM-Datei',
       encoding: 'Encoding',
       encodingAuto: 'Automatisch erkennen',
+      format: 'Format',
+      formatAuto: 'Automatisch erkennen',
+      formatHint:
+        'DATANORM 4 und 5 haben unterschiedliche Feldbelegung. Im Zweifel „Automatisch erkennen“ verwenden.',
       hochladen: 'Hochladen & importieren',
       zuruecksetzen: 'Zurücksetzen',
       importLaeuft: 'Import läuft …',
@@ -411,6 +414,7 @@ export default {
       importTeilfehler: 'Import mit Fehlern beendet: {anzahl} Artikel, {fehler} Fehler.',
       importDuplikat:
         'Diese Datei wurde für diesen Lieferanten bereits importiert — der Katalog blieb unverändert.',
+      erkanntesFormat: 'Erkanntes Format: {format}',
       uploadZuGross: 'Upload abgewiesen: Die Datei ist zu groß (Limit des Reverse-Proxys).',
       statusErfolg: 'erfolg',
       statusTeilfehler: 'Teilfehler',

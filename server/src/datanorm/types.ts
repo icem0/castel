@@ -17,6 +17,15 @@
 /** DATANORM spec version we can decode. */
 export type DatanormVersion = 4 | 5
 
+/**
+ * Format selection for an import.
+ *
+ * `auto` reads the version from the Vorlaufsatz (or, if there is none, from
+ * the field count of the first A record). `v4`/`v5` force a version — the
+ * escape hatch for suppliers whose export deviates from the standard.
+ */
+export type DatanormFormat = 'auto' | 'v4' | 'v5'
+
 /** Character encoding detected for a source file. */
 export type DatanormEncoding = 'utf-8' | 'cp850' | 'windows-1252'
 
@@ -36,6 +45,8 @@ export type Satzart =
   | 'P' // Price change (up to 3 products per line)
   | 'R' // Rabattgruppe
   | 'S' // Warengruppe / Haupt- oder Warengruppensatz
+  | 'G' // Grafik-Anbindung (image reference, v5)
+  | 'E' // Endesatz (end of file marker, v5)
   | 'Z' // File-end record (v5)
   | 'unbekannt'
 
@@ -71,7 +82,8 @@ export interface ArtikelRecord {
   ean: string | null
   /** Short text (up to 40 chars) - the primary label in the catalogue. */
   kurztext: string
-  langtext: string | null
+  /** Langtextschlüssel — the key under which the T record stores the text. */
+  langtextschluessel: string | null
   mengeneinheit: string | null
   /**
    * Price unit factor. In v4 the quantity unit is restricted to
@@ -90,6 +102,8 @@ export interface ArtikelRecord {
   steuersatz: number | null
   gewicht: number | null
   ersatzMatchcode: string | null
+  /** "L" in the Verarbeitungskennzeichen: the supplier withdrew the article. */
+  isDelete: boolean
   zeile: number
 }
 
@@ -100,8 +114,16 @@ export interface ArtikelRecord {
  */
 export interface BRecord {
   matchcode: string
+  /** The B record's own Matchcode field (supplier-internal number). */
+  matchcode2: string | null
   ean: string | null
-  /** v5 delete marker detected. */
+  /** Alternativ-/Ersatz-Artikelnummer. */
+  ersatzMatchcode: string | null
+  /** Warengruppe from the B record. */
+  warengruppe: string | null
+  /** Verpackungsmenge — the pack size (content per saleable unit). */
+  verpackungsmenge: number | null
+  /** Delete marker detected. */
   isDelete: boolean
   zeile: number
 }
@@ -136,6 +158,8 @@ export interface PreisAenderung {
   matchcode: string
   /** New price in cents. */
   preisCent: number | null
+  /** 1 = Brutto/Listenpreis, 2 = Netto. */
+  preisKennzeichen: number | null
   gueltigAb: string | null
 }
 
