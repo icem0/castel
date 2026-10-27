@@ -115,6 +115,45 @@ export const buchungSchema = z.object({
   storniertDurch: z.string().nullable().optional(),
 })
 
+// ---------- Akkutausch ----------
+
+/** Kalenderdatum `YYYY-MM-DD` (ohne Zeit und Zeitzone). */
+const isoDatum = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'muss YYYY-MM-DD sein')
+
+/** Eingebautes Geraet, dessen Akku in einem festen Intervall getauscht wird. */
+export const akkuNetzteilSchema = z.object({
+  id,
+  anlage: z.string().min(1),
+  objekt: z.string().min(1),
+  name: z.string().min(1),
+  einbaudatum: isoDatum,
+  intervallJahre: z.number().int().positive(),
+  kapazitaetAh: z.number().positive(),
+  anzahl: z.number().int().positive(),
+  gruppe: z.string().nullable().optional(),
+  plz: z.string().nullable().optional(),
+  vdsAnerkennung: z.string().nullable().optional(),
+  bemerkung: z.string().nullable().optional(),
+  /** Soft-Delete: die Zeile bleibt als Tombstone erhalten. */
+  geloescht: z.boolean(),
+  geaendertAm: iso,
+  erstelltAm: iso,
+})
+
+/** Projektbatterie fuer ein Quartal. */
+export const akkuProjektSchema = z.object({
+  id,
+  projekt: z.string().min(1),
+  menge: z.number().int().positive(),
+  artAh: z.number().positive(),
+  quartal: z.number().int().min(1).max(4),
+  jahr: z.number().int().min(2000).max(2100),
+  /** Soft-Delete: die Zeile bleibt als Tombstone erhalten. */
+  geloescht: z.boolean(),
+  geaendertAm: iso,
+  erstelltAm: iso,
+})
+
 // ---------- Einstellungen ----------
 // Cross-Device-Sync: PWA-Einstellungen (sprache, standardStandortId,
 // artikelTypen) werden in der DB gespiegelt. Whitelist der erlaubten
@@ -177,6 +216,16 @@ export const pushPayloadSchema = z.object({
           op: z.enum(['create', 'update', 'delete']),
           entity: z.literal('kommission'),
           payload: projektSchema,
+        }),
+        z.object({
+          op: z.enum(['create', 'update']),
+          entity: z.literal('akku_netzteil'),
+          payload: akkuNetzteilSchema,
+        }),
+        z.object({
+          op: z.enum(['create', 'update']),
+          entity: z.literal('akku_projekt'),
+          payload: akkuProjektSchema,
         }),
         z.object({
           op: z.literal('create'), // Buchungen sind append-only: nur create

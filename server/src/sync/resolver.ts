@@ -23,6 +23,8 @@ import * as schema from '../db/schema.js'
 import {
   artikel,
   artikelStandortMindestbestaende,
+  akkuNetzteile,
+  akkuProjekte,
   buchungen,
   einstellungen,
   hersteller,
@@ -76,6 +78,16 @@ const pushSchema = z.discriminatedUnion('entity', [
   z.object({
     op: z.enum(['create', 'update', 'delete']),
     entity: z.literal('kommission'),
+    payload: z.any(),
+  }),
+  z.object({
+    op: z.enum(['create', 'update']),
+    entity: z.literal('akku_netzteil'),
+    payload: z.any(),
+  }),
+  z.object({
+    op: z.enum(['create', 'update']),
+    entity: z.literal('akku_projekt'),
     payload: z.any(),
   }),
   z.object({
@@ -212,6 +224,12 @@ export async function resolvePush(
             break
           case 'kommission':
             await resolveProjekt(tx, op)
+            break
+          case 'akku_netzteil':
+            await resolveAkkuNetzteil(tx, op, benutzerRolle)
+            break
+          case 'akku_projekt':
+            await resolveAkkuProjekt(tx, op, benutzerRolle)
             break
           case 'buchung':
             // IMPORTANT: the bestand read inside must run on `tx`, not on the
@@ -672,11 +690,99 @@ async function resolveProjekt(
   }
 }
 
+// ---------- Akkutausch ----------
+
+/**
+ * Akkutausch-Daten (Netzteile, Projektakkus) sind Admin-only: Mitarbeiter
+ * duerfen den Plan lesen, aber keine Geraete oder Projektbatterien anlegen.
+ */
+function pruefeAkkutauschRolle(benutzerRolle: 'admin' | 'user'): void {
+  if (benutzerRolle !== 'admin') {
+    throw new ValidationError(
+      'entity',
+      'Akkutausch-Daten koennen nur von Admins geaendert werden',
+    )
+  }
+}
+
+/**
+ * Gemeinsamer Schreibpfad fuer die Akkutausch-Tabellen.
+ *
+ * - `create` legt an, ist aber idempotent (existiert die ID schon, gewinnt
+ *   Last-Writer-Wins).
+ * - `update` nutzt Last-Writer-Wins auf `geaendertAm`.
+ * - geloescht wird als Soft-Delete geschrieben (`geloescht = true`), damit
+ *   die Loeschung auch auf anderen Geraeten ankommt.
+ *
+ * Die Kapazitaets-Felder sind NUMERIC in Postgres und kommen als Number
+ * aus dem Client — sie werden vor dem Schreiben in Strings normalisiert
+ * (Drizzle mapToDriverValue erwartet fuer numeric einen String).
+ */
+async function resolveAkkuDatensatz(
+  tx: Tx,
+  table: typeof akkuNetzteile | typeof akkuProjekte,
+  op: { op: 'create' | 'update'; payload: Record<string, unknown> },
+  numerischeFelder: readonly string[],
+): Promise<void> {
+  const payload: Record<string, unknown> = { ...op.payload }
+  for (const feld of numerischeFelder) {
+    const wert = payload[feld]
+    if (typeof wert === 'number' && Number.isFinite(wert)) {
+      payload[feld] = wert.toFixed(2)
+    }
+  }
+  const id = payload['id'] as string
+  if (op.op === 'create') {
+    const existing = await tx.select().from(table).where(eq(table.id, id)).limit(1)
+    if (existing.length > 0) {
+      await applyLastWriterWins(tx, table, payload)
+    } else {
+      await tx.insert(table).values(normalizeStammdatenTimestamps(payload) as never)
+    }
+    return
+  }
+  await applyLastWriterWins(tx, table, payload)
+}
+
+async function resolveAkkuNetzteil(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'akku_netzteil' }>,
+  benutzerRolle: 'admin' | 'user',
+): Promise<void> {
+  pruefeAkkutauschRolle(benutzerRolle)
+  await resolveAkkuDatensatz(
+    tx,
+    akkuNetzteile,
+    { op: op.op, payload: op.payload as Record<string, unknown> },
+    ['kapazitaetAh'],
+  )
+}
+
+async function resolveAkkuProjekt(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'akku_projekt' }>,
+  benutzerRolle: 'admin' | 'user',
+): Promise<void> {
+  pruefeAkkutauschRolle(benutzerRolle)
+  await resolveAkkuDatensatz(
+    tx,
+    akkuProjekte,
+    { op: op.op, payload: op.payload as Record<string, unknown> },
+    ['artAh'],
+  )
+}
+
 // ---------- Last-Writer-Wins ----------
 
 async function applyLastWriterWins(
   tx: Tx,
-  table: typeof artikel | typeof standorte | typeof projekte | typeof hersteller,
+  table:
+    | typeof artikel
+    | typeof standorte
+    | typeof projekte
+    | typeof hersteller
+    | typeof akkuNetzteile
+    | typeof akkuProjekte,
   payload: Record<string, unknown>,
 ): Promise<void> {
   const id = payload['id'] as string

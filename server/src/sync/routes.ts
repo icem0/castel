@@ -6,6 +6,8 @@ import { getDb } from '../db/client.js'
 import {
   artikel,
   artikelStandortMindestbestaende,
+  akkuNetzteile,
+  akkuProjekte,
   buchungen,
   einstellungen,
   hersteller,
@@ -25,14 +27,18 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   buchungen: number
   hersteller: number
   artikelStandortMindestbestand: number
+  akkuNetzteile: number
+  akkuProjekte: number
 }> {
-  const [a, s, p, b, h, m] = await Promise.all([
+  const [a, s, p, b, h, m, n, q] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
     db.select({ c: sql<number>`count(*)::int` }).from(buchungen),
     db.select({ c: sql<number>`count(*)::int` }).from(hersteller),
     db.select({ c: sql<number>`count(*)::int` }).from(artikelStandortMindestbestaende),
+    db.select({ c: sql<number>`count(*)::int` }).from(akkuNetzteile),
+    db.select({ c: sql<number>`count(*)::int` }).from(akkuProjekte),
   ])
   return {
     artikel: a[0]?.c ?? 0,
@@ -41,6 +47,8 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     buchungen: b[0]?.c ?? 0,
     hersteller: h[0]?.c ?? 0,
     artikelStandortMindestbestand: m[0]?.c ?? 0,
+    akkuNetzteile: n[0]?.c ?? 0,
+    akkuProjekte: q[0]?.c ?? 0,
   }
 }
 
@@ -79,6 +87,8 @@ export async function syncRoutes(
         eventRows,
         herstellerRows,
         mindestbestandRows,
+        akkuNetzteilRows,
+        akkuProjektRows,
       ] = await Promise.all([
         db.select().from(artikel).where(sql`${artikel.geaendertAm} > ${sinceIso}`),
         db.select().from(standorte).where(sql`${standorte.geaendertAm} > ${sinceIso}`),
@@ -111,6 +121,16 @@ export async function syncRoutes(
           .select()
           .from(artikelStandortMindestbestaende)
           .where(sql`${artikelStandortMindestbestaende.geaendertAm} > ${sinceIso}`),
+        // Akkutausch: Netzteile — LWW ueber `geaendert_am`.
+        db
+          .select()
+          .from(akkuNetzteile)
+          .where(sql`${akkuNetzteile.geaendertAm} > ${sinceIso}`),
+        // Akkutausch: Projektakkus — LWW ueber `geaendert_am`.
+        db
+          .select()
+          .from(akkuProjekte)
+          .where(sql`${akkuProjekte.geaendertAm} > ${sinceIso}`),
       ])
 
       return reply.send({
@@ -130,6 +150,36 @@ export async function syncRoutes(
           artikelId: r.artikelId,
           standortId: r.standortId,
           mindestbestand: r.mindestbestand,
+          geaendertAm: r.geaendertAm.toISOString(),
+          erstelltAm: r.erstelltAm.toISOString(),
+        })),
+        // Akkutausch: Kapazitaeten liegen als NUMERIC in Postgres — der
+        // Treiber liefert sie als String, der Client erwartet eine Zahl.
+        akkuNetzteile: akkuNetzteilRows.map((r) => ({
+          id: r.id,
+          anlage: r.anlage,
+          objekt: r.objekt,
+          name: r.name,
+          einbaudatum: r.einbaudatum,
+          intervallJahre: r.intervallJahre,
+          kapazitaetAh: Number(r.kapazitaetAh),
+          anzahl: r.anzahl,
+          gruppe: r.gruppe,
+          plz: r.plz,
+          vdsAnerkennung: r.vdsAnerkennung,
+          bemerkung: r.bemerkung,
+          geloescht: r.geloescht,
+          geaendertAm: r.geaendertAm.toISOString(),
+          erstelltAm: r.erstelltAm.toISOString(),
+        })),
+        akkuProjekte: akkuProjektRows.map((r) => ({
+          id: r.id,
+          projekt: r.projekt,
+          menge: r.menge,
+          artAh: Number(r.artAh),
+          quartal: r.quartal,
+          jahr: r.jahr,
+          geloescht: r.geloescht,
           geaendertAm: r.geaendertAm.toISOString(),
           erstelltAm: r.erstelltAm.toISOString(),
         })),

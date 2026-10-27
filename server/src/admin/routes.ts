@@ -33,6 +33,8 @@ const CLEARED_DOMAIN_TABLES = [
   'hersteller_artikel',
   'lieferanten',
   'mindestbestand_ereignisse',
+  'akku_netzteile',
+  'akku_projekte',
   'audit_log',
   'fotos',
   'buchungen',

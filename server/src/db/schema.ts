@@ -13,6 +13,7 @@ import {
   integer,
   bigint,
   numeric,
+  date,
   timestamp,
   boolean,
   jsonb,
@@ -302,6 +303,66 @@ export const artikelStandortMindestbestaende = pgTable(
   ],
 )
 
+/**
+ * Akkutausch: eingebaute Netzteile, deren Akku in einem festen Intervall
+ * getauscht wird. LWW-stuendig ueber `geaendert_am`; `geloescht` ist ein
+ * Soft-Delete (Tombstone), damit die Loeschung auf allen Geraeten ankommt.
+ */
+export const akkuNetzteile = pgTable(
+  'akku_netzteile',
+  {
+    id: text('id').primaryKey(),
+    anlage: text('anlage').notNull(),
+    objekt: text('objekt').notNull(),
+    name: text('name').notNull(),
+    /** Kalenderdatum ohne Zeit — `mode: 'string'` haelt den Wert als
+     *  `YYYY-MM-DD` (der Treiber wuerde DATE sonst als Date-Objekt liefern). */
+    einbaudatum: date('einbaudatum', { mode: 'string' }).notNull(),
+    intervallJahre: integer('intervall_jahre').notNull(),
+    /** Akku-Kapazitaet in Ah — NUMERIC, weil 12,5 Ah kein Integer ist. */
+    kapazitaetAh: numeric('kapazitaet_ah', { precision: 8, scale: 2 }).notNull(),
+    anzahl: integer('anzahl').notNull(),
+    gruppe: text('gruppe'),
+    plz: text('plz'),
+    vdsAnerkennung: text('vds_anerkennung'),
+    bemerkung: text('bemerkung'),
+    geloescht: boolean('geloescht').notNull().default(false),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
+    index('akku_netzteile_geaendert_am_idx').on(t.geaendertAm),
+    index('akku_netzteile_anlage_idx').on(t.anlage),
+  ],
+)
+
+/**
+ * Akkutausch: Projektbatterien fuer ein Quartal. LWW-stuendig ueber
+ * `geaendert_am`; `geloescht` ist ein Soft-Delete (Tombstone).
+ */
+export const akkuProjekte = pgTable(
+  'akku_projekte',
+  {
+    id: text('id').primaryKey(),
+    projekt: text('projekt').notNull(),
+    menge: integer('menge').notNull(),
+    /** Akku-Art in Ah — NUMERIC, weil 12,5 Ah kein Integer ist. */
+    artAh: numeric('art_ah', { precision: 8, scale: 2 }).notNull(),
+    quartal: integer('quartal').notNull(),
+    jahr: integer('jahr').notNull(),
+    geloescht: boolean('geloescht').notNull().default(false),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
+    index('akku_projekte_geaendert_am_idx').on(t.geaendertAm),
+    // Die Planung filtert nach Quartal + Jahr.
+    index('akku_projekte_quartal_jahr_idx').on(t.jahr, t.quartal),
+  ],
+)
+
 // ---------- Fotos ----------
 
 export const fotos = pgTable(
@@ -344,6 +405,8 @@ export const auditLog = pgTable(
         'hersteller_artikel',
         'datanorm_import',
         'artikel_standort_mindestbestand',
+        'akku_netzteil',
+        'akku_projekt',
       ],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),
