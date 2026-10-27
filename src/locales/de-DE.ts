@@ -412,7 +412,7 @@ export default {
     },
     akkuTypen: {
       h1: 'Akku-Größen',
-      hint: 'Legt fest, welche Akku-Größen im Akkutausch-Tool geplant werden. Der Mindestbestand wird als Reserve am Hauptlager geführt und greift dort auch als Mindestbestand-Warnung.',
+      hint: 'Legt fest, welche Akku-Größen im Akkutausch-Tool geplant werden. Der Artikelname ergibt sich aus der Nennkapazität (z. B. „Akku 12,5 Ah“), das Spektrum ist nur die Zuordnungsregel. Der Mindestbestand wird als Reserve am Hauptlager geführt und greift dort auch als Mindestbestand-Warnung.',
       neuerTyp: 'Neue Akku-Größe',
       von: 'Bereich von (Ah)',
       bis: 'Bereich bis (Ah)',

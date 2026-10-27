@@ -8,7 +8,11 @@ import { useStandortStore } from '../stores/standort'
 import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
 import { DEFAULT_AKKU_GROESSEN } from '../domain/akkutausch/defaults'
 import { parseKapazitaet, pruefeTypen } from '../domain/akkutausch/berechnung'
-import { formatKapazitaet, formatKapazitaetBereich } from '../domain/akkutausch/formatierung'
+import {
+  artikelTitel as artikelTitelAusKapazitaet,
+  formatKapazitaet,
+  formatKapazitaetBereich,
+} from '../domain/akkutausch/formatierung'
 import type { AkkuTyp } from '../domain/akkutausch/types'
 import { neueUuid } from '../domain/ids'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
@@ -63,10 +67,6 @@ function statusMeldung(text: string): void {
   }, 2500)
 }
 
-function artikelTitel(von: number, bis: number): string {
-  return `Akku ${formatKapazitaetBereich(von, bis, locale.value)}`
-}
-
 function artikelZu(typ: AkkuTyp) {
   if (!typ.artikelId) return undefined
   return artikelStore.byId(typ.artikelId)
@@ -94,10 +94,14 @@ async function reserveSpeichern(typ: AkkuTyp): Promise<void> {
   statusMeldung(t('view.akkuTypen.mindestbestandGespeichert'))
 }
 
-/** Legt einen Akku-Artikel an — der Artikel bleibt normal bearbeitbar. */
-async function artikelAnlegen(von: number, bis: number): Promise<string> {
+/**
+ * Legt einen Akku-Artikel an — der Artikel bleibt normal bearbeitbar.
+ * Der Titel enthaelt die Nennkapazitaet, nicht das Spektrum
+ * (z. B. "Akku 12,5 Ah" fuer das Band 12,0–12,9 Ah).
+ */
+async function artikelAnlegen(kapazitaetAh: number): Promise<string> {
   const artikel = await artikelStore.anlegen({
-    titel: artikelTitel(von, bis),
+    titel: artikelTitelAusKapazitaet(kapazitaetAh, locale.value),
     typ: AKKU_ARTIKEL_TYP,
     verpackungseinheit: 1,
     etikettenNeu: false,
@@ -134,7 +138,7 @@ async function typAnlegen(): Promise<void> {
   }
 
   if (artikelAutomatisch.value) {
-    neuerTyp.artikelId = await artikelAnlegen(von, bis)
+    neuerTyp.artikelId = await artikelAnlegen(nominal)
   } else {
     neuerTyp.artikelId = artikelAuswahl.value === '' ? null : artikelAuswahl.value
   }
@@ -161,7 +165,7 @@ async function standardGroessenUebernehmen(): Promise<void> {
 
   const neu: AkkuTyp[] = []
   for (const d of fehlend) {
-    const artikelId = await artikelAnlegen(d.von, d.bis)
+    const artikelId = await artikelAnlegen(d.kapazitaetAh)
     neu.push({
       id: neueUuid(),
       kapazitaetAh: d.kapazitaetAh,
@@ -182,7 +186,7 @@ async function artikelVerknuepfen(typ: AkkuTyp, artikelId: string): Promise<void
 
 /** Legt einen fehlenden Artikel neu an und verknüpft ihn wieder. */
 async function artikelNeuAnlegen(typ: AkkuTyp): Promise<void> {
-  const artikelId = await artikelAnlegen(typ.von, typ.bis)
+  const artikelId = await artikelAnlegen(typ.kapazitaetAh)
   await artikelVerknuepfen(typ, artikelId)
   statusMeldung(t('view.akkuTypen.artikelNeuAngelegt'))
 }

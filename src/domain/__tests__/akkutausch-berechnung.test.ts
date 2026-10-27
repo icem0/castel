@@ -11,6 +11,7 @@ import {
 } from '../akkutausch/berechnung'
 import { parseAkkuTypen, serialisiereAkkuTypen } from '../akkutausch/serialisierung'
 import {
+  artikelTitel,
   csvDatei,
   formatDatum,
   formatKapazitaet,
@@ -401,6 +402,11 @@ describe('formatierung', () => {
   it('formats capacities', () => {
     expect(formatKapazitaet(12.5, 'de')).toBe('12,5 Ah')
     expect(formatKapazitaetBereich(1, 1.9, 'de')).toBe('1–1,9 Ah')
+  })
+
+  it('builds the article title from the nominal capacity (not the band)', () => {
+    expect(artikelTitel(12.5, 'de')).toBe('Akku 12,5 Ah')
+    expect(artikelTitel(1, 'de')).toBe('Akku 1 Ah')
   })
 
   it('formats dates as TT.MM.JJJJ', () => {

@@ -140,7 +140,10 @@ function csvExportieren(): void {
       <tbody>
         <tr v-for="zeile in store.planung.zeilen" :key="zeile.typ.id">
           <td>
-            {{ formatKapazitaetBereich(zeile.typ.von, zeile.typ.bis, locale) }}
+            {{ formatKapazitaet(zeile.typ.kapazitaetAh, locale) }}
+            <span class="band-hinweis">
+              {{ formatKapazitaetBereich(zeile.typ.von, zeile.typ.bis, locale) }}
+            </span>
             <span v-if="artikelFehlt(zeile.typ.artikelId)" class="warn-inline">
               {{ t('view.akkutausch.keinArtikelKurz') }}
             </span>
@@ -207,6 +210,12 @@ function csvExportieren(): void {
 .warn-inline {
   display: block;
   color: var(--warning);
+  font-size: 0.8rem;
+}
+
+.band-hinweis {
+  display: block;
+  color: var(--text-muted);
   font-size: 0.8rem;
 }
 

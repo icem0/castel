@@ -400,7 +400,7 @@ export default {
     },
     akkuTypen: {
       h1: 'Battery sizes',
-      hint: 'Defines the battery sizes planned by the battery replacement tool. The minimum stock is kept as a reserve at the main warehouse and also acts as the minimum stock warning there.',
+      hint: 'Defines the battery sizes planned by the battery replacement tool. The item name is derived from the nominal capacity (e.g. “Akku 12,5 Ah”), the band is only the matching rule. The minimum stock is kept as a reserve at the main warehouse and also acts as the minimum stock warning there.',
       neuerTyp: 'New battery size',
       von: 'Range from (Ah)',
       bis: 'Range to (Ah)',

@@ -42,6 +42,14 @@ export function formatKapazitaetBereich(von: number, bis: number, locale: string
 }
 
 /**
+ * Title of the battery article: the nominal capacity, not the band.
+ * Example: `Akku 12,5 Ah` (the band 12,0–12,9 Ah is only the matching rule).
+ */
+export function artikelTitel(kapazitaetAh: number, locale: string): string {
+  return `Akku ${formatKapazitaet(kapazitaetAh, locale)}`
+}
+
+/**
  * Formats a calendar date (`YYYY-MM-DD`) for display. The date is built in
  * UTC so it never shifts by a day through the local time zone.
  */
