@@ -85,6 +85,20 @@ export function istFertig(importId: string): boolean {
   return registry.get(importId)?.fertig ?? false
 }
 
+/**
+ * Import ids that are still running.
+ *
+ * Used as a guard before destructive actions: deleting a supplier while its
+ * catalogue is being written would race with the import's upserts.
+ */
+export function laufendeImportIds(): string[] {
+  const ids: string[] = []
+  for (const [id, eintrag] of registry) {
+    if (!eintrag.fertig) ids.push(id)
+  }
+  return ids
+}
+
 /** Test helper: drops all channels. */
 export function resetProgressRegistry(): void {
   for (const e of registry.values()) {

@@ -454,6 +454,15 @@ export default {
       aktivNein: 'no',
       aktivieren: 'Activate',
       deaktivieren: 'Deactivate',
+      colAktionen: 'Actions',
+      katalogLeeren: 'Empty catalogue',
+      katalogLeerenFrage:
+        'Empty the catalogue of “{name}”? {artikel} articles and {dateien} file(s) will be deleted. The supplier and the import history are kept.',
+      katalogGeleert: 'Catalogue emptied: {artikel} articles and {dateien} file(s) removed.',
+      loeschen: 'Delete',
+      loeschenFrage:
+        'Really delete supplier “{name}” including its catalogue? {artikel} articles, {dateien} file(s) and the import history will be removed irreversibly. Articles in castel are not affected.',
+      lieferantGeloescht: 'Supplier “{name}” deleted.',
     },
     barcode: {
       h1: 'Barcode labels',

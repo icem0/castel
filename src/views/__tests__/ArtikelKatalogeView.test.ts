@@ -28,6 +28,8 @@ vi.mock('../../services/datanorm/admin', async (importOriginal) => {
     ladeLieferanten: vi.fn(),
     anlageLieferant: vi.fn(),
     patchLieferant: vi.fn(),
+    leereKatalog: vi.fn(),
+    loescheLieferant: vi.fn(),
     uploadDatanormDatei: vi.fn(),
     ladeImporte: vi.fn(),
   }
@@ -51,6 +53,8 @@ const LIEFERANTEN = [
     ort: null,
     format: 'auto' as const,
     geaendertAm: '',
+    artikelAnzahl: 120,
+    dateiAnzahl: 2,
   },
   {
     id: 'l2',
@@ -60,6 +64,8 @@ const LIEFERANTEN = [
     ort: 'Bern',
     format: 'auto' as const,
     geaendertAm: '',
+    artikelAnzahl: 0,
+    dateiAnzahl: 0,
   },
 ]
 
@@ -275,6 +281,46 @@ describe('ArtikelKatalogeView', () => {
     await flushPromises()
 
     expect(admin.patchLieferant).toHaveBeenCalledWith('l1', { aktiv: false })
+  })
+
+  it('leert den Katalog erst nach Bestätigung (Admin)', async () => {
+    vi.mocked(admin.leereKatalog).mockResolvedValue({ artikel: 120, dateien: 2 })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { wrapper } = setup('admin')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="katalog-leeren"]')[0]!.trigger('click')
+    await flushPromises()
+    expect(admin.leereKatalog).not.toHaveBeenCalled()
+
+    confirmSpy.mockReturnValue(true)
+    await wrapper.findAll('[data-testid="katalog-leeren"]')[0]!.trigger('click')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('120 Artikel'))
+    expect(admin.leereKatalog).toHaveBeenCalledWith('l1')
+    expect(wrapper.text()).toContain('Katalog geleert: 120 Artikel und 2 Datei(en) entfernt.')
+    confirmSpy.mockRestore()
+  })
+
+  it('löscht einen Lieferanten erst nach Bestätigung (Admin)', async () => {
+    vi.mocked(admin.loescheLieferant).mockResolvedValue({ artikel: 120, dateien: 2, importe: 3 })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { wrapper } = setup('admin')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="lieferant-loeschen"]')[0]!.trigger('click')
+    await flushPromises()
+    expect(admin.loescheLieferant).not.toHaveBeenCalled()
+
+    confirmSpy.mockReturnValue(true)
+    await wrapper.findAll('[data-testid="lieferant-loeschen"]')[0]!.trigger('click')
+    await flushPromises()
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('120 Artikel'))
+    expect(admin.loescheLieferant).toHaveBeenCalledWith('l1')
+    expect(wrapper.text()).toContain('Lieferant „Mueller GmbH“ gelöscht.')
+    confirmSpy.mockRestore()
   })
 
   it('lädt die Import-Historie (Admin)', async () => {

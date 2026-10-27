@@ -467,6 +467,15 @@ export default {
       aktivNein: 'nein',
       aktivieren: 'Aktivieren',
       deaktivieren: 'Deaktivieren',
+      colAktionen: 'Aktionen',
+      katalogLeeren: 'Katalog leeren',
+      katalogLeerenFrage:
+        'Katalog von „{name}“ leeren? {artikel} Artikel und {dateien} Datei(en) werden gelöscht. Lieferant und Import-Historie bleiben erhalten.',
+      katalogGeleert: 'Katalog geleert: {artikel} Artikel und {dateien} Datei(en) entfernt.',
+      loeschen: 'Löschen',
+      loeschenFrage:
+        'Lieferant „{name}“ mit Katalog wirklich löschen? {artikel} Artikel, {dateien} Datei(en) und die Import-Historie werden unwiderruflich entfernt. Artikel in castel bleiben unverändert.',
+      lieferantGeloescht: 'Lieferant „{name}“ gelöscht.',
     },
     barcode: {
       h1: 'Barcode-Etiketten',

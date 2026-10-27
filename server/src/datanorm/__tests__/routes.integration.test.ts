@@ -10,11 +10,24 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { sql } from 'drizzle-orm'
+import fastifyMultipart from '@fastify/multipart'
+import { access } from 'node:fs/promises'
+import { join } from 'node:path'
+import { eq, sql } from 'drizzle-orm'
 import { closeDb, getDb } from '../../db/client.js'
-import { herstellerArtikel, lieferanten } from '../../db/schema.js'
+import {
+  datanormDateien,
+  datanormImporte,
+  herstellerArtikel,
+  lieferanten,
+} from '../../db/schema.js'
+import { config } from '../../config/config.js'
 import { datanormRoutes } from '../routes.js'
-import { resetProgressRegistry } from '../progress.js'
+import {
+  kanalFuer,
+  meldeFertig,
+  resetProgressRegistry,
+} from '../progress.js'
 import { BEISPIEL_V5, datei } from './fixtures.js'
 
 /**
@@ -52,8 +65,13 @@ function multipart(fields: Record<string, string>, dateiname: string, inhalt: Bu
   return Buffer.concat(teile)
 }
 
-async function upload(name: string, inhalt: Buffer, extra: Record<string, string> = {}) {
-  const body = multipart({ lieferantId, ...extra }, name, inhalt)
+async function upload(
+  name: string,
+  inhalt: Buffer,
+  extra: Record<string, string> = {},
+  zielLieferantId = lieferantId,
+) {
+  const body = multipart({ lieferantId: zielLieferantId, ...extra }, name, inhalt)
   return app.inject({
     method: 'POST',
     url: '/api/datanorm/upload',
@@ -67,6 +85,12 @@ describe.skipIf(!HAT_DB)('DATANORM HTTP (Integration)', () => {
     resetProgressRegistry()
     app = Fastify({ logger: { level: 'error' } })
     await app.register(async (instance) => {
+      // The upload route relies on @fastify/multipart, which the real app
+      // registers in index.ts. Without it Fastify answers 415 before the
+      // handler ever runs.
+      await instance.register(fastifyMultipart, {
+        limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+      })
       // Tests bypass auth: the decorators are stubbed so the routes run
       // without a JWT dance. Authorization itself is covered elsewhere.
       // We still hand a real user id through, because `datanorm_importe`
@@ -142,7 +166,10 @@ describe.skipIf(!HAT_DB)('DATANORM HTTP (Integration)', () => {
     expect(body.artikelAnzahl).toBe(2)
     expect(body.neu).toBe(2)
     expect(body.version).toBe(5)
-    expect(body.encoding).toBe('cp850')
+    // The fixture is ASCII-only, so the CP850 bytes are also valid UTF-8 and
+    // detection correctly reports UTF-8. CP850 detection has its own test in
+    // parse-pass1.test.ts (umlauts as single bytes).
+    expect(body.encoding).toBe('utf-8')
     expect(body.fehlerAnzahl).toBe(0)
 
     const rows = await getDb().select().from(herstellerArtikel)
@@ -264,5 +291,126 @@ describe.skipIf(!HAT_DB)('DATANORM HTTP (Integration)', () => {
     const body = res.json<{ treffer: Array<{ status: string; originalDateiname: string }>; total: number }>()
     expect(body.total).toBeGreaterThan(0)
     expect(body.treffer.map((t) => t.status)).toContain('erfolg')
+  })
+
+  it('meldet Anzahl Artikel und Dateien in der Lieferanten-Liste', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/lieferanten?alle=true' })
+    expect(res.statusCode).toBe(200)
+    const liste = res.json<Array<{ id: string; artikelAnzahl: number; dateiAnzahl: number }>>()
+    const eintrag = liste.find((l) => l.id === lieferantId)
+    expect(eintrag).toBeDefined()
+    expect(eintrag!.artikelAnzahl).toBeGreaterThan(0)
+    expect(eintrag!.dateiAnzahl).toBeGreaterThan(0)
+  })
+
+  it('verweigert das Loeschen eines unbekannten Lieferanten mit 404', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/lieferanten/${crypto.randomUUID()}`,
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('leert den Katalog, behaelt Lieferant und Import-Historie', async () => {
+    const db = getDb()
+    const dateienVorher = await db
+      .select()
+      .from(datanormDateien)
+      .where(eq(datanormDateien.lieferantId, lieferantId))
+    expect(dateienVorher.length).toBeGreaterThan(0)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/lieferanten/${lieferantId}/katalog-leeren`,
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ ok: boolean; artikel: number; dateien: number }>()
+    expect(body.ok).toBe(true)
+    expect(body.artikel).toBeGreaterThan(0)
+    expect(body.dateien).toBe(dateienVorher.length)
+
+    const artikel = await db
+      .select()
+      .from(herstellerArtikel)
+      .where(eq(herstellerArtikel.lieferantId, lieferantId))
+    expect(artikel).toHaveLength(0)
+    const dateien = await db
+      .select()
+      .from(datanormDateien)
+      .where(eq(datanormDateien.lieferantId, lieferantId))
+    expect(dateien).toHaveLength(0)
+    const lieferant = await db.select().from(lieferanten).where(eq(lieferanten.id, lieferantId))
+    expect(lieferant).toHaveLength(1)
+
+    // Audit-Spur bleibt: die Import-Belege ueberleben, nur der Dateibezug faellt.
+    const importe = await db
+      .select()
+      .from(datanormImporte)
+      .where(eq(datanormImporte.lieferantId, lieferantId))
+    expect(importe.length).toBeGreaterThan(0)
+    expect(importe.every((i) => i.dateiId === null)).toBe(true)
+
+    // Die Bytes sind von der Platte verschwunden.
+    for (const d of dateienVorher) {
+      await expect(access(join(config.DATANORM_DIR, d.pfad))).rejects.toThrow()
+    }
+  })
+
+  it('loescht einen Lieferanten mit Katalog, Dateien und Import-Historie', async () => {
+    const db = getDb()
+    const id = crypto.randomUUID()
+    await db.insert(lieferanten).values({ id, name: 'Loesch-Kandidat GmbH', aktiv: true })
+
+    const hoch = await upload('DATANORM-LOESCHEN.001', datei(BEISPIEL_V5), {}, id)
+    expect(hoch.statusCode).toBe(200)
+
+    const dateien = await db
+      .select()
+      .from(datanormDateien)
+      .where(eq(datanormDateien.lieferantId, id))
+    expect(dateien).toHaveLength(1)
+
+    const res = await app.inject({ method: 'DELETE', url: `/api/lieferanten/${id}` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ artikel: number; dateien: number; importe: number }>()
+    expect(body.artikel).toBe(2)
+    expect(body.dateien).toBe(1)
+    expect(body.importe).toBeGreaterThan(0)
+
+    expect(await db.select().from(lieferanten).where(eq(lieferanten.id, id))).toHaveLength(0)
+    expect(
+      await db.select().from(herstellerArtikel).where(eq(herstellerArtikel.lieferantId, id)),
+    ).toHaveLength(0)
+    expect(
+      await db.select().from(datanormDateien).where(eq(datanormDateien.lieferantId, id)),
+    ).toHaveLength(0)
+    expect(
+      await db.select().from(datanormImporte).where(eq(datanormImporte.lieferantId, id)),
+    ).toHaveLength(0)
+
+    await expect(access(join(config.DATANORM_DIR, dateien[0]!.pfad))).rejects.toThrow()
+  })
+
+  it('verweigert das Loeschen, solange ein Import laeuft', async () => {
+    const db = getDb()
+    const id = crypto.randomUUID()
+    await db.insert(lieferanten).values({ id, name: 'Laufender Import GmbH', aktiv: true })
+    const importId = crypto.randomUUID()
+    await db.insert(datanormImporte).values({
+      id: importId,
+      lieferantId: id,
+      originalDateiname: 'laeuft.dat',
+      status: 'gestartet',
+    })
+    // Registers a progress channel that is not finished yet.
+    kanalFuer(importId)
+
+    const res = await app.inject({ method: 'DELETE', url: `/api/lieferanten/${id}` })
+    expect(res.statusCode).toBe(409)
+    expect(res.json<{ code: string }>().code).toBe('IMPORT_LAEUFT')
+
+    meldeFertig(importId)
+    await db.delete(datanormImporte).where(eq(datanormImporte.lieferantId, id))
+    await db.delete(lieferanten).where(eq(lieferanten.id, id))
   })
 })

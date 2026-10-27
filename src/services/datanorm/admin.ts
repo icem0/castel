@@ -47,6 +47,35 @@ export async function patchLieferant(
   })
 }
 
+/** What a destructive catalogue action removed. */
+export interface LoeschErgebnis {
+  artikel: number
+  dateien: number
+  /** Only set when the whole supplier was deleted. */
+  importe?: number
+}
+
+/**
+ * Deletes the supplier with everything attached: catalogue mirror, stored
+ * DATANORM files and import reports. Castel articles are not affected — the
+ * supplier name is a free-text field on the article, not a reference.
+ */
+export async function loescheLieferant(id: string): Promise<LoeschErgebnis> {
+  return apiFetch<LoeschErgebnis & { ok: boolean }>(`/api/lieferanten/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+/**
+ * Empties the supplier's catalogue (mirror + stored files) but keeps the
+ * supplier itself. The import history survives on purpose.
+ */
+export async function leereKatalog(id: string): Promise<LoeschErgebnis> {
+  return apiFetch<LoeschErgebnis & { ok: boolean }>(`/api/lieferanten/${id}/katalog-leeren`, {
+    method: 'POST',
+  })
+}
+
 export interface DatanormUploadBody {
   lieferantId: string
   encoding?: 'utf-8' | 'cp850' | 'windows-1252'

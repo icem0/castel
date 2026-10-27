@@ -75,6 +75,22 @@ describe('services/datanorm/admin', () => {
     expect(res).toEqual({ ok: true })
   })
 
+  it('loescheLieferant DELETE /api/lieferanten/:id', async () => {
+    apiFetchMock.mockResolvedValue({ ok: true, artikel: 10, dateien: 2, importe: 3 })
+    const res = await admin.loescheLieferant('l1')
+    expect(apiFetchMock).toHaveBeenCalledWith('/api/lieferanten/l1', { method: 'DELETE' })
+    expect(res).toEqual({ ok: true, artikel: 10, dateien: 2, importe: 3 })
+  })
+
+  it('leereKatalog POST /api/lieferanten/:id/katalog-leeren', async () => {
+    apiFetchMock.mockResolvedValue({ ok: true, artikel: 10, dateien: 2 })
+    const res = await admin.leereKatalog('l1')
+    expect(apiFetchMock).toHaveBeenCalledWith('/api/lieferanten/l1/katalog-leeren', {
+      method: 'POST',
+    })
+    expect(res).toEqual({ ok: true, artikel: 10, dateien: 2 })
+  })
+
   it('uploadDatanormDatei POST /api/datanorm/upload mit FormData', async () => {
     let gesendet: FormData | null = null
     apiFetchMock.mockImplementation((_pfad: string, opts?: { body?: unknown }) => {

@@ -27,6 +27,8 @@ import { ladeLieferanten, sucheHerstellerArtikel } from '../services/datanorm/lo
 import {
   anlageLieferant,
   ladeImporte,
+  leereKatalog,
+  loescheLieferant,
   patchLieferant,
   uploadDatanormDatei,
   type DatanormImportZeile,
@@ -282,11 +284,13 @@ const neuLieferantOrt = ref('')
 const neuLieferantFormat = ref<DatanormFormat>('auto')
 const lieferantLaufend = ref(false)
 const lieferantFehler = ref('')
+const lieferantHinweis = ref('')
 
 async function lieferantAnlegen(): Promise<void> {
   if (neuLieferantName.value.trim() === '') return
   lieferantLaufend.value = true
   lieferantFehler.value = ''
+  lieferantHinweis.value = ''
   try {
     await anlageLieferant({
       name: neuLieferantName.value.trim(),
@@ -310,6 +314,7 @@ async function lieferantAnlegen(): Promise<void> {
 async function aktivUmschalten(l: Lieferant): Promise<void> {
   lieferantLaufend.value = true
   lieferantFehler.value = ''
+  lieferantHinweis.value = ''
   try {
     await patchLieferant(l.id, { aktiv: !l.aktiv })
     await ladeLieferantenListe()
@@ -325,6 +330,7 @@ async function formatSetzen(l: Lieferant, format: DatanormFormat): Promise<void>
   if (l.format === format) return
   lieferantLaufend.value = true
   lieferantFehler.value = ''
+  lieferantHinweis.value = ''
   try {
     await patchLieferant(l.id, { format })
     await ladeLieferantenListe()
@@ -333,6 +339,77 @@ async function formatSetzen(l: Lieferant, format: DatanormFormat): Promise<void>
   } finally {
     lieferantLaufend.value = false
   }
+}
+
+/**
+ * Empties the supplier's catalogue (mirror + stored files) but keeps the
+ * supplier. The confirmation carries the counts so the admin sees the scope
+ * (up to tens of thousands of mirrored rows).
+ */
+async function katalogLeeren(l: Lieferant): Promise<void> {
+  const frage = t('view.artikelKataloge.katalogLeerenFrage', {
+    name: l.name,
+    artikel: l.artikelAnzahl ?? 0,
+    dateien: l.dateiAnzahl ?? 0,
+  })
+  if (!window.confirm(frage)) return
+  lieferantLaufend.value = true
+  lieferantFehler.value = ''
+  lieferantHinweis.value = ''
+  try {
+    const ergebnis = await leereKatalog(l.id)
+    trefferVerwerfen(l.id)
+    await ladeLieferantenListe()
+    await ladeImporteListe()
+    lieferantHinweis.value = t('view.artikelKataloge.katalogGeleert', {
+      artikel: ergebnis.artikel,
+      dateien: ergebnis.dateien,
+    })
+  } catch (e) {
+    lieferantFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    lieferantLaufend.value = false
+  }
+}
+
+/**
+ * Deletes the supplier including catalogue mirror, stored files and import
+ * reports. Kept behind a confirmation that names the supplier and the counts.
+ */
+async function lieferantLoeschen(l: Lieferant): Promise<void> {
+  const frage = t('view.artikelKataloge.loeschenFrage', {
+    name: l.name,
+    artikel: l.artikelAnzahl ?? 0,
+    dateien: l.dateiAnzahl ?? 0,
+  })
+  if (!window.confirm(frage)) return
+  lieferantLaufend.value = true
+  lieferantFehler.value = ''
+  lieferantHinweis.value = ''
+  try {
+    await loescheLieferant(l.id)
+    trefferVerwerfen(l.id)
+    if (lieferantId.value === l.id) lieferantId.value = ''
+    if (uploadLieferantId.value === l.id) {
+      uploadLieferantId.value = ''
+      uploadFormat.value = 'auto'
+    }
+    await ladeLieferantenListe()
+    await ladeImporteListe()
+    lieferantHinweis.value = t('view.artikelKataloge.lieferantGeloescht', { name: l.name })
+  } catch (e) {
+    lieferantFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    lieferantLaufend.value = false
+  }
+}
+
+/** Drops browse results for a supplier whose catalogue changed or vanished. */
+function trefferVerwerfen(fuerLieferantId: string): void {
+  if (lieferantId.value !== fuerLieferantId) return
+  treffer.value = []
+  anzahlTreffer.value = 0
+  gesucht.value = false
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +728,7 @@ onBeforeUnmount(schliesseEventSource)
             </button>
           </div>
           <p v-if="lieferantFehler" class="fehler" role="alert">{{ lieferantFehler }}</p>
+          <p v-if="lieferantHinweis" class="hint" role="status">{{ lieferantHinweis }}</p>
         </form>
 
         <table class="data">
@@ -661,6 +739,7 @@ onBeforeUnmount(schliesseEventSource)
               <th>{{ t('view.artikelKataloge.colOrt') }}</th>
               <th>{{ t('view.artikelKataloge.format') }}</th>
               <th>{{ t('view.artikelKataloge.colAktiv') }}</th>
+              <th>{{ t('view.artikelKataloge.colAktionen') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -701,6 +780,27 @@ onBeforeUnmount(schliesseEventSource)
                       : t('view.artikelKataloge.aktivNein')
                   }}</span>
                 </label>
+              </td>
+              <td>
+                <div class="aktionen">
+                  <button
+                    type="button"
+                    data-testid="katalog-leeren"
+                    :disabled="lieferantLaufend || uploadLaufend"
+                    @click="katalogLeeren(l)"
+                  >
+                    {{ t('view.artikelKataloge.katalogLeeren') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="danger"
+                    data-testid="lieferant-loeschen"
+                    :disabled="lieferantLaufend || uploadLaufend"
+                    @click="lieferantLoeschen(l)"
+                  >
+                    {{ t('view.artikelKataloge.loeschen') }}
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -825,5 +925,10 @@ h2 {
   align-items: center;
   gap: 0.35rem;
   font-size: 0.85rem;
+}
+.aktionen {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 </style>

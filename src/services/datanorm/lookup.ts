@@ -22,6 +22,10 @@ export interface Lieferant {
   /** The supplier's export format — remembered so the admin picks it once. */
   format: DatanormFormat
   geaendertAm: string
+  /** Number of mirrored catalogue entries (admin console). */
+  artikelAnzahl?: number
+  /** Number of stored DATANORM files (admin console). */
+  dateiAnzahl?: number
 }
 
 /** One catalogue entry, ready to fill the article form from. */

@@ -12,17 +12,28 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { Readable } from 'node:stream'
-import { and, desc, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
+  auditLog,
   datanormDateien,
   datanormImporte,
   herstellerArtikel,
   lieferanten,
 } from '../db/schema.js'
 import { DatanormFehler, importiereDatanorm } from './import-service.js'
-import { istFertig, kanalFuer, letzterFortschritt, meldeFortschritt } from './progress.js'
-import { raeumeAlteDateien } from './cleanup.js'
+import {
+  istFertig,
+  kanalFuer,
+  laufendeImportIds,
+  letzterFortschritt,
+  meldeFortschritt,
+} from './progress.js'
+import {
+  loescheDateiVomDatentraeger,
+  raeumeAlteDateien,
+  raeumeLeereVerzeichnisse,
+} from './cleanup.js'
 import type { DatanormEncoding, DatanormFormat } from './types.js'
 
 const MAX_PAGE = 100
@@ -51,6 +62,27 @@ function istGueltigesFormat(raw: unknown): DatanormFormat {
   return raw === 'v4' || raw === 'v5' ? raw : 'auto'
 }
 
+/**
+ * Whether an import for this supplier is still running in this process.
+ *
+ * Destructive actions must not race with the import's upserts. The progress
+ * registry is in-memory, which matches the single-API-container deployment
+ * and keeps the check exact instead of guessing from timestamps.
+ */
+async function importLaeuftFuer(lieferantId: string): Promise<boolean> {
+  const laufend = laufendeImportIds()
+  if (laufend.length === 0) return false
+  const db = getDb()
+  const rows = await db
+    .select({ id: datanormImporte.id })
+    .from(datanormImporte)
+    .where(
+      and(eq(datanormImporte.lieferantId, lieferantId), inArray(datanormImporte.id, laufend)),
+    )
+    .limit(1)
+  return rows.length > 0
+}
+
 export async function datanormRoutes(app: FastifyInstance): Promise<void> {
   // ---------- GET /api/lieferanten ----------
   // Supplier list for the picker's first step. Returns active suppliers by
@@ -73,6 +105,11 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
         ort: lieferanten.ort,
         format: lieferanten.format,
         geaendertAm: lieferanten.geaendertAm,
+        // Counts for the admin console (confirm dialogs, delete labels).
+        // The outer column must be fully qualified: inside the subquery an
+        // unqualified "id" would bind to the subquery's own table.
+        artikelAnzahl: sql<number>`(SELECT count(*)::int FROM hersteller_artikel ha WHERE ha.lieferant_id = ${sql.raw('"lieferanten"."id"')})`,
+        dateiAnzahl: sql<number>`(SELECT count(*)::int FROM datanorm_dateien dd WHERE dd.lieferant_id = ${sql.raw('"lieferanten"."id"')})`,
       })
       .from(lieferanten)
       .where(filterAktiv)
@@ -159,6 +196,154 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
     }
     return reply.send({ ok: true })
   })
+
+  // ---------- DELETE /api/lieferanten/:id ----------
+  // Deletes the supplier AND everything hanging off it: the catalogue mirror
+  // (`hersteller_artikel`), the uploaded files (rows + bytes on disk) and the
+  // import reports. Castel articles are untouched — `artikel.lieferant` is a
+  // free-text field, not a foreign key.
+  app.delete<{ Params: { id: string } }>(
+    '/api/lieferanten/:id',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const db = getDb()
+      const id = req.params.id
+      const vorhanden = await db
+        .select({ id: lieferanten.id, name: lieferanten.name })
+        .from(lieferanten)
+        .where(eq(lieferanten.id, id))
+        .limit(1)
+      if (vorhanden.length === 0) {
+        return reply.code(404).send({ code: 'NOT_FOUND', message: 'Lieferant unbekannt' })
+      }
+      if (await importLaeuftFuer(id)) {
+        return reply.code(409).send({
+          code: 'IMPORT_LAEUFT',
+          message: 'Für diesen Lieferanten läuft gerade ein Import — bitte abwarten.',
+        })
+      }
+
+      // File paths are relative to DATANORM_DIR; collect them before the rows
+      // disappear so the bytes can be removed after the commit.
+      const pfade = await db
+        .select({ pfad: datanormDateien.pfad })
+        .from(datanormDateien)
+        .where(eq(datanormDateien.lieferantId, id))
+
+      const ergebnis = await db.transaction(async (tx) => {
+        // `hersteller_artikel.lieferant_id` is ON DELETE RESTRICT, so the
+        // mirror has to go first. The other tables cascade, but deleting them
+        // explicitly gives us exact counts for the response.
+        const artikel = await tx
+          .delete(herstellerArtikel)
+          .where(eq(herstellerArtikel.lieferantId, id))
+          .returning({ id: herstellerArtikel.id })
+        const dateien = await tx
+          .delete(datanormDateien)
+          .where(eq(datanormDateien.lieferantId, id))
+          .returning({ id: datanormDateien.id })
+        const importe = await tx
+          .delete(datanormImporte)
+          .where(eq(datanormImporte.lieferantId, id))
+          .returning({ id: datanormImporte.id })
+        await tx.delete(lieferanten).where(eq(lieferanten.id, id))
+
+        await tx.insert(auditLog).values({
+          id: crypto.randomUUID(),
+          aktion: 'lieferant.loeschen',
+          entitaet: 'lieferant',
+          entitaetId: id,
+          benutzerId: req.authUser?.sub ?? null,
+          daten: {
+            name: vorhanden[0]!.name,
+            artikel: artikel.length,
+            dateien: dateien.length,
+            importe: importe.length,
+          },
+          zeit: new Date(),
+        })
+
+        return {
+          artikel: artikel.length,
+          dateien: dateien.length,
+          importe: importe.length,
+        }
+      })
+
+      for (const p of pfade) await loescheDateiVomDatentraeger(req.log, p.pfad)
+      await raeumeLeereVerzeichnisse(req.log)
+
+      req.log.info({ lieferantId: id, ...ergebnis }, '[datanorm] Lieferant gelöscht')
+      return reply.send({ ok: true, ...ergebnis })
+    },
+  )
+
+  // ---------- POST /api/lieferanten/:id/katalog-leeren ----------
+  // Empties the catalogue but keeps the supplier: mirror rows and uploaded
+  // files go away, the import reports stay (they are the audit trail — their
+  // `datei_id` is set to NULL by the FK, exactly like the retention cleanup).
+  app.post<{ Params: { id: string } }>(
+    '/api/lieferanten/:id/katalog-leeren',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const db = getDb()
+      const id = req.params.id
+      const vorhanden = await db
+        .select({ id: lieferanten.id, name: lieferanten.name })
+        .from(lieferanten)
+        .where(eq(lieferanten.id, id))
+        .limit(1)
+      if (vorhanden.length === 0) {
+        return reply.code(404).send({ code: 'NOT_FOUND', message: 'Lieferant unbekannt' })
+      }
+      if (await importLaeuftFuer(id)) {
+        return reply.code(409).send({
+          code: 'IMPORT_LAEUFT',
+          message: 'Für diesen Lieferanten läuft gerade ein Import — bitte abwarten.',
+        })
+      }
+
+      const pfade = await db
+        .select({ pfad: datanormDateien.pfad })
+        .from(datanormDateien)
+        .where(eq(datanormDateien.lieferantId, id))
+
+      const ergebnis = await db.transaction(async (tx) => {
+        const artikel = await tx
+          .delete(herstellerArtikel)
+          .where(eq(herstellerArtikel.lieferantId, id))
+          .returning({ id: herstellerArtikel.id })
+        const dateien = await tx
+          .delete(datanormDateien)
+          .where(eq(datanormDateien.lieferantId, id))
+          .returning({ id: datanormDateien.id })
+        // Touch the supplier so sync/list consumers see a change.
+        await tx.update(lieferanten).set({ geaendertAm: new Date() }).where(eq(lieferanten.id, id))
+
+        await tx.insert(auditLog).values({
+          id: crypto.randomUUID(),
+          aktion: 'datanorm.katalog.leeren',
+          entitaet: 'lieferant',
+          entitaetId: id,
+          benutzerId: req.authUser?.sub ?? null,
+          daten: {
+            name: vorhanden[0]!.name,
+            artikel: artikel.length,
+            dateien: dateien.length,
+          },
+          zeit: new Date(),
+        })
+
+        return { artikel: artikel.length, dateien: dateien.length }
+      })
+
+      for (const p of pfade) await loescheDateiVomDatentraeger(req.log, p.pfad)
+      await raeumeLeereVerzeichnisse(req.log)
+
+      req.log.info({ lieferantId: id, ...ergebnis }, '[datanorm] Katalog geleert')
+      return reply.send({ ok: true, ...ergebnis })
+    },
+  )
 
   // ---------- GET /api/datanorm/artikel ----------
   // Catalogue lookup for the PWA drawer.

@@ -13,7 +13,7 @@
 // fact the admin should still be able to see.
 
 import { readdir, rm, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { sql } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
 import { getDb } from '../db/client.js'
@@ -32,6 +32,46 @@ export interface CleanupErgebnis {
   geprueft: number
   geloescht: number
   eintraege: GeloeschterEintrag[]
+}
+
+/**
+ * Resolves a stored relative path inside DATANORM_DIR.
+ *
+ * Paths come from our own database, but a destructive delete must not be able
+ * to escape the configured directory through a crafted `pfad` (e.g. after a
+ * restore from an untrusted backup). Returns null when it escapes.
+ */
+function pfadImDatanormVerzeichnis(relPfad: string): string | null {
+  const basis = resolve(config.DATANORM_DIR)
+  const ziel = resolve(basis, relPfad)
+  if (ziel === basis || !ziel.startsWith(basis + sep)) return null
+  return ziel
+}
+
+/**
+ * Removes one stored DATANORM file from disk. Used by the admin delete
+ * actions; a missing file is not an error (the row is removed regardless).
+ */
+export async function loescheDateiVomDatentraeger(
+  log: FastifyBaseLogger,
+  relPfad: string,
+): Promise<boolean> {
+  const vollPfad = pfadImDatanormVerzeichnis(relPfad)
+  if (vollPfad === null) {
+    log.warn({ pfad: relPfad }, '[datanorm] Pfad liegt ausserhalb von DATANORM_DIR — uebersprungen')
+    return false
+  }
+  try {
+    const s = await stat(vollPfad)
+    if (!s.isFile()) return false
+    await rm(vollPfad, { force: true })
+    return true
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log.warn({ err, pfad: vollPfad }, '[datanorm] Datei konnte nicht gelöscht werden')
+    }
+    return false
+  }
 }
 
 /**
@@ -81,18 +121,7 @@ export async function raeumeAlteDateien(
     if (neueste && row.abgelegtAm.getTime() >= neueste.getTime()) continue
 
     const alterTage = Math.floor((Date.now() - row.abgelegtAm.getTime()) / (24 * 60 * 60 * 1000))
-    const vollPfad = join(config.DATANORM_DIR, row.pfad)
-
-    try {
-      const s = await stat(vollPfad)
-      if (s.isFile()) await rm(vollPfad, { force: true })
-    } catch (err) {
-      // ENOENT is the normal case (file already gone); anything else is
-      // worth a warning but must not abort the cleanup.
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-        log.warn({ err, pfad: vollPfad }, '[datanorm] Datei konnte nicht gelöscht werden')
-      }
-    }
+    await loescheDateiVomDatentraeger(log, row.pfad)
 
     // ON DELETE SET NULL keeps the import report intact.
     await db.delete(datanormDateien).where(sql`${datanormDateien.id} = ${row.id}`)
@@ -113,7 +142,7 @@ export async function raeumeAlteDateien(
 }
 
 /** Removes date folders (YYYY-MM-DD) that no longer contain any file. */
-async function raeumeLeereVerzeichnisse(log: FastifyBaseLogger): Promise<void> {
+export async function raeumeLeereVerzeichnisse(log: FastifyBaseLogger): Promise<void> {
   let verzeichnisse: string[]
   try {
     verzeichnisse = await readdir(config.DATANORM_DIR)
