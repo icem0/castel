@@ -43,14 +43,19 @@ export interface Netzteil {
   objekt: string
   /** Device name. */
   name: string
-  /** Installation date (`YYYY-MM-DD`). */
-  einbaudatum: IsoDatum
-  /** Replacement interval in years. */
-  intervallJahre: number
-  /** Battery capacity of the installed battery in Ah. */
-  kapazitaetAh: number
-  /** Number of batteries per device. */
-  anzahl: number
+  /**
+   * Installation date (`YYYY-MM-DD`).
+   *
+   * `null` while it is still unknown — devices from CSV imports are often
+   * incomplete and get completed later.
+   */
+  einbaudatum: IsoDatum | null
+  /** Replacement interval in years — `null` while it is still unknown. */
+  intervallJahre: number | null
+  /** Battery capacity of the installed battery in Ah — `null` while unknown. */
+  kapazitaetAh: number | null
+  /** Number of batteries per device — `null` while unknown. */
+  anzahl: number | null
   /** Free grouping label. */
   gruppe: string | null
   /** Postal code of the site. */
@@ -88,6 +93,7 @@ export interface Projektakku {
 export type PlanwarnungCode =
   | 'netzteil_ungueltiges_datum'
   | 'netzteil_keine_groesse'
+  | 'netzteil_unvollstaendig'
   | 'projektakku_keine_groesse'
   | 'typ_ohne_artikel'
 

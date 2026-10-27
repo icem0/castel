@@ -33,11 +33,14 @@ export interface NetzteilEingabe {
   anlage: string
   objekt: string
   name: string
-  /** Einbaudatum als `YYYY-MM-DD`. */
-  einbaudatum: string
-  intervallJahre: number
-  kapazitaetAh: number
-  anzahl: number
+  /** Einbaudatum als `YYYY-MM-DD` — `null`, solange noch nicht bekannt. */
+  einbaudatum: string | null
+  /** Wechselintervall in Jahren — `null`, solange noch nicht bekannt. */
+  intervallJahre: number | null
+  /** Akku-Kapazitaet in Ah — `null`, solange noch nicht bekannt. */
+  kapazitaetAh: number | null
+  /** Anzahl Akkus pro Geraet — `null`, solange noch nicht bekannt. */
+  anzahl: number | null
   gruppe: string | null
   plz: string | null
   vdsAnerkennung: string | null

@@ -107,6 +107,7 @@ const importHinweis = computed(() => {
   return t('view.akkutausch.netzteilImportZusammenfassung', {
     anzahl: v.importierbar,
     uebersprungen: v.uebersprungen,
+    unvollstaendig: v.unvollstaendig,
   })
 })
 
@@ -401,6 +402,13 @@ watch(
             {{
               t('view.akkutausch.netzteilImportUebersprungeneZeilen', {
                 anzahl: importBericht.uebersprungeneZeilen,
+              })
+            }}
+          </li>
+          <li>
+            {{
+              t('view.akkutausch.netzteilImportUnvollstaendigeZeilen', {
+                anzahl: importBericht.unvollstaendigeZeilen,
               })
             }}
           </li>

@@ -43,15 +43,8 @@ import type { ValidierungsProblem } from './validierung'
 /** Columns that may contain free text (and therefore a stray semicolon). */
 const TEXT_FELDER = new Set<NetzteilFeld>(['objekt', 'gruppe', 'name', 'vdsAnerkennung'])
 
-/** Columns that must be mapped — otherwise no row can be imported at all. */
-const PFLICHT_SPALTEN: NetzteilFeld[] = [
-  'anlage',
-  'objekt',
-  'name',
-  'einbaudatum',
-  'intervallJahre',
-  'kapazitaetAh',
-]
+/** Columns that must be mapped — the identity of a device. */
+const PFLICHT_SPALTEN: NetzteilFeld[] = ['anlage', 'objekt', 'name']
 
 /** A single finding about one CSV row. */
 export interface NetzteilImportBefund {
@@ -75,6 +68,8 @@ export interface NetzteilImportPruefung {
   importierbar: number
   /** Number of rows that will be skipped. */
   uebersprungen: number
+  /** Rows that are importable but still miss battery data. */
+  unvollstaendig: number
   /** Per-row findings (repairs, defaults, skips). */
   befunde: NetzteilImportBefund[]
 }
@@ -84,10 +79,12 @@ export interface NetzteilImportBericht {
   netzteilAktualisiert: number
   /** Existing devices that were already up to date. */
   netzteilUebersprungen: number
-  /** CSV rows that could not be imported. */
+  /** CSV rows that could not be imported (no identity). */
   uebersprungeneZeilen: number
   /** CSV rows that were realigned before the import. */
   reparierteZeilen: number
+  /** Imported devices that still miss battery data. */
+  unvollstaendigeZeilen: number
   befunde: NetzteilImportBefund[]
   warnungen: string[]
   konflikte: string[]
@@ -279,6 +276,7 @@ export function pruefeNetzteilImport(
     probleme: plan.probleme,
     importierbar: plan.zeilen.length,
     uebersprungen: plan.befunde.filter((b) => b.art === 'uebersprungen').length,
+    unvollstaendig: plan.zeilen.filter((z) => istUnvollstaendig(z.daten)).length,
     befunde: plan.befunde,
   }
 }
@@ -308,6 +306,7 @@ export async function importNetzteileAusCsv(
     netzteilUebersprungen: 0,
     uebersprungeneZeilen: plan.befunde.filter((b) => b.art === 'uebersprungen').length,
     reparierteZeilen: plan.befunde.filter((b) => b.art === 'repariert').length,
+    unvollstaendigeZeilen: plan.zeilen.filter((z) => istUnvollstaendig(z.daten)).length,
     befunde: plan.befunde,
     warnungen: [],
     konflikte: [],
@@ -395,10 +394,12 @@ function istTextspalte(spaltenIndex: number, headers: string[], mapping: Netztei
 /**
  * Scores a candidate alignment of a ragged row.
  *
- * Returns `null` when a mandatory field is missing or unparsable — such a
- * candidate cannot be right. Otherwise the score counts how plausible the
- * optional fields look (postal code, due date, date format), so the best
- * alignment wins when several candidates are technically parsable.
+ * Returns `null` when the candidate is implausible — the identity fields
+ * have to be present and every value that *is* present has to be parsable
+ * (a shifted value like `2.5` in the date column is rejected). Otherwise
+ * the score counts how plausible the optional fields look (postal code, due
+ * date, date format), so the best alignment wins when several candidates
+ * are technically parsable.
  */
 function bewerteReparaturKandidat(
   zellen: string[],
@@ -412,12 +413,16 @@ function bewerteReparaturKandidat(
   const name = pflichtText(wert('name'))
   if (!anlage || !objekt || !name) return null
 
-  const einbaudatum = parseNetzteilDatum(wert('einbaudatum'))
-  if (einbaudatum === null) return null
-  const intervallJahre = parseIntervallJahre(wert('intervallJahre'))
-  if (intervallJahre === null) return null
-  if (parseNetzteilKapazitaet(wert('kapazitaetAh')) === null) return null
-  if (parsePositiveInt(wert('anzahl')) === null) return null
+  // Values that are present have to be parsable — otherwise the columns are
+  // shifted. Missing values are allowed (the device is imported incomplete).
+  const datumRoh = wert('einbaudatum').trim()
+  if (datumRoh !== '' && parseNetzteilDatum(datumRoh) === null) return null
+  const intervallRoh = wert('intervallJahre').trim()
+  if (intervallRoh !== '' && parseIntervallJahre(intervallRoh) === null) return null
+  const kapazitaetRoh = wert('kapazitaetAh').trim()
+  if (kapazitaetRoh !== '' && parseNetzteilKapazitaet(kapazitaetRoh) === null) return null
+  const anzahlRoh = wert('anzahl').trim()
+  if (anzahlRoh !== '' && parsePositiveInt(anzahlRoh) === null) return null
 
   let score = 0
 
@@ -432,17 +437,22 @@ function bewerteReparaturKandidat(
   if (/\d/.test(anlage)) score += 1
 
   // Due date: has to match installation date plus interval.
+  const einbaudatum = datumRoh === '' ? null : parseNetzteilDatum(datumRoh)
+  const intervallJahre = intervallRoh === '' ? null : parseIntervallJahre(intervallRoh)
   const faelligCsv = wert('faelligkeit').trim()
   if (faelligCsv === '') score += 1
   else {
     const csv = parseNetzteilDatum(faelligCsv)
-    const erwartet = faelligkeit(einbaudatum, intervallJahre)
+    const erwartet =
+      einbaudatum !== null && intervallJahre !== null
+        ? faelligkeit(einbaudatum, intervallJahre)
+        : null
     if (csv !== null && erwartet !== null && csv === erwartet) score += 2
     else score -= 1
   }
 
   // Month/year notation is the most common format in these exports.
-  if (/^\d{1,2}\/\d{4}$/.test(wert('einbaudatum').trim())) score += 1
+  if (/^\d{1,2}\/\d{4}$/.test(datumRoh)) score += 1
 
   return score
 }
@@ -455,6 +465,7 @@ function werteAuswerten(
   const wert = (feld: NetzteilFeld): string => rohWert(zellen, headers, mapping, feld)
   const hinweise: string[] = []
 
+  // Identity: without it the row cannot be assigned to a device at all.
   const anlage = pflichtText(wert('anlage'))
   const objekt = pflichtText(wert('objekt'))
   const name = pflichtText(wert('name'))
@@ -462,36 +473,42 @@ function werteAuswerten(
     return { ok: false, grund: '"Anlage", "Firma" oder "Name" fehlt' }
   }
 
-  const einbaudatum = parseNetzteilDatum(wert('einbaudatum'))
+  // Battery data: optional. Missing or unparsable values are stored as
+  // `null` — the device is imported incomplete and can be completed later.
+  const fehlend: string[] = []
+  const ungueltig: string[] = []
+
+  const datumRoh = wert('einbaudatum').trim()
+  const einbaudatum = datumRoh === '' ? null : parseNetzteilDatum(datumRoh)
   if (einbaudatum === null) {
-    return { ok: false, grund: '"Einbaudatum" fehlt oder ist ungültig' }
+    ;(datumRoh === '' ? fehlend : ungueltig).push('Einbaudatum')
   }
 
-  const intervallJahre = parseIntervallJahre(wert('intervallJahre'))
+  const intervallRoh = wert('intervallJahre').trim()
+  const intervallJahre = intervallRoh === '' ? null : parseIntervallJahre(intervallRoh)
   if (intervallJahre === null) {
-    return { ok: false, grund: '"Austauschintervall" fehlt oder ist ungültig' }
+    ;(intervallRoh === '' ? fehlend : ungueltig).push('Austauschintervall')
   }
 
-  const kapazitaetAh = parseNetzteilKapazitaet(wert('kapazitaetAh'))
+  const kapazitaetRoh = wert('kapazitaetAh').trim()
+  const kapazitaetAh = kapazitaetRoh === '' ? null : parseNetzteilKapazitaet(kapazitaetRoh)
   if (kapazitaetAh === null) {
-    return { ok: false, grund: '"Kapazität" fehlt oder ist ungültig' }
+    ;(kapazitaetRoh === '' ? fehlend : ungueltig).push('Kapazität')
   }
 
   const anzahlRoh = wert('anzahl').trim()
-  let anzahl: number
-  if (anzahlRoh === '') {
-    anzahl = 1
-    hinweise.push('"Anzahl der Akkus" fehlt — 1 angenommen')
-  } else {
-    const geparst = parsePositiveInt(anzahlRoh)
-    if (geparst === null) {
-      return { ok: false, grund: '"Anzahl der Akkus" ist keine Ganzzahl ≥ 1' }
-    }
-    anzahl = geparst
+  const anzahl = anzahlRoh === '' ? null : parsePositiveInt(anzahlRoh)
+  if (anzahl === null) {
+    ;(anzahlRoh === '' ? fehlend : ungueltig).push('Anzahl der Akkus')
+  }
+
+  if (fehlend.length + ungueltig.length > 0) {
+    const felder = [...fehlend, ...ungueltig.map((f) => `${f} (ungültig)`)].join(', ')
+    hinweise.push(`unvollständig: ${felder} fehlt — bitte im Geräte-Tab nachtragen`)
   }
 
   const faelligCsvRoh = wert('faelligkeit').trim()
-  if (faelligCsvRoh) {
+  if (faelligCsvRoh && einbaudatum && intervallJahre) {
     const faelligCsv = parseNetzteilDatum(faelligCsvRoh)
     const erwartet = faelligkeit(einbaudatum, intervallJahre)
     if (faelligCsv === null) {
@@ -529,6 +546,16 @@ function rohWert(
   if (!header) return ''
   const index = headers.indexOf(header)
   return index >= 0 ? (zellen[index] ?? '') : ''
+}
+
+/** True when the device still misses battery data. */
+function istUnvollstaendig(daten: NetzteilImportDaten): boolean {
+  return (
+    daten.einbaudatum === null ||
+    daten.intervallJahre === null ||
+    daten.kapazitaetAh === null ||
+    daten.anzahl === null
+  )
 }
 
 function netzteilDatenGleich(bestehend: Netzteil, daten: NetzteilImportDaten): boolean {

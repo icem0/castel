@@ -328,12 +328,15 @@ export const akkuNetzteile = pgTable(
     objekt: text('objekt').notNull(),
     name: text('name').notNull(),
     /** Kalenderdatum ohne Zeit — `mode: 'string'` haelt den Wert als
-     *  `YYYY-MM-DD` (der Treiber wuerde DATE sonst als Date-Objekt liefern). */
-    einbaudatum: date('einbaudatum', { mode: 'string' }).notNull(),
-    intervallJahre: integer('intervall_jahre').notNull(),
-    /** Akku-Kapazitaet in Ah — NUMERIC, weil 12,5 Ah kein Integer ist. */
-    kapazitaetAh: numeric('kapazitaet_ah', { precision: 8, scale: 2 }).notNull(),
-    anzahl: integer('anzahl').notNull(),
+     *  `YYYY-MM-DD` (der Treiber wuerde DATE sonst als Date-Objekt liefern).
+     *  Nullable: Geraete aus CSV-Importen haben den Einbaudatum ggf. noch
+     *  nicht (Migration 0023). */
+    einbaudatum: date('einbaudatum', { mode: 'string' }),
+    intervallJahre: integer('intervall_jahre'),
+    /** Akku-Kapazitaet in Ah — NUMERIC, weil 12,5 Ah kein Integer ist.
+     *  Nullable, solange die Kapazitaet noch nicht bekannt ist. */
+    kapazitaetAh: numeric('kapazitaet_ah', { precision: 8, scale: 2 }),
+    anzahl: integer('anzahl'),
     gruppe: text('gruppe'),
     plz: text('plz'),
     vdsAnerkennung: text('vds_anerkennung'),

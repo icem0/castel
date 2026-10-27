@@ -323,6 +323,23 @@ describe('berechnePlanung', () => {
     expect(planung.warnungen[0]?.code).toBe('netzteil_ungueltiges_datum')
   })
 
+  it('warns about devices whose battery data is still incomplete', () => {
+    const planung = berechnePlanung({
+      typen,
+      netzteile: [netzteil({ id: 'n1', kapazitaetAh: null, anzahl: null, name: 'Ohne Angabe' })],
+      projektakkus: [],
+      bestand,
+      reserve,
+      quartal: 1,
+      jahr: 2025,
+    })
+    expect(planung.warnungen[0]?.code).toBe('netzteil_unvollstaendig')
+    expect(planung.warnungen[0]?.bezug).toBe('Ohne Angabe')
+    expect(planung.warnungen[0]?.wert).toBe('kapazitaetAh,anzahl')
+    // The device cannot be planned — it does not add any demand.
+    expect(planung.zeilen[0]?.soll).toBe(0)
+  })
+
   it('warns about sizes without an article', () => {
     const planung = berechnePlanung({
       typen: [typ({ id: 't1', artikelId: null })],

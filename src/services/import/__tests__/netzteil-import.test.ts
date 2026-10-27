@@ -104,7 +104,7 @@ describe('pruefeNetzteilImport', () => {
     expect(result.uebersprungen).toBe(0)
   })
 
-  it('skips rows without capacity instead of aborting the import', () => {
+  it('imports rows without capacity as incomplete devices', () => {
     const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
 A;Objekt;Gerät;2;1.2;01/2021;4 Jahre
 B;Objekt;Ohne Akku;2;;01/2021;4 Jahre`
@@ -116,9 +116,9 @@ B;Objekt;Ohne Akku;2;;01/2021;4 Jahre`
     )
 
     expect(result.ok).toBe(true)
-    expect(result.importierbar).toBe(1)
-    expect(result.uebersprungen).toBe(1)
-    expect(result.befunde.some((b) => b.art === 'uebersprungen')).toBe(true)
+    expect(result.importierbar).toBe(2)
+    expect(result.uebersprungen).toBe(0)
+    expect(result.befunde.some((b) => b.meldung.includes('unvollständig'))).toBe(true)
   })
 
   it('skips rows without a company (object)', () => {
@@ -135,7 +135,7 @@ A;;Gerät;2;1.2;01/2021;4 Jahre`
     expect(result.uebersprungen).toBe(1)
   })
 
-  it('assumes a count of 1 when the column is empty', () => {
+  it('keeps a missing count empty instead of guessing a value', () => {
     const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
 A;Objekt;Gerät;;1.2;01/2021;4 Jahre`
     const parsed = parseCsv(csv)
@@ -146,7 +146,24 @@ A;Objekt;Gerät;;1.2;01/2021;4 Jahre`
     )
 
     expect(result.importierbar).toBe(1)
-    expect(result.befunde.some((b) => b.meldung.includes('1 angenommen'))).toBe(true)
+    expect(result.unvollstaendig).toBe(1)
+    expect(result.befunde.some((b) => b.meldung.includes('Anzahl der Akkus'))).toBe(true)
+  })
+
+  it('imports an unreadable date as missing value', () => {
+    const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
+A;Objekt;Gerät;2;1.2;unbekannt;4 Jahre`
+    const parsed = parseCsv(csv)
+    const result = pruefeNetzteilImport(
+      defaultNetzteilMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+
+    expect(result.importierbar).toBe(1)
+    expect(result.uebersprungen).toBe(0)
+    expect(result.unvollstaendig).toBe(1)
+    expect(result.befunde.some((b) => b.meldung.includes('Einbaudatum (ungültig)'))).toBe(true)
   })
 
   it('merges duplicated devices instead of failing', () => {
@@ -263,15 +280,19 @@ describe('importNetzteileAusCsv', () => {
       mapping: defaultNetzteilMapping(parsed.headers),
     })
 
-    expect(bericht.netzteilAngelegt).toBe(2)
-    expect(bericht.uebersprungeneZeilen).toBe(1)
+    expect(bericht.netzteilAngelegt).toBe(3)
+    expect(bericht.uebersprungeneZeilen).toBe(0)
     expect(bericht.reparierteZeilen).toBe(1)
+    expect(bericht.unvollstaendigeZeilen).toBe(1)
 
     const netzteile = await testDb.akkuNetzteile.toArray()
-    expect(netzteile).toHaveLength(2)
+    expect(netzteile).toHaveLength(3)
     const hartinger = netzteile.find((n) => n.anlage === '10022_02')
     expect(hartinger?.objekt).toBe('Elektro Hartinger und Sohn GmbH & Co. KG')
     expect(hartinger?.kapazitaetAh).toBe(1.2)
+    const ohneAkku = netzteile.find((n) => n.anlage === '10021_02')
+    expect(ohneAkku?.kapazitaetAh).toBeNull()
+    expect(ohneAkku?.einbaudatum).toBe('2021-01-01')
   })
 
   it('does not duplicate rows on a second identical import', async () => {

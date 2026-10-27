@@ -157,6 +157,7 @@ export async function syncRoutes(
         })),
         // Akkutausch: Kapazitaeten liegen als NUMERIC in Postgres — der
         // Treiber liefert sie als String, der Client erwartet eine Zahl.
+        // `null` bleibt `null` (unvollstaendige Geraete aus CSV-Importen).
         akkuNetzteile: akkuNetzteilRows.map((r) => ({
           id: r.id,
           anlage: r.anlage,
@@ -164,7 +165,7 @@ export async function syncRoutes(
           name: r.name,
           einbaudatum: r.einbaudatum,
           intervallJahre: r.intervallJahre,
-          kapazitaetAh: Number(r.kapazitaetAh),
+          kapazitaetAh: r.kapazitaetAh === null ? null : Number(r.kapazitaetAh),
           anzahl: r.anzahl,
           gruppe: r.gruppe,
           plz: r.plz,

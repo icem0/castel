@@ -125,16 +125,22 @@ export const buchungSchema = z.object({
 /** Kalenderdatum `YYYY-MM-DD` (ohne Zeit und Zeitzone). */
 const isoDatum = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'muss YYYY-MM-DD sein')
 
-/** Eingebautes Geraet, dessen Akku in einem festen Intervall getauscht wird. */
+/**
+ * Eingebautes Geraet, dessen Akku in einem festen Intervall getauscht wird.
+ *
+ * Die Akku-Daten (Einbaudatum, Intervall, Kapazitaet, Anzahl) duerfen `null`
+ * sein: Geraete aus CSV-Importen sind oft noch unvollstaendig und werden
+ * spaeter in der PWA ergaenzt (Migration 0023).
+ */
 export const akkuNetzteilSchema = z.object({
   id,
   anlage: z.string().min(1),
   objekt: z.string().min(1),
   name: z.string().min(1),
-  einbaudatum: isoDatum,
-  intervallJahre: z.number().int().positive(),
-  kapazitaetAh: z.number().positive(),
-  anzahl: z.number().int().positive(),
+  einbaudatum: isoDatum.nullable(),
+  intervallJahre: z.number().int().positive().nullable(),
+  kapazitaetAh: z.number().positive().nullable(),
+  anzahl: z.number().int().positive().nullable(),
   gruppe: z.string().nullable().optional(),
   plz: z.string().nullable().optional(),
   vdsAnerkennung: z.string().nullable().optional(),

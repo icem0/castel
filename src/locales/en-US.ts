@@ -504,6 +504,8 @@ export default {
         'No battery sizes are configured. An admin can add them under Settings → Battery sizes.',
       warnungen: 'Warnings',
       warnungDatum: 'Device “{bezug}”: installation date or interval is invalid.',
+      warnungUnvollstaendig:
+        'Device “{bezug}”: still incomplete — {wert} is missing (fill in on the devices tab).',
       warnungGroesseNetzteil:
         'Device “{bezug}”: the capacity {wert} Ah does not match any configured size.',
       warnungGroesseProjekt:
@@ -536,7 +538,8 @@ export default {
       netzteilImportValidierung: 'Validation: not checked',
       netzteilImportValidierungOk: '✓ OK — all rows look importable.',
       netzteilImportProbleme: 'Validation: {anzahl} problem(s)',
-      netzteilImportZusammenfassung: '{anzahl} rows importable, {uebersprungen} rows skipped',
+      netzteilImportZusammenfassung:
+        '{anzahl} rows importable, {uebersprungen} rows skipped, {unvollstaendig} rows incomplete',
       netzteilImportBefunde: '{anzahl} notes about individual rows',
       netzteilImportLaeuft: 'Importing…',
       netzteilImportAusfuehren: 'Import',
@@ -547,11 +550,15 @@ export default {
       netzteilImportUebersprungen: '{anzahl} unchanged rows skipped',
       netzteilImportReparierteZeilen: '{anzahl} rows repaired',
       netzteilImportUebersprungeneZeilen: '{anzahl} rows not imported',
+      netzteilImportUnvollstaendigeZeilen:
+        '{anzahl} devices imported incomplete (fill in the missing values on the devices tab)',
       netzteilImportWarnungen: 'Warnings',
       netzteilImportKonflikte: 'Conflicts',
       fehlerQuartal: 'Please choose a valid quarter (1–4).',
       fehlerJahr: 'Please enter a valid year.',
       fehlerProjekt: 'The project name is required.',
+      hinweisOptionaleAkkuDaten:
+        'Installation date, replacement interval, capacity and count are optional — leave empty while the value is unknown.',
     },
     artikelKataloge: {
       h1: 'Supplier catalogues',

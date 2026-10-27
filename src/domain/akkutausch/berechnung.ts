@@ -117,8 +117,15 @@ export function quartalVonDatum(datum: IsoDatum): number | null {
  * Due date of a device: installation date plus the replacement interval.
  * The day of month is clamped to the last day of the target month, so
  * 29.02.2020 + 1 year becomes 28.02.2021 instead of 01.03.2021.
+ *
+ * Returns `null` when the date or the interval is missing (devices from CSV
+ * imports may not have them yet).
  */
-export function faelligkeit(einbaudatum: string, intervallJahre: number): IsoDatum | null {
+export function faelligkeit(
+  einbaudatum: string | null,
+  intervallJahre: number | null,
+): IsoDatum | null {
+  if (einbaudatum === null || intervallJahre === null) return null
   const iso = parseDatum(einbaudatum)
   if (!iso) return null
   if (!Number.isFinite(intervallJahre) || intervallJahre <= 0) return null
@@ -217,12 +224,25 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
 
   for (const netzteil of netzteile) {
     if (netzteil.geloescht) continue
+
+    // Devices from CSV imports may still be incomplete — they cannot be
+    // planned, but the user has to see them in the warning list.
+    const fehlend = fehlendeNetzteilFelder(netzteil)
+    if (fehlend.length > 0) {
+      warnungen.push({
+        code: 'netzteil_unvollstaendig',
+        bezug: netzteil.name || netzteil.anlage,
+        wert: fehlend.join(','),
+      })
+      continue
+    }
+
     const faellig = faelligkeit(netzteil.einbaudatum, netzteil.intervallJahre)
     if (!faellig) {
       warnungen.push({
         code: 'netzteil_ungueltiges_datum',
         bezug: netzteil.name || netzteil.anlage,
-        wert: netzteil.einbaudatum,
+        wert: netzteil.einbaudatum ?? undefined,
       })
       continue
     }
@@ -230,16 +250,18 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
     const faelligJahr = Number(faellig.slice(0, 4))
     if (faelligQuartal !== quartal || faelligJahr !== jahr) continue
 
-    const typ = typFuerKapazitaet(netzteil.kapazitaetAh, typen)
+    const kapazitaet = netzteil.kapazitaetAh
+    if (kapazitaet === null) continue
+    const typ = typFuerKapazitaet(kapazitaet, typen)
     if (!typ) {
       warnungen.push({
         code: 'netzteil_keine_groesse',
         bezug: netzteil.name || netzteil.anlage,
-        wert: String(netzteil.kapazitaetAh),
+        wert: String(kapazitaet),
       })
       continue
     }
-    sollJeTyp.set(typ.id, (sollJeTyp.get(typ.id) ?? 0) + netzteil.anzahl)
+    sollJeTyp.set(typ.id, (sollJeTyp.get(typ.id) ?? 0) + (netzteil.anzahl ?? 0))
   }
 
   for (const projektakku of projektakkus) {
@@ -301,6 +323,22 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
   }
 
   return { zeilen, bestellzeilen, warnungen }
+}
+
+/**
+ * Battery data of a device that is still missing.
+ *
+ * Returns the field keys (`einbaudatum`, `intervallJahre`, `kapazitaetAh`,
+ * `anzahl`) that are still unknown — an empty list means the device is
+ * complete.
+ */
+export function fehlendeNetzteilFelder(netzteil: Netzteil): string[] {
+  const fehlend: string[] = []
+  if (!netzteil.einbaudatum) fehlend.push('einbaudatum')
+  if (netzteil.intervallJahre === null) fehlend.push('intervallJahre')
+  if (netzteil.kapazitaetAh === null) fehlend.push('kapazitaetAh')
+  if (netzteil.anzahl === null) fehlend.push('anzahl')
+  return fehlend
 }
 
 /** Number of days in a month (1-based month). */

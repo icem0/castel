@@ -60,9 +60,9 @@ function fuelleFormular(): void {
   objekt.value = n?.objekt ?? ''
   name.value = n?.name ?? ''
   einbaudatum.value = n?.einbaudatum ?? ''
-  intervall.value = n ? String(n.intervallJahre) : '5'
-  kapazitaet.value = n ? String(n.kapazitaetAh) : ''
-  anzahl.value = n ? String(n.anzahl) : '1'
+  intervall.value = n ? (n.intervallJahre === null ? '' : String(n.intervallJahre)) : '5'
+  kapazitaet.value = n ? (n.kapazitaetAh === null ? '' : String(n.kapazitaetAh)) : ''
+  anzahl.value = n ? (n.anzahl === null ? '' : String(n.anzahl)) : '1'
   gruppe.value = n?.gruppe ?? ''
   plz.value = n?.plz ?? ''
   vdsAnerkennung.value = n?.vdsAnerkennung ?? ''
@@ -79,6 +79,9 @@ const erkannteGroesse = computed(() => {
   return typFuerKapazitaet(wert, props.typen)
 })
 
+/** True, wenn die Kapazitaet noch nicht bekannt ist. */
+const kapazitaetUnbekannt = computed(() => kapazitaet.value.trim() === '')
+
 /** Faelligkeit des Akkutausches (ISO-Datum) oder `null`. */
 const faellig = computed(() => {
   const jahre = Number(intervall.value)
@@ -88,26 +91,42 @@ const faellig = computed(() => {
 
 function speichern(): void {
   fehler.value = ''
-  const kapazitaetWert = parseKapazitaet(kapazitaet.value)
-  if (kapazitaetWert === null) {
+
+  // Akku-Daten sind optional: Geraete aus CSV-Importen sind oft noch
+  // unvollstaendig und werden spaeter ergaenzt.
+  const kapazitaetRoh = kapazitaet.value.trim()
+  const kapazitaetWert = kapazitaetRoh === '' ? null : parseKapazitaet(kapazitaetRoh)
+  if (kapazitaetRoh !== '' && kapazitaetWert === null) {
     fehler.value = t('view.akkutausch.fehlerKapazitaet')
     return
   }
-  const datum = parseDatum(einbaudatum.value)
-  if (!datum) {
+
+  const datumRoh = einbaudatum.value.trim()
+  const datum = datumRoh === '' ? null : parseDatum(datumRoh)
+  if (datumRoh !== '' && datum === null) {
     fehler.value = t('view.akkutausch.fehlerDatum')
     return
   }
-  const intervallWert = Number(intervall.value)
-  if (!Number.isFinite(intervallWert) || intervallWert < 1) {
+
+  const intervallRoh = intervall.value.trim()
+  const intervallZahl = intervallRoh === '' ? null : Number(intervallRoh)
+  if (
+    intervallRoh !== '' &&
+    (intervallZahl === null || !Number.isFinite(intervallZahl) || intervallZahl < 1)
+  ) {
     fehler.value = t('view.akkutausch.fehlerIntervall')
     return
   }
-  const anzahlWert = Number(anzahl.value)
-  if (!Number.isFinite(anzahlWert) || anzahlWert < 1) {
+  const intervallWert = intervallZahl === null ? null : Math.trunc(intervallZahl)
+
+  const anzahlRoh = anzahl.value.trim()
+  const anzahlZahl = anzahlRoh === '' ? null : Number(anzahlRoh)
+  if (anzahlRoh !== '' && (anzahlZahl === null || !Number.isFinite(anzahlZahl) || anzahlZahl < 1)) {
     fehler.value = t('view.akkutausch.fehlerAnzahl')
     return
   }
+  const anzahlWert = anzahlZahl === null ? null : Math.trunc(anzahlZahl)
+
   if (anlage.value.trim() === '' || objekt.value.trim() === '' || name.value.trim() === '') {
     fehler.value = t('view.akkutausch.fehlerPflichtfelder')
     return
@@ -119,9 +138,9 @@ function speichern(): void {
     objekt: objekt.value.trim(),
     name: name.value.trim(),
     einbaudatum: datum,
-    intervallJahre: Math.trunc(intervallWert),
+    intervallJahre: intervallWert,
     kapazitaetAh: kapazitaetWert,
-    anzahl: Math.trunc(anzahlWert),
+    anzahl: anzahlWert,
     gruppe: gruppe.value.trim() === '' ? null : gruppe.value.trim(),
     plz: plz.value.trim() === '' ? null : plz.value.trim(),
     vdsAnerkennung: vdsAnerkennung.value.trim() === '' ? null : vdsAnerkennung.value.trim(),
@@ -157,24 +176,26 @@ function speichern(): void {
     <div class="form-row">
       <label>
         <span>{{ t('view.akkutausch.feldEinbaudatum') }}</span>
-        <input v-model="einbaudatum" type="date" required />
+        <input v-model="einbaudatum" type="date" />
       </label>
       <label>
         <span>{{ t('view.akkutausch.feldIntervall') }}</span>
-        <input v-model="intervall" type="number" min="1" step="1" required />
+        <input v-model="intervall" type="number" min="1" step="1" />
       </label>
     </div>
 
     <div class="form-row">
       <label>
         <span>{{ t('view.akkutausch.feldKapazitaet') }}</span>
-        <input v-model="kapazitaet" type="text" inputmode="decimal" placeholder="12,5" required />
+        <input v-model="kapazitaet" type="text" inputmode="decimal" placeholder="12,5" />
       </label>
       <label>
         <span>{{ t('view.akkutausch.feldAnzahl') }}</span>
-        <input v-model="anzahl" type="number" min="1" step="1" required />
+        <input v-model="anzahl" type="number" min="1" step="1" />
       </label>
     </div>
+
+    <p class="hinweis-optional">{{ t('view.akkutausch.hinweisOptionaleAkkuDaten') }}</p>
 
     <p class="hinweis">
       <span>{{ t('view.akkutausch.erkannteGroesse') }}:</span>
@@ -182,6 +203,7 @@ function speichern(): void {
         {{ formatKapazitaet(erkannteGroesse.kapazitaetAh, locale) }}
         ({{ formatKapazitaetBereich(erkannteGroesse.von, erkannteGroesse.bis, locale) }})
       </strong>
+      <span v-else-if="kapazitaetUnbekannt" class="warn-text">—</span>
       <span v-else class="warn-text">{{ t('view.akkutausch.keineGroesse') }}</span>
       <span class="trenner">·</span>
       <span>{{ t('view.akkutausch.faelligkeit') }}:</span>
@@ -234,6 +256,12 @@ function speichern(): void {
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: baseline;
+}
+
+.hinweis-optional {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
 }
 
 .warn-text {

@@ -48,10 +48,35 @@ function artikelFehlt(artikelId: string | null): boolean {
   return artikelStore.byId(artikelId) === undefined
 }
 
+/** Labels for the battery data that may still be missing. */
+function feldLabel(key: string): string {
+  switch (key) {
+    case 'einbaudatum':
+      return t('view.akkutausch.feldEinbaudatum')
+    case 'intervallJahre':
+      return t('view.akkutausch.feldIntervall')
+    case 'kapazitaetAh':
+      return t('view.akkutausch.feldKapazitaet')
+    case 'anzahl':
+      return t('view.akkutausch.feldAnzahl')
+    default:
+      return key
+  }
+}
+
 function warnungText(code: PlanwarnungCode, bezug: string, wert?: string): string {
   switch (code) {
     case 'netzteil_ungueltiges_datum':
       return t('view.akkutausch.warnungDatum', { bezug })
+    case 'netzteil_unvollstaendig':
+      return t('view.akkutausch.warnungUnvollstaendig', {
+        bezug,
+        wert: (wert ?? '')
+          .split(',')
+          .filter((f) => f !== '')
+          .map(feldLabel)
+          .join(', '),
+      })
     case 'netzteil_keine_groesse':
       return t('view.akkutausch.warnungGroesseNetzteil', { bezug, wert })
     case 'projektakku_keine_groesse':

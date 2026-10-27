@@ -162,6 +162,13 @@
       "when": 1793112878000,
       "tag": "0022_hersteller_rabattsatz",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793135934000,
+      "tag": "0023_akkutausch_optional",
+      "breakpoints": true
     }
   ]
 }

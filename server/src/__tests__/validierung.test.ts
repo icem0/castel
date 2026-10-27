@@ -3,13 +3,60 @@
 import { describe, it, expect } from 'vitest'
 import {
   artikelSchema,
+  akkuNetzteilSchema,
   buchungSchema,
   loginSchema,
   pushPayloadSchema,
   snapshotQuerySchema,
 } from '../domain/validierung.js'
 
+function netzteil(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'n1',
+    anlage: '10020_02',
+    objekt: 'Klinik',
+    name: 'Zentrale',
+    einbaudatum: '2021-01-01',
+    intervallJahre: 4,
+    kapazitaetAh: 2.5,
+    anzahl: 2,
+    gruppe: null,
+    plz: null,
+    vdsAnerkennung: null,
+    bemerkung: null,
+    geloescht: false,
+    geaendertAm: '2024-01-01T00:00:00.000Z',
+    erstelltAm: '2024-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
 describe('validierung.schemas', () => {
+  describe('akkuNetzteilSchema', () => {
+    it('akzeptiert ein vollständiges Netzteil', () => {
+      expect(akkuNetzteilSchema.safeParse(netzteil()).success).toBe(true)
+    })
+
+    it('akzeptiert fehlende Akku-Daten (Migration 0023)', () => {
+      const r = akkuNetzteilSchema.safeParse(
+        netzteil({ einbaudatum: null, intervallJahre: null, kapazitaetAh: null, anzahl: null }),
+      )
+      expect(r.success).toBe(true)
+    })
+
+    it('lehnt fehlende Identität ab', () => {
+      expect(akkuNetzteilSchema.safeParse(netzteil({ name: '' })).success).toBe(false)
+    })
+
+    it('lehnt ungültige Werte ab', () => {
+      expect(akkuNetzteilSchema.safeParse(netzteil({ kapazitaetAh: 0 })).success).toBe(false)
+      expect(akkuNetzteilSchema.safeParse(netzteil({ intervallJahre: 0 })).success).toBe(false)
+      expect(akkuNetzteilSchema.safeParse(netzteil({ einbaudatum: '01/2021' })).success).toBe(
+        false,
+      )
+    })
+  })
+
   describe('loginSchema', () => {
     it('akzeptiert gültige Eingaben', () => {
       const r = loginSchema.safeParse({ email: 'a@b.de', password: 'x' })

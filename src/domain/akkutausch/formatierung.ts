@@ -32,7 +32,8 @@ export function formatZahl(wert: number, locale: string): string {
 }
 
 /** Formats a capacity including the unit, e.g. `12,5 Ah`. */
-export function formatKapazitaet(wert: number, locale: string): string {
+export function formatKapazitaet(wert: number | null, locale: string): string {
+  if (wert === null) return '—'
   return `${formatZahl(wert, locale)} Ah`
 }
 
@@ -52,8 +53,11 @@ export function artikelTitel(kapazitaetAh: number, locale: string): string {
 /**
  * Formats a calendar date (`YYYY-MM-DD`) for display. The date is built in
  * UTC so it never shifts by a day through the local time zone.
+ *
+ * `null` (unknown date) yields an empty string.
  */
-export function formatDatum(datum: IsoDatum, locale: string): string {
+export function formatDatum(datum: IsoDatum | null, locale: string): string {
+  if (datum === null) return ''
   const jahr = Number(datum.slice(0, 4))
   const monat = Number(datum.slice(5, 7))
   const tag = Number(datum.slice(8, 10))

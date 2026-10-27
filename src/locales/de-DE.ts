@@ -517,6 +517,8 @@ export default {
         'Es sind keine Akku-Größen konfiguriert. Der Admin legt sie unter Einstellungen → Akku-Größen an.',
       warnungen: 'Hinweise',
       warnungDatum: 'Netzteil „{bezug}“: Einbaudatum oder Intervall ist ungültig.',
+      warnungUnvollstaendig:
+        'Netzteil „{bezug}“: noch unvollständig — {wert} fehlt (im Geräte-Tab nachtragen).',
       warnungGroesseNetzteil:
         'Netzteil „{bezug}“: Die Kapazität {wert} Ah ist keiner konfigurierten Größe zugeordnet.',
       warnungGroesseProjekt:
@@ -550,7 +552,7 @@ export default {
       netzteilImportValidierungOk: '✓ OK — alle Zeilen sehen importierbar aus.',
       netzteilImportProbleme: 'Validierung: {anzahl} Problem(e)',
       netzteilImportZusammenfassung:
-        '{anzahl} Zeilen importierbar, {uebersprungen} Zeilen übersprungen',
+        '{anzahl} Zeilen importierbar, {uebersprungen} Zeilen übersprungen, {unvollstaendig} Zeilen unvollständig',
       netzteilImportBefunde: '{anzahl} Hinweise zu einzelnen Zeilen',
       netzteilImportLaeuft: 'Importiere …',
       netzteilImportAusfuehren: 'Importieren',
@@ -561,11 +563,15 @@ export default {
       netzteilImportUebersprungen: '{anzahl} unverändert übersprungen',
       netzteilImportReparierteZeilen: '{anzahl} Zeilen repariert',
       netzteilImportUebersprungeneZeilen: '{anzahl} Zeilen nicht importiert',
+      netzteilImportUnvollstaendigeZeilen:
+        '{anzahl} Geräte unvollständig importiert (Werte im Geräte-Tab nachtragen)',
       netzteilImportWarnungen: 'Warnungen',
       netzteilImportKonflikte: 'Konflikte',
       fehlerQuartal: 'Bitte ein gültiges Quartal (1–4) wählen.',
       fehlerJahr: 'Bitte ein gültiges Jahr angeben.',
       fehlerProjekt: 'Der Projektname ist ein Pflichtfeld.',
+      hinweisOptionaleAkkuDaten:
+        'Einbaudatum, Wechselintervall, Kapazität und Anzahl sind optional — leer lassen, wenn der Wert noch nicht bekannt ist.',
     },
     artikelKataloge: {
       h1: 'Artikelkataloge',

@@ -58,19 +58,19 @@ export const NETZTEIL_FELD_BESCHREIBUNG: Record<
     bedeutung: 'Gerätename bzw. Position',
   },
   einbaudatum: {
-    format: 'Datum: MM/JJJJ, TT.MM.JJJJ oder YYYY-MM-DD',
+    format: 'Datum: MM/JJJJ, TT.MM.JJJJ oder YYYY-MM-DD (optional)',
     bedeutung: 'Einbaudatum; MM/JJJJ wird auf den Monatsersten normalisiert',
   },
   intervallJahre: {
-    format: 'Ganzzahl ≥ 1, optional mit Text wie "4 Jahre" oder "12 Monate"',
+    format: 'Ganzzahl ≥ 1, optional mit Text wie "4 Jahre" oder "12 Monate" (optional)',
     bedeutung: 'Austauschintervall in Jahren',
   },
   kapazitaetAh: {
-    format: 'Dezimalzahl > 0 (Pflicht), Komma oder Punkt',
+    format: 'Dezimalzahl > 0, Komma oder Punkt (optional)',
     bedeutung: 'Akku-Kapazität in Ah',
   },
   anzahl: {
-    format: 'Ganzzahl ≥ 1 (Pflicht)',
+    format: 'Ganzzahl ≥ 1 (optional)',
     bedeutung: 'Anzahl Akkus pro Gerät',
   },
   gruppe: {
