@@ -1,11 +1,22 @@
 name: build-and-push
 
+# Anzeigename des Runs. Push-/PR-Runs behalten den Workflow-Namen
+# ("build-and-push"); manuell gestartete Runs (workflow_dispatch) tragen
+# den im UI vergebenen Titel, z. B. "Akkutausch-Verwaltung".
+run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.name || 'build-and-push' }}
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      name:
+        description: 'Titel des Builds (optional, z. B. "Akkutausch-Verwaltung")'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
