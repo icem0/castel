@@ -14,7 +14,7 @@ import { formatDatum, formatKapazitaet } from '../../domain/akkutausch/formatier
 import { quartalVonDatum } from '../../domain/akkutausch/berechnung'
 import type { Netzteil } from '../../domain/akkutausch/types'
 import { ImportValidierungError } from '../../domain/errors'
-import { parseCsv, type ParsedCsv } from '../../services/import/csv-parser'
+import { parseCsv } from '../../services/import/csv-parser'
 import {
   defaultNetzteilMapping,
   NETZTEIL_FELD_BESCHREIBUNG,
@@ -22,11 +22,13 @@ import {
   type NetzteilMapping,
 } from '../../services/import/netzteil-mapping'
 import {
+  bereiteNetzteilCsvAuf,
   importNetzteileAusCsv,
-  validiereNetzteilDaten,
+  pruefeNetzteilImport,
+  type NetzteilCsvDaten,
   type NetzteilImportBericht,
+  type NetzteilImportPruefung,
 } from '../../services/import/netzteil-import'
-import type { ValidierungsErgebnis } from '../../services/import/validierung'
 import NetzteilForm from './NetzteilForm.vue'
 
 const { t } = useI18n()
@@ -43,9 +45,9 @@ const formOffen = ref(false)
 
 const importOffen = ref(false)
 const importDatei = ref<File | null>(null)
-const importParsed = ref<ParsedCsv | null>(null)
+const importDaten = ref<NetzteilCsvDaten | null>(null)
 const importMapping = ref<NetzteilMapping>({})
-const importValidierung = ref<ValidierungsErgebnis | null>(null)
+const importPruefung = ref<NetzteilImportPruefung | null>(null)
 const importBericht = ref<NetzteilImportBericht | null>(null)
 const importLaeuft = ref(false)
 const importFehler = ref('')
@@ -94,15 +96,18 @@ const gefiltert = computed(() => {
 })
 
 const importValidOk = computed(() => {
-  const v = importValidierung.value
+  const v = importPruefung.value
   return v ? v.ok : false
 })
 
 const importHinweis = computed(() => {
-  const v = importValidierung.value
+  const v = importPruefung.value
   if (!v) return t('view.akkutausch.netzteilImportValidierung')
-  if (v.ok) return t('view.akkutausch.netzteilImportValidierungOk')
-  return t('view.akkutausch.netzteilImportProbleme', { anzahl: v.probleme.length })
+  if (!v.ok) return t('view.akkutausch.netzteilImportProbleme', { anzahl: v.probleme.length })
+  return t('view.akkutausch.netzteilImportZusammenfassung', {
+    anzahl: v.importierbar,
+    uebersprungen: v.uebersprungen,
+  })
 })
 
 function neuesNetzteil(): void {
@@ -134,9 +139,9 @@ async function loeschen(n: Netzteil): Promise<void> {
 function importeroeffnen(): void {
   importOffen.value = true
   importDatei.value = null
-  importParsed.value = null
+  importDaten.value = null
   importMapping.value = {}
-  importValidierung.value = null
+  importPruefung.value = null
   importBericht.value = null
   importLaeuft.value = false
   importFehler.value = ''
@@ -145,9 +150,9 @@ function importeroeffnen(): void {
 function importerSchliessen(): void {
   importOffen.value = false
   importDatei.value = null
-  importParsed.value = null
+  importDaten.value = null
   importMapping.value = {}
-  importValidierung.value = null
+  importPruefung.value = null
   importBericht.value = null
   importLaeuft.value = false
   importFehler.value = ''
@@ -160,54 +165,59 @@ async function importerDateiAendern(e: Event): Promise<void> {
   importFehler.value = ''
 
   if (!file) {
-    importParsed.value = null
+    importDaten.value = null
     importMapping.value = {}
-    importValidierung.value = null
+    importPruefung.value = null
     return
   }
 
   try {
     const parsedCsv = parseCsv(await file.text())
     if (parsedCsv.headers.length === 0) {
-      importParsed.value = null
+      importDaten.value = null
       importMapping.value = {}
-      importValidierung.value = null
+      importPruefung.value = null
       importFehler.value = t('view.akkutausch.netzteilImportKeineSpalten')
       return
     }
 
-    importParsed.value = parsedCsv
-    importMapping.value = defaultNetzteilMapping(parsedCsv.headers)
+    const daten = bereiteNetzteilCsvAuf(parsedCsv.headers, parsedCsv.rows)
+    importDaten.value = daten
+    importMapping.value = defaultNetzteilMapping(daten.headers)
     validiereNetzteilImport()
   } catch (err) {
-    importParsed.value = null
+    importDaten.value = null
     importMapping.value = {}
-    importValidierung.value = null
+    importPruefung.value = null
     importFehler.value = fehlermeldung(err)
   }
 }
 
 function validiereNetzteilImport(): void {
-  if (!importParsed.value) {
-    importValidierung.value = null
+  const daten = importDaten.value
+  if (!daten) {
+    importPruefung.value = null
     return
   }
-  importValidierung.value = validiereNetzteilDaten(
+  importPruefung.value = pruefeNetzteilImport(
     importMapping.value,
-    importParsed.value.rows,
-    importParsed.value.headers,
+    daten.rows,
+    daten.headers,
+    daten.zeilenOffset,
   )
 }
 
 async function importerAusfuehren(): Promise<void> {
-  if (!importParsed.value) return
+  const daten = importDaten.value
+  if (!daten) return
   importLaeuft.value = true
   importFehler.value = ''
   try {
     importBericht.value = await importNetzteileAusCsv({
-      rows: importParsed.value.rows,
-      headers: importParsed.value.headers,
+      rows: daten.rows,
+      headers: daten.headers,
       mapping: importMapping.value,
+      zeilenOffset: daten.zeilenOffset,
     })
   } catch (e) {
     importFehler.value = fehlermeldung(e)
@@ -223,7 +233,7 @@ function fehlermeldung(e: unknown): string {
 }
 
 watch(
-  () => [importParsed.value, importMapping.value],
+  () => [importDaten.value, importMapping.value],
   () => validiereNetzteilImport(),
   { deep: true },
 )
@@ -266,17 +276,18 @@ watch(
         </label>
       </div>
 
-      <p v-if="importDatei && importParsed" class="hint">
+      <p v-if="importDatei && importDaten" class="hint">
         {{ importDatei.name }} ({{
           t('view.akkutausch.netzteilImportZeilen', {
-            anzahl: importParsed.rowCount,
+            anzahl: importDaten.rows.length,
           })
         }})
+        <span v-if="importDaten.hinweis"> — {{ importDaten.hinweis }}</span>
       </p>
 
       <p v-if="importFehler" class="fehler">{{ importFehler }}</p>
 
-      <div v-if="importParsed" class="card">
+      <div v-if="importDaten" class="card">
         <h3 class="card-titel">{{ t('view.akkutausch.netzteilImportMapping') }}</h3>
         <table class="data">
           <thead>
@@ -287,7 +298,7 @@ watch(
             </tr>
           </thead>
           <tbody>
-            <tr v-for="h in importParsed.headers" :key="h">
+            <tr v-for="h in importDaten.headers" :key="h">
               <td>{{ h }}</td>
               <td>
                 <select v-model="importMapping[h]">
@@ -311,11 +322,28 @@ watch(
         </table>
       </div>
 
-      <p v-if="importParsed" class="hint">{{ importHinweis }}</p>
+      <p v-if="importDaten" class="hint">{{ importHinweis }}</p>
 
-      <ul v-if="importValidierung && !importValidierung.ok">
-        <li v-for="(p, i) in importValidierung.probleme" :key="i">{{ p.meldung }}</li>
+      <ul v-if="importPruefung && !importPruefung.ok">
+        <li v-for="(p, i) in importPruefung.probleme" :key="i">{{ p.meldung }}</li>
       </ul>
+
+      <details v-if="importPruefung && importPruefung.befunde.length" class="befunde">
+        <summary>
+          {{
+            t('view.akkutausch.netzteilImportBefunde', { anzahl: importPruefung.befunde.length })
+          }}
+        </summary>
+        <ul>
+          <li
+            v-for="(b, i) in importPruefung.befunde"
+            :key="i"
+            :class="{ fehler: b.art === 'uebersprungen' }"
+          >
+            {{ b.meldung }}
+          </li>
+        </ul>
+      </details>
 
       <div class="actions-cell">
         <button
@@ -362,7 +390,38 @@ watch(
               })
             }}
           </li>
+          <li>
+            {{
+              t('view.akkutausch.netzteilImportReparierteZeilen', {
+                anzahl: importBericht.reparierteZeilen,
+              })
+            }}
+          </li>
+          <li>
+            {{
+              t('view.akkutausch.netzteilImportUebersprungeneZeilen', {
+                anzahl: importBericht.uebersprungeneZeilen,
+              })
+            }}
+          </li>
         </ul>
+
+        <details v-if="importBericht.befunde.length" class="befunde">
+          <summary>
+            {{
+              t('view.akkutausch.netzteilImportBefunde', { anzahl: importBericht.befunde.length })
+            }}
+          </summary>
+          <ul>
+            <li
+              v-for="(b, i) in importBericht.befunde"
+              :key="i"
+              :class="{ fehler: b.art === 'uebersprungen' }"
+            >
+              {{ b.meldung }}
+            </li>
+          </ul>
+        </details>
 
         <template v-if="importBericht.warnungen.length">
           <h4>{{ t('view.akkutausch.netzteilImportWarnungen') }}</h4>
@@ -448,5 +507,20 @@ watch(
 
 .beschreibung .bedeutung {
   margin-top: 0.15rem;
+}
+
+.befunde {
+  margin: 0.5rem 0;
+}
+
+.befunde summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.befunde ul {
+  max-height: 18rem;
+  overflow-y: auto;
+  margin-top: 0.5rem;
 }
 </style>

@@ -9,7 +9,11 @@ import {
   parseNetzteilDatum,
   parseIntervallJahre,
 } from '../netzteil-mapping'
-import { importNetzteileAusCsv, validiereNetzteilDaten } from '../netzteil-import'
+import {
+  bereiteNetzteilCsvAuf,
+  importNetzteileAusCsv,
+  pruefeNetzteilImport,
+} from '../netzteil-import'
 
 const NETZTEILE_CSV = `Anlage;Firma;PLZ;Gruppe;Name;VdS-Anerkennung;Anzahl;Kapazität;Einbaudatum;Austauschintervall;Fälligkeit
 10020_02;OKA - Orthopädische Kinderklinik Aschau;83229;10020 OKA;3. Neubau 1.UG Heim;;2;2.5;01/1990;4 Jahre;01/1994
@@ -58,50 +62,165 @@ describe('Netzteil CSV helpers', () => {
   })
 })
 
-describe('validiereNetzteilDaten', () => {
+describe('bereiteNetzteilCsvAuf', () => {
+  it('repairs a header line with the first data row glued to it', () => {
+    const csv = `Anlage;Firma;PLZ;Gruppe;Name;VdS-Anerkennung;Anzahl;Kapazität;Einbaudatum;Austauschintervall;Fälligkeit10020_02;OKA - Klinik;83229;10020 OKA;3. Neubau;;2;2.5;01/1990;4 Jahre;01/1994
+14082_02;Wohnhaus Friedrich-Ebert-Str. 8;83059;14082 Fritz Hartinger;Zentrale;;2;1.2;01/2021;4 Jahre;01/2025`
+    const parsed = parseCsv(csv)
+
+    const daten = bereiteNetzteilCsvAuf(parsed.headers, parsed.rows)
+
+    expect(daten.headers).toHaveLength(11)
+    expect(daten.headers[10]).toBe('Fälligkeit')
+    expect(daten.rows).toHaveLength(2)
+    expect(daten.rows[0]?.[0]).toBe('10020_02')
+    expect(daten.rows[0]?.[7]).toBe('2.5')
+    expect(daten.zeilenOffset).toBe(1)
+    expect(daten.hinweis).not.toBeNull()
+  })
+
+  it('leaves a well-formed CSV untouched', () => {
+    const parsed = parseCsv(NETZTEILE_CSV)
+    const daten = bereiteNetzteilCsvAuf(parsed.headers, parsed.rows)
+
+    expect(daten.headers).toEqual(parsed.headers)
+    expect(daten.rows).toEqual(parsed.rows)
+    expect(daten.zeilenOffset).toBe(0)
+    expect(daten.hinweis).toBeNull()
+  })
+})
+
+describe('pruefeNetzteilImport', () => {
   it('accepts the known CSV shape', () => {
     const parsed = parseCsv(NETZTEILE_CSV)
-    const result = validiereNetzteilDaten(
+    const result = pruefeNetzteilImport(
       defaultNetzteilMapping(parsed.headers),
       parsed.rows,
       parsed.headers,
     )
 
     expect(result.ok).toBe(true)
-    expect(result.probleme).toEqual([])
+    expect(result.importierbar).toBe(2)
+    expect(result.uebersprungen).toBe(0)
   })
 
-  it('rejects an invalid installation date before importing', () => {
+  it('skips rows without capacity instead of aborting the import', () => {
     const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
-A;Objekt;Gerät;2;1.2;unknown;4 Jahre`
+A;Objekt;Gerät;2;1.2;01/2021;4 Jahre
+B;Objekt;Ohne Akku;2;;01/2021;4 Jahre`
     const parsed = parseCsv(csv)
-    const result = validiereNetzteilDaten(
+    const result = pruefeNetzteilImport(
       defaultNetzteilMapping(parsed.headers),
       parsed.rows,
       parsed.headers,
     )
 
-    expect(result.ok).toBe(false)
-    expect(result.probleme.some((p) => p.meldung.includes('einbaudatum'))).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.importierbar).toBe(1)
+    expect(result.uebersprungen).toBe(1)
+    expect(result.befunde.some((b) => b.art === 'uebersprungen')).toBe(true)
   })
 
-  it('rejects duplicate natural keys inside one CSV file', () => {
+  it('skips rows without a company (object)', () => {
+    const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
+A;;Gerät;2;1.2;01/2021;4 Jahre`
+    const parsed = parseCsv(csv)
+    const result = pruefeNetzteilImport(
+      defaultNetzteilMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+
+    expect(result.importierbar).toBe(0)
+    expect(result.uebersprungen).toBe(1)
+  })
+
+  it('assumes a count of 1 when the column is empty', () => {
+    const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
+A;Objekt;Gerät;;1.2;01/2021;4 Jahre`
+    const parsed = parseCsv(csv)
+    const result = pruefeNetzteilImport(
+      defaultNetzteilMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+
+    expect(result.importierbar).toBe(1)
+    expect(result.befunde.some((b) => b.meldung.includes('1 angenommen'))).toBe(true)
+  })
+
+  it('merges duplicated devices instead of failing', () => {
     const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
 A;Objekt;Gerät;2;1.2;01/2021;4 Jahre
 A;Objekt;Gerät;3;1.2;01/2021;4 Jahre`
     const parsed = parseCsv(csv)
-    const result = validiereNetzteilDaten(
+    const result = pruefeNetzteilImport(
       defaultNetzteilMapping(parsed.headers),
       parsed.rows,
       parsed.headers,
     )
 
-    expect(result.ok).toBe(false)
-    expect(result.probleme.some((p) => p.meldung.includes('doppelte'))).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.importierbar).toBe(1)
+    expect(result.uebersprungen).toBe(0)
+    expect(result.befunde.some((b) => b.meldung.includes('gleiche Identität'))).toBe(true)
+  })
+
+  it('repairs a row with an unescaped semicolon inside a text field', () => {
+    const csv = `Anlage;Firma;PLZ;Gruppe;Name;VdS-Anerkennung;Anzahl;Kapazität;Einbaudatum;Austauschintervall;Fälligkeit
+10020_02;Elektro Hartinger und Sohn GmbH &amp; Co. KG;83259;14082 Fritz Hartinger;Zentrale;;2;1.2;01/2021;4 Jahre;01/2025`
+    const parsed = parseCsv(csv)
+    const result = pruefeNetzteilImport(
+      defaultNetzteilMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+
+    expect(result.importierbar).toBe(1)
+    expect(result.uebersprungen).toBe(0)
+    expect(result.befunde.some((b) => b.art === 'repariert')).toBe(true)
+  })
+
+  it('reports rows whose column count cannot be repaired', () => {
+    const csv = `Anlage;Firma;Name;Anzahl;Kapazität;Einbaudatum;Austauschintervall
+A;Objekt;Gerät;2;1.2;01/2021;4 Jahre;überzählig;noch mehr
+B;Objekt;Gerät 2;2;1.2;01/2021;4 Jahre`
+    const parsed = parseCsv(csv)
+    const result = pruefeNetzteilImport(
+      defaultNetzteilMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+
+    expect(result.importierbar).toBe(1)
+    expect(result.uebersprungen).toBe(1)
   })
 })
 
 describe('importNetzteileAusCsv', () => {
+  it('imports a realistic excerpt of the device list without findings', () => {
+    const csv = `Anlage;Firma;PLZ;Gruppe;Name;VdS-Anerkennung;Anzahl;Kapazität;Einbaudatum;Austauschintervall;Fälligkeit
+10020_02;OKA - Orthopädische Kinderklinik Aschau;83229;10020 OKA;3. Neubau 1.UG Heim;;2;2.5;01/1990;4 Jahre;01/1994
+14082_02;Wohnhaus Friedrich-Ebert-Str. 8;83059;14082 Fritz Hartinger;Zentrale;;2;1.2;01/2021;4 Jahre;01/2025
+10932_02;Alpenpark Klinik;83707;10932 Kirinius Alpenpark;Defregger Haus 2.OG (TRH Luke);;2;1.2;05/2021;4 Jahre;05/2025
+17564_02;VR-Bankgebäude Prien;83209;17564 VR Bank Ro;Zentrale 3;;2;2.3;05/2021;4 Jahre;05/2025
+14914_02;ROS Büros;;14914 Werndl & Partner BWB Areal GmbH & Co. KG;Zentrale 4;;2;7.2;07/2021;4 Jahre;07/2025
+10270_02;Caritas Altenheim St. Franziskus;83059;10270 Caritas München;3.OG Nebentreppenhaus;;2;1.2;08/2021;4 Jahre;08/2025
+12709_06;Katharinenheim - Haus Sinnesgarten;83101;12709 Katharinenheim;Stromversorgung Zentrale / Station;;6;9;09/2021;4 Jahre;09/2025
+15318_01;WEG Conradtystr. 5+6;83059;15318 WEG Y3;Aufzugsschacht;;2;1.2;10/2021;4 Jahre;10/2025`
+    const parsed = parseCsv(csv)
+    const pruefung = pruefeNetzteilImport(
+      defaultNetzteilMapping(parsed.headers),
+      parsed.rows,
+      parsed.headers,
+    )
+
+    expect(pruefung.ok).toBe(true)
+    expect(pruefung.importierbar).toBe(8)
+    expect(pruefung.uebersprungen).toBe(0)
+    expect(pruefung.befunde).toEqual([])
+  })
+
   it('creates devices and queues outbox ops', async () => {
     const parsed = parseCsv(NETZTEILE_CSV)
     const bericht = await importNetzteileAusCsv({
@@ -112,6 +231,7 @@ describe('importNetzteileAusCsv', () => {
 
     expect(bericht.netzteilAngelegt).toBe(2)
     expect(bericht.netzteilAktualisiert).toBe(0)
+    expect(bericht.uebersprungeneZeilen).toBe(0)
 
     const netzteile = await testDb.akkuNetzteile.toArray()
     expect(netzteile).toHaveLength(2)
@@ -129,6 +249,29 @@ describe('importNetzteileAusCsv', () => {
     const ops = outbox.filter((o) => o.entity === 'akku_netzteil' && o.op === 'create')
     expect(ops).toHaveLength(2)
     expect(ops.every((o) => o.syncedAt === null)).toBe(true)
+  })
+
+  it('imports the valid rows of a mixed file and reports the rest', async () => {
+    const csv = `Anlage;Firma;PLZ;Gruppe;Name;VdS-Anerkennung;Anzahl;Kapazität;Einbaudatum;Austauschintervall;Fälligkeit
+10020_02;OKA - Klinik;83229;10020 OKA;3. Neubau;;2;2.5;01/1990;4 Jahre;01/1994
+10021_02;Ohne Akku;83229;10021 OKA;Zentrale;;2;;01/2021;4 Jahre;01/2025
+10022_02;Elektro Hartinger und Sohn GmbH &amp; Co. KG;83259;14082 Fritz Hartinger;Zentrale;;2;1.2;01/2021;4 Jahre;01/2025`
+    const parsed = parseCsv(csv)
+    const bericht = await importNetzteileAusCsv({
+      rows: parsed.rows,
+      headers: parsed.headers,
+      mapping: defaultNetzteilMapping(parsed.headers),
+    })
+
+    expect(bericht.netzteilAngelegt).toBe(2)
+    expect(bericht.uebersprungeneZeilen).toBe(1)
+    expect(bericht.reparierteZeilen).toBe(1)
+
+    const netzteile = await testDb.akkuNetzteile.toArray()
+    expect(netzteile).toHaveLength(2)
+    const hartinger = netzteile.find((n) => n.anlage === '10022_02')
+    expect(hartinger?.objekt).toBe('Elektro Hartinger und Sohn GmbH & Co. KG')
+    expect(hartinger?.kapazitaetAh).toBe(1.2)
   })
 
   it('does not duplicate rows on a second identical import', async () => {

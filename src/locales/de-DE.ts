@@ -549,6 +549,9 @@ export default {
       netzteilImportValidierung: 'Validierung: nicht geprüft',
       netzteilImportValidierungOk: '✓ OK — alle Zeilen sehen importierbar aus.',
       netzteilImportProbleme: 'Validierung: {anzahl} Problem(e)',
+      netzteilImportZusammenfassung:
+        '{anzahl} Zeilen importierbar, {uebersprungen} Zeilen übersprungen',
+      netzteilImportBefunde: '{anzahl} Hinweise zu einzelnen Zeilen',
       netzteilImportLaeuft: 'Importiere …',
       netzteilImportAusfuehren: 'Importieren',
       netzteilImportErneut: 'Erneut validieren',
@@ -556,6 +559,8 @@ export default {
       netzteilImportAngelegt: '{anzahl} Netzteile angelegt',
       netzteilImportAktualisiert: '{anzahl} Netzteile aktualisiert',
       netzteilImportUebersprungen: '{anzahl} unverändert übersprungen',
+      netzteilImportReparierteZeilen: '{anzahl} Zeilen repariert',
+      netzteilImportUebersprungeneZeilen: '{anzahl} Zeilen nicht importiert',
       netzteilImportWarnungen: 'Warnungen',
       netzteilImportKonflikte: 'Konflikte',
       fehlerQuartal: 'Bitte ein gültiges Quartal (1–4) wählen.',

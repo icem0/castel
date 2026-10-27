@@ -4,6 +4,27 @@
 //   Anlage;Firma;PLZ;Gruppe;Name;VdS-Anerkennung;Anzahl;Kapazität;Einbaudatum;Austauschintervall;Fälligkeit
 
 import { parseDatum, parseKapazitaet } from '../../domain/akkutausch/berechnung'
+import { normalisiereName } from './netzteil-reparatur'
+
+/**
+ * Column order of the known device list export.
+ *
+ * Used to repair a header line where the first data row was glued to the
+ * last column name.
+ */
+export const KANONISCHE_NETZTEIL_HEADER = [
+  'Anlage',
+  'Firma',
+  'PLZ',
+  'Gruppe',
+  'Name',
+  'VdS-Anerkennung',
+  'Anzahl',
+  'Kapazität',
+  'Einbaudatum',
+  'Austauschintervall',
+  'Fälligkeit',
+]
 
 export type NetzteilFeld =
   | 'anlage'
@@ -85,7 +106,7 @@ export function defaultNetzteilMapping(headers: string[]): NetzteilMapping {
   const map: NetzteilMapping = {}
 
   for (const header of headers) {
-    const key = normalisierterHeaderSchluessel(header)
+    const key = normalisiereName(header)
 
     if (key === 'anlage' || key === 'plant' || key === 'system') map[header] = 'anlage'
     else if (
@@ -246,18 +267,6 @@ export function pflichtText(raw: string): string | null {
   return trimmed === '' ? null : trimmed
 }
 
-function normalisierterHeaderSchluessel(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/ä/g, 'ae')
-    .replace(/ö/g, 'oe')
-    .replace(/ü/g, 'ue')
-    .replace(/ß/g, 'ss')
-    .replace(/[^a-z0-9]/g, '')
-}
-
 function normalisierterSchluesselTeil(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
@@ -281,11 +290,11 @@ function pad(value: number, length: number): string {
 function decodeHtmlEntities(raw: string): string {
   return raw
     .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/&amp;?/g, '&')
+    .replace(/&quot;?/g, '"')
+    .replace(/&#39;|&apos;?/g, "'")
+    .replace(/&lt;?/g, '<')
+    .replace(/&gt;?/g, '>')
 }
 
 function fnv1a32(value: string, seed: number): number {

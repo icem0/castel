@@ -1,9 +1,20 @@
 // CSV import pipeline for Akkutausch devices.
 //
 // Devices are stored locally in Dexie and pushed through the normal outbox
-// pipeline. The import intentionally runs a full pre-flight before touching
-// IndexedDB, because half-imported rows would otherwise only be cleaned up by
-// a database reset.
+// pipeline.
+//
+// The import is deliberately tolerant: real exports contain rows with
+// missing values, duplicated devices and unescaped semicolons inside text
+// fields. Such rows must not abort the whole import:
+//
+//   * rows whose column count does not match the header are realigned when
+//     the result is unambiguous (see `netzteil-reparatur.ts`), otherwise they
+//     are skipped and reported;
+//   * rows without battery data (capacity, date, interval) are skipped and
+//     reported — the database does not allow NULL there;
+//   * a missing "Anzahl" falls back to 1 and is reported as a note;
+//   * devices that appear more than once in the file are merged — the last
+//     complete row wins.
 //
 // Device identity is natural: `anlage + objekt + name`. Re-importing the same
 // CSV therefore updates matching rows instead of creating duplicates.
@@ -14,24 +25,70 @@ import type { Netzteil } from '../../domain/akkutausch/types'
 import { jetztIso, neueUuid } from '../../domain/ids'
 import { ImportValidierungError } from '../../domain/errors'
 import { queueOp } from '../sync/worker'
+import { reparereZeile, repariereGeklebtenHeader } from './netzteil-reparatur'
 import type { NetzteilFeld, NetzteilMapping } from './netzteil-mapping'
 import {
-  PFLICHT_NETZTEIL_FELDER,
+  KANONISCHE_NETZTEIL_HEADER,
   netzteilIdFuerSchluessel,
   netzteilSchluessel,
   normalisierterText,
+  parseIntervallJahre,
   parseNetzteilDatum,
   parseNetzteilKapazitaet,
   parsePositiveInt,
-  parseIntervallJahre,
   pflichtText,
 } from './netzteil-mapping'
-import type { ValidierungsErgebnis, ValidierungsProblem } from './validierung'
+import type { ValidierungsProblem } from './validierung'
+
+/** Columns that may contain free text (and therefore a stray semicolon). */
+const TEXT_FELDER = new Set<NetzteilFeld>(['objekt', 'gruppe', 'name', 'vdsAnerkennung'])
+
+/** Columns that must be mapped — otherwise no row can be imported at all. */
+const PFLICHT_SPALTEN: NetzteilFeld[] = [
+  'anlage',
+  'objekt',
+  'name',
+  'einbaudatum',
+  'intervallJahre',
+  'kapazitaetAh',
+]
+
+/** A single finding about one CSV row. */
+export interface NetzteilImportBefund {
+  /** 0-based index of the row inside the data rows. */
+  index: number
+  /** Line number in the source file (header = line 1). */
+  zeile: number
+  /** Human-readable message. */
+  meldung: string
+  /** Kind of the finding. */
+  art: 'repariert' | 'uebersprungen' | 'hinweis'
+}
+
+/** Pre-flight result shown before the import runs. */
+export interface NetzteilImportPruefung {
+  /** No blocking problem — the import can run. */
+  ok: boolean
+  /** Blocking problems (missing/ambiguous column mapping). */
+  probleme: ValidierungsProblem[]
+  /** Number of rows that will be imported. */
+  importierbar: number
+  /** Number of rows that will be skipped. */
+  uebersprungen: number
+  /** Per-row findings (repairs, defaults, skips). */
+  befunde: NetzteilImportBefund[]
+}
 
 export interface NetzteilImportBericht {
   netzteilAngelegt: number
   netzteilAktualisiert: number
+  /** Existing devices that were already up to date. */
   netzteilUebersprungen: number
+  /** CSV rows that could not be imported. */
+  uebersprungeneZeilen: number
+  /** CSV rows that were realigned before the import. */
+  reparierteZeilen: number
+  befunde: NetzteilImportBefund[]
   warnungen: string[]
   konflikte: string[]
 }
@@ -40,6 +97,8 @@ export interface NetzteilImportEingabe {
   rows: string[][]
   headers: string[]
   mapping: NetzteilMapping
+  /** Offset for the file line number (1 when the header line carried the first row). */
+  zeilenOffset?: number
 }
 
 type NetzteilImportDaten = Pick<
@@ -56,31 +115,81 @@ type NetzteilImportDaten = Pick<
   | 'vdsAnerkennung'
 >
 
-/** Checks the selected mapping and every row before any write happens. */
-export function validiereNetzteilDaten(
+interface NetzteilImportPlan {
+  probleme: ValidierungsProblem[]
+  zeilen: Array<{ index: number; zeile: number; daten: NetzteilImportDaten }>
+  befunde: NetzteilImportBefund[]
+}
+
+/** A CSV that was prepared for the import (header repaired, rows aligned). */
+export interface NetzteilCsvDaten {
+  headers: string[]
+  rows: string[][]
+  /** Lines consumed by the header beyond the header itself (1 = glued first row). */
+  zeilenOffset: number
+  /** Note about a repair that was applied. */
+  hinweis: string | null
+}
+
+/**
+ * Prepares a parsed CSV for the import.
+ *
+ * Repairs a header line where the first data row was glued to the last
+ * column name (`…;Fälligkeit10020_02;OKA …`) — such a file would otherwise
+ * shift every column by one.
+ */
+export function bereiteNetzteilCsvAuf(headers: string[], rows: string[][]): NetzteilCsvDaten {
+  const reparatur = repariereGeklebtenHeader(headers, rows, KANONISCHE_NETZTEIL_HEADER)
+  if (!reparatur.ersteZeile) {
+    return { headers, rows, zeilenOffset: 0, hinweis: reparatur.hinweis }
+  }
+  return {
+    headers: reparatur.headers,
+    rows: [reparatur.ersteZeile, ...rows],
+    zeilenOffset: 1,
+    hinweis: reparatur.hinweis,
+  }
+}
+
+/**
+ * Analyzes the CSV without writing anything: decides which rows are
+ * importable, which are skipped and why.
+ */
+export function planeNetzteilImport(
   mapping: NetzteilMapping,
   rows: string[][],
   headers: string[],
-): ValidierungsErgebnis {
+  zeilenOffset = 0,
+): NetzteilImportPlan {
   const probleme: ValidierungsProblem[] = []
-  const headerByFeld = new Map<NetzteilFeld, string[]>()
+  const befunde: NetzteilImportBefund[] = []
+  const proSchluessel = new Map<
+    string,
+    { index: number; zeile: number; daten: NetzteilImportDaten }
+  >()
 
+  const gemappteFelder = new Set<NetzteilFeld>()
   for (const header of headers) {
     const feld = mapping[header]
-    if (!feld) continue
-    headerByFeld.set(feld, [...(headerByFeld.get(feld) ?? []), header])
+    if (feld) gemappteFelder.add(feld)
   }
 
-  for (const feld of PFLICHT_NETZTEIL_FELDER) {
-    if (!headerByFeld.has(feld)) {
+  for (const feld of PFLICHT_SPALTEN) {
+    if (!gemappteFelder.has(feld)) {
       probleme.push({
         zeile: -1,
-        meldung: `Pflichtfeld "${feld}" ist nicht gemappt.`,
+        meldung: `Pflichtspalte "${feld}" ist nicht gemappt.`,
       })
     }
   }
 
-  for (const [feld, mapped] of headerByFeld) {
+  const mehrfachGemappt = new Map<NetzteilFeld, string[]>()
+  for (const header of headers) {
+    const feld = mapping[header]
+    if (!feld) continue
+    mehrfachGemappt.set(feld, [...(mehrfachGemappt.get(feld) ?? []), header])
+  }
+  for (const [feld, mapped] of mehrfachGemappt) {
     if (mapped.length > 1) {
       probleme.push({
         zeile: -1,
@@ -89,99 +198,106 @@ export function validiereNetzteilDaten(
     }
   }
 
-  const seen = new Set<string>()
+  if (probleme.length > 0) return { probleme, zeilen: [], befunde }
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    if (!row) continue
+  for (let index = 0; index < rows.length; index++) {
+    const roh = rows[index] ?? []
+    const zeile = index + 2 - zeilenOffset
+    let zellen = roh
 
-    const anlage = pflichtText(wertInSpalte(row, headers, mapping, 'anlage'))
-    const objekt = pflichtText(wertInSpalte(row, headers, mapping, 'objekt'))
-    const name = pflichtText(wertInSpalte(row, headers, mapping, 'name'))
-    const datum = parseNetzteilDatum(wertInSpalte(row, headers, mapping, 'einbaudatum'))
-    const intervallJahre = parseIntervallJahre(
-      wertInSpalte(row, headers, mapping, 'intervallJahre'),
-    )
-    const kapazitaetAh = parseNetzteilKapazitaet(
-      wertInSpalte(row, headers, mapping, 'kapazitaetAh'),
-    )
-    const anzahl = parsePositiveInt(wertInSpalte(row, headers, mapping, 'anzahl'))
-
-    pruefePflichtText(probleme, i, 'anlage', anlage)
-    pruefePflichtText(probleme, i, 'objekt', objekt)
-    pruefePflichtText(probleme, i, 'name', name)
-
-    if (datum === null) {
-      probleme.push({
-        zeile: i,
-        spalte: spalteFuerFeld(headers, mapping, 'einbaudatum'),
-        meldung: `Zeile ${i + 2}: "einbaudatum" ist ungültig (erwartet MM/JJJJ, TT.MM.JJJJ oder YYYY-MM-DD).`,
-      })
-    }
-
-    if (intervallJahre === null) {
-      probleme.push({
-        zeile: i,
-        spalte: spalteFuerFeld(headers, mapping, 'intervallJahre'),
-        meldung: `Zeile ${i + 2}: "intervallJahre" muss mindestens 1 Jahr sein.`,
-      })
-    }
-
-    if (kapazitaetAh === null) {
-      probleme.push({
-        zeile: i,
-        spalte: spalteFuerFeld(headers, mapping, 'kapazitaetAh'),
-        meldung: `Zeile ${i + 2}: "kapazitaetAh" muss > 0 sein.`,
-      })
-    }
-
-    if (anzahl === null) {
-      probleme.push({
-        zeile: i,
-        spalte: spalteFuerFeld(headers, mapping, 'anzahl'),
-        meldung: `Zeile ${i + 2}: "anzahl" muss eine Ganzzahl ≥ 1 sein.`,
-      })
-    }
-
-    if (anlage && objekt && name) {
-      const schluessel = netzteilSchluessel(anlage, objekt, name)
-      if (seen.has(schluessel)) {
-        probleme.push({
-          zeile: i,
-          meldung: `Zeile ${i + 2}: doppelte Netzteil-Identität (${anlage} / ${objekt} / ${name}).`,
+    if (zellen.length !== headers.length) {
+      const reparatur = reparereZeile(
+        zellen,
+        headers.length,
+        (kandidat) => bewerteReparaturKandidat(kandidat, headers, mapping),
+        (spaltenIndex) => istTextspalte(spaltenIndex, headers, mapping),
+      )
+      if (!reparatur) {
+        befunde.push({
+          index,
+          zeile,
+          meldung: `Zeile ${zeile}: unerwartete Spaltenzahl (${zellen.length} statt ${headers.length}) — Zeile wird nicht importiert.`,
+          art: 'uebersprungen',
         })
+        continue
       }
-      seen.add(schluessel)
+      zellen = reparatur.zellen
+      befunde.push({
+        index,
+        zeile,
+        meldung: `Zeile ${zeile}: ${reparatur.hinweis}.`,
+        art: 'repariert',
+      })
     }
 
-    if (datum && intervallJahre) {
-      const faelligCsvRoh = wertInSpalte(row, headers, mapping, 'faelligkeit')
-      if (faelligCsvRoh.trim()) {
-        const faelligCsv = parseNetzteilDatum(faelligCsvRoh)
-        const erwartet = faelligkeit(datum, intervallJahre)
-        if (faelligCsv === null || (erwartet !== null && faelligCsv !== erwartet)) {
-          probleme.push({
-            zeile: i,
-            spalte: spalteFuerFeld(headers, mapping, 'faelligkeit'),
-            meldung: `Zeile ${i + 2}: "faelligkeit" passt nicht zu Einbaudatum plus Intervall.`,
-          })
-        }
-      }
+    const auswertung = werteAuswerten(zellen, headers, mapping)
+    if (!auswertung.ok) {
+      befunde.push({
+        index,
+        zeile,
+        meldung: `Zeile ${zeile}: ${auswertung.grund} — Zeile wird nicht importiert.`,
+        art: 'uebersprungen',
+      })
+      continue
     }
+
+    for (const hinweis of auswertung.hinweise) {
+      befunde.push({ index, zeile, meldung: `Zeile ${zeile}: ${hinweis}.`, art: 'hinweis' })
+    }
+
+    const schluessel = netzteilSchluessel(
+      auswertung.daten.anlage,
+      auswertung.daten.objekt,
+      auswertung.daten.name,
+    )
+    const vorhanden = proSchluessel.get(schluessel)
+    if (vorhanden) {
+      befunde.push({
+        index,
+        zeile,
+        meldung: `Zeile ${zeile}: gleiche Identität wie Zeile ${vorhanden.zeile} — die neuere Zeile ersetzt die ältere.`,
+        art: 'hinweis',
+      })
+    }
+    proSchluessel.set(schluessel, { index, zeile, daten: auswertung.daten })
   }
 
-  return { ok: probleme.length === 0, probleme }
+  const zeilen = [...proSchluessel.values()].sort((a, b) => a.index - b.index)
+  return { probleme, zeilen, befunde }
+}
+
+/** Pre-flight for the UI: counts, blocking problems and per-row findings. */
+export function pruefeNetzteilImport(
+  mapping: NetzteilMapping,
+  rows: string[][],
+  headers: string[],
+  zeilenOffset = 0,
+): NetzteilImportPruefung {
+  const plan = planeNetzteilImport(mapping, rows, headers, zeilenOffset)
+  return {
+    ok: plan.probleme.length === 0,
+    probleme: plan.probleme,
+    importierbar: plan.zeilen.length,
+    uebersprungen: plan.befunde.filter((b) => b.art === 'uebersprungen').length,
+    befunde: plan.befunde,
+  }
 }
 
 /** Imports devices into Dexie and queues each changed row for sync. */
 export async function importNetzteileAusCsv(
   eingabe: NetzteilImportEingabe,
 ): Promise<NetzteilImportBericht> {
-  const validierung = validiereNetzteilDaten(eingabe.mapping, eingabe.rows, eingabe.headers)
-  if (!validierung.ok) {
+  const plan = planeNetzteilImport(
+    eingabe.mapping,
+    eingabe.rows,
+    eingabe.headers,
+    eingabe.zeilenOffset ?? 0,
+  )
+
+  if (plan.probleme.length > 0) {
     throw new ImportValidierungError(
-      `CSV: ${validierung.probleme.length} Daten-Problem(e) — Import abgebrochen.`,
-      validierung.probleme,
+      `CSV: ${plan.probleme.length} Problem(e) — Import abgebrochen.`,
+      plan.probleme,
     )
   }
 
@@ -190,6 +306,9 @@ export async function importNetzteileAusCsv(
     netzteilAngelegt: 0,
     netzteilAktualisiert: 0,
     netzteilUebersprungen: 0,
+    uebersprungeneZeilen: plan.befunde.filter((b) => b.art === 'uebersprungen').length,
+    reparierteZeilen: plan.befunde.filter((b) => b.art === 'repariert').length,
+    befunde: plan.befunde,
     warnungen: [],
     konflikte: [],
   }
@@ -200,24 +319,10 @@ export async function importNetzteileAusCsv(
       index.set(netzteilSchluessel(netzteil.anlage, netzteil.objekt, netzteil.name), netzteil)
     }
 
-    for (let i = 0; i < eingabe.rows.length; i++) {
-      const row = eingabe.rows[i]
-      if (!row) continue
-
-      const daten = leseNetzteilZeile(row, eingabe.headers, eingabe.mapping)
+    for (const zeile of plan.zeilen) {
+      const daten = zeile.daten
       const schluessel = netzteilSchluessel(daten.anlage, daten.objekt, daten.name)
       const bestehend = index.get(schluessel)
-
-      const faelligCsvRoh = wertInSpalte(row, eingabe.headers, eingabe.mapping, 'faelligkeit')
-      if (faelligCsvRoh.trim()) {
-        const faelligCsv = parseNetzteilDatum(faelligCsvRoh)
-        const erwartet = faelligkeit(daten.einbaudatum, daten.intervallJahre)
-        if (faelligCsv && erwartet && faelligCsv !== erwartet) {
-          bericht.warnungen.push(
-            `Zeile ${i + 2}: Fälligkeit weicht ab — importiert ${faelligCsv}, berechnet ${erwartet}.`,
-          )
-        }
-      }
 
       if (bestehend && !bestehend.geloescht && netzteilDatenGleich(bestehend, daten)) {
         bericht.netzteilUebersprungen++
@@ -262,8 +367,9 @@ export async function importNetzteileAusCsv(
         netzteilAngelegt: bericht.netzteilAngelegt,
         netzteilAktualisiert: bericht.netzteilAktualisiert,
         netzteilUebersprungen: bericht.netzteilUebersprungen,
-        warnungen: bericht.warnungen.length,
-        konflikte: bericht.konflikte.length,
+        uebersprungeneZeilen: bericht.uebersprungeneZeilen,
+        reparierteZeilen: bericht.reparierteZeilen,
+        befunde: bericht.befunde.length,
       }),
       zeit: jetztIso(),
     })
@@ -272,37 +378,157 @@ export async function importNetzteileAusCsv(
   return bericht
 }
 
-function leseNetzteilZeile(
-  row: string[],
+/**
+ * True when the column may contain free text — only those columns may hold a
+ * value that was split by an unescaped semicolon. Numeric and date columns
+ * are never merged, otherwise the repair would produce plausible but wrong
+ * data.
+ */
+function istTextspalte(spaltenIndex: number, headers: string[], mapping: NetzteilMapping): boolean {
+  const header = headers[spaltenIndex]
+  if (!header) return true
+  const feld = mapping[header]
+  if (!feld) return true
+  return TEXT_FELDER.has(feld)
+}
+
+/**
+ * Scores a candidate alignment of a ragged row.
+ *
+ * Returns `null` when a mandatory field is missing or unparsable — such a
+ * candidate cannot be right. Otherwise the score counts how plausible the
+ * optional fields look (postal code, due date, date format), so the best
+ * alignment wins when several candidates are technically parsable.
+ */
+function bewerteReparaturKandidat(
+  zellen: string[],
   headers: string[],
   mapping: NetzteilMapping,
-): NetzteilImportDaten {
-  const anlage = pflichtText(wertInSpalte(row, headers, mapping, 'anlage'))
-  const objekt = pflichtText(wertInSpalte(row, headers, mapping, 'objekt'))
-  const name = pflichtText(wertInSpalte(row, headers, mapping, 'name'))
-  const einbaudatum = parseNetzteilDatum(wertInSpalte(row, headers, mapping, 'einbaudatum'))
-  const intervallJahre = parseIntervallJahre(wertInSpalte(row, headers, mapping, 'intervallJahre'))
-  const kapazitaetAh = parseNetzteilKapazitaet(wertInSpalte(row, headers, mapping, 'kapazitaetAh'))
-  const anzahl = parsePositiveInt(wertInSpalte(row, headers, mapping, 'anzahl'))
+): number | null {
+  const wert = (feld: NetzteilFeld): string => rohWert(zellen, headers, mapping, feld)
 
-  if (!anlage || !objekt || !name) throw new Error('Pflichtfelder fehlen trotz Validierung.')
-  if (einbaudatum === null) throw new Error(`Ungültiges Einbaudatum trotz Validierung: ${name}`)
-  if (intervallJahre === null) throw new Error(`Ungültiges Intervall trotz Validierung: ${name}`)
-  if (kapazitaetAh === null) throw new Error(`Ungültige Kapazität trotz Validierung: ${name}`)
-  if (anzahl === null) throw new Error(`Ungültige Anzahl trotz Validierung: ${name}`)
+  const anlage = pflichtText(wert('anlage'))
+  const objekt = pflichtText(wert('objekt'))
+  const name = pflichtText(wert('name'))
+  if (!anlage || !objekt || !name) return null
+
+  const einbaudatum = parseNetzteilDatum(wert('einbaudatum'))
+  if (einbaudatum === null) return null
+  const intervallJahre = parseIntervallJahre(wert('intervallJahre'))
+  if (intervallJahre === null) return null
+  if (parseNetzteilKapazitaet(wert('kapazitaetAh')) === null) return null
+  if (parsePositiveInt(wert('anzahl')) === null) return null
+
+  let score = 0
+
+  // Postal code: usually digits, sometimes empty — anything else is a sign
+  // that the columns are shifted.
+  const plz = wert('plz').trim()
+  if (plz === '') score += 1
+  else if (/^\d{4,10}$/.test(plz)) score += 2
+  else score -= 2
+
+  // Plant id: usually a number with a suffix (e.g. "10020_02").
+  if (/\d/.test(anlage)) score += 1
+
+  // Due date: has to match installation date plus interval.
+  const faelligCsv = wert('faelligkeit').trim()
+  if (faelligCsv === '') score += 1
+  else {
+    const csv = parseNetzteilDatum(faelligCsv)
+    const erwartet = faelligkeit(einbaudatum, intervallJahre)
+    if (csv !== null && erwartet !== null && csv === erwartet) score += 2
+    else score -= 1
+  }
+
+  // Month/year notation is the most common format in these exports.
+  if (/^\d{1,2}\/\d{4}$/.test(wert('einbaudatum').trim())) score += 1
+
+  return score
+}
+
+function werteAuswerten(
+  zellen: string[],
+  headers: string[],
+  mapping: NetzteilMapping,
+): { ok: true; daten: NetzteilImportDaten; hinweise: string[] } | { ok: false; grund: string } {
+  const wert = (feld: NetzteilFeld): string => rohWert(zellen, headers, mapping, feld)
+  const hinweise: string[] = []
+
+  const anlage = pflichtText(wert('anlage'))
+  const objekt = pflichtText(wert('objekt'))
+  const name = pflichtText(wert('name'))
+  if (!anlage || !objekt || !name) {
+    return { ok: false, grund: '"Anlage", "Firma" oder "Name" fehlt' }
+  }
+
+  const einbaudatum = parseNetzteilDatum(wert('einbaudatum'))
+  if (einbaudatum === null) {
+    return { ok: false, grund: '"Einbaudatum" fehlt oder ist ungültig' }
+  }
+
+  const intervallJahre = parseIntervallJahre(wert('intervallJahre'))
+  if (intervallJahre === null) {
+    return { ok: false, grund: '"Austauschintervall" fehlt oder ist ungültig' }
+  }
+
+  const kapazitaetAh = parseNetzteilKapazitaet(wert('kapazitaetAh'))
+  if (kapazitaetAh === null) {
+    return { ok: false, grund: '"Kapazität" fehlt oder ist ungültig' }
+  }
+
+  const anzahlRoh = wert('anzahl').trim()
+  let anzahl: number
+  if (anzahlRoh === '') {
+    anzahl = 1
+    hinweise.push('"Anzahl der Akkus" fehlt — 1 angenommen')
+  } else {
+    const geparst = parsePositiveInt(anzahlRoh)
+    if (geparst === null) {
+      return { ok: false, grund: '"Anzahl der Akkus" ist keine Ganzzahl ≥ 1' }
+    }
+    anzahl = geparst
+  }
+
+  const faelligCsvRoh = wert('faelligkeit').trim()
+  if (faelligCsvRoh) {
+    const faelligCsv = parseNetzteilDatum(faelligCsvRoh)
+    const erwartet = faelligkeit(einbaudatum, intervallJahre)
+    if (faelligCsv === null) {
+      hinweise.push(`"Fälligkeit" (${faelligCsvRoh}) ist ungültig — berechnet wurde ${erwartet}`)
+    } else if (erwartet !== null && faelligCsv !== erwartet) {
+      hinweise.push(`"Fälligkeit" weicht ab (${faelligCsv}) — berechnet wurde ${erwartet}`)
+    }
+  }
 
   return {
-    anlage,
-    objekt,
-    name,
-    einbaudatum,
-    intervallJahre,
-    kapazitaetAh,
-    anzahl,
-    gruppe: normalisierterText(wertInSpalte(row, headers, mapping, 'gruppe')),
-    plz: normalisierterText(wertInSpalte(row, headers, mapping, 'plz')),
-    vdsAnerkennung: normalisierterText(wertInSpalte(row, headers, mapping, 'vdsAnerkennung')),
+    ok: true,
+    hinweise,
+    daten: {
+      anlage,
+      objekt,
+      name,
+      einbaudatum,
+      intervallJahre,
+      kapazitaetAh,
+      anzahl,
+      gruppe: normalisierterText(wert('gruppe')),
+      plz: normalisierterText(wert('plz')),
+      vdsAnerkennung: normalisierterText(wert('vdsAnerkennung')),
+    },
   }
+}
+
+function rohWert(
+  zellen: string[],
+  headers: string[],
+  mapping: NetzteilMapping,
+  feld: NetzteilFeld,
+): string {
+  const header = headers.find((h) => mapping[h] === feld)
+  if (!header) return ''
+  const index = headers.indexOf(header)
+  return index >= 0 ? (zellen[index] ?? '') : ''
 }
 
 function netzteilDatenGleich(bestehend: Netzteil, daten: NetzteilImportDaten): boolean {
@@ -318,37 +544,4 @@ function netzteilDatenGleich(bestehend: Netzteil, daten: NetzteilImportDaten): b
     bestehend.plz === daten.plz &&
     bestehend.vdsAnerkennung === daten.vdsAnerkennung
   )
-}
-
-function wertInSpalte(
-  row: string[],
-  headers: string[],
-  mapping: NetzteilMapping,
-  feld: NetzteilFeld,
-): string {
-  const header = spalteFuerFeld(headers, mapping, feld)
-  if (!header) return ''
-  const index = headers.indexOf(header)
-  return index >= 0 ? (row[index] ?? '') : ''
-}
-
-function spalteFuerFeld(
-  headers: string[],
-  mapping: NetzteilMapping,
-  feld: NetzteilFeld,
-): string | undefined {
-  return headers.find((header) => mapping[header] === feld)
-}
-
-function pruefePflichtText(
-  probleme: ValidierungsProblem[],
-  zeile: number,
-  feld: NetzteilFeld,
-  wert: string | null,
-): void {
-  if (wert) return
-  probleme.push({
-    zeile,
-    meldung: `Zeile ${zeile + 2}: "${feld}" ist leer oder enthält nur ungültige Zeichen.`,
-  })
 }
