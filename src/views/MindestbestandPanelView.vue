@@ -19,6 +19,7 @@ import { useMindestbestandStore, type MindestbestandZeile } from '../stores/mind
 import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
+import ArtikelLink from '../components/ArtikelLink.vue'
 import { sortiereNachName } from '../domain/sortierung'
 import { useBestellung } from '../composables/useBestellung'
 
@@ -40,9 +41,6 @@ onMounted(() => {
   void mindestbestand.markiereAlleGesehen()
 })
 
-function artikelTitel(id: string): string {
-  return artikelStore.byId(id)?.titel ?? '…'
-}
 function standortName(id: string): string {
   return standortStore.aktive.find((s) => s.id === id)?.name ?? '…'
 }
@@ -139,7 +137,9 @@ function formatDatum(iso: string): string {
         <tbody>
           <tr v-for="z in gefiltert" :key="z.ereignis.id" :class="{ erledigt: !z.offen }">
             <td>{{ formatDatum(z.ereignis.erstelltAm) }}</td>
-            <td>{{ artikelTitel(z.ereignis.artikelId) }}</td>
+            <td>
+              <ArtikelLink :artikel-id="z.ereignis.artikelId" fallback="…" />
+            </td>
             <td>{{ standortName(z.ereignis.standortId) }}</td>
             <td
               :title="t('view.mindestbestand.bestandDamals', { bestand: z.ereignis.bestandDanach })"

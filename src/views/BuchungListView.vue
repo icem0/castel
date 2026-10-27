@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import { useTableSort } from '../composables/useTableSort'
 import SortableTh from '../components/SortableTh.vue'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
+import ArtikelLink from '../components/ArtikelLink.vue'
 import { istKommissionStorno } from '../domain/buchungen'
 import type { Buchung } from '../db/types'
 
@@ -229,7 +230,9 @@ async function stornoAufheben(s: Buchung): Promise<void> {
       <tbody>
         <tr v-for="b in zeilen" :key="b.id" :class="{ storno: istStorniert(b) }">
           <td>{{ formatDatum(b.erstelltAm) }}</td>
-          <td>{{ nameArtikel(b.artikelId) }}</td>
+          <td>
+            <ArtikelLink :artikel-id="b.artikelId" />
+          </td>
           <td>{{ nameStandort(b.standortId) }}</td>
           <td>
             <span class="badge">{{ formatTyp(b.typ) }}</span>

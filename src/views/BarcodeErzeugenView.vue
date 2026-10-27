@@ -21,6 +21,7 @@ import {
 import { presetWarnungen } from '../services/etiketten/layout'
 import { downloadPdf, erzeugeEtikettenPdf, type EtikettDaten } from '../services/etiketten/pdf'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
+import ArtikelLink from '../components/ArtikelLink.vue'
 import type { Artikel, ArtikelStatus } from '../db/types'
 
 const { t } = useI18n()
@@ -362,7 +363,9 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
                   @change="umschalten(a.id)"
                 />
               </td>
-              <td>{{ a.titel }}</td>
+              <td>
+                <ArtikelLink :artikel-id="a.id" :titel="a.titel" />
+              </td>
               <td>{{ a.typ }}</td>
               <td class="mono">{{ a.barcode ?? '—' }}</td>
               <td>
