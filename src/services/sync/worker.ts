@@ -19,6 +19,7 @@ import type {
   Artikel,
   Buchung,
   Einstellung,
+  Hersteller,
   MindestbestandEreignis,
   OutboxEintrag,
   OutboxOp,
@@ -74,6 +75,7 @@ export function zaehleAbweichungen(l: TableCounts | null, s: TableCounts | null)
   if (l.standorte !== s.standorte) n++
   if (l.commission !== s.commission) n++
   if (l.buchungen !== s.buchungen) n++
+  if ((l.hersteller ?? 0) !== (s.hersteller ?? 0)) n++
   return n
 }
 
@@ -252,6 +254,9 @@ export interface SyncSnapshot {
   standorte: Standort[]
   commission: Projekt[]
   buchungen: Buchung[]
+  /** Hersteller-Stammdaten (Bestellkontakt), LWW wie die uebrigen Stammdaten.
+   *  Optional, damit aeltere Server-Antworten und Test-Fixtures weiter laden. */
+  hersteller?: Hersteller[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
   /**
@@ -288,6 +293,8 @@ export interface TableCounts {
   standorte: number
   commission: number
   buchungen: number
+  /** Optional, damit aeltere Server-/Test-Fixtures ohne Hersteller-Zaehler laden. */
+  hersteller?: number
 }
 
 export interface ServerStatus {
@@ -671,13 +678,14 @@ async function reconcileBookings(
 
 async function getLocalCounts(): Promise<TableCounts> {
   const db = getDb()
-  const [artikel, standorte, projekte, buchungen] = await Promise.all([
+  const [artikel, standorte, projekte, buchungen, hersteller] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
     db.commission.count(),
     db.buchungen.count(),
+    db.hersteller.count(),
   ])
-  return { artikel, standorte, commission: projekte, buchungen }
+  return { artikel, standorte, commission: projekte, buchungen, hersteller }
 }
 
 // ---------- Outbox-Helfer ----------
@@ -875,6 +883,7 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
     'rw',
     [
       db.artikel,
+      db.hersteller,
       db.standorte,
       db.commission,
       db.buchungen,
@@ -889,6 +898,15 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
           await db.artikel.add(a)
         } else if ((a.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
           await db.artikel.put(a)
+        }
+      }
+      // Hersteller — LWW wie die uebrigen Stammdaten.
+      for (const h of snap.hersteller ?? []) {
+        const existing = await db.hersteller.get(h.id)
+        if (!existing) {
+          await db.hersteller.add(h)
+        } else if ((h.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
+          await db.hersteller.put(h)
         }
       }
       // Standorte

@@ -3,6 +3,7 @@ import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
+import { useHerstellerStore } from '../stores/hersteller'
 import { useAuthStore } from '../stores/auth'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
 import HerstellerKatalogDrawer, {
@@ -15,6 +16,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const artikelStore = useArtikelStore()
+const herstellerStore = useHerstellerStore()
 const auth = useAuthStore()
 const { alleWaehlbaren } = useArtikelTypen()
 
@@ -22,6 +24,7 @@ interface Form {
   titel: string
   typ: string
   status: ArtikelStatus
+  herstellerId: string
   lieferant: string
   verpackungseinheit: number
   mindestbestand: number | null
@@ -37,6 +40,7 @@ const initialForm: Form = (() => {
     titel: '',
     typ: '',
     status: 'verfuegbar',
+    herstellerId: '',
     lieferant: '',
     verpackungseinheit: 1,
     mindestbestand: null,
@@ -51,6 +55,53 @@ const formular = ref<Form>({ ...initialForm })
 const fehler = ref<string>('')
 const laufend = ref(false)
 const drawerOffen = ref(false)
+
+const neuerHersteller = ref({ name: '', bestellEmail: '', bestellWebseite: '' })
+const neuerHerstellerFehler = ref('')
+
+/** Uebernimmt den Namen des gewaehlten Herstellers in das Freitext-Feld. */
+function waehleHersteller(): void {
+  const h = herstellerStore.byId(formular.value.herstellerId)
+  if (h) formular.value.lieferant = h.name
+}
+
+async function herstellerAnlegen(): Promise<void> {
+  const name = neuerHersteller.value.name.trim()
+  if (!name) {
+    neuerHerstellerFehler.value = t('view.hersteller.fehlerName')
+    return
+  }
+  const vorhanden = herstellerStore.byName(name)
+  if (vorhanden) {
+    formular.value.herstellerId = vorhanden.id
+    formular.value.lieferant = vorhanden.name
+    neuerHersteller.value = { name: '', bestellEmail: '', bestellWebseite: '' }
+    neuerHerstellerFehler.value = ''
+    return
+  }
+  const h = await herstellerStore.anlegen({
+    name,
+    bestellEmail: neuerHersteller.value.bestellEmail,
+    bestellWebseite: neuerHersteller.value.bestellWebseite,
+  })
+  formular.value.herstellerId = h.id
+  formular.value.lieferant = h.name
+  neuerHersteller.value = { name: '', bestellEmail: '', bestellWebseite: '' }
+  neuerHerstellerFehler.value = ''
+}
+
+// Der Katalog-Prefill kennt nur den Lieferanten-Namen. Sobald die Hersteller
+// geladen sind, verknuepfen wir einen gleichnamigen Eintrag automatisch.
+watch(
+  () => herstellerStore.geladen,
+  (geladen) => {
+    if (!geladen || formular.value.herstellerId) return
+    const name = formular.value.lieferant.trim()
+    if (!name) return
+    const match = herstellerStore.byName(name)
+    if (match) formular.value.herstellerId = match.id
+  },
+)
 
 const drawerWerte = computed<UebernahmeFelder>(() => ({
   titel: formular.value.titel,
@@ -68,6 +119,7 @@ const dirty = computed(() => {
     f.titel !== initialForm.titel ||
     f.typ !== initialForm.typ ||
     f.status !== initialForm.status ||
+    f.herstellerId !== initialForm.herstellerId ||
     f.lieferant !== initialForm.lieferant ||
     f.verpackungseinheit !== initialForm.verpackungseinheit ||
     f.mindestbestand !== initialForm.mindestbestand ||
@@ -143,7 +195,11 @@ function handleKatalogPrefill(): void {
   formular.value.titel = katTitel
   if (katEan !== '') formular.value.barcode = katEan
   if (katMatchcode !== '') formular.value.bestellnummer = katMatchcode
-  if (katLieferant !== '') formular.value.lieferant = katLieferant
+  if (katLieferant !== '') {
+    formular.value.lieferant = katLieferant
+    const match = herstellerStore.byName(katLieferant)
+    if (match) formular.value.herstellerId = match.id
+  }
   if (Number.isFinite(katPreis)) formular.value.listenpreis = katPreis
 
   // Duplikat-Check: Der Katalog liefert bei jedem Upload dieselben EANs —
@@ -166,6 +222,7 @@ function felderUebernehmen(felder: Partial<UebernahmeFelder>): void {
 }
 
 onMounted(() => {
+  herstellerStore.start()
   // Wenn der Scanner einen Code geliefert hat, im Barcode-Feld
   // vorbefüllen. Das ist der zentrale Bugfix: vorher wurde der
   // gescannte Code per Query-Param uebergeben, aber das Form hat
@@ -194,6 +251,7 @@ async function speichern(): Promise<void> {
       titel: formular.value.titel.trim(),
       typ: formular.value.typ,
       status: formular.value.status,
+      herstellerId: formular.value.herstellerId || null,
       lieferant: formular.value.lieferant.trim() || null,
       verpackungseinheit: formular.value.verpackungseinheit,
       mindestbestand: formular.value.mindestbestand,
@@ -269,6 +327,45 @@ const statusOptionen: ArtikelStatus[] = [
             </option>
           </select>
         </label>
+        <label>
+          <span>{{ t('view.artikel.form.hersteller') }}</span>
+          <select v-model="formular.herstellerId" :disabled="laufend" @change="waehleHersteller">
+            <option value="">{{ t('view.artikel.form.herstellerKeiner') }}</option>
+            <option v-for="h in herstellerStore.hersteller" :key="h.id" :value="h.id">
+              {{ h.name }}
+            </option>
+          </select>
+        </label>
+        <details v-if="auth.istAdmin" class="hersteller-neu">
+          <summary>{{ t('view.artikel.form.herstellerNeu') }}</summary>
+          <div class="row">
+            <label>
+              <span>{{ t('view.hersteller.name') }} *</span>
+              <input v-model="neuerHersteller.name" autocomplete="off" :disabled="laufend" />
+            </label>
+            <label>
+              <span>{{ t('view.hersteller.bestellEmail') }}</span>
+              <input
+                v-model="neuerHersteller.bestellEmail"
+                type="email"
+                autocomplete="off"
+                :disabled="laufend"
+              />
+            </label>
+            <label>
+              <span>{{ t('view.hersteller.bestellWebseite') }}</span>
+              <input
+                v-model="neuerHersteller.bestellWebseite"
+                autocomplete="off"
+                :disabled="laufend"
+              />
+            </label>
+          </div>
+          <button type="button" :disabled="laufend" @click="herstellerAnlegen">
+            {{ t('view.hersteller.hinzufuegen') }}
+          </button>
+          <p v-if="neuerHerstellerFehler" class="fehler">{{ neuerHerstellerFehler }}</p>
+        </details>
         <label>
           <span>{{ t('view.artikel.form.lieferant') }}</span>
           <input v-model="formular.lieferant" autocomplete="off" :disabled="laufend" />
@@ -401,6 +498,19 @@ const statusOptionen: ArtikelStatus[] = [
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.85rem;
+}
+.hersteller-neu {
+  border: 1px dashed var(--border, #d7dde3);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+}
+.hersteller-neu summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--accent, #2f6f9f);
+}
+.hersteller-neu .row {
+  margin: 0.5rem 0;
 }
 @media (max-width: 540px) {
   .row {

@@ -27,6 +27,10 @@ function artikel(overrides: Partial<Artikel> & { id: string }): Artikel {
     etikettenNeu: false,
     listenpreis: null,
     einkaufspreis: overrides.einkaufspreis ?? null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
     geaendertAm: null,
     erstelltAm: '2026-01-01T00:00:00.000Z',
   }

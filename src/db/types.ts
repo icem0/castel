@@ -7,6 +7,8 @@ export type Iso = string // ISO-8601 UTC, z. B. "2025-04-14T11:17:49.000Z"
 
 export type ArtikelStatus = 'verfuegbar' | 'reserviert' | 'gesperrt' | 'ausgesondert' | 'archiviert'
 export type NachbestellHinweis = 'i.O' | 'bald' | 'dringend' | null
+/** Bestellzustand des Mindestbestandsalarms (pro Artikel). */
+export type Bestellstatus = 'offen' | 'bestellt'
 export type StandortTyp = 'lager' | 'auto' | 'baustelle' | 'extern'
 export type BuchungsTyp =
   'einlagerung' | 'entnahme' | 'umlagerung' | 'inventur' | 'kommission' | 'storno'
@@ -36,6 +38,31 @@ export interface Artikel {
   /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admin-sichtbar
    *  und nur fuer Admins im lokalen Spiegel (siehe Sync-Rollenlogik). */
   einkaufspreis: number | null
+  /** Referenz auf die Hersteller-Stammdaten (Bestellkontakt). Der Freitext
+   *  `lieferant` bleibt fuer DATANORM/CSV-Import erhalten. */
+  herstellerId: string | null
+  /** Bestellzustand des Mindestbestandsalarms. */
+  bestellstatus: Bestellstatus
+  /** Zeitpunkt der letzten Bestellung (ISO). */
+  bestelltAm: Iso | null
+  /** Anzeigename des Users, der die Bestellung ausgeloest hat. */
+  bestelltVon: string | null
+  geaendertAm: Iso | null
+  erstelltAm: Iso
+}
+
+/**
+ * Hersteller-Stammdaten mit Bestellkontakt.
+ *
+ * `bestellEmail` / `bestellWebseite` beschreiben, WIE bei diesem Hersteller
+ * bestellt wird. Beides ist optional; mindestens eines sollte gepflegt sein,
+ * damit der Mindestbestandsalarm einen "Jetzt bestellen"-Button anbieten kann.
+ */
+export interface Hersteller {
+  id: string
+  name: string
+  bestellEmail: string | null
+  bestellWebseite: string | null
   geaendertAm: Iso | null
   erstelltAm: Iso
 }
@@ -159,7 +186,7 @@ export interface BuchungsEingabe {
 // ---------- Sync (PLAN §4.7–4.9) ----------
 
 export type OutboxEntity =
-  'artikel' | 'buchung' | 'standort' | 'kommission' | 'foto' | 'einstellung'
+  'artikel' | 'buchung' | 'standort' | 'kommission' | 'hersteller' | 'foto' | 'einstellung'
 export type OutboxOp = 'create' | 'update' | 'delete' | 'upload' | 'upsert'
 
 export interface OutboxEintrag {

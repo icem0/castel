@@ -44,6 +44,21 @@ export const artikelSchema = z.object({
   listenpreis: z.number().int().nullable().optional(),
   /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. */
   einkaufspreis: z.number().int().nullable().optional(),
+  /** Referenz auf die Hersteller-Stammdaten (Bestellkontakt). */
+  herstellerId: z.string().nullable().optional(),
+  /** Bestellzustand des Mindestbestandsalarms. */
+  bestellstatus: z.enum(['offen', 'bestellt']).optional(),
+  bestelltAm: iso.nullable().optional(),
+  bestelltVon: z.string().nullable().optional(),
+  geaendertAm: iso,
+  erstelltAm: iso,
+})
+
+export const herstellerSchema = z.object({
+  id,
+  name: z.string().min(1).max(200),
+  bestellEmail: z.string().nullable().optional(),
+  bestellWebseite: z.string().nullable().optional(),
   geaendertAm: iso,
   erstelltAm: iso,
 })
@@ -129,6 +144,11 @@ export const pushPayloadSchema = z.object({
           op: z.enum(['create', 'update', 'delete']),
           entity: z.literal('artikel'),
           payload: artikelSchema,
+        }),
+        z.object({
+          op: z.enum(['create', 'update', 'delete']),
+          entity: z.literal('hersteller'),
+          payload: herstellerSchema,
         }),
         z.object({
           op: z.enum(['create', 'update', 'delete']),

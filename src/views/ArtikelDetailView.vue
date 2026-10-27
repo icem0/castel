@@ -3,6 +3,7 @@ import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
+import { useHerstellerStore } from '../stores/hersteller'
 import { useStandortStore } from '../stores/standort'
 import { useBuchungStore } from '../stores/buchung'
 import { useAuthStore } from '../stores/auth'
@@ -16,6 +17,7 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const artikelStore = useArtikelStore()
+const herstellerStore = useHerstellerStore()
 const standortStore = useStandortStore()
 const buchungStore = useBuchungStore()
 const auth = useAuthStore()
@@ -23,6 +25,11 @@ const { alleWaehlbaren } = useArtikelTypen()
 
 const artikelId = computed<string>(() => String(route.params.id ?? ''))
 const artikel = computed<Artikel | undefined>(() => artikelStore.byId(artikelId.value))
+
+const herstellerName = computed<string | null>(() => {
+  const id = artikel.value?.herstellerId
+  return id ? (herstellerStore.byId(id)?.name ?? null) : null
+})
 
 const barcodeQuelle = computed<string | null | undefined>(() => artikel.value?.barcode)
 const { el: barcodeEl, fehler: barcodeFehler } = useBarcodeRender(barcodeQuelle, {
@@ -99,6 +106,7 @@ interface BearbeitungsForm {
   titel: string
   typ: string
   status: ArtikelStatus
+  herstellerId: string
   lieferant: string
   verpackungseinheit: number
   mindestbestand: number | null
@@ -129,6 +137,7 @@ function bearbeitenStart(): void {
     titel: a.titel,
     typ: a.typ,
     status: a.status,
+    herstellerId: a.herstellerId ?? '',
     lieferant: a.lieferant ?? '',
     verpackungseinheit: a.verpackungseinheit ?? 1,
     mindestbestand: a.mindestbestand,
@@ -139,6 +148,13 @@ function bearbeitenStart(): void {
   }
   bearbeitFehler.value = ''
   bearbeitet.value = true
+}
+
+function waehleHersteller(): void {
+  const f = formular.value
+  if (!f) return
+  const h = herstellerStore.byId(f.herstellerId)
+  if (h) f.lieferant = h.name
 }
 
 function bearbeitenAbbrechen(): void {
@@ -162,6 +178,7 @@ async function bearbeitenSpeichern(): Promise<void> {
       titel: f.titel.trim(),
       typ: f.typ,
       status: f.status,
+      herstellerId: f.herstellerId || null,
       lieferant: f.lieferant.trim() || null,
       verpackungseinheit: f.verpackungseinheit,
       mindestbestand: f.mindestbestand,
@@ -188,6 +205,7 @@ function formatDatum(iso: string): string {
 
 onMounted(() => {
   artikelStore.start()
+  herstellerStore.start()
 })
 </script>
 
@@ -246,6 +264,10 @@ onMounted(() => {
         <div>
           <dt>{{ t('view.artikel.spalten.status') }}</dt>
           <dd>{{ t(`view.artikel.status.${artikel.status}`) }}</dd>
+        </div>
+        <div v-if="herstellerName">
+          <dt>{{ t('view.artikel.form.hersteller') }}</dt>
+          <dd>{{ herstellerName }}</dd>
         </div>
         <div v-if="artikel.lieferant">
           <dt>{{ t('view.artikel.form.lieferant') }}</dt>
@@ -309,6 +331,19 @@ onMounted(() => {
           <small v-if="!auth.istAdmin" class="hint muted">
             {{ t('view.artikel.detail.statusAdminHint') }}
           </small>
+        </label>
+        <label>
+          <span>{{ t('view.artikel.form.hersteller') }}</span>
+          <select
+            v-model="formular.herstellerId"
+            :disabled="bearbeitLaufend"
+            @change="waehleHersteller"
+          >
+            <option value="">{{ t('view.artikel.form.herstellerKeiner') }}</option>
+            <option v-for="h in herstellerStore.hersteller" :key="h.id" :value="h.id">
+              {{ h.name }}
+            </option>
+          </select>
         </label>
         <label>
           <span>{{ t('view.artikel.form.lieferant') }}</span>

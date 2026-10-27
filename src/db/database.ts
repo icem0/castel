@@ -2,10 +2,10 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v11 (Mirror `mindestbestandEreignisse` geleert —
-// Serverseitig mit Migration 0014 bereinigt, siehe Kommentar bei v11).
-// Frühere Versionen (v1–v10) sind nur noch für Migration existierender
-// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v11 verwendet.
+// Aktuelles Schema: v14 (Hersteller-Stammdaten + Bestellstatus auf Artikel,
+// siehe Kommentar bei v14). Frühere Versionen (v1–v13) sind nur noch für
+// Migration existierender Browser-DBs. Wenn du eine frische DB anlegst,
+// wird direkt v14 verwendet.
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -17,6 +17,7 @@ import type {
   AuditLogEintrag,
   Buchung,
   Einstellung,
+  Hersteller,
   MindestbestandEreignis,
   OutboxEintrag,
   Projekt,
@@ -28,6 +29,8 @@ export const DB_NAME = 'castel'
 
 export class CastelDb extends Dexie {
   artikel!: Table<Artikel, string>
+  /** Hersteller-Stammdaten (Bestellkontakt) — LWW-synchron wie Artikel. */
+  hersteller!: Table<Hersteller, string>
   standorte!: Table<Standort, string>
   buchungen!: Table<Buchung, string>
   commission!: Table<Projekt, string>
@@ -334,6 +337,30 @@ export class CastelDb extends Dexie {
         const alle = await tx.table('artikel').toArray()
         for (const row of alle as Array<Record<string, unknown>>) {
           if (row['einkaufspreis'] === undefined) row['einkaufspreis'] = null
+        }
+        if (alle.length > 0) {
+          await tx.table('artikel').bulkPut(alle)
+        }
+      })
+
+    // v14: Hersteller-Stammdaten (Bestellkontakt) als eigene, LWW-synchrone
+    //      Tabelle + Bestellstatus auf `artikel`. `herstellerId` verweist auf
+    //      einen Hersteller (oder null). `bestellstatus` startet mit 'offen';
+    //      `bestelltAm`/`bestelltVon` werden erst beim Markieren gesetzt.
+    //      Kein Index auf die neuen Artikel-Felder — die Alarm-Auswertung
+    //      laeuft ohnehin ueber die geladenen Zeilen.
+    this.version(14)
+      .stores({
+        artikel: 'id, sharePointId, typ, status, titel, barcode',
+        hersteller: 'id, name, geaendertAm',
+      })
+      .upgrade(async (tx) => {
+        const alle = await tx.table('artikel').toArray()
+        for (const row of alle as Array<Record<string, unknown>>) {
+          if (row['herstellerId'] === undefined) row['herstellerId'] = null
+          if (row['bestellstatus'] === undefined) row['bestellstatus'] = 'offen'
+          if (row['bestelltAm'] === undefined) row['bestelltAm'] = null
+          if (row['bestelltVon'] === undefined) row['bestelltVon'] = null
         }
         if (alle.length > 0) {
           await tx.table('artikel').bulkPut(alle)

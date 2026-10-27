@@ -134,6 +134,13 @@
       "when": 1700000018000,
       "tag": "0018_lieferanten_format",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1700000019000,
+      "tag": "0019_hersteller",
+      "breakpoints": true
     }
   ]
 }

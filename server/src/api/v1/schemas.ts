@@ -45,6 +45,10 @@ const artikelBasis = {
   barcode: z.string().trim().max(200).nullable().optional(),
   etikettenNeu: z.boolean().optional(),
   listenpreis: z.number().int().nullable().optional(),
+  herstellerId: z.string().nullable().optional(),
+  bestellstatus: z.enum(['offen', 'bestellt']).optional(),
+  bestelltAm: z.string().nullable().optional(),
+  bestelltVon: z.string().nullable().optional(),
 }
 
 export const artikelCreateSchema = z.object({
@@ -67,6 +71,10 @@ export const artikelPatchSchema = z
     barcode: z.string().trim().max(200).nullable().optional(),
     etikettenNeu: z.boolean().optional(),
     listenpreis: z.number().int().nullable().optional(),
+    herstellerId: z.string().nullable().optional(),
+    bestellstatus: z.enum(['offen', 'bestellt']).optional(),
+    bestelltAm: z.string().nullable().optional(),
+    bestelltVon: z.string().nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'keine Änderungen angegeben' })
 

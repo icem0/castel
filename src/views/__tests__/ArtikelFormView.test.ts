@@ -52,6 +52,10 @@ function artikel(id: string, titel: string, barcode: string | null): Artikel {
     etikettenNeu: false,
     listenpreis: null,
     einkaufspreis: null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
     geaendertAm: '2026-01-01T00:00:00.000Z',
     erstelltAm: '2026-01-01T00:00:00.000Z',
   }

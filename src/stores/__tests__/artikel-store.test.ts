@@ -26,6 +26,10 @@ function artikelAnlegen(titel: string): Artikel {
     etikettenNeu: true,
     listenpreis: null,
     einkaufspreis: null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
     geaendertAm: '2026-10-19T12:00:00.000Z',
     erstelltAm: '2026-10-19T12:00:00.000Z',
   }

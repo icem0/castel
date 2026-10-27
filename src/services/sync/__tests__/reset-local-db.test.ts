@@ -34,6 +34,10 @@ function artikelAnlage(id: string, titel: string): Artikel {
     etikettenNeu: true,
     listenpreis: null,
     einkaufspreis: null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
     geaendertAm: now,
     erstelltAm: now,
   }

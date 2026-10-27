@@ -38,6 +38,7 @@ import InfoView from '../views/InfoView.vue'
 import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
 import BackupView from '../views/BackupView.vue'
 import ApiKeysView from '../views/ApiKeysView.vue'
+import HerstellerView from '../views/HerstellerView.vue'
 
 const routes: RouteRecordRaw[] = [
   // Auth-Routen (kein Login nötig)
@@ -98,6 +99,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/mindestbestand',
     name: 'einstellungen-mindestbestand',
     component: MindestbestandPanelView,
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/einstellungen/hersteller',
+    name: 'einstellungen-hersteller',
+    component: HerstellerView,
     meta: { requiresAdmin: true },
   },
   {

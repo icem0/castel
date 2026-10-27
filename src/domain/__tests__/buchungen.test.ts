@@ -50,6 +50,10 @@ async function seedArtikel(
     etikettenNeu: true,
     listenpreis: null,
     einkaufspreis: null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
     geaendertAm: null,
     erstelltAm: '2025-01-01T00:00:00.000Z',
   }

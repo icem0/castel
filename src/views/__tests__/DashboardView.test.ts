@@ -30,6 +30,10 @@ const artikel: Artikel = {
   etikettenNeu: false,
   listenpreis: 199,
   einkaufspreis: 500,
+  herstellerId: null,
+  bestellstatus: 'offen',
+  bestelltAm: null,
+  bestelltVon: null,
   geaendertAm: '2026-10-01T10:00:00.000Z',
   erstelltAm: '2026-10-01T10:00:00.000Z',
 }

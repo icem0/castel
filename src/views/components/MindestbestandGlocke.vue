@@ -13,11 +13,12 @@
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useMindestbestandStore } from '../../stores/mindestbestand'
+import { useMindestbestandStore, type MindestbestandZeile } from '../../stores/mindestbestand'
 import { useArtikelStore } from '../../stores/artikel'
 import { useStandortStore } from '../../stores/standort'
 import { useAuthStore } from '../../stores/auth'
 import { useMindestbestandAlarm } from '../../composables/useMindestbestandAlarm'
+import { useBestellung } from '../../composables/useBestellung'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -28,6 +29,7 @@ const auth = useAuthStore()
 // The bell is the single owner of the repeat timer (the settings page
 // mounts the same composable for its test button and must not double-ring).
 const alarm = useMindestbestandAlarm({ wiederholung: true })
+const bestellung = useBestellung()
 
 const offen = ref(false)
 let documentClickListener: ((e: MouseEvent) => void) | null = null
@@ -126,6 +128,11 @@ function openArtikel(id: string): void {
   void router.push(`/artikel/${id}`)
 }
 
+/** Bestellziel (mailto/Web) inkl. Standortname fuer den Mailtext. */
+function ziel(z: MindestbestandZeile) {
+  return bestellung.zielFuer(z, standortName(z.ereignis.standortId))
+}
+
 function openPanel(): void {
   close()
   void router.push('/einstellungen/mindestbestand')
@@ -169,7 +176,11 @@ function openPanel(): void {
       </p>
       <ul v-else class="mindestbestand-liste">
         <li v-for="z in liste" :key="z.ereignis.id" :class="{ erledigt: !z.offen }">
-          <button type="button" class="mindestbestand-item" @click="openArtikel(z.ereignis.artikelId)">
+          <button
+            type="button"
+            class="mindestbestand-item"
+            @click="openArtikel(z.ereignis.artikelId)"
+          >
             <span class="mindestbestand-item-titel">{{ artikelTitel(z.ereignis.artikelId) }}</span>
             <span class="mindestbestand-item-meta">
               {{ standortName(z.ereignis.standortId) }} ·
@@ -186,6 +197,36 @@ function openPanel(): void {
             </span>
             <span class="mindestbestand-item-zeit">{{ formatZeit(z.ereignis.erstelltAm) }}</span>
           </button>
+          <div v-if="z.offen" class="mindestbestand-aktionen">
+            <a
+              v-if="ziel(z)"
+              class="mini-btn"
+              :href="ziel(z)!.href"
+              :target="ziel(z)!.mailto ? undefined : '_blank'"
+              rel="noopener noreferrer"
+              @click="bestellung.bestellen(z)"
+            >
+              🛒 {{ t('view.mindestbestand.jetztBestellen') }}
+            </a>
+            <button
+              type="button"
+              class="mini-btn haken"
+              :class="{ aktiv: bestellung.istBestellt(z) }"
+              :aria-pressed="bestellung.istBestellt(z)"
+              @click="bestellung.umschalten(z)"
+            >
+              <span aria-hidden="true">{{ bestellung.istBestellt(z) ? '✓' : '○' }}</span>
+              <template v-if="bestellung.istBestellt(z)">
+                {{ t('view.mindestbestand.statusBestellt') }} · {{ bestellung.kuerzel(z) }}
+              </template>
+              <template v-else>{{ t('view.mindestbestand.alsBestelltMarkieren') }}</template>
+            </button>
+          </div>
+          <div v-else-if="bestellung.istBestellt(z)" class="mindestbestand-aktionen">
+            <span class="bestellt-marker">
+              ✓ {{ t('view.mindestbestand.statusBestellt') }} · {{ bestellung.kuerzel(z) }}
+            </span>
+          </div>
         </li>
       </ul>
     </div>
@@ -310,10 +351,48 @@ function openPanel(): void {
   text-align: left;
   cursor: pointer;
   color: inherit;
+}
+.mindestbestand-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.8rem 0.55rem;
+}
+.mindestbestand-liste li {
   border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
 }
-.mindestbestand-item:last-child {
+.mindestbestand-liste li:last-child {
   border-bottom: none;
+}
+.mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong, #2f374a);
+  background: transparent;
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.2;
+}
+.mini-btn:hover,
+.mini-btn:focus-visible {
+  background: var(--accent-bg, rgba(99, 102, 241, 0.12));
+  outline: none;
+}
+.mini-btn.haken.aktiv {
+  border-color: var(--success, #16a34a);
+  color: var(--success, #16a34a);
+  font-weight: 600;
+}
+.bestellt-marker {
+  font-size: 0.8rem;
+  color: var(--success, #16a34a);
+  font-weight: 600;
 }
 .mindestbestand-item:hover,
 .mindestbestand-item:focus-visible {

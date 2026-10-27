@@ -174,6 +174,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
     })
     reseedErfolg.value = t('view.development.reseedErgebnis', {
       artikel: ergebnis.queued.artikel,
+      hersteller: ergebnis.queued.hersteller,
       standorte: ergebnis.queued.standorte,
       kommission: ergebnis.queued.kommission,
       buchungen: ergebnis.queued.buchungen,
@@ -437,6 +438,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           {{
             t('view.development.reseedDetail', {
               artikel: reseedPlan.artikel,
+              hersteller: reseedPlan.hersteller,
               standorte: reseedPlan.standorte,
               kommission: reseedPlan.kommission,
               buchungen: reseedPlan.buchungen,

@@ -24,6 +24,7 @@ import {
   artikel,
   buchungen,
   einstellungen,
+  hersteller,
   mindestbestandEreignisse,
   projekte,
   standorte,
@@ -52,6 +53,11 @@ const pushSchema = z.discriminatedUnion('entity', [
   z.object({
     op: z.enum(['create', 'update', 'delete']),
     entity: z.literal('artikel'),
+    payload: z.any(),
+  }),
+  z.object({
+    op: z.enum(['create', 'update', 'delete']),
+    entity: z.literal('hersteller'),
     payload: z.any(),
   }),
   z.object({
@@ -164,9 +170,20 @@ export async function resolvePush(
     }
   }
 
-  // Phase 2: Restliche ops sequenziell.
+  // Phase 2: Restliche ops sequenziell. Hersteller zuerst, damit Artikel,
+  // die im selben Batch auf einen neuen Hersteller verweisen, den
+  // Fremdschluessel erfuellen koennen (der 500er-Batch kann die beiden
+  // Ops sonst trennen). Innerhalb der Gruppen bleibt die Reihenfolge stabil.
+  const restIndices: number[] = []
   for (let i = 0; i < ops.length; i++) {
-    if (seenIndices.has(i)) continue
+    if (!seenIndices.has(i)) restIndices.push(i)
+  }
+  restIndices.sort((a, b) => {
+    const pa = ops[a]!.entity === 'hersteller' ? 0 : 1
+    const pb = ops[b]!.entity === 'hersteller' ? 0 : 1
+    return pa - pb || a - b
+  })
+  for (const i of restIndices) {
     const op = ops[i]!
     try {
       let buchungsEvent: MindestbestandEreignisRow | null = null
@@ -175,6 +192,9 @@ export async function resolvePush(
         switch (op.entity) {
           case 'artikel':
             await resolveArtikel(tx, op, benutzerRolle === 'admin')
+            break
+          case 'hersteller':
+            await resolveHersteller(tx, op)
             break
           case 'standort':
             await resolveStandort(tx, op)
@@ -349,6 +369,33 @@ export function assertKeineAbhaengigkeiten(
 
 type Tx = Parameters<Parameters<PostgresJsDatabase<typeof schema>['transaction']>[0]>[0]
 
+/**
+ * Stellt sicher, dass die im Artikel referenzierte Hersteller-ID existiert.
+ * Der Outbox-Batch kann Hersteller- und Artikel-Op trennen (500er-Grenze);
+ * dann kaeme der Artikel zuerst an und der FK wuerde knallen. Der
+ * Platzhalter traegt einen Epoch-Zeitstempel, damit der echte (neuere)
+ * Hersteller-Push ihn per LWW spaeter ueberschreiben darf.
+ */
+async function stelleHerstellerReferenzSicher(
+  tx: Tx,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const herstellerId = payload['herstellerId']
+  if (typeof herstellerId !== 'string' || herstellerId === '') return
+  const existing = await tx
+    .select({ id: hersteller.id })
+    .from(hersteller)
+    .where(eq(hersteller.id, herstellerId))
+    .limit(1)
+  if (existing.length > 0) return
+  await tx.insert(hersteller).values({
+    id: herstellerId,
+    name: '',
+    geaendertAm: new Date(0),
+    erstelltAm: new Date(0),
+  })
+}
+
 async function resolveArtikel(
   tx: Tx,
   op: Extract<PushOp, { entity: 'artikel' }>,
@@ -368,6 +415,9 @@ async function resolveArtikel(
     }
   }
   const artikelId = payload['id'] as string
+  if (op.op !== 'delete') {
+    await stelleHerstellerReferenzSicher(tx, payload)
+  }
 
   if (op.op === 'create') {
     const existing = await tx.select().from(artikel).where(eq(artikel.id, artikelId)).limit(1)
@@ -403,6 +453,42 @@ async function resolveArtikel(
       { entity: 'mindestbestand_ereignisse', anzahl: Number(eRes[0]?.c ?? 0) },
     ])
     await tx.delete(artikel).where(eq(artikel.id, artikelId))
+  }
+}
+
+async function resolveHersteller(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'hersteller' }>,
+): Promise<void> {
+  const herstellerId = op.payload.id as string
+  if (op.op === 'create') {
+    const existing = await tx
+      .select({ id: hersteller.id })
+      .from(hersteller)
+      .where(eq(hersteller.id, herstellerId))
+      .limit(1)
+    if (existing.length > 0) {
+      await applyLastWriterWins(tx, hersteller, op.payload)
+    } else {
+      await tx.insert(hersteller).values(normalizeStammdatenTimestamps(op.payload) as never)
+    }
+  } else if (op.op === 'update') {
+    await applyLastWriterWins(tx, hersteller, op.payload)
+  } else if (op.op === 'delete') {
+    // Hersteller duerfen nur geloescht werden, solange kein Artikel mehr
+    // darauf verweist. Der FK ist ON DELETE SET NULL, aber ein stilles
+    // Entkoppeln aller Artikel waere Datenverlust — deshalb explizit
+    // HAS_DEPENDENCIES (Client deaktiviert den Button vorab).
+    const [aRes] = await Promise.all([
+      tx
+        .select({ c: count() })
+        .from(artikel)
+        .where(eq(artikel.herstellerId, herstellerId)),
+    ])
+    assertKeineAbhaengigkeiten('hersteller', herstellerId, [
+      { entity: 'artikel', anzahl: Number(aRes[0]?.c ?? 0) },
+    ])
+    await tx.delete(hersteller).where(eq(hersteller.id, herstellerId))
   }
 }
 
@@ -463,7 +549,7 @@ async function resolveProjekt(
 
 async function applyLastWriterWins(
   tx: Tx,
-  table: typeof artikel | typeof standorte | typeof projekte,
+  table: typeof artikel | typeof standorte | typeof projekte | typeof hersteller,
   payload: Record<string, unknown>,
 ): Promise<void> {
   const id = payload['id'] as string

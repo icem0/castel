@@ -7,6 +7,7 @@ import {
   artikel,
   buchungen,
   einstellungen,
+  hersteller,
   mindestbestandEreignisse,
   projekte,
   standorte,
@@ -21,18 +22,21 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   standorte: number
   commission: number
   buchungen: number
+  hersteller: number
 }> {
-  const [a, s, p, b] = await Promise.all([
+  const [a, s, p, b, h] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
     db.select({ c: sql<number>`count(*)::int` }).from(buchungen),
+    db.select({ c: sql<number>`count(*)::int` }).from(hersteller),
   ])
   return {
     artikel: a[0]?.c ?? 0,
     standorte: s[0]?.c ?? 0,
     commission: p[0]?.c ?? 0,
     buchungen: b[0]?.c ?? 0,
+    hersteller: h[0]?.c ?? 0,
   }
 }
 
@@ -62,32 +66,42 @@ export async function syncRoutes(
       const user = req.authUser
       if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
-      const [artikelRows, standortRows, projektRows, buchungRows, einstellungRows, eventRows] =
-        await Promise.all([
-          db.select().from(artikel).where(sql`${artikel.geaendertAm} > ${sinceIso}`),
-          db.select().from(standorte).where(sql`${standorte.geaendertAm} > ${sinceIso}`),
-          db.select().from(projekte).where(sql`${projekte.geaendertAm} > ${sinceIso}`),
-          db.select().from(buchungen).where(sql`${buchungen.erstelltAm} > ${sinceIso}`),
-          // Einstellungen: alle globalen + die des eingeloggten Users
-          db
-            .select()
-            .from(einstellungen)
-            .where(
-              and(
-                sql`${einstellungen.geaendertAm} > ${sinceIso}`,
-                or(isNull(einstellungen.userId), eq(einstellungen.userId, user.sub)),
-              ),
+      const [
+        artikelRows,
+        standortRows,
+        projektRows,
+        buchungRows,
+        einstellungRows,
+        eventRows,
+        herstellerRows,
+      ] = await Promise.all([
+        db.select().from(artikel).where(sql`${artikel.geaendertAm} > ${sinceIso}`),
+        db.select().from(standorte).where(sql`${standorte.geaendertAm} > ${sinceIso}`),
+        db.select().from(projekte).where(sql`${projekte.geaendertAm} > ${sinceIso}`),
+        db.select().from(buchungen).where(sql`${buchungen.erstelltAm} > ${sinceIso}`),
+        // Einstellungen: alle globalen + die des eingeloggten Users
+        db
+          .select()
+          .from(einstellungen)
+          .where(
+            and(
+              sql`${einstellungen.geaendertAm} > ${sinceIso}`,
+              or(isNull(einstellungen.userId), eq(einstellungen.userId, user.sub)),
             ),
-          // Mindestbestand-Ereignisse: nach `erstellt_am > mindestSince`.
-          // Max500 — falls die Tabelle groß wird, paginiert der Client
-          // über den Marker `mindestbestand.lastPullAt`.
-          db
-            .select()
-            .from(mindestbestandEreignisse)
-            .where(sql`${mindestbestandEreignisse.erstelltAm} > ${mindestSinceIso}`)
-            .orderBy(sql`${mindestbestandEreignisse.erstelltAm} ASC`)
-            .limit(500),
-        ])
+          ),
+        // Mindestbestand-Ereignisse: nach `erstellt_am > mindestSince`.
+        // Max500 — falls die Tabelle groß wird, paginiert der Client
+        // über den Marker `mindestbestand.lastPullAt`.
+        db
+          .select()
+          .from(mindestbestandEreignisse)
+          .where(sql`${mindestbestandEreignisse.erstelltAm} > ${mindestSinceIso}`)
+          .orderBy(sql`${mindestbestandEreignisse.erstelltAm} ASC`)
+          .limit(500),
+        // Hersteller-Stammdaten (Bestellkontakt) — inkrementell wie die
+        // übrigen Stammdaten.
+        db.select().from(hersteller).where(sql`${hersteller.geaendertAm} > ${sinceIso}`),
+      ])
 
       return reply.send({
         serverTime: new Date().toISOString(),
@@ -101,6 +115,7 @@ export async function syncRoutes(
         standorte: standortRows,
         commission: projektRows,
         buchungen: buchungRows,
+        hersteller: herstellerRows,
         einstellungen: einstellungRows.map((r) => ({
           key: r.key,
           userId: r.userId,

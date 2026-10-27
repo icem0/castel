@@ -34,6 +34,8 @@ export interface ArtikelEingabe {
   listenpreis?: number | null
   /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admins. */
   einkaufspreis?: number | null
+  /** Referenz auf die Hersteller-Stammdaten (Bestellkontakt). */
+  herstellerId?: string | null
 }
 
 // Hinweis: Filter (Suche/Typ/Status/Standort) leben absichtlich NICHT im
@@ -89,6 +91,10 @@ export const useArtikelStore = defineStore('artikel', () => {
       etikettenNeu: e.etikettenNeu ?? true,
       listenpreis: e.listenpreis ?? null,
       einkaufspreis: e.einkaufspreis ?? null,
+      herstellerId: e.herstellerId ?? null,
+      bestellstatus: 'offen',
+      bestelltAm: null,
+      bestelltVon: null,
       geaendertAm: now,
       erstelltAm: now,
     }
@@ -156,6 +162,39 @@ export const useArtikelStore = defineStore('artikel', () => {
   }
 
   /**
+   * Setzt oder loescht den Bestellstatus eines Artikels (Mindestbestandsalarm).
+   *
+   * `bestellt = true` speichert Zeitpunkt und Anzeigename des Ausloesers,
+   * `bestellt = false` setzt den Status zurueck auf 'offen' (z. B. wenn die
+   * Bestellung storniert wurde).
+   *
+   * `nichtVorIso` ist der Zeitstempel des ausloesenden Alarms. Liegt die
+   * Geraeteuhr hinter der Serverzeit, wuerde `bestelltAm` sonst VOR dem
+   * Alarm liegen und der Marker wuerde nicht angezeigt. Wir klemmen den
+   * gespeicherten Zeitpunkt deshalb auf mindestens den Alarm-Zeitpunkt.
+   */
+  async function markiereBestellt(
+    artikelId: string,
+    bestellt: boolean,
+    bestelltVon: string,
+    nichtVorIso?: string | null,
+  ): Promise<void> {
+    const a = await getDb().artikel.get(artikelId)
+    if (!a) return
+    const now = jetztIso()
+    const stamp = bestellt && nichtVorIso && nichtVorIso > now ? nichtVorIso : now
+    const updated: Artikel = {
+      ...a,
+      bestellstatus: bestellt ? 'bestellt' : 'offen',
+      bestelltAm: bestellt ? stamp : null,
+      bestelltVon: bestellt ? bestelltVon : null,
+      geaendertAm: now,
+    }
+    await getDb().artikel.put(updated)
+    await queueOp('artikel', 'update', updated)
+  }
+
+  /**
    * Löscht einen Artikel unwiderruflich. Voraussetzung: keine Buchungen
    * und keine Mindestbestand-Ereignisse verweisen auf ihn. Die Prüfung
    * übernimmt der Server (`HAS_DEPENDENCIES`); die UI deaktiviert den
@@ -205,6 +244,7 @@ export const useArtikelStore = defineStore('artikel', () => {
     aktualisieren,
     archivieren,
     markiereEtikettenNeu,
+    markiereBestellt,
     loeschen,
   }
 })

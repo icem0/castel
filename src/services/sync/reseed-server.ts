@@ -35,6 +35,7 @@ import type {
   Artikel,
   Buchung,
   Einstellung,
+  Hersteller,
   OutboxEintrag,
   Projekt,
   Standort,
@@ -82,6 +83,7 @@ const DRAIN_WAIT_CAP_MS = 65_000
 
 export interface ReseedPlan {
   standorte: number
+  hersteller: number
   artikel: number
   kommission: number
   buchungen: number
@@ -101,6 +103,7 @@ export interface ReseedResult {
 /** Rows of one entity that the reseed would queue right now. */
 async function collectRows(): Promise<{
   standorte: Standort[]
+  hersteller: Hersteller[]
   artikel: Artikel[]
   kommission: Projekt[]
   buchungen: Buchung[]
@@ -110,6 +113,7 @@ async function collectRows(): Promise<{
   const currentUserId = sessionLesen()?.userId ?? null
 
   const standorte = await db.standorte.toArray()
+  const hersteller = await db.hersteller.toArray()
   const artikel = await db.artikel.toArray()
   const kommission = await db.commission.toArray()
   const buchungen = sortBuchungenForReseed(await db.buchungen.toArray())
@@ -125,7 +129,7 @@ async function collectRows(): Promise<{
     if (e) einstellungen.push(e)
   }
 
-  return { standorte, artikel, kommission, buchungen, einstellungen }
+  return { standorte, hersteller, artikel, kommission, buchungen, einstellungen }
 }
 
 /**
@@ -135,6 +139,7 @@ export async function collectReseedPlan(): Promise<ReseedPlan> {
   const rows = await collectRows()
   return {
     standorte: rows.standorte.length,
+    hersteller: rows.hersteller.length,
     artikel: rows.artikel.length,
     kommission: rows.kommission.length,
     buchungen: rows.buchungen.length,
@@ -203,7 +208,13 @@ export function reseedSettingPayload(
 
 /** Server still holds domain data in any of the synced tables. */
 function serverHasData(counts: TableCounts): boolean {
-  return counts.artikel > 0 || counts.standorte > 0 || counts.commission > 0 || counts.buchungen > 0
+  return (
+    counts.artikel > 0 ||
+    counts.standorte > 0 ||
+    counts.commission > 0 ||
+    counts.buchungen > 0 ||
+    (counts.hersteller ?? 0) > 0
+  )
 }
 
 /**
@@ -243,7 +254,11 @@ export async function reseedServer(opts: {
 
   const rows = await collectRows()
   const total =
-    rows.standorte.length + rows.artikel.length + rows.kommission.length + rows.buchungen.length
+    rows.standorte.length +
+    rows.hersteller.length +
+    rows.artikel.length +
+    rows.kommission.length +
+    rows.buchungen.length
   if (total === 0) {
     throw new Error('Lokale Datenbank ist leer — es gibt nichts, das hochgeladen werden könnte.')
   }
@@ -255,6 +270,9 @@ export async function reseedServer(opts: {
   const nextTs = (): string => new Date(QUEUE_EPOCH_MS + seq++).toISOString()
   for (const s of rows.standorte) {
     await queueOp('standort', 'create', normalizeStammdaten(s), nextTs())
+  }
+  for (const h of rows.hersteller) {
+    await queueOp('hersteller', 'create', normalizeStammdaten(h), nextTs())
   }
   for (const a of rows.artikel) {
     await queueOp('artikel', 'create', normalizeStammdaten(a), nextTs())
@@ -273,6 +291,7 @@ export async function reseedServer(opts: {
   //    including pull — idempotent merges). Respect `nextRetryAt` backoff.
   const reseededIds = new Set<string>([
     ...rows.standorte.map((s) => s.id),
+    ...rows.hersteller.map((h) => h.id),
     ...rows.artikel.map((a) => a.id),
     ...rows.kommission.map((p) => p.id),
     ...rows.buchungen.map((b) => b.id),
@@ -314,6 +333,7 @@ export async function reseedServer(opts: {
   return {
     queued: {
       standorte: rows.standorte.length,
+      hersteller: rows.hersteller.length,
       artikel: rows.artikel.length,
       kommission: rows.kommission.length,
       buchungen: rows.buchungen.length,

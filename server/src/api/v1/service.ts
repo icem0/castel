@@ -137,6 +137,10 @@ export interface ArtikelDto {
   barcode: string | null
   etikettenNeu: boolean
   listenpreis: number | null
+  herstellerId: string | null
+  bestellstatus: string
+  bestelltAm: string | null
+  bestelltVon: string | null
   geaendertAm: string
   erstelltAm: string
 }
@@ -156,6 +160,10 @@ function artikelDto(row: typeof artikel.$inferSelect): ArtikelDto {
     barcode: row.barcode,
     etikettenNeu: row.etikettenNeu,
     listenpreis: row.listenpreis,
+    herstellerId: row.herstellerId,
+    bestellstatus: row.bestellstatus,
+    bestelltAm: row.bestelltAm === null ? null : isoRequired(row.bestelltAm),
+    bestelltVon: row.bestelltVon,
     geaendertAm: isoRequired(row.geaendertAm),
     erstelltAm: isoRequired(row.erstelltAm),
   }
@@ -176,6 +184,10 @@ function artikelPayload(row: typeof artikel.$inferSelect): Record<string, unknow
     barcode: row.barcode,
     etikettenNeu: row.etikettenNeu,
     listenpreis: row.listenpreis,
+    herstellerId: row.herstellerId,
+    bestellstatus: row.bestellstatus,
+    bestelltAm: row.bestelltAm === null ? null : isoRequired(row.bestelltAm),
+    bestelltVon: row.bestelltVon,
     geaendertAm: isoRequired(row.geaendertAm),
     erstelltAm: isoRequired(row.erstelltAm),
   }
@@ -276,6 +288,10 @@ export async function createArtikel(
     barcode: input.barcode ?? null,
     etikettenNeu: input.etikettenNeu ?? true,
     listenpreis: input.listenpreis ?? null,
+    herstellerId: input.herstellerId ?? null,
+    bestellstatus: input.bestellstatus ?? 'offen',
+    bestelltAm: input.bestelltAm ?? null,
+    bestelltVon: input.bestelltVon ?? null,
     geaendertAm: now,
     erstelltAm: now,
   }

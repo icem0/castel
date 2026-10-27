@@ -15,17 +15,19 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useMindestbestandStore } from '../stores/mindestbestand'
+import { useMindestbestandStore, type MindestbestandZeile } from '../stores/mindestbestand'
 import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 import { sortiereNachName } from '../domain/sortierung'
+import { useBestellung } from '../composables/useBestellung'
 
 const { t } = useI18n()
 const router = useRouter()
 const mindestbestand = useMindestbestandStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
+const bestellung = useBestellung()
 
 const filterArtikel = ref<string>('')
 const filterStandort = ref<string>('')
@@ -65,6 +67,11 @@ const artikelOptionen = computed(() => {
 
 function open(id: string): void {
   void router.push(`/artikel/${id}`)
+}
+
+/** Bestellziel (mailto/Web) inkl. Standortname fuer den Mailtext. */
+function ziel(z: MindestbestandZeile) {
+  return bestellung.zielFuer(z, standortName(z.ereignis.standortId))
 }
 
 function formatDatum(iso: string): string {
@@ -124,6 +131,7 @@ function formatDatum(iso: string): string {
             <th>{{ t('view.mindestbestand.colBestand') }}</th>
             <th>{{ t('view.mindestbestand.colMindest') }}</th>
             <th>{{ t('view.mindestbestand.colDefizit') }}</th>
+            <th>{{ t('view.mindestbestand.colBestellung') }}</th>
             <th>{{ t('view.mindestbestand.colStatus') }}</th>
             <th></th>
           </tr>
@@ -133,11 +141,45 @@ function formatDatum(iso: string): string {
             <td>{{ formatDatum(z.ereignis.erstelltAm) }}</td>
             <td>{{ artikelTitel(z.ereignis.artikelId) }}</td>
             <td>{{ standortName(z.ereignis.standortId) }}</td>
-            <td :title="t('view.mindestbestand.bestandDamals', { bestand: z.ereignis.bestandDanach })">
+            <td
+              :title="t('view.mindestbestand.bestandDamals', { bestand: z.ereignis.bestandDanach })"
+            >
               {{ z.aktuellerBestand }}
             </td>
             <td>{{ z.schwelle ?? '—' }}</td>
             <td class="defizit">{{ z.defizit }}</td>
+            <td>
+              <div class="bestell-aktionen">
+                <a
+                  v-if="z.offen && ziel(z)"
+                  class="btn mini"
+                  :href="ziel(z)!.href"
+                  :target="ziel(z)!.mailto ? undefined : '_blank'"
+                  rel="noopener noreferrer"
+                  @click="bestellung.bestellen(z)"
+                >
+                  🛒 {{ t('view.mindestbestand.jetztBestellen') }}
+                </a>
+                <button
+                  v-if="z.offen"
+                  type="button"
+                  class="btn mini haken"
+                  :class="{ aktiv: bestellung.istBestellt(z) }"
+                  :aria-pressed="bestellung.istBestellt(z)"
+                  @click="bestellung.umschalten(z)"
+                >
+                  <template v-if="bestellung.istBestellt(z)">
+                    ✓ {{ t('view.mindestbestand.statusBestellt') }} ·
+                    {{ bestellung.kuerzel(z) }}
+                  </template>
+                  <template v-else>{{ t('view.mindestbestand.alsBestelltMarkieren') }}</template>
+                </button>
+                <span v-else-if="bestellung.istBestellt(z)" class="bestellt-marker">
+                  ✓ {{ t('view.mindestbestand.statusBestellt') }} ·
+                  {{ bestellung.kuerzel(z) }}
+                </span>
+              </div>
+            </td>
             <td>
               <span v-if="z.offen" class="status-offen">
                 {{ t('view.mindestbestand.statusOffen') }}
@@ -215,6 +257,31 @@ function formatDatum(iso: string): string {
 /* Erledigte Zeilen bleiben als Historie sichtbar, treten aber zurück. */
 .data-table tr.erledigt td {
   opacity: 0.6;
+}
+.bestell-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.btn.mini {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  line-height: 1.2;
+}
+.btn.mini.haken.aktiv {
+  border-color: var(--success, #16a34a);
+  color: var(--success, #16a34a);
+  font-weight: 600;
+}
+.bestellt-marker {
+  font-size: 0.8rem;
+  color: var(--success, #16a34a);
+  font-weight: 600;
 }
 .empty-state {
   color: var(--text-muted);

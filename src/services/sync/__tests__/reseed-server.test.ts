@@ -43,6 +43,10 @@ function artikelAnlage(id: string, titel: string): Artikel {
     etikettenNeu: true,
     listenpreis: null,
     einkaufspreis: null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
     geaendertAm: now,
     erstelltAm: now,
   }
@@ -372,6 +376,7 @@ describe('collectReseedPlan', () => {
     const plan = await collectReseedPlan()
     expect(plan).toEqual({
       standorte: 1,
+      hersteller: 0,
       artikel: 1,
       kommission: 1,
       buchungen: 1,
@@ -444,6 +449,7 @@ describe('reseedServer End-to-End', () => {
 
     expect(result.queued).toEqual({
       standorte: 2,
+      hersteller: 0,
       artikel: 1,
       kommission: 1,
       buchungen: 3,

@@ -123,6 +123,18 @@ export const artikel = pgTable(
     listenpreis: integer('listenpreis'), // in Cent, um Floats zu vermeiden
     /** Netto-Einkaufspreis je Verpackungseinheit, in Cent. Nur Admin-sichtbar. */
     einkaufspreis: integer('einkaufspreis'),
+    /** Referenz auf die Hersteller-Stammdaten (Bestellkontakt). Der
+     *  Freitext `lieferant` bleibt fuer DATANORM/CSV erhalten. */
+    herstellerId: text('hersteller_id').references(() => hersteller.id, {
+      onDelete: 'set null',
+    }),
+    /** Bestellzustand des Mindestbestandsalarms: 'offen' | 'bestellt'. */
+    bestellstatus: text('bestellstatus', { enum: ['offen', 'bestellt'] })
+      .notNull()
+      .default('offen'),
+    bestelltAm: timestamp('bestellt_am', { withTimezone: true }),
+    /** Anzeigename des Users, der die Bestellung ausgeloest hat. */
+    bestelltVon: text('bestellt_von'),
     geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull(),
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
   },
@@ -131,8 +143,39 @@ export const artikel = pgTable(
     index('artikel_typ_idx').on(t.typ),
     index('artikel_status_idx').on(t.status),
     index('artikel_barcode_idx').on(t.barcode),
+    index('artikel_hersteller_idx').on(t.herstellerId),
     // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
     index('artikel_geaendert_am_idx').on(t.geaendertAm),
+  ],
+)
+
+/**
+ * Hersteller-Stammdaten mit Bestellkontakt.
+ *
+ * `bestell_email` und `bestell_webseite` beschreiben, WIE bei diesem
+ * Hersteller bestellt wird (E-Mail-Adresse fuer eine Bestellmail oder
+ * eine Bestell-/Shop-Webseite). Beides ist optional, mindestens eines
+ * sollte gepflegt sein, damit der Mindestbestandsalarm einen
+ * "Jetzt bestellen"-Button anbieten kann.
+ *
+ * Bewusst KEIN Unique-Constraint auf `name`: Offline angelegte Hersteller
+ * koennen denselben Namen tragen; ein Constraint wuerde den Sync-Push in
+ * die Quarantaene schicken. Der Client dedupliziert im Picker.
+ */
+export const hersteller = pgTable(
+  'hersteller',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    bestellEmail: text('bestell_email'),
+    bestellWebseite: text('bestell_webseite'),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
+    index('hersteller_geaendert_am_idx').on(t.geaendertAm),
+    index('hersteller_name_lower_idx').on(sql`LOWER(${t.name})`),
   ],
 )
 
@@ -260,6 +303,7 @@ export const auditLog = pgTable(
         'user',
         'einstellung',
         'lieferant',
+        'hersteller',
         'hersteller_artikel',
         'datanorm_import',
       ],

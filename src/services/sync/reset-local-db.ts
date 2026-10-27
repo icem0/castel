@@ -67,6 +67,7 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
     'rw',
     [
       db.artikel,
+      db.hersteller,
       db.standorte,
       db.commission,
       db.buchungen,
@@ -75,6 +76,7 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
     ],
     async () => {
       if (data.artikel.length > 0) await db.artikel.bulkPut(data.artikel)
+      if ((data.hersteller?.length ?? 0) > 0) await db.hersteller.bulkPut(data.hersteller ?? [])
       if (data.standorte.length > 0) await db.standorte.bulkPut(data.standorte)
       if (data.commission.length > 0) await db.commission.bulkPut(data.commission)
       if (data.buchungen.length > 0) {
