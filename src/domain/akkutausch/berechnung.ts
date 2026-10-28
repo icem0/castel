@@ -210,11 +210,15 @@ export function pruefeTypen(typen: readonly AkkuTyp[]): TypFehler[] {
  * Computes the replacement plan for one quarter.
  *
  * Demand (`bedarf`) comes from the devices whose due date falls into the
- * selected quarter plus the project batteries booked for that quarter.
- * The order quantity keeps the buffer (`puffer`) untouched:
+ * selected quarter plus the project batteries booked for that quarter. The
+ * order quantity covers the demand and tops the buffer (`puffer`) up to its
+ * configured value — a stock below the buffer is ordered back to it:
  *
- *   verfuegbar  = max(0, bestand - puffer)
- *   bestellmenge = max(0, bedarf - verfuegbar)
+ *   bestandEff   = max(0, bestand)   // negative stock counts as no stock
+ *   bestellmenge = max(0, bedarf - bestandEff + puffer)
+ *
+ * `verfuegbar` is no longer part of that formula. It stays in the row (and in
+ * the frozen order snapshot) as an informational value only.
  */
 export function berechnePlanung(eingabe: PlanungEingabe): Planung {
   const { typen, netzteile, projektakkus, bestand, puffer, quartal, jahr } = eingabe
@@ -299,8 +303,9 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
     const bestandWert = artikelId ? (bestand.get(artikelId) ?? 0) : 0
     const pufferWert = artikelId ? (puffer.get(artikelId) ?? 0) : 0
     const bedarf = bedarfJeTyp.get(typ.id) ?? 0
-    const verfuegbar = Math.max(0, bestandWert - pufferWert)
-    const bestellmenge = Math.max(0, bedarf - verfuegbar)
+    const bestandEff = Math.max(0, bestandWert)
+    const verfuegbar = Math.max(0, bestandEff - pufferWert)
+    const bestellmenge = Math.max(0, bedarf - bestandEff + pufferWert)
 
     const zeilenWarnungen: Planwarnung[] = []
     if (!artikelId) {
@@ -329,6 +334,19 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
   }
 
   return { zeilen, bestellzeilen, warnungen }
+}
+
+/**
+ * Buffer ("zur freien Verfügung") derived from a plan row when an order is
+ * confirmed: `bedarf - bestand`, never negative.
+ *
+ * A result of 0 means "no buffer" — the minimum stock configuration is sparse
+ * and is removed in that case. Negative stock counts as no stock.
+ */
+export function neuerMindestbestand(bedarf: number, bestand: number): number {
+  const bedarfEff = Number.isFinite(bedarf) ? Math.max(0, bedarf) : 0
+  const bestandEff = Number.isFinite(bestand) ? Math.max(0, bestand) : 0
+  return Math.max(0, Math.trunc(bedarfEff - bestandEff))
 }
 
 /**

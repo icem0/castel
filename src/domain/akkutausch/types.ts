@@ -119,9 +119,13 @@ export interface Planzeile {
   bestand: number
   /** Buffer kept free for unforeseen replacements (minimum stock, main warehouse). */
   puffer: number
-  /** Stock available for the plan: `bestand - puffer`, never negative. */
+  /**
+   * Informational value: `bestand - puffer`, never negative. It is not part of
+   * the order calculation any more — it only documents the stock that would be
+   * usable for the plan.
+   */
   verfuegbar: number
-  /** Quantity to order: `bedarf - verfuegbar`, never negative. */
+  /** Quantity to order: `bedarf - max(0, bestand) + puffer`, never negative. */
   bestellmenge: number
   /** Warnings that belong to this row. */
   warnungen: Planwarnung[]

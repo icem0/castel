@@ -3,6 +3,7 @@ import {
   berechnePlanung,
   faelligkeit,
   istIsoDatum,
+  neuerMindestbestand,
   parseDatum,
   parseKapazitaet,
   pruefeTypen,
@@ -281,6 +282,22 @@ describe('berechnePlanung', () => {
     expect(planung.zeilen[0]?.bestellmenge).toBe(2)
   })
 
+  it('orders the missing buffer when the stock stays below it', () => {
+    const planung = berechnePlanung({
+      typen,
+      netzteile: [netzteil({ id: 'n1', anzahl: 2 })],
+      projektakkus: [],
+      bestand: new Map([['a1', 1]]),
+      puffer: new Map([['a1', 5]]),
+      quartal: 1,
+      jahr: 2025,
+    })
+    // Bedarf 2 - Bestand 1 + Puffer 5: der fehlende Puffer wird mitbestellt.
+    expect(planung.zeilen[0]?.verfuegbar).toBe(0)
+    expect(planung.zeilen[0]?.bestellmenge).toBe(6)
+    expect(planung.bestellzeilen[0]?.menge).toBe(6)
+  })
+
   it('ignores soft-deleted records', () => {
     const planung = berechnePlanung({
       typen,
@@ -390,6 +407,22 @@ describe('berechnePlanung', () => {
       jahr: 2025,
     })
     expect(planung.zeilen.map((z) => z.typ.id)).toEqual(['t1', 't2'])
+  })
+})
+
+describe('neuerMindestbestand', () => {
+  it('setzt den Puffer auf Bedarf minus Bestand', () => {
+    expect(neuerMindestbestand(10, 3)).toBe(7)
+  })
+
+  it('sinkt nie unter 0 — 0 bedeutet "kein Mindestbestand"', () => {
+    expect(neuerMindestbestand(3, 10)).toBe(0)
+    expect(neuerMindestbestand(5, 5)).toBe(0)
+    expect(neuerMindestbestand(0, 0)).toBe(0)
+  })
+
+  it('zaehlt negative Bestaende als kein Bestand', () => {
+    expect(neuerMindestbestand(2, -5)).toBe(2)
   })
 })
 

@@ -342,7 +342,7 @@ describe('AkkutauschView', () => {
     expect(w.findAll('tbody tr').length).toBeGreaterThan(0)
   })
 
-  it('zeigt die Spalten Größe, Bedarf, Bestand, zur freien Verfügung und Bestellmenge', async () => {
+  it('zeigt die Spalten Größe, Bestand, Bedarf, zur freien Verfügung und Bestellmenge', async () => {
     await setupPlanung()
 
     const { w } = await setupView()
@@ -350,10 +350,17 @@ describe('AkkutauschView', () => {
       .find('table.data')
       .findAll('thead th')
       .map((th) => th.text())
-    expect(kopf).toEqual(['Größe', 'Bedarf', 'Bestand', 'zur freien Verfügung', 'Bestellmenge'])
+    expect(kopf).toEqual(['Größe', 'Bestand', 'Bedarf', 'zur freien Verfügung', 'Bestellmenge'])
   })
 
-  it('speichert den Puffer aus der Plantabelle', async () => {
+  it('speichert den Puffer aus der Plantabelle (nur Admin)', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'admin',
+      email: 'admin@example.com',
+      rolle: 'admin',
+    } as never
+
     await setupPlanung()
 
     const { w } = await setupView()
@@ -368,6 +375,24 @@ describe('AkkutauschView', () => {
     const eintraege = await getDb().artikelStandortMindestbestaende.toArray()
     expect(eintraege).toHaveLength(1)
     expect(eintraege[0]?.mindestbestand).toBe(4)
+  })
+
+  it('zeigt Mitarbeitern den Puffer read-only ohne Eingabefeld', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'mitarbeiter',
+      email: 'mitarbeiter@example.com',
+      rolle: 'user',
+    } as never
+
+    await setupPlanung()
+
+    const { w } = await setupView()
+    expect(w.find('table.data tbody tr input[type="number"]').exists()).toBe(false)
+
+    const zellen = w.findAll('table.data tbody tr td')
+    // Größe, Bestand, Bedarf, zur freien Verfügung — der Puffer steht als Zahl.
+    expect(zellen[3]?.text().trim()).toBe('0')
   })
 
   it('zeigt für jeden Lieferanten eine Bestellmöglichkeit mit den Artikeln', async () => {

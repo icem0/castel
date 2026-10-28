@@ -513,10 +513,12 @@ export default {
       bestellen: 'Bestellt',
       bestellenLaeuft: 'Speichert …',
       bestellenFrage:
-        'Bestellung für Q{quartal} {jahr} als bestellt markieren? Der aktuelle Plan wird mit Inventurstand archiviert.',
+        'Bestellung für Q{quartal} {jahr} als bestellt markieren? Der aktuelle Plan wird mit Inventurstand archiviert und der Mindestbestand der Akku-Artikel am Hauptlager auf Bedarf − Bestand gesetzt.',
       bestellenInventurFehlt: 'Bestellen ist erst nach einer gültigen Inventur möglich.',
       bestellenFehler: 'Bestellung konnte nicht archiviert werden.',
       bestelltErfolg: 'Bestellung archiviert.',
+      bestelltMindestbestaende:
+        'Mindestbestand von {anzahl} Akku-Artikel(n) auf Bedarf − Bestand gesetzt.',
       bestellt: 'Bestellt',
       bestelltAm: 'Bestellt am {datum} · {kuerzel}',
       inventurKurz: 'Inventur: {datum} ({kuerzel})',
@@ -554,7 +556,7 @@ export default {
       bestand: 'Bestand',
       puffer: 'zur freien Verfügung',
       pufferHinweis:
-        'Der Puffer bleibt für unvorhergesehene Wechsel frei. Er liegt als Mindestbestand des Akku-Artikels im Hauptlager und kann hier direkt angepasst werden.',
+        'Bestellmenge = Bedarf − Bestand + Puffer. Der Puffer bleibt für unvorhergesehene Wechsel frei und wird mitbestellt, wenn der Bestand darunter liegt. Er liegt als Mindestbestand des Akku-Artikels im Hauptlager; nur Admins können ihn hier ändern. „Bestellt“ setzt ihn auf Bedarf − Bestand (0 entfernt ihn).',
       pufferGespeichert: 'Puffer gespeichert.',
       bestellmenge: 'Bestellmenge',
       menge: 'Menge',

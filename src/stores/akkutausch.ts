@@ -12,6 +12,10 @@
 //   - Bestand = Summe der aktiven Buchungen ueber alle Standorte
 //   - Puffer  = Mindestbestand des Akku-Artikels am Hauptlager
 //                (Konfiguration aus `artikel_standort_mindestbestaende`)
+//
+// Markiert ein Admin das Quartal als "bestellt", wird der Mindestbestand der
+// Akku-Artikel am Hauptlager auf `Bedarf - Bestand` gesetzt (0 entfernt die
+// sparse Konfiguration). Das Archiv behaelt den bisherigen Puffer.
 
 import { defineStore } from 'pinia'
 import { liveQuery, type Subscription } from 'dexie'
@@ -20,10 +24,10 @@ import { getDb } from '../db/database'
 import type { AkkuBestellung, Netzteil, Projektakku } from '../db/types'
 import { jetztIso, neueUuid } from '../domain/ids'
 import { queueOp } from '../services/sync/worker'
-import { berechnePlanung, faelligkeit } from '../domain/akkutausch/berechnung'
+import { berechnePlanung, faelligkeit, neuerMindestbestand } from '../domain/akkutausch/berechnung'
 import { ermittleInventurStatus } from '../domain/akkutausch/inventur'
 import { kuerzelAusName } from '../domain/kuerzel'
-import type { AkkuTyp, InventurStatus, Planung } from '../domain/akkutausch/types'
+import type { AkkuTyp, InventurStatus, Planzeile, Planung } from '../domain/akkutausch/types'
 import { useArtikelStandortMindestbestandStore } from './artikelStandortMindestbestand'
 import { useAuthStore } from './auth'
 import { useBuchungStore } from './buchung'
@@ -62,6 +66,16 @@ export interface ProjektakkuEingabe {
 
 function aktuellesQuartal(): number {
   return Math.floor(new Date().getMonth() / 3) + 1
+}
+
+/**
+ * Result of {@link bestellungMarkieren}: the archived order (`null` when the
+ * quarter was already ordered or the inventory is not valid) plus the number
+ * of battery articles whose minimum stock was rewritten.
+ */
+export interface BestellungMarkierenErgebnis {
+  bestellung: AkkuBestellung | null
+  aktualisierteMindestbestaende: number
 }
 
 export const useAkkutauschStore = defineStore('akkutausch', () => {
@@ -183,15 +197,46 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   })
 
   /**
-   * Archives the current planning table as "ordered" for the selected
-   * quarter. Returns `null` when an order already exists or no valid
-   * inventory is present.
+   * Rewrites the minimum stock (buffer "zur freien Verfuegung") of every
+   * battery article at the main warehouse after an order was confirmed:
+   * `mindestbestand neu = bedarf - bestand`.
+   *
+   * Rows without demand (or with enough stock) end up at 0, which removes the
+   * sparse configuration — the tool re-plans the buffer from quarter to
+   * quarter. Rows without a linked article or without a main warehouse are
+   * skipped, unchanged values do not create an outbox entry.
    */
-  async function bestellungMarkieren(): Promise<AkkuBestellung | null> {
-    if (bestellungFuerQuartal.value) return null
-    const inventur = inventurStatus.value
-    if (!inventur.gueltig) return null
+  async function aktualisiereMindestbestaende(zeilen: readonly Planzeile[]): Promise<number> {
+    const standortId = hauptlagerId.value
+    if (!standortId) return 0
 
+    let anzahl = 0
+    for (const zeile of zeilen) {
+      const artikelId = zeile.typ.artikelId
+      if (!artikelId) continue
+      const wert = neuerMindestbestand(zeile.bedarf, zeile.bestand)
+      if (wert === mindestbestandStore.wertFuer(artikelId, standortId)) continue
+      await mindestbestandStore.setzen(artikelId, standortId, wert)
+      anzahl++
+    }
+    return anzahl
+  }
+
+  /**
+   * Archives the current planning table as "ordered" for the selected
+   * quarter. Afterwards the minimum stock of the battery articles is set to
+   * `bedarf - bestand` (the snapshot keeps the previous buffer). Returns
+   * `bestellung = null` when an order already exists or no valid inventory is
+   * present.
+   */
+  async function bestellungMarkieren(): Promise<BestellungMarkierenErgebnis> {
+    if (bestellungFuerQuartal.value) {
+      return { bestellung: null, aktualisierteMindestbestaende: 0 }
+    }
+    const inventur = inventurStatus.value
+    if (!inventur.gueltig) return { bestellung: null, aktualisierteMindestbestaende: 0 }
+
+    const zeilen = planung.value.zeilen
     const bestellung: AkkuBestellung = {
       id: neueUuid(),
       quartal: quartal.value,
@@ -201,7 +246,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
       bestelltVonKuerzel: kuerzelAusName(auth.erstelltVon),
       inventurDatum: inventur.datum,
       inventurVonKuerzel: inventur.kuerzel,
-      zeilen: planung.value.zeilen.map((zeile) => ({
+      zeilen: zeilen.map((zeile) => ({
         typId: zeile.typ.id,
         kapazitaetAh: zeile.typ.kapazitaetAh,
         von: zeile.typ.von,
@@ -215,7 +260,9 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     }
     await getDb().akkuBestellungen.add(bestellung)
     await queueOp('akku_bestellung', 'create', bestellung)
-    return bestellung
+
+    const aktualisierteMindestbestaende = await aktualisiereMindestbestaende(zeilen)
+    return { bestellung, aktualisierteMindestbestaende }
   }
 
   /**

@@ -500,10 +500,11 @@ export default {
       bestellen: 'Ordered',
       bestellenLaeuft: 'Saving …',
       bestellenFrage:
-        'Mark the order for Q{quartal} {jahr} as ordered? The current plan will be archived with the inventory cut-off.',
+        'Mark the order for Q{quartal} {jahr} as ordered? The current plan will be archived with the inventory cut-off, and the minimum stock of the battery items at the main warehouse will be set to demand − stock.',
       bestellenInventurFehlt: 'Ordering requires a valid inventory.',
       bestellenFehler: 'Could not archive the order.',
       bestelltErfolg: 'Order archived.',
+      bestelltMindestbestaende: 'Minimum stock set to demand − stock for {anzahl} battery item(s).',
       bestellt: 'Ordered',
       bestelltAm: 'Ordered on {datum} · {kuerzel}',
       inventurKurz: 'Inventory: {datum} ({kuerzel})',
@@ -541,7 +542,7 @@ export default {
       bestand: 'Stock',
       puffer: 'freely available',
       pufferHinweis:
-        'The buffer stays free for unforeseen replacements. It is kept as the minimum stock of the battery article in the main warehouse and can be adjusted here.',
+        'Order quantity = demand − stock + buffer. The buffer stays free for unforeseen replacements and is ordered as well whenever the stock falls below it. It is kept as the minimum stock of the battery item in the main warehouse; only admins can change it here. “Ordered” sets it to demand − stock (0 removes it).',
       pufferGespeichert: 'Buffer saved.',
       bestellmenge: 'Order quantity',
       menge: 'Quantity',

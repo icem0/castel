@@ -37,6 +37,42 @@ async function hauptlagerAnlegen(id = 's-1'): Promise<void> {
   })
 }
 
+/**
+ * Inventur-Buchung des Akku-Artikels: datiert den Bestand und macht das
+ * Markieren "bestellt" erst moeglich (Inventur innerhalb von 4 Wochen).
+ */
+async function inventurBuchen(artikelId: string, standortId: string, menge: number): Promise<void> {
+  await getDb().buchungen.put({
+    id: `b-inv-${artikelId}`,
+    artikelId,
+    standortId,
+    standortZielId: null,
+    typ: 'inventur',
+    menge,
+    paarId: null,
+    projekt: null,
+    erstelltAm: jetztIso(),
+    clientEingabeAm: jetztIso(),
+    erstelltVon: 'u-1',
+    kommentar: null,
+    mitteilungAn: null,
+    stornoVon: null,
+    storno: false,
+    storniertDurch: null,
+    serverId: null,
+  })
+}
+
+/** Akku-Groesse t1 mit Artikel a-1 als globale Einstellung. */
+async function akkuTypAnlegen(): Promise<void> {
+  const settings = useSettingsStore()
+  settings.start()
+  await settings.setAkkuTypen([
+    { id: 't1', kapazitaetAh: 12.5, von: 12.0, bis: 12.9, artikelId: 'a-1' },
+  ])
+  await new Promise((r) => setTimeout(r, 50))
+}
+
 describe('useAkkutauschStore', () => {
   beforeEach(async () => {
     await clearLocalDbForTests()
@@ -279,5 +315,90 @@ describe('useAkkutauschStore', () => {
     // Der Puffer liegt als Mindestbestand des Artikels am Hauptlager.
     const konfigStore = useArtikelStandortMindestbestandStore()
     expect(konfigStore.wertFuer('a-1', 's-1')).toBe(2)
+  })
+
+  it('setzt den Mindestbestand beim Markieren "bestellt" auf Bedarf minus Bestand', async () => {
+    await hauptlagerAnlegen()
+    const standortStore = useStandortStore()
+    standortStore.start()
+    await new Promise((r) => setTimeout(r, 50))
+    await akkuTypAnlegen()
+    await inventurBuchen('a-1', 's-1', 3)
+
+    const store = useAkkutauschStore()
+    store.start()
+    await warteAufSpiegel(store)
+    await store.projektSpeichern({
+      projekt: 'Bauvorhaben',
+      menge: 10,
+      artAh: 12.5,
+      quartal: 1,
+      jahr: new Date().getFullYear(),
+    })
+    store.quartal = 1
+    store.jahr = new Date().getFullYear()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Ohne Puffer: 10 Bedarf - 3 Bestand = 7 zu bestellen.
+    expect(store.planung.zeilen[0]?.bestellmenge).toBe(7)
+
+    const ergebnis = await store.bestellungMarkieren()
+    expect(ergebnis.bestellung).not.toBeNull()
+    expect(ergebnis.aktualisierteMindestbestaende).toBe(1)
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Mindestbestand am Hauptlager = Bedarf - Bestand.
+    const konfigStore = useArtikelStandortMindestbestandStore()
+    expect(konfigStore.wertFuer('a-1', 's-1')).toBe(7)
+    const eintrag = await getDb().artikelStandortMindestbestaende.get(['a-1', 's-1'])
+    expect(eintrag?.mindestbestand).toBe(7)
+
+    // Das Archiv haelt den bisherigen Puffer (0) — er wird nicht nachgetragen.
+    expect(ergebnis.bestellung?.zeilen[0]?.reserve).toBe(0)
+
+    // Akzeptierte Folge: die Live-Tabelle rechnet mit dem neuen Puffer.
+    expect(store.planung.zeilen[0]?.bestellmenge).toBe(14)
+
+    const outbox = await getDb().outbox.toArray()
+    expect(outbox.map((o) => o.entity)).toContain('akku_bestellung')
+    const konfigOps = outbox.filter((o) => o.entity === 'artikel_standort_mindestbestand')
+    expect(konfigOps).toHaveLength(1)
+    expect(konfigOps[0]?.op).toBe('create')
+  })
+
+  it('entfernt den Mindestbestand, wenn der Bedarf den Bestand nicht uebersteigt', async () => {
+    await hauptlagerAnlegen()
+    const standortStore = useStandortStore()
+    standortStore.start()
+    await new Promise((r) => setTimeout(r, 50))
+    await akkuTypAnlegen()
+    await inventurBuchen('a-1', 's-1', 3)
+
+    const konfigStore = useArtikelStandortMindestbestandStore()
+    konfigStore.start()
+    await konfigStore.setzen('a-1', 's-1', 5)
+
+    const store = useAkkutauschStore()
+    store.start()
+    await warteAufSpiegel(store)
+    store.quartal = 1
+    store.jahr = new Date().getFullYear()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Kein Bedarf, aber Bestand 3 unter Puffer 5 -> es wird auf 5 aufgefuellt.
+    expect(store.planung.zeilen[0]?.bedarf).toBe(0)
+    expect(store.planung.zeilen[0]?.bestellmenge).toBe(2)
+
+    const ergebnis = await store.bestellungMarkieren()
+    expect(ergebnis.bestellung).not.toBeNull()
+    expect(ergebnis.aktualisierteMindestbestaende).toBe(1)
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Bedarf - Bestand <= 0: kein Mindestbestand, die sparse Zeile verschwindet.
+    expect(konfigStore.wertFuer('a-1', 's-1')).toBe(0)
+    expect(await getDb().artikelStandortMindestbestaende.get(['a-1', 's-1'])).toBeUndefined()
+    const outbox = await getDb().outbox.toArray()
+    const konfigOps = outbox.filter((o) => o.entity === 'artikel_standort_mindestbestand')
+    expect(konfigOps.map((o) => o.op).sort()).toEqual(['create', 'delete'])
   })
 })

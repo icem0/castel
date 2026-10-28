@@ -2,12 +2,16 @@
 // Tab "Planung" des Akkutausch-Tools.
 //
 // Zeigt fuer das gewaehlte Quartal, wie viele Akkus je Groesse getauscht
-// werden muessen:
-//   bedarf      = faellige Wechsel im Quartal + Projektakkus
-//   bestand     = verfuegbarer Bestand des Akku-Artikels (alle Standorte)
-//   puffer      = zur freien Verfuegung (Mindestbestand am Hauptlager,
-//                 direkt in der Tabelle editierbar)
-//   bestellmenge = max(0, bedarf - (bestand - puffer))
+// werden muessen (Spalten: Bestand, Bedarf, zur freien Verfuegung,
+// Bestellmenge):
+//   bestand      = verfuegbarer Bestand des Akku-Artikels (alle Standorte)
+//   bedarf       = faellige Wechsel im Quartal + Projektakkus
+//   puffer       = zur freien Verfuegung (Mindestbestand am Hauptlager, nur
+//                  fuer Admins direkt in der Tabelle editierbar)
+//   bestellmenge = max(0, bedarf - max(0, bestand) + puffer)
+//
+// "Bestellt" archiviert den Plan (mit dem bisherigen Puffer) und setzt den
+// Mindestbestand der Akku-Artikel am Hauptlager auf Bedarf - Bestand.
 //
 // Aus der Planung entsteht die Bestellliste (CSV + Druckansicht).
 
@@ -102,13 +106,18 @@ watch(
   },
 )
 
-/** Der Puffer ist nur editierbar, wenn Artikel und Hauptlager existieren. */
-function pufferEditierbar(zeile: Planzeile): boolean {
+/** Artikel und Hauptlager existieren — der Puffer hat einen Anzeigewert. */
+function pufferVorhanden(zeile: Planzeile): boolean {
   return (
     Boolean(zeile.typ.artikelId) &&
     Boolean(store.hauptlagerId) &&
     !artikelFehlt(zeile.typ.artikelId)
   )
+}
+
+/** Der Puffer darf nur von Admins editiert werden. */
+function pufferEditierbar(zeile: Planzeile): boolean {
+  return auth.istAdmin && pufferVorhanden(zeile)
 }
 
 /** Anzeigewert des Puffers (Entwurf, sonst der gespeicherte Wert). */
@@ -349,9 +358,17 @@ async function bestellungBestaetigen(): Promise<void> {
 
   bestelltLaeuft.value = true
   try {
-    const result = await store.bestellungMarkieren()
-    if (result) {
+    const ergebnis = await store.bestellungMarkieren()
+    if (ergebnis.bestellung) {
       toast.show({ text: t('view.akkutausch.bestelltErfolg'), status: 'success' })
+      if (ergebnis.aktualisierteMindestbestaende > 0) {
+        toast.show({
+          text: t('view.akkutausch.bestelltMindestbestaende', {
+            anzahl: ergebnis.aktualisierteMindestbestaende,
+          }),
+          status: 'info',
+        })
+      }
     } else {
       toast.show({ text: t('view.akkutausch.bestellenFehler'), status: 'error' })
     }
@@ -444,8 +461,8 @@ function csvExportieren(): void {
       <thead>
         <tr>
           <th>{{ t('view.akkutausch.groesse') }}</th>
-          <th>{{ t('view.akkutausch.bedarf') }}</th>
           <th>{{ t('view.akkutausch.bestand') }}</th>
+          <th>{{ t('view.akkutausch.bedarf') }}</th>
           <th :title="t('view.akkutausch.pufferHinweis')">
             {{ t('view.akkutausch.puffer') }}
           </th>
@@ -463,8 +480,8 @@ function csvExportieren(): void {
               {{ t('view.akkutausch.keinArtikelKurz') }}
             </span>
           </td>
-          <td>{{ zeile.bedarf }}</td>
           <td>{{ zeile.bestand }}</td>
+          <td>{{ zeile.bedarf }}</td>
           <td>
             <input
               v-if="pufferEditierbar(zeile)"
@@ -477,6 +494,9 @@ function csvExportieren(): void {
               @input="pufferEingabe(zeile, $event)"
               @change="pufferSpeichern(zeile)"
             />
+            <span v-else-if="pufferVorhanden(zeile)" class="row-meta">{{
+              pufferAnzeige(zeile)
+            }}</span>
             <span v-else class="row-meta">—</span>
           </td>
           <td :class="{ 'num-plus': zeile.bestellmenge > 0 }">{{ zeile.bestellmenge }}</td>
@@ -657,8 +677,8 @@ function csvExportieren(): void {
           <thead>
             <tr>
               <th>{{ t('view.akkutausch.groesse') }}</th>
-              <th>{{ t('view.akkutausch.bedarf') }}</th>
               <th>{{ t('view.akkutausch.bestand') }}</th>
+              <th>{{ t('view.akkutausch.bedarf') }}</th>
               <th>{{ t('view.akkutausch.puffer') }}</th>
               <th>{{ t('view.akkutausch.bestellmenge') }}</th>
             </tr>
@@ -671,8 +691,8 @@ function csvExportieren(): void {
                   {{ formatKapazitaetBereich(z.von, z.bis, locale) }}
                 </span>
               </td>
-              <td>{{ z.soll }}</td>
               <td>{{ z.bestand }}</td>
+              <td>{{ z.soll }}</td>
               <td>{{ z.reserve }}</td>
               <td>{{ z.bedarf }}</td>
             </tr>
