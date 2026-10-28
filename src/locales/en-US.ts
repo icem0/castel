@@ -198,6 +198,11 @@ export default {
         bestellnummerKopieren: 'Copy order number to clipboard',
         bestellnummerKopiert: 'Copied',
         bestellnummerKopierFehler: 'Copy failed',
+        bestellen: 'Order',
+        bestellenEmailTitel: 'Order by e-mail to the supplier',
+        bestellenWebTitel: 'Order via the supplier website',
+        bestellMailText:
+          'Hello,\n\nplease order the following article:\n\nArticle: {titel}\nOrder number: {bestellnummer}\n\nThank you',
       },
       form: {
         h1: 'New item',

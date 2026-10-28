@@ -205,6 +205,11 @@ export default {
         bestellnummerKopieren: 'Bestellnummer in die Zwischenablage kopieren',
         bestellnummerKopiert: 'Kopiert',
         bestellnummerKopierFehler: 'Kopieren fehlgeschlagen',
+        bestellen: 'Bestellen',
+        bestellenEmailTitel: 'Bestellung per E-Mail an den Lieferanten',
+        bestellenWebTitel: 'Bestellung über die Website des Lieferanten',
+        bestellMailText:
+          'Guten Tag,\n\nbitte bestellen Sie folgenden Artikel:\n\nArtikel: {titel}\nBestellnummer: {bestellnummer}\n\nVielen Dank',
       },
       form: {
         h1: 'Neuer Artikel',

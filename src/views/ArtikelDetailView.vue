@@ -15,6 +15,7 @@ import HerstellerKatalogDrawer, {
 } from '../components/HerstellerKatalogDrawer.vue'
 import { centZuEuro, euroZuCent, formatiereCent } from '../domain/geld'
 import { berechneEinkaufspreisCent, rabattsatzVon } from '../domain/rabatt'
+import { bestellZiel } from '../domain/bestellung'
 import type { Artikel, ArtikelStatus, Buchung } from '../db/types'
 import FotoUpload from './components/FotoUpload.vue'
 
@@ -35,6 +36,23 @@ const artikel = computed<Artikel | undefined>(() => artikelStore.byId(artikelId.
 const herstellerName = computed<string | null>(() => {
   const id = artikel.value?.herstellerId
   return id ? (herstellerStore.byId(id)?.name ?? null) : null
+})
+
+/**
+ * Bestellziel des Lieferanten (E-Mail oder Webseite aus der Lieferanten-
+ * liste). `null` ohne verknuepften Lieferanten oder ohne Bestellkontakt —
+ * dann blendet die View den "Bestellen"-Button aus.
+ */
+const bestellZielArtikel = computed(() => {
+  const a = artikel.value
+  if (!a?.herstellerId) return null
+  return bestellZiel(herstellerStore.byId(a.herstellerId), {
+    betreff: t('view.mindestbestand.bestellMailBetreff', { titel: a.titel }),
+    text: t('view.artikel.detail.bestellMailText', {
+      titel: a.titel,
+      bestellnummer: a.bestellnummer ?? '—',
+    }),
+  })
 })
 
 const barcodeQuelle = computed<string | null | undefined>(() => artikel.value?.barcode)
@@ -382,6 +400,21 @@ onMounted(() => {
           <RouterLink :to="`/etiketten?artikelId=${artikel.id}`" class="btn">
             {{ t('view.artikel.detail.etikettDrucken') }}
           </RouterLink>
+          <a
+            v-if="bestellZielArtikel"
+            class="btn"
+            data-testid="artikel-detail-bestellen"
+            :href="bestellZielArtikel.href"
+            :target="bestellZielArtikel.mailto ? undefined : '_blank'"
+            rel="noopener noreferrer"
+            :title="
+              bestellZielArtikel.mailto
+                ? t('view.artikel.detail.bestellenEmailTitel')
+                : t('view.artikel.detail.bestellenWebTitel')
+            "
+          >
+            🛒 {{ t('view.artikel.detail.bestellen') }}
+          </a>
           <button
             type="button"
             class="btn"

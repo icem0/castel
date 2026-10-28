@@ -280,6 +280,63 @@ describe('ArtikelDetailView — Katalogübernahme', () => {
   })
 })
 
+describe('ArtikelDetailView — Bestellen-Button', () => {
+  async function setupMitBestellkontakt(hersteller: {
+    bestellEmail: string | null
+    bestellWebseite: string | null
+  }) {
+    await getDb().hersteller.add({
+      id: 'h-bestell',
+      name: 'Lieferant Bestell-GmbH',
+      bestellEmail: hersteller.bestellEmail,
+      bestellWebseite: hersteller.bestellWebseite,
+      rabattsatz: 0,
+      geaendertAm: '2026-10-19T10:00:00.000Z',
+      erstelltAm: '2026-10-19T10:00:00.000Z',
+    })
+    return setupView(null, [], { herstellerId: 'h-bestell', bestellnummer: 'B-42' })
+  }
+
+  it('verlinkt den Bestell-Button mit der Bestell-E-Mail des Lieferanten', async () => {
+    const { w } = await setupMitBestellkontakt({
+      bestellEmail: 'order@example.com',
+      bestellWebseite: 'https://shop.example.com',
+    })
+
+    const link = w.get('[data-testid="artikel-detail-bestellen"]').element as HTMLAnchorElement
+    expect(link.textContent).toContain('Bestellen')
+    expect(link.getAttribute('href')).toContain('mailto:order@example.com')
+    expect(link.getAttribute('href')).toContain('Bestellung%3A%20Schraube%20M6')
+    expect(link.getAttribute('href')).toContain('B-42')
+
+    w.unmount()
+  })
+
+  it('nutzt die Lieferanten-Website, wenn keine Bestell-E-Mail gepflegt ist', async () => {
+    const { w } = await setupMitBestellkontakt({
+      bestellEmail: null,
+      bestellWebseite: 'shop.example.com',
+    })
+
+    const link = w.get('[data-testid="artikel-detail-bestellen"]').element as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('https://shop.example.com')
+    expect(link.getAttribute('target')).toBe('_blank')
+
+    w.unmount()
+  })
+
+  it('blendet den Bestell-Button ohne Bestellkontakt aus', async () => {
+    const { w } = await setupMitBestellkontakt({
+      bestellEmail: null,
+      bestellWebseite: null,
+    })
+
+    expect(w.find('[data-testid="artikel-detail-bestellen"]').exists()).toBe(false)
+
+    w.unmount()
+  })
+})
+
 describe('ArtikelDetailView — Einkaufspreis aus dem Lieferantenrabatt', () => {
   beforeEach(() => {
     sessionSchreiben({
