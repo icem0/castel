@@ -151,11 +151,18 @@ export async function syncRoutes(
           .select()
           .from(akkuProjekte)
           .where(sql`${akkuProjekte.geaendertAm} > ${sinceIso}`),
-        // Akkutausch: Bestell-Snapshots — append-only, filter on server time.
+        // Akkutausch: Bestell-Snapshots — filter on server time. A snapshot
+        // that was undone after `since` is pulled again, otherwise the undo
+        // would never arrive on the other devices.
         db
           .select()
           .from(akkuBestellungen)
-          .where(sql`${akkuBestellungen.bestelltAm} > ${sinceIso}`),
+          .where(
+            or(
+              sql`${akkuBestellungen.bestelltAm} > ${sinceIso}`,
+              sql`${akkuBestellungen.stornoAm} > ${sinceIso}`,
+            ),
+          ),
       ])
 
       return reply.send({
@@ -220,6 +227,11 @@ export async function syncRoutes(
           bestelltVonKuerzel: r.bestelltVonKuerzel,
           inventurDatum: r.inventurDatum,
           inventurVonKuerzel: r.inventurVonKuerzel,
+          standortId: r.standortId,
+          storno: r.storno,
+          stornoAm: r.stornoAm ? r.stornoAm.toISOString() : null,
+          stornoVon: r.stornoVon,
+          stornoVonKuerzel: r.stornoVonKuerzel,
           zeilen: r.zeilen,
         })),
         einstellungen: einstellungRows.map((r) => ({

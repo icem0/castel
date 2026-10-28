@@ -507,6 +507,18 @@ export default {
       bestelltMindestbestaende: 'Minimum stock set to demand − stock for {anzahl} battery item(s).',
       bestellt: 'Ordered',
       bestelltAm: 'Ordered on {datum} · {kuerzel}',
+      bestellungRueckgaengig: 'Undo',
+      bestellungRueckgaengigLaeuft: 'Undoing …',
+      bestellungRueckgaengigFrage:
+        'Take back the last order? The archive entry is kept, the buffer (minimum stock at the main warehouse) is restored to the state before the order and the quarter can be ordered again.',
+      bestellungRueckgaengigErfolg: 'Last order taken back.',
+      bestellungRueckgaengigFehler: 'The order could not be taken back.',
+      bestellungRueckgaengigMindestbestaende:
+        'Minimum stock of {anzahl} battery article(s) restored to the state before the order.',
+      bestellungRueckgaengigHinweis: 'Only the last order can be taken back.',
+      bestellungStorno: 'Order taken back',
+      bestellungStornoAm: 'Taken back on {datum} · {kuerzel}',
+      bestellungStornoKurz: 'taken back',
       inventurKurz: 'Inventory: {datum} ({kuerzel})',
       bestellarchiv: 'Order archive',
       bestellOptionen: 'Order',

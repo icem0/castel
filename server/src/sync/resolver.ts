@@ -16,7 +16,7 @@
 //
 // Alles in einer DB-Transaktion pro Push-Batch.
 
-import { and, count, eq, getTableColumns, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, getTableColumns, isNull } from 'drizzle-orm'
 import { PgTimestamp } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
@@ -39,6 +39,7 @@ import { berechneBestand, type BestandQuerier } from '../domain/bestand.js'
 import {
   HatAbhaengigkeitenError,
   NegativerBestandError,
+  NichtLetzteBestellungError,
   ProtectedStandortError,
   UnbekannteReferenzError,
   ValidationError,
@@ -95,7 +96,7 @@ const pushSchema = z.discriminatedUnion('entity', [
     payload: z.any(),
   }),
   z.object({
-    op: z.literal('create'),
+    op: z.enum(['create', 'update']),
     entity: z.literal('akku_bestellung'),
     payload: z.any(),
   }),
@@ -343,7 +344,8 @@ function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?
     err instanceof UnbekannteReferenzError ||
     err instanceof ValidationError ||
     err instanceof HatAbhaengigkeitenError ||
-    err instanceof ProtectedStandortError
+    err instanceof ProtectedStandortError ||
+    err instanceof NichtLetzteBestellungError
   ) {
     result.errors.push({
       id,
@@ -791,10 +793,13 @@ async function resolveAkkuProjekt(
 }
 
 /**
- * Archives an order snapshot. Append-only and idempotent by UUID: a retried
- * outbox item changes nothing. The server owns `bestelltAm` so the
- * incremental snapshot query cannot miss the row because of client clock
- * drift.
+ * Archives an order snapshot. Idempotent by UUID: a retried outbox item
+ * changes nothing. The server owns `bestelltAm` so the incremental snapshot
+ * query cannot miss the row because of client clock drift.
+ *
+ * `update` undoes the order ("rueckgaengig gemacht"). Only the last order
+ * may be undone — the snapshot is kept as history and marked with
+ * `storno = true`.
  */
 async function resolveAkkuBestellung(
   tx: Tx,
@@ -804,6 +809,12 @@ async function resolveAkkuBestellung(
   pruefeAkkutauschRolle(benutzerRolle)
   const payload = op.payload as Record<string, unknown>
   const id = payload['id'] as string
+
+  if (op.op === 'update') {
+    await storniereAkkuBestellung(tx, id, payload)
+    return
+  }
+
   const existing = await tx
     .select()
     .from(akkuBestellungen)
@@ -820,8 +831,54 @@ async function resolveAkkuBestellung(
     bestelltVonKuerzel: payload['bestelltVonKuerzel'] as string,
     inventurDatum: (payload['inventurDatum'] as string | null) ?? null,
     inventurVonKuerzel: (payload['inventurVonKuerzel'] as string | null) ?? null,
+    standortId: (payload['standortId'] as string | null) ?? null,
+    storno: false,
     zeilen: payload['zeilen'],
   } as never)
+}
+
+/**
+ * Undoes an order: the row stays as history and is marked with
+ * `storno = true`. The server owns `stornoAm`.
+ *
+ * Only the newest snapshot may be undone — that keeps the archive intact
+ * and matches the UI ("nur die letzte Bestellung").
+ */
+async function storniereAkkuBestellung(
+  tx: Tx,
+  id: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const existing = await tx
+    .select()
+    .from(akkuBestellungen)
+    .where(eq(akkuBestellungen.id, id))
+    .limit(1)
+  const bestellung = existing[0]
+  if (!bestellung) {
+    throw new ValidationError('akku_bestellung', `Bestellung ${id} ist nicht vorhanden`)
+  }
+  // Idempotent: ein zweites Ruecknaehmen derselben Bestellung ist ein No-Op.
+  if (bestellung.storno) return
+
+  const [neueste] = await tx
+    .select({ id: akkuBestellungen.id })
+    .from(akkuBestellungen)
+    .orderBy(desc(akkuBestellungen.bestelltAm), desc(akkuBestellungen.id))
+    .limit(1)
+  if (neueste?.id !== id) {
+    throw new NichtLetzteBestellungError(id)
+  }
+
+  await tx
+    .update(akkuBestellungen)
+    .set({
+      storno: true,
+      stornoAm: new Date(),
+      stornoVon: (payload['stornoVon'] as string | null) ?? null,
+      stornoVonKuerzel: (payload['stornoVonKuerzel'] as string | null) ?? null,
+    })
+    .where(eq(akkuBestellungen.id, id))
 }
 
 // ---------- Last-Writer-Wins ----------

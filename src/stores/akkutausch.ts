@@ -16,6 +16,11 @@
 // Markiert ein Admin das Quartal als "bestellt", wird der Mindestbestand der
 // Akku-Artikel am Hauptlager auf `Bedarf - Bestand` gesetzt (0 entfernt die
 // sparse Konfiguration). Das Archiv behaelt den bisherigen Puffer.
+//
+// Die letzte Bestellung kann rueckgaengig gemacht werden (Fehler nach dem
+// "Bestellt"-Vorgang): der Snapshot bleibt im Archiv und wird als storniert
+// markiert, der Mindestbestand wird aus dem eingefrorenen Puffer
+// zurueckgeschrieben. Aeltere Bestellungen bleiben unangetastet.
 
 import { defineStore } from 'pinia'
 import { liveQuery, type Subscription } from 'dexie'
@@ -76,6 +81,15 @@ function aktuellesQuartal(): number {
 export interface BestellungMarkierenErgebnis {
   bestellung: AkkuBestellung | null
   aktualisierteMindestbestaende: number
+}
+
+/**
+ * Result of {@link bestellungRueckgaengig}: the undone order (`null` when
+ * there is nothing to undo) plus the number of restored minimum stocks.
+ */
+export interface BestellungRueckgaengigErgebnis {
+  bestellung: AkkuBestellung | null
+  wiederhergestellteMindestbestaende: number
 }
 
 export const useAkkutauschStore = defineStore('akkutausch', () => {
@@ -191,8 +205,20 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   /** Archived order of the selected quarter, if any. */
   const bestellungFuerQuartal = computed<AkkuBestellung | null>(() => {
     const treffer = bestellungen.value
-      .filter((b) => b.jahr === jahr.value && b.quartal === quartal.value)
+      .filter((b) => b.jahr === jahr.value && b.quartal === quartal.value && !b.storno)
       .sort((a, b) => (a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0))
+    return treffer[0] ?? null
+  })
+
+  /**
+   * The newest archived order — the only one that can be undone. An order
+   * that was already undone stays the newest one, so no older order can be
+   * taken back afterwards ("nur die letzte Bestellung").
+   */
+  const letzteBestellung = computed<AkkuBestellung | null>(() => {
+    const treffer = [...bestellungen.value].sort((a, b) =>
+      a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0,
+    )
     return treffer[0] ?? null
   })
 
@@ -246,8 +272,14 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
       bestelltVonKuerzel: kuerzelAusName(auth.erstelltVon),
       inventurDatum: inventur.datum,
       inventurVonKuerzel: inventur.kuerzel,
+      standortId: hauptlagerId.value,
+      storno: false,
+      stornoAm: null,
+      stornoVon: null,
+      stornoVonKuerzel: null,
       zeilen: zeilen.map((zeile) => ({
         typId: zeile.typ.id,
+        artikelId: zeile.typ.artikelId,
         kapazitaetAh: zeile.typ.kapazitaetAh,
         von: zeile.typ.von,
         bis: zeile.typ.bis,
@@ -263,6 +295,68 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
 
     const aktualisierteMindestbestaende = await aktualisiereMindestbestaende(zeilen)
     return { bestellung, aktualisierteMindestbestaende }
+  }
+
+  /**
+   * Undoes the last order ("rueckgaengig gemacht") — for the case where
+   * something went wrong after marking the quarter as ordered.
+   *
+   * The snapshot stays in the archive and is marked as undone; the minimum
+   * stock of the battery articles is restored from the frozen buffer, so the
+   * quarter can be planned and ordered again.
+   *
+   * Only the newest order can be undone. Returns `bestellung = null` when
+   * there is nothing to undo.
+   */
+  async function bestellungRueckgaengig(): Promise<BestellungRueckgaengigErgebnis> {
+    const ziel = letzteBestellung.value
+    if (!ziel || ziel.storno) {
+      return { bestellung: null, wiederhergestellteMindestbestaende: 0 }
+    }
+
+    const storniert: AkkuBestellung = {
+      id: ziel.id,
+      quartal: ziel.quartal,
+      jahr: ziel.jahr,
+      bestelltAm: ziel.bestelltAm,
+      bestelltVon: ziel.bestelltVon,
+      bestelltVonKuerzel: ziel.bestelltVonKuerzel,
+      inventurDatum: ziel.inventurDatum,
+      inventurVonKuerzel: ziel.inventurVonKuerzel,
+      standortId: ziel.standortId,
+      storno: true,
+      stornoAm: jetztIso(),
+      stornoVon: auth.erstelltVon,
+      stornoVonKuerzel: kuerzelAusName(auth.erstelltVon),
+      zeilen: ziel.zeilen.map((zeile) => ({ ...zeile })),
+    }
+    await getDb().akkuBestellungen.put(storniert)
+    await queueOp('akku_bestellung', 'update', storniert)
+
+    const wiederhergestellteMindestbestaende = await mindestbestaendeWiederherstellen(ziel)
+    return { bestellung: storniert, wiederhergestellteMindestbestaende }
+  }
+
+  /**
+   * Restores the buffer ("zur freien Verfuegung") of the battery articles
+   * that the order had overwritten: the frozen `reserve` of the snapshot is
+   * the minimum stock before the order. A buffer of 0 removes the sparse
+   * configuration again.
+   */
+  async function mindestbestaendeWiederherstellen(bestellung: AkkuBestellung): Promise<number> {
+    const standortId = bestellung.standortId ?? hauptlagerId.value
+    if (!standortId) return 0
+
+    let anzahl = 0
+    for (const zeile of bestellung.zeilen) {
+      const artikelId = zeile.artikelId
+      if (!artikelId) continue
+      const wert = Math.max(0, Math.trunc(zeile.reserve))
+      if (wert === mindestbestandStore.wertFuer(artikelId, standortId)) continue
+      await mindestbestandStore.setzen(artikelId, standortId, wert)
+      anzahl++
+    }
+    return anzahl
   }
 
   /**
@@ -399,9 +493,11 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     akkuArtikelIds,
     inventurStatus,
     bestellungFuerQuartal,
+    letzteBestellung,
     start,
     stop,
     bestellungMarkieren,
+    bestellungRueckgaengig,
     pufferSpeichern,
     faelligkeitVon,
     netzteilSpeichern,

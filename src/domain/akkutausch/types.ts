@@ -195,6 +195,12 @@ export interface InventurStatus {
  */
 export interface AkkuBestellungZeile {
   typId: string
+  /**
+   * Article of the battery size at the time of the order. Needed to restore
+   * the buffer ("zur freien Verfuegung") when the order is undone — the
+   * buffer lives as the minimum stock of that article at the main warehouse.
+   */
+  artikelId: string | null
   kapazitaetAh: number
   von: number
   bis: number
@@ -209,12 +215,16 @@ export interface AkkuBestellungZeile {
 }
 
 /**
- * Immutable snapshot of a "marked as ordered" quarter.
+ * Snapshot of a "marked as ordered" quarter.
  *
  * The snapshot freezes the planning table, the inventory cut-off and the
  * initials of the person who triggered the order, so later stock changes do
- * not rewrite the archive. Identity is a UUID; the record is append-only and
- * never edited (a new order run creates a new row).
+ * not rewrite the archive. Identity is a UUID; a new order run creates a new
+ * row.
+ *
+ * The last order can be undone ("rueckgaengig gemacht"): the row is kept as
+ * history and marked with `storno`. The minimum stock of the battery
+ * articles is restored from the frozen buffer (`zeilen[].reserve`).
  */
 export interface AkkuBestellung {
   id: string
@@ -230,6 +240,19 @@ export interface AkkuBestellung {
   inventurDatum: IsoDatum | null
   /** Initials of the people who conducted that inventory. */
   inventurVonKuerzel: string | null
+  /**
+   * Main warehouse at the time of the order — the buffer was written there
+   * as the minimum stock of the battery articles.
+   */
+  standortId: string | null
+  /** The order was undone. The row stays as history. */
+  storno: boolean
+  /** Timestamp of the undo (server-authoritative). */
+  stornoAm: IsoZeit | null
+  /** Display name of the user who undid the order. */
+  stornoVon: string | null
+  /** Initials of the user who undid the order. */
+  stornoVonKuerzel: string | null
   /** Frozen planning table. */
   zeilen: AkkuBestellungZeile[]
 }

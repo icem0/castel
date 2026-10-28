@@ -6,7 +6,7 @@
 //   - Der Netzteil-Reiter listet die angelegten Geraete mit Faelligkeit.
 //   - Mitarbeiter (kein Admin) sehen keine Schreibaktionen.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -413,6 +413,100 @@ describe('AkkutauschView', () => {
     expect(mails).toHaveLength(2)
     expect(mails[0]?.attributes('href')).toContain('nord@example.com')
     expect(mails[1]?.attributes('href')).toContain('sued@example.com')
+  })
+
+  it('kann die letzte Bestellung zuruecknehmen', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'admin',
+      email: 'admin@example.com',
+      rolle: 'admin',
+    } as never
+
+    await setupPlanung()
+
+    const store = useAkkutauschStore(pinia)
+    await getDb().akkuBestellungen.put({
+      id: 'b-1',
+      quartal: store.quartal,
+      jahr: store.jahr,
+      bestelltAm: jetztIso(),
+      bestelltVon: 'Admin',
+      bestelltVonKuerzel: 'AD',
+      inventurDatum: '2026-10-01',
+      inventurVonKuerzel: 'AD',
+      standortId: 's-1',
+      storno: false,
+      stornoAm: null,
+      stornoVon: null,
+      stornoVonKuerzel: null,
+      zeilen: [
+        {
+          typId: 't1',
+          artikelId: 'a-1',
+          kapazitaetAh: 12.5,
+          von: 12,
+          bis: 12.9,
+          soll: 10,
+          bestand: 0,
+          reserve: 0,
+          verfuegbar: 0,
+          bedarf: 10,
+        },
+      ],
+    })
+
+    const { w } = await setupView()
+    expect(w.text()).toContain('Bestellt')
+
+    const rueckgaengig = buttonMitText(w, 'Rückgängig')
+    expect(rueckgaengig).toBeDefined()
+
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await rueckgaengig?.trigger('click')
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 80))
+    await flushPromises()
+    confirmSpy.mockRestore()
+
+    const rows = await getDb().akkuBestellungen.toArray()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.storno).toBe(true)
+    expect(rows[0]?.stornoAm).not.toBeNull()
+    // Das Quartal ist wieder frei — "Bestellt" ist erneut moeglich.
+    expect(buttonMitText(w, 'Bestellt')).toBeDefined()
+  })
+
+  it('zeigt Mitarbeitern keine Ruecknahme-Aktion', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'mitarbeiter',
+      email: 'mitarbeiter@example.com',
+      rolle: 'user',
+    } as never
+
+    await setupPlanung()
+
+    const store = useAkkutauschStore(pinia)
+    await getDb().akkuBestellungen.put({
+      id: 'b-1',
+      quartal: store.quartal,
+      jahr: store.jahr,
+      bestelltAm: jetztIso(),
+      bestelltVon: 'Admin',
+      bestelltVonKuerzel: 'AD',
+      inventurDatum: '2026-10-01',
+      inventurVonKuerzel: 'AD',
+      standortId: 's-1',
+      storno: false,
+      stornoAm: null,
+      stornoVon: null,
+      stornoVonKuerzel: null,
+      zeilen: [],
+    })
+
+    const { w } = await setupView()
+    expect(buttonMitText(w, 'Rückgängig')).toBeUndefined()
   })
 
   it('nennt die Anlage in Warnungen und springt in die Bearbeitung', async () => {

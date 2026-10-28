@@ -521,6 +521,18 @@ export default {
         'Mindestbestand von {anzahl} Akku-Artikel(n) auf Bedarf − Bestand gesetzt.',
       bestellt: 'Bestellt',
       bestelltAm: 'Bestellt am {datum} · {kuerzel}',
+      bestellungRueckgaengig: 'Rückgängig',
+      bestellungRueckgaengigLaeuft: 'Wird zurückgenommen …',
+      bestellungRueckgaengigFrage:
+        'Letzte Bestellung zurücknehmen? Der Archiv-Eintrag bleibt erhalten, der Puffer (Mindestbestand am Hauptlager) wird auf den Stand vor der Bestellung zurückgesetzt und das Quartal kann erneut bestellt werden.',
+      bestellungRueckgaengigErfolg: 'Letzte Bestellung zurückgenommen.',
+      bestellungRueckgaengigFehler: 'Bestellung konnte nicht zurückgenommen werden.',
+      bestellungRueckgaengigMindestbestaende:
+        'Mindestbestand von {anzahl} Akku-Artikel(n) auf den Stand vor der Bestellung zurückgesetzt.',
+      bestellungRueckgaengigHinweis: 'Nur die letzte Bestellung kann zurückgenommen werden.',
+      bestellungStorno: 'Bestellung zurückgenommen',
+      bestellungStornoAm: 'Zurückgenommen am {datum} · {kuerzel}',
+      bestellungStornoKurz: 'zurückgenommen',
       inventurKurz: 'Inventur: {datum} ({kuerzel})',
       bestellarchiv: 'Bestellarchiv',
       bestellOptionen: 'Bestellen',

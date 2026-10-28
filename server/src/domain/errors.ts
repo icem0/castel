@@ -63,6 +63,23 @@ export class BereitsStorniertError extends DomainError {
   }
 }
 
+/**
+ * Ruecknaehmen einer Bestellung, die nicht die letzte ist.
+ *
+ * Wird vom Resolver geworfen, wenn ein aelterer Snapshot storniert werden
+ * soll. Der Client legt das Outbox-Item sofort still (Spiegel der
+ * `HARD_QUARANTINE_CODES` im PWA-Worker) — ein Retry kann die Bedingung
+ * nicht heilen.
+ */
+export class NichtLetzteBestellungError extends DomainError {
+  constructor(public readonly id: string) {
+    super(
+      'NICHT_LETZTE_BESTELLUNG',
+      `Nur die letzte Bestellung kann rueckgaengig gemacht werden (Bestellung ${id})`,
+    )
+  }
+}
+
 /** Inventur darf nicht durchgeführt werden (z. B. Rolle fehlt). */
 export class InventurNichtErlaubtError extends DomainError {
   constructor(public readonly grund: string) {

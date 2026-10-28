@@ -20,6 +20,14 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
   - **Der Standard-Standort (Hauptlager) ist geschützt**: weder löschbar noch archivierbar (`PROTECTED_STANDORT`, DB-seitig geprüft).
   - Ein gelöschter Artikel/Standort nimmt seine Konfigurationen per `ON DELETE CASCADE` mit — das Löschen wird dadurch nicht blockiert (Buchungen und Mindestbestand-Ereignisse tun das weiterhin).
 
+### Akkutausch: Bestell-Snapshots
+
+- **„Bestellt" archiviert einen Snapshot** in `akku_bestellungen` (Migration `0024`): eingefrorene Plantabelle (`zeilen` als JSONB), Inventur-Stichtag und Kürzel der auslösenden Person. `bestellt_am` setzt der Server (Source of Truth), `create` ist per UUID idempotent.
+- **Nur die letzte Bestellung ist rückgängig zu machen.** Ein `update`-Op (`op: 'update'`, Entity `akku_bestellung`) setzt `storno = true` + `storno_am` (Server-Zeit). Der Server prüft, dass die Zielzeile die **neueste** ist (`ORDER BY bestellt_am DESC LIMIT 1`) — sonst `NICHT_LETZTE_BESTELLUNG` (Client legt das Outbox-Item sofort still, `HARD_QUARANTINE_CODES`).
+- **Der Snapshot bleibt Historie.** Die Zeile wird nicht gelöscht; `storno`-Bestellungen zählen nicht mehr als „bestellt" für ihr Quartal (`bestellungFuerQuartal` filtert sie), das Quartal kann also erneut bestellt werden.
+- **Nebenwirkung wird zurückgenommen.** „Bestellt" setzt den Mindestbestand der Akku-Artikel am Hauptlager auf *Bedarf − Bestand*; der Snapshot merkt sich den alten Puffer in `zeilen[].reserve` (sowie `artikelId` und `standort_id`), das Rückgängig-Machen schreibt ihn zurück (0 entfernt die sparse Zeile).
+- **Der Snapshot-Filter zieht Stornos nach**: `bestellt_am > since OR storno_am > since` — sonst käme das Rückgängig-Machen auf anderen Geräten nie an.
+
 ### Preise, Rabatt und Lagerwert
 
 - **Geld ist immer eine Ganzzahl in Cent** — `artikel.listenpreis`, `artikel.einkaufspreis`, `hersteller_artikel.preis_*_cent`. Auch die PWA speichert beide Preise in Cent (Dexie v17 hat den früheren Euro-Wert des Artikelformulars umgestellt). Die UI rechnet in Euro und wandelt an der Formulargrenze um (`src/domain/geld.ts`).

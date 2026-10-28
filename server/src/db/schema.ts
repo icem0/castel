@@ -382,13 +382,17 @@ export const akkuProjekte = pgTable(
 )
 
 /**
- * Akkutausch: immutable order snapshots ("als bestellt markiert").
+ * Akkutausch: order snapshots ("als bestellt markiert").
  *
- * Append-only: each order run creates a new row with a frozen copy of the
- * planning table plus the inventory cut-off and the initials of the person
- * who triggered it. `bestellt_am` is set by the server (source of truth) so
- * the incremental snapshot query can never miss a row because of client
- * clock drift.
+ * Each order run creates a new row with a frozen copy of the planning table
+ * plus the inventory cut-off and the initials of the person who triggered
+ * it. `bestellt_am` is set by the server (source of truth) so the
+ * incremental snapshot query can never miss a row because of client clock
+ * drift.
+ *
+ * The last order can be undone: the row is kept as history and marked with
+ * `storno = true`. `storno_am` is the server timestamp of the undo — the
+ * snapshot filter pulls rows that were ordered OR undone after `since`.
  */
 export const akkuBestellungen = pgTable(
   'akku_bestellungen',
@@ -402,12 +406,24 @@ export const akkuBestellungen = pgTable(
     /** Calendar date (`YYYY-MM-DD`) or null when the stock was not dated. */
     inventurDatum: date('inventur_datum', { mode: 'string' }),
     inventurVonKuerzel: text('inventur_von_kuerzel'),
+    /** Main warehouse at the time of the order (the buffer lives there). */
+    standortId: text('standort_id'),
+    /** The order was undone — the row stays as history. */
+    storno: boolean('storno').notNull().default(false),
+    /** Server timestamp of the undo. */
+    stornoAm: timestamp('storno_am', { withTimezone: true }),
+    /** Display name of the user who undid the order. */
+    stornoVon: text('storno_von'),
+    /** Initials of the user who undid the order. */
+    stornoVonKuerzel: text('storno_von_kuerzel'),
     /** Frozen planning rows (Groesse/Soll/Bestand/Reserve/Verfuegbar/Bedarf). */
     zeilen: jsonb('zeilen').notNull(),
   },
   (t) => [
     // Sync-Snapshot filtert auf `bestellt_am > since` — Index ist Pflicht.
     index('akku_bestellungen_bestellt_am_idx').on(t.bestelltAm),
+    // Der Snapshot filtert zusaetzlich auf `storno_am > since`.
+    index('akku_bestellungen_storno_am_idx').on(t.stornoAm),
     // The UI looks up the order of a quarter.
     index('akku_bestellungen_quartal_jahr_idx').on(t.jahr, t.quartal),
   ],

@@ -46,7 +46,12 @@ const RETRY_AFTER_CAP_MS = 5 * 60_000
 /** Anzahl Fehlversuche, nach denen ein Outbox-Item stillgelegt wird. */
 const QUARANTINE_THRESHOLD = 5
 /** Server-Codes, die ein Item sofort stilllegen (kein Retry hilft). */
-const HARD_QUARANTINE_CODES = new Set(['UNKNOWN_REFERENCE', 'BEREITS_STORNIED', 'HAS_DEPENDENCIES'])
+const HARD_QUARANTINE_CODES = new Set([
+  'UNKNOWN_REFERENCE',
+  'BEREITS_STORNIED',
+  'HAS_DEPENDENCIES',
+  'NICHT_LETZTE_BESTELLUNG',
+])
 /**
  * Number of consecutive completed syncs with unchanged row counts before
  * the divergence is escalated from a quiet hint to an error (banner/toast).
@@ -1523,7 +1528,20 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
         }
       }
       // Akkutausch: Bestell-Snapshots — immutable, the server timestamp wins.
+      // A snapshot that was undone comes back with the storno flag; an older
+      // server does not know the flag, then the local state is kept.
       for (const b of snap.akkuBestellungen ?? []) {
+        const existing = await db.akkuBestellungen.get(b.id)
+        if (existing?.storno && (b as { storno?: boolean }).storno === undefined) {
+          await db.akkuBestellungen.put({
+            ...b,
+            storno: true,
+            stornoAm: existing.stornoAm,
+            stornoVon: existing.stornoVon,
+            stornoVonKuerzel: existing.stornoVonKuerzel,
+          })
+          continue
+        }
         await db.akkuBestellungen.put(b)
       }
       // Standorte

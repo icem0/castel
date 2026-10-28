@@ -336,8 +336,21 @@ export async function reseedServer(opts: {
   for (const p of rows.akkuProjekte) {
     await queueOp('akku_projekt', 'create', p, nextTs())
   }
-  for (const b of rows.akkuBestellungen) {
+  // Die Bestellungen werden nach Zeit sortiert gepusht: der Server nimmt
+  // nur die jeweils letzte Bestellung zurueck, deshalb muss die Reihenfolge
+  // der Chronologie entsprechen.
+  const bestellungenChronologisch = [...rows.akkuBestellungen].sort((a, b) =>
+    a.bestelltAm < b.bestelltAm ? -1 : a.bestelltAm > b.bestelltAm ? 1 : 0,
+  )
+  for (const b of bestellungenChronologisch) {
     await queueOp('akku_bestellung', 'create', b, nextTs())
+    // Eine rueckgaengig gemachte Bestellung bleibt auch beim Reseed
+    // storniert. Das Update folgt direkt auf dem Create — der Server nimmt
+    // nur die jeweils letzte Bestellung zurueck, deshalb muss das Paar
+    // zusammen gepusht werden.
+    if (b.storno) {
+      await queueOp('akku_bestellung', 'update', b, nextTs())
+    }
   }
 
   // 3) Drain the outbox through the regular worker (full sync per cycle,

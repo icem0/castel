@@ -38,7 +38,7 @@ import {
   formatKapazitaetBereich,
   formatZahl,
 } from '../../domain/akkutausch/formatierung'
-import type { PlanwarnungCode, Planzeile } from '../../domain/akkutausch/types'
+import type { AkkuBestellung, PlanwarnungCode, Planzeile } from '../../domain/akkutausch/types'
 
 const emit = defineEmits<{
   (e: 'netzteil-oeffnen', netzteilId: string): void
@@ -56,6 +56,7 @@ const locale = computed(() => settings.settings.sprache)
 
 const kopiert = ref(false)
 const bestelltLaeuft = ref(false)
+const rueckgaengigLaeuft = ref(false)
 
 /** The order options are shown after the "Bestellen" button was pressed. */
 const bestellOptionenOffen = ref(false)
@@ -72,6 +73,23 @@ const archiv = computed(() =>
     a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0,
   ),
 )
+
+/**
+ * The undone order of the selected quarter — the quarter was ordered and
+ * the order was taken back afterwards.
+ */
+const stornoBestellung = computed<AkkuBestellung | null>(
+  () =>
+    archiv.value.find((b) => b.storno && b.jahr === store.jahr && b.quartal === store.quartal) ??
+    null,
+)
+
+/**
+ * Only the last order can be undone — older snapshots stay untouched.
+ */
+function rueckgaengigMoeglich(bestellung: AkkuBestellung): boolean {
+  return store.letzteBestellung?.id === bestellung.id && !bestellung.storno
+}
 
 const jahre = computed(() => {
   const aktuell = new Date().getFullYear()
@@ -377,6 +395,36 @@ async function bestellungBestaetigen(): Promise<void> {
   }
 }
 
+/**
+ * Takes the last order back ("rueckgaengig gemacht") — for the case where
+ * something went wrong after marking the quarter as ordered. The archive
+ * entry stays, the buffer is restored and the quarter can be ordered again.
+ */
+async function bestellungRueckgaengig(): Promise<void> {
+  if (rueckgaengigLaeuft.value) return
+  if (!window.confirm(t('view.akkutausch.bestellungRueckgaengigFrage'))) return
+
+  rueckgaengigLaeuft.value = true
+  try {
+    const ergebnis = await store.bestellungRueckgaengig()
+    if (!ergebnis.bestellung) {
+      toast.show({ text: t('view.akkutausch.bestellungRueckgaengigFehler'), status: 'error' })
+      return
+    }
+    toast.show({ text: t('view.akkutausch.bestellungRueckgaengigErfolg'), status: 'success' })
+    if (ergebnis.wiederhergestellteMindestbestaende > 0) {
+      toast.show({
+        text: t('view.akkutausch.bestellungRueckgaengigMindestbestaende', {
+          anzahl: ergebnis.wiederhergestellteMindestbestaende,
+        }),
+        status: 'info',
+      })
+    }
+  } finally {
+    rueckgaengigLaeuft.value = false
+  }
+}
+
 function csvExportieren(): void {
   const zeilen = store.planung.bestellzeilen.map((z) => [
     formatKapazitaetBereich(z.von, z.bis, locale.value),
@@ -529,6 +577,34 @@ function csvExportieren(): void {
             })
           }}
         </span>
+        <button
+          v-if="auth.istAdmin && rueckgaengigMoeglich(bestellung)"
+          type="button"
+          class="btn-undueck"
+          :disabled="rueckgaengigLaeuft"
+          @click="bestellungRueckgaengig"
+        >
+          {{
+            rueckgaengigLaeuft
+              ? t('view.akkutausch.bestellungRueckgaengigLaeuft')
+              : t('view.akkutausch.bestellungRueckgaengig')
+          }}
+        </button>
+      </div>
+
+      <div v-else-if="stornoBestellung" class="bestellt-status bestellt-status--storno">
+        <strong>{{ t('view.akkutausch.bestellungStorno') }}</strong>
+        <span>
+          {{
+            t('view.akkutausch.bestellungStornoAm', {
+              datum: formatDatum(
+                (stornoBestellung.stornoAm ?? stornoBestellung.bestelltAm).slice(0, 10),
+                locale,
+              ),
+              kuerzel: stornoBestellung.stornoVonKuerzel ?? stornoBestellung.bestelltVonKuerzel,
+            })
+          }}
+        </span>
       </div>
 
       <table v-if="store.planung.bestellzeilen.length > 0" class="data">
@@ -672,7 +748,27 @@ function csvExportieren(): void {
               })
             }}
           </span>
+          <span v-if="b.storno" class="archiv-storno">{{
+            t('view.akkutausch.bestellungStornoKurz')
+          }}</span>
         </summary>
+        <div v-if="auth.istAdmin && rueckgaengigMoeglich(b)" class="archiv-aktionen">
+          <button
+            type="button"
+            class="btn-undueck"
+            :disabled="rueckgaengigLaeuft"
+            @click="bestellungRueckgaengig"
+          >
+            {{
+              rueckgaengigLaeuft
+                ? t('view.akkutausch.bestellungRueckgaengigLaeuft')
+                : t('view.akkutausch.bestellungRueckgaengig')
+            }}
+          </button>
+          <span class="archiv-hinweis">{{
+            t('view.akkutausch.bestellungRueckgaengigHinweis')
+          }}</span>
+        </div>
         <table class="data">
           <thead>
             <tr>
@@ -831,12 +927,60 @@ function csvExportieren(): void {
 .bestellt-status {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
   padding: 0.5rem 0.75rem;
   border-left: 3px solid var(--success, #16a34a);
   background: color-mix(in srgb, var(--success, #16a34a) 8%, transparent);
   font-size: 0.9rem;
+}
+
+.bestellt-status--storno {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.btn-undueck {
+  margin-left: auto;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.btn-undueck:hover:not(:disabled) {
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}
+
+.btn-undueck:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.archiv-storno {
+  color: var(--warning);
+}
+
+.archiv-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.archiv-aktionen .btn-undueck {
+  margin-left: 0;
+}
+
+.archiv-hinweis {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .archiv-eintrag {

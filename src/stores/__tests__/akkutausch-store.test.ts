@@ -401,4 +401,106 @@ describe('useAkkutauschStore', () => {
     const konfigOps = outbox.filter((o) => o.entity === 'artikel_standort_mindestbestand')
     expect(konfigOps.map((o) => o.op).sort()).toEqual(['create', 'delete'])
   })
+
+  it('nimmt die letzte Bestellung zurueck und stellt den Puffer wieder her', async () => {
+    await hauptlagerAnlegen()
+    const standortStore = useStandortStore()
+    standortStore.start()
+    await new Promise((r) => setTimeout(r, 50))
+    await akkuTypAnlegen()
+    await inventurBuchen('a-1', 's-1', 3)
+
+    const konfigStore = useArtikelStandortMindestbestandStore()
+    konfigStore.start()
+    await konfigStore.setzen('a-1', 's-1', 2)
+
+    const store = useAkkutauschStore()
+    store.start()
+    await warteAufSpiegel(store)
+    await store.projektSpeichern({
+      projekt: 'Bauvorhaben',
+      menge: 10,
+      artAh: 12.5,
+      quartal: 1,
+      jahr: new Date().getFullYear(),
+    })
+    store.quartal = 1
+    store.jahr = new Date().getFullYear()
+    await new Promise((r) => setTimeout(r, 50))
+
+    const markiert = await store.bestellungMarkieren()
+    expect(markiert.bestellung).not.toBeNull()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Bestellt: Mindestbestand = Bedarf - Bestand = 10 - 3 = 7.
+    expect(konfigStore.wertFuer('a-1', 's-1')).toBe(7)
+    expect(store.bestellungFuerQuartal).not.toBeNull()
+
+    const undo = await store.bestellungRueckgaengig()
+    expect(undo.bestellung?.storno).toBe(true)
+    expect(undo.wiederhergestellteMindestbestaende).toBe(1)
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Der Puffer (2) ist wiederhergestellt, der Snapshot bleibt im Archiv.
+    expect(konfigStore.wertFuer('a-1', 's-1')).toBe(2)
+    const archiv = await getDb().akkuBestellungen.toArray()
+    expect(archiv).toHaveLength(1)
+    expect(archiv[0]?.storno).toBe(true)
+    expect(archiv[0]?.stornoAm).not.toBeNull()
+
+    // Das Quartal ist wieder frei — es kann erneut bestellt werden.
+    expect(store.bestellungFuerQuartal).toBeNull()
+
+    const outbox = await getDb().outbox.toArray()
+    const bestellOps = outbox.filter((o) => o.entity === 'akku_bestellung')
+    expect(bestellOps.map((o) => o.op).sort()).toEqual(['create', 'update'])
+  })
+
+  it('nimmt nur die letzte Bestellung zurueck', async () => {
+    await hauptlagerAnlegen()
+    const standortStore = useStandortStore()
+    standortStore.start()
+    await new Promise((r) => setTimeout(r, 50))
+    await akkuTypAnlegen()
+    await inventurBuchen('a-1', 's-1', 3)
+
+    const store = useAkkutauschStore()
+    store.start()
+    await warteAufSpiegel(store)
+    await store.projektSpeichern({
+      projekt: 'Bauvorhaben',
+      menge: 10,
+      artAh: 12.5,
+      quartal: 1,
+      jahr: new Date().getFullYear(),
+    })
+    store.quartal = 1
+    store.jahr = new Date().getFullYear()
+    await new Promise((r) => setTimeout(r, 50))
+    await store.bestellungMarkieren()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Ein aelteres Quartal bestellen.
+    store.quartal = 2
+    await new Promise((r) => setTimeout(r, 50))
+    await store.bestellungMarkieren()
+    await new Promise((r) => setTimeout(r, 50))
+
+    const archiv = await getDb().akkuBestellungen.toArray()
+    expect(archiv).toHaveLength(2)
+
+    const undo = await store.bestellungRueckgaengig()
+    expect(undo.bestellung).not.toBeNull()
+    await new Promise((r) => setTimeout(r, 50))
+
+    const nachher = await getDb().akkuBestellungen.toArray()
+    const storniert = nachher.filter((b) => b.storno)
+    expect(storniert).toHaveLength(1)
+    // Nur die letzte Bestellung ist storniert.
+    expect(storniert[0]?.id).toBe(undo.bestellung?.id)
+
+    // Ein zweites Ruecknehmen ist nicht moeglich.
+    const zweites = await store.bestellungRueckgaengig()
+    expect(zweites.bestellung).toBeNull()
+  })
 })

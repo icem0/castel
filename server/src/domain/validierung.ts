@@ -168,6 +168,11 @@ export const akkuProjektSchema = z.object({
 /** Frozen planning row of an archived battery order. */
 export const akkuBestellungZeileSchema = z.object({
   typId: id,
+  /**
+   * Article of the battery size at the time of the order. Needed to restore
+   * the buffer when the order is undone.
+   */
+  artikelId: z.string().min(1).nullable().optional(),
   kapazitaetAh: z.number().positive(),
   von: z.number().positive(),
   bis: z.number().positive(),
@@ -179,11 +184,14 @@ export const akkuBestellungZeileSchema = z.object({
 })
 
 /**
- * Immutable order snapshot ("als bestellt markiert").
+ * Order snapshot ("als bestellt markiert").
  *
  * `bestelltAm` is sent by the client but replaced with the server time in
  * the resolver — it only exists in the payload so the client can render the
  * local row immediately after the write.
+ *
+ * `storno` marks the order as undone. Only the last order may be undone;
+ * the server rejects the undo of an older snapshot.
  */
 export const akkuBestellungSchema = z.object({
   id,
@@ -194,6 +202,12 @@ export const akkuBestellungSchema = z.object({
   bestelltVonKuerzel: z.string().min(1).max(20),
   inventurDatum: isoDatum.nullable(),
   inventurVonKuerzel: z.string().max(200).nullable(),
+  /** Main warehouse at the time of the order. */
+  standortId: z.string().min(1).nullable().optional(),
+  storno: z.boolean().optional(),
+  stornoAm: iso.nullable().optional(),
+  stornoVon: z.string().max(200).nullable().optional(),
+  stornoVonKuerzel: z.string().max(20).nullable().optional(),
   zeilen: z.array(akkuBestellungZeileSchema).max(1000),
 })
 
@@ -272,8 +286,9 @@ export const pushPayloadSchema = z.object({
           payload: akkuProjektSchema,
         }),
         z.object({
-          // Order snapshots are append-only: no update/delete.
-          op: z.literal('create'),
+          // Order snapshots: 'create' archives the plan, 'update' undoes the
+          // last order (the server checks that it really is the last one).
+          op: z.enum(['create', 'update']),
           entity: z.literal('akku_bestellung'),
           payload: akkuBestellungSchema,
         }),
