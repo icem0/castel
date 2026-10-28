@@ -9,8 +9,8 @@
 //
 // Die Planung selbst liegt in `src/domain/akkutausch/berechnung.ts` (pure
 // Funktion). Dieser Store liefert nur die Daten zu:
-//   - Bestand  = Summe der aktiven Buchungen ueber alle Standorte
-//   - Reserve  = Mindestbestand des Akku-Artikels am Hauptlager
+//   - Bestand = Summe der aktiven Buchungen ueber alle Standorte
+//   - Puffer  = Mindestbestand des Akku-Artikels am Hauptlager
 //                (Konfiguration aus `artikel_standort_mindestbestaende`)
 
 import { defineStore } from 'pinia'
@@ -87,10 +87,12 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   const jahr = ref(new Date().getFullYear())
 
   function start() {
-    // Bestand (Buchungen), Reserve (Konfiguration) und Akku-Groessen
-    // (Einstellung) muessen live sein, damit die Planung aktuell bleibt.
+    // Bestand (Buchungen), Puffer (Konfiguration), Hauptlager (Standorte) und
+    // Akku-Groessen (Einstellung) muessen live sein, damit die Planung
+    // aktuell bleibt.
     buchungStore.start()
     settings.start()
+    standortStore.start()
     mindestbestandStore.start()
     if (subscription) return
     subscription = liveQuery(async () => {
@@ -134,8 +136,8 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     return map
   })
 
-  /** Reserve je Artikel-ID = Mindestbestand am Hauptlager. */
-  const reserveJeArtikel = computed(() => {
+  /** Puffer je Artikel-ID = Mindestbestand am Hauptlager. */
+  const pufferJeArtikel = computed(() => {
     const map = new Map<string, number>()
     const standortId = hauptlagerId.value
     if (!standortId) return map
@@ -153,7 +155,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
       netzteile: aktiveNetzteile.value,
       projektakkus: aktiveProjekte.value,
       bestand: bestandJeArtikel.value,
-      reserve: reserveJeArtikel.value,
+      puffer: pufferJeArtikel.value,
       quartal: quartal.value,
       jahr: jahr.value,
     }),
@@ -204,16 +206,29 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
         kapazitaetAh: zeile.typ.kapazitaetAh,
         von: zeile.typ.von,
         bis: zeile.typ.bis,
-        soll: zeile.soll,
+        soll: zeile.bedarf,
         bestand: zeile.bestand,
-        reserve: zeile.reserve,
+        reserve: zeile.puffer,
         verfuegbar: zeile.verfuegbar,
-        bedarf: zeile.benoetigt,
+        bedarf: zeile.bestellmenge,
       })),
     }
     await getDb().akkuBestellungen.add(bestellung)
     await queueOp('akku_bestellung', 'create', bestellung)
     return bestellung
+  }
+
+  /**
+   * Speichert den Puffer ("zur freien Verfuegung") eines Akku-Typs.
+   *
+   * Der Puffer wird als Mindestbestand des Akku-Artikels am Hauptlager
+   * gefuehrt — dort greift er zugleich als Mindestbestand-Warnung. Ein Wert
+   * von 0 entfernt die Konfiguration (Mindestbestand-Tabelle ist sparse).
+   */
+  async function pufferSpeichern(artikelId: string, wert: number): Promise<void> {
+    const standortId = hauptlagerId.value
+    if (!standortId || !artikelId) return
+    await mindestbestandStore.setzen(artikelId, standortId, wert)
   }
 
   /** Faelligkeit eines Netzteils (ISO-Datum) oder `null`. */
@@ -332,7 +347,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     aktiveNetzteile,
     aktiveProjekte,
     bestandJeArtikel,
-    reserveJeArtikel,
+    pufferJeArtikel,
     planung,
     akkuArtikelIds,
     inventurStatus,
@@ -340,6 +355,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     start,
     stop,
     bestellungMarkieren,
+    pufferSpeichern,
     faelligkeitVon,
     netzteilSpeichern,
     netzteilLoeschen,

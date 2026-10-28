@@ -201,7 +201,7 @@ describe('berechnePlanung', () => {
     ['a1', 3],
     ['a2', 0],
   ])
-  const reserve = new Map<string, number>([
+  const puffer = new Map<string, number>([
     ['a1', 1],
     ['a2', 0],
   ])
@@ -215,15 +215,15 @@ describe('berechnePlanung', () => {
       ],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
-    expect(planung.zeilen[0]?.soll).toBe(5)
+    expect(planung.zeilen[0]?.bedarf).toBe(5)
     expect(planung.zeilen[0]?.bestand).toBe(3)
-    expect(planung.zeilen[0]?.reserve).toBe(1)
+    expect(planung.zeilen[0]?.puffer).toBe(1)
     expect(planung.zeilen[0]?.verfuegbar).toBe(2)
-    expect(planung.zeilen[0]?.benoetigt).toBe(3)
+    expect(planung.zeilen[0]?.bestellmenge).toBe(3)
   })
 
   it('ignores devices due in another quarter or year', () => {
@@ -232,11 +232,11 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', einbaudatum: '2020-06-15', intervallJahre: 5, anzahl: 2 })],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
-    expect(planung.zeilen[0]?.soll).toBe(0)
+    expect(planung.zeilen[0]?.bedarf).toBe(0)
   })
 
   it('adds the project batteries of the quarter', () => {
@@ -245,26 +245,26 @@ describe('berechnePlanung', () => {
       netzteile: [],
       projektakkus: [projektakku({ id: 'p1', artAh: 1.2, menge: 4, quartal: 1, jahr: 2025 })],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
-    expect(planung.zeilen[0]?.soll).toBe(4)
-    expect(planung.zeilen[0]?.benoetigt).toBe(2)
+    expect(planung.zeilen[0]?.bedarf).toBe(4)
+    expect(planung.zeilen[0]?.bestellmenge).toBe(2)
   })
 
-  it('keeps the reserve and never orders more than the demand', () => {
+  it('keeps the buffer and never orders more than the demand', () => {
     const planung = berechnePlanung({
       typen,
       netzteile: [netzteil({ id: 'n1', anzahl: 1 })],
       projektakkus: [],
       bestand: new Map([['a1', 10]]),
-      reserve: new Map([['a1', 2]]),
+      puffer: new Map([['a1', 2]]),
       quartal: 1,
       jahr: 2025,
     })
     expect(planung.zeilen[0]?.verfuegbar).toBe(8)
-    expect(planung.zeilen[0]?.benoetigt).toBe(0)
+    expect(planung.zeilen[0]?.bestellmenge).toBe(0)
   })
 
   it('treats negative stock as no stock', () => {
@@ -273,12 +273,12 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', anzahl: 2 })],
       projektakkus: [],
       bestand: new Map([['a1', -5]]),
-      reserve: new Map([['a1', 0]]),
+      puffer: new Map([['a1', 0]]),
       quartal: 1,
       jahr: 2025,
     })
     expect(planung.zeilen[0]?.verfuegbar).toBe(0)
-    expect(planung.zeilen[0]?.benoetigt).toBe(2)
+    expect(planung.zeilen[0]?.bestellmenge).toBe(2)
   })
 
   it('ignores soft-deleted records', () => {
@@ -287,11 +287,11 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', anzahl: 5, geloescht: true })],
       projektakkus: [projektakku({ id: 'p1', menge: 5, geloescht: true })],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
-    expect(planung.zeilen[0]?.soll).toBe(0)
+    expect(planung.zeilen[0]?.bedarf).toBe(0)
   })
 
   it('warns about capacities without a configured size', () => {
@@ -300,7 +300,7 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', kapazitaetAh: 7.5, name: 'Notlicht' })],
       projektakkus: [projektakku({ id: 'p1', artAh: 99, projekt: 'Bau 7' })],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
@@ -319,7 +319,7 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', einbaudatum: '2020-02-30', name: 'Defekt' })],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
@@ -332,7 +332,7 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', kapazitaetAh: null, anzahl: null, name: 'Ohne Angabe' })],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
@@ -342,7 +342,7 @@ describe('berechnePlanung', () => {
     expect(planung.warnungen[0]?.anlage).toBe('Anlage 1')
     expect(planung.warnungen[0]?.netzteilId).toBe('n1')
     // The device cannot be planned — it does not add any demand.
-    expect(planung.zeilen[0]?.soll).toBe(0)
+    expect(planung.zeilen[0]?.bedarf).toBe(0)
   })
 
   it('warns about sizes without an article', () => {
@@ -351,7 +351,7 @@ describe('berechnePlanung', () => {
       netzteile: [],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
@@ -365,7 +365,7 @@ describe('berechnePlanung', () => {
       netzteile: [netzteil({ id: 'n1', anzahl: 5 })],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })
@@ -385,7 +385,7 @@ describe('berechnePlanung', () => {
       netzteile: [],
       projektakkus: [],
       bestand,
-      reserve,
+      puffer,
       quartal: 1,
       jahr: 2025,
     })

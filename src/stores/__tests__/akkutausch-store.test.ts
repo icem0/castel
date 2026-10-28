@@ -153,7 +153,7 @@ describe('useAkkutauschStore', () => {
     expect(nachher[0]?.geloescht).toBe(true)
   })
 
-  it('plant mit Bestand und Reserve (Mindestbestand am Hauptlager)', async () => {
+  it('plant mit Bestand und Puffer (Mindestbestand am Hauptlager)', async () => {
     await hauptlagerAnlegen()
     const standortStore = useStandortStore()
     standortStore.start()
@@ -166,7 +166,7 @@ describe('useAkkutauschStore', () => {
     ])
     await new Promise((r) => setTimeout(r, 50))
 
-    // Bestand: 3 Stueck per Buchung; Reserve: 2 am Hauptlager.
+    // Bestand: 3 Stueck per Buchung; Puffer: 2 am Hauptlager.
     await getDb().buchungen.put({
       id: 'b-1',
       artikelId: 'a-1',
@@ -206,11 +206,78 @@ describe('useAkkutauschStore', () => {
     await new Promise((r) => setTimeout(r, 50))
 
     const zeile = store.planung.zeilen.find((z) => z.typ.id === 't1')
-    expect(zeile?.soll).toBe(10)
+    expect(zeile?.bedarf).toBe(10)
     expect(zeile?.bestand).toBe(3)
-    expect(zeile?.reserve).toBe(2)
+    expect(zeile?.puffer).toBe(2)
     expect(zeile?.verfuegbar).toBe(1)
-    expect(zeile?.benoetigt).toBe(9)
+    expect(zeile?.bestellmenge).toBe(9)
     expect(store.planung.bestellzeilen[0]?.menge).toBe(9)
+  })
+
+  it('speichert den Puffer am Hauptlager und rechnet die Bestellmenge neu', async () => {
+    await hauptlagerAnlegen()
+    const standortStore = useStandortStore()
+    standortStore.start()
+    await new Promise((r) => setTimeout(r, 50))
+
+    const settings = useSettingsStore()
+    settings.start()
+    await settings.setAkkuTypen([
+      { id: 't1', kapazitaetAh: 12.5, von: 12.0, bis: 12.9, artikelId: 'a-1' },
+    ])
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Bestand: 3 Stueck.
+    await getDb().buchungen.put({
+      id: 'b-1',
+      artikelId: 'a-1',
+      standortId: 's-1',
+      standortZielId: null,
+      typ: 'einlagerung',
+      menge: 3,
+      paarId: null,
+      projekt: null,
+      erstelltAm: jetztIso(),
+      clientEingabeAm: jetztIso(),
+      erstelltVon: 'u-1',
+      kommentar: null,
+      mitteilungAn: null,
+      stornoVon: null,
+      storno: false,
+      storniertDurch: null,
+      serverId: null,
+    })
+
+    const store = useAkkutauschStore()
+    store.start()
+    await warteAufSpiegel(store)
+    await store.projektSpeichern({
+      projekt: 'Bauvorhaben',
+      menge: 10,
+      artAh: 12.5,
+      quartal: 1,
+      jahr: new Date().getFullYear(),
+    })
+    await warteAufSpiegel(store)
+
+    store.quartal = 1
+    store.jahr = new Date().getFullYear()
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Ohne Puffer: 3 von 10 Stueck sind im Bestand -> 7 zu bestellen.
+    expect(store.planung.zeilen[0]?.puffer).toBe(0)
+    expect(store.planung.zeilen[0]?.bestellmenge).toBe(7)
+
+    await store.pufferSpeichern('a-1', 2)
+    await new Promise((r) => setTimeout(r, 50))
+
+    // Mit Puffer 2 bleibt nur 1 Stueck frei verfuegbar -> 9 zu bestellen.
+    expect(store.planung.zeilen[0]?.puffer).toBe(2)
+    expect(store.planung.zeilen[0]?.verfuegbar).toBe(1)
+    expect(store.planung.zeilen[0]?.bestellmenge).toBe(9)
+
+    // Der Puffer liegt als Mindestbestand des Artikels am Hauptlager.
+    const konfigStore = useArtikelStandortMindestbestandStore()
+    expect(konfigStore.wertFuer('a-1', 's-1')).toBe(2)
   })
 })

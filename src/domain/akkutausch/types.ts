@@ -114,15 +114,15 @@ export interface Planwarnung {
 export interface Planzeile {
   typ: AkkuTyp
   /** Demand for the selected quarter (devices due x batteries each). */
-  soll: number
+  bedarf: number
   /** Total stock of the linked article across all locations. */
   bestand: number
-  /** Safety stock (minimum stock at the main warehouse). */
-  reserve: number
-  /** Stock available for the plan: `bestand - reserve`, never negative. */
+  /** Buffer kept free for unforeseen replacements (minimum stock, main warehouse). */
+  puffer: number
+  /** Stock available for the plan: `bestand - puffer`, never negative. */
   verfuegbar: number
-  /** Quantity to order: `soll - verfuegbar`, never negative. */
-  benoetigt: number
+  /** Quantity to order: `bedarf - verfuegbar`, never negative. */
+  bestellmenge: number
   /** Warnings that belong to this row. */
   warnungen: Planwarnung[]
 }
@@ -181,16 +181,26 @@ export interface InventurStatus {
   anzahlBuchungen: number
 }
 
-/** One archived row of the planning table. */
+/**
+ * One archived row of the planning table.
+ *
+ * The field names are the frozen wire format of the server contract and
+ * stay unchanged — `soll` is the demand ("Bedarf"), `reserve` the buffer
+ * ("zur freien Verfügung") and `bedarf` the order quantity
+ * ("Bestellmenge").
+ */
 export interface AkkuBestellungZeile {
   typId: string
   kapazitaetAh: number
   von: number
   bis: number
+  /** Demand ("Bedarf"). */
   soll: number
   bestand: number
+  /** Buffer ("zur freien Verfügung"). */
   reserve: number
   verfuegbar: number
+  /** Order quantity ("Bestellmenge"). */
   bedarf: number
 }
 

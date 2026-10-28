@@ -15,6 +15,7 @@ import { i18n } from '../../i18n'
 import { resetDbForTests } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
 import { useAkkutauschStore } from '../../stores/akkutausch'
+import { useArtikelStore } from '../../stores/artikel'
 import { useAuthStore } from '../../stores/auth'
 import { useSettingsStore } from '../../stores/settings'
 import { getDb } from '../../db/database'
@@ -40,6 +41,73 @@ async function setupView() {
 
 function buttonMitText(w: ReturnType<typeof mount>, text: string) {
   return w.findAll('button').find((b) => b.text().includes(text))
+}
+
+/**
+ * Legt die Ausgangslage der Planung an: Hauptlager, Akku-Artikel,
+ * Akku-Typ und ein Projektakku im aktuellen Quartal.
+ */
+async function setupPlanung(): Promise<void> {
+  const db = getDb()
+  await db.standorte.put({
+    id: 's-1',
+    name: 'Hauptlager',
+    typ: 'lager',
+    projekt: null,
+    kennzeichen: null,
+    standard: true,
+    archiviert: false,
+    geaendertAm: jetztIso(),
+    erstelltAm: jetztIso(),
+  })
+  await db.artikel.put({
+    id: 'a-1',
+    sharePointId: null,
+    titel: 'Akku 12,5 Ah',
+    status: 'verfuegbar',
+    typ: 'Akku',
+    lieferant: null,
+    verpackungseinheit: 1,
+    mindestbestand: null,
+    nachbestellHinweis: null,
+    bestellnummer: null,
+    barcode: null,
+    etikettenNeu: false,
+    listenpreis: null,
+    einkaufspreis: null,
+    herstellerId: null,
+    bestellstatus: 'offen',
+    bestelltAm: null,
+    bestelltVon: null,
+    geaendertAm: jetztIso(),
+    erstelltAm: jetztIso(),
+  })
+
+  const artikelStore = useArtikelStore(pinia)
+  artikelStore.start()
+  for (let i = 0; i < 50 && !artikelStore.byId('a-1'); i++) {
+    await new Promise((r) => setTimeout(r, 10))
+  }
+
+  const settings = useSettingsStore(pinia)
+  settings.start()
+  await new Promise((r) => setTimeout(r, 30))
+  await settings.setAkkuTypen([
+    { id: 't1', kapazitaetAh: 12.5, von: 12.0, bis: 12.9, artikelId: 'a-1' },
+  ])
+  await new Promise((r) => setTimeout(r, 30))
+
+  const store = useAkkutauschStore(pinia)
+  store.start()
+  await new Promise((r) => setTimeout(r, 80))
+  await store.projektSpeichern({
+    projekt: 'Bauvorhaben',
+    menge: 10,
+    artAh: 12.5,
+    quartal: store.quartal,
+    jahr: store.jahr,
+  })
+  await new Promise((r) => setTimeout(r, 80))
 }
 
 describe('AkkutauschView', () => {
@@ -155,6 +223,34 @@ describe('AkkutauschView', () => {
     expect(w.text()).toContain('12–12,9 Ah')
     expect(w.text()).toContain('Gesamt')
     expect(w.findAll('tbody tr').length).toBeGreaterThan(0)
+  })
+
+  it('zeigt die Spalten Größe, Bedarf, Bestand, zur freien Verfügung und Bestellmenge', async () => {
+    await setupPlanung()
+
+    const { w } = await setupView()
+    const kopf = w
+      .find('table.data')
+      .findAll('thead th')
+      .map((th) => th.text())
+    expect(kopf).toEqual(['Größe', 'Bedarf', 'Bestand', 'zur freien Verfügung', 'Bestellmenge'])
+  })
+
+  it('speichert den Puffer aus der Plantabelle', async () => {
+    await setupPlanung()
+
+    const { w } = await setupView()
+    const eingabe = w.find('table.data tbody tr input[type="number"]')
+    expect(eingabe.exists()).toBe(true)
+    expect((eingabe.element as HTMLInputElement).value).toBe('0')
+
+    await eingabe.setValue('4')
+    await eingabe.trigger('change')
+    await flushPromises()
+
+    const eintraege = await getDb().artikelStandortMindestbestaende.toArray()
+    expect(eintraege).toHaveLength(1)
+    expect(eintraege[0]?.mindestbestand).toBe(4)
   })
 
   it('nennt die Anlage in Warnungen und springt in die Bearbeitung', async () => {

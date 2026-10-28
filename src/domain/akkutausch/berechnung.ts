@@ -48,8 +48,8 @@ export interface PlanungEingabe {
   projektakkus: readonly Projektakku[]
   /** Total stock per article id (all locations). */
   bestand: ReadonlyMap<string, number>
-  /** Safety stock per article id (minimum stock at the main warehouse). */
-  reserve: ReadonlyMap<string, number>
+  /** Buffer per article id (kept free for unforeseen replacements). */
+  puffer: ReadonlyMap<string, number>
   /** Selected quarter (1..4). */
   quartal: number
   /** Selected year. */
@@ -209,17 +209,17 @@ export function pruefeTypen(typen: readonly AkkuTyp[]): TypFehler[] {
 /**
  * Computes the replacement plan for one quarter.
  *
- * Demand (`soll`) comes from the devices whose due date falls into the
+ * Demand (`bedarf`) comes from the devices whose due date falls into the
  * selected quarter plus the project batteries booked for that quarter.
- * The order quantity keeps the safety stock (`reserve`) untouched:
+ * The order quantity keeps the buffer (`puffer`) untouched:
  *
- *   verfuegbar = max(0, bestand - reserve)
- *   benoetigt  = max(0, soll - verfuegbar)
+ *   verfuegbar  = max(0, bestand - puffer)
+ *   bestellmenge = max(0, bedarf - verfuegbar)
  */
 export function berechnePlanung(eingabe: PlanungEingabe): Planung {
-  const { typen, netzteile, projektakkus, bestand, reserve, quartal, jahr } = eingabe
+  const { typen, netzteile, projektakkus, bestand, puffer, quartal, jahr } = eingabe
 
-  const sollJeTyp = new Map<string, number>()
+  const bedarfJeTyp = new Map<string, number>()
   const warnungen: Planwarnung[] = []
 
   for (const netzteil of netzteile) {
@@ -267,7 +267,7 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
       })
       continue
     }
-    sollJeTyp.set(typ.id, (sollJeTyp.get(typ.id) ?? 0) + (netzteil.anzahl ?? 0))
+    bedarfJeTyp.set(typ.id, (bedarfJeTyp.get(typ.id) ?? 0) + (netzteil.anzahl ?? 0))
   }
 
   for (const projektakku of projektakkus) {
@@ -283,7 +283,7 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
       })
       continue
     }
-    sollJeTyp.set(typ.id, (sollJeTyp.get(typ.id) ?? 0) + projektakku.menge)
+    bedarfJeTyp.set(typ.id, (bedarfJeTyp.get(typ.id) ?? 0) + projektakku.menge)
   }
 
   const zeilen: Planzeile[] = []
@@ -297,10 +297,10 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
   for (const typ of sortierteTypen) {
     const artikelId = typ.artikelId
     const bestandWert = artikelId ? (bestand.get(artikelId) ?? 0) : 0
-    const reserveWert = artikelId ? (reserve.get(artikelId) ?? 0) : 0
-    const soll = sollJeTyp.get(typ.id) ?? 0
-    const verfuegbar = Math.max(0, bestandWert - reserveWert)
-    const benoetigt = Math.max(0, soll - verfuegbar)
+    const pufferWert = artikelId ? (puffer.get(artikelId) ?? 0) : 0
+    const bedarf = bedarfJeTyp.get(typ.id) ?? 0
+    const verfuegbar = Math.max(0, bestandWert - pufferWert)
+    const bestellmenge = Math.max(0, bedarf - verfuegbar)
 
     const zeilenWarnungen: Planwarnung[] = []
     if (!artikelId) {
@@ -309,21 +309,21 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
 
     zeilen.push({
       typ,
-      soll,
+      bedarf,
       bestand: bestandWert,
-      reserve: reserveWert,
+      puffer: pufferWert,
       verfuegbar,
-      benoetigt,
+      bestellmenge,
       warnungen: zeilenWarnungen,
     })
 
-    if (benoetigt > 0) {
+    if (bestellmenge > 0) {
       bestellzeilen.push({
         typId: typ.id,
         kapazitaetAh: typ.kapazitaetAh,
         von: typ.von,
         bis: typ.bis,
-        menge: benoetigt,
+        menge: bestellmenge,
       })
     }
   }
