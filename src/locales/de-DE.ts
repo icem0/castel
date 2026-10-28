@@ -495,6 +495,25 @@ export default {
       quartal3: 'Q3',
       quartal4: 'Q4',
       stichtag: 'Stichtag',
+      inventurStichtag: 'Inventur-Stichtag',
+      kuerzel: 'Kürzel',
+      inventurFehlt:
+        'Keine Inventur der Akku-Artikel in den letzten 4 Wochen. Der Bestand ist nicht datiert — bitte zuerst eine Inventur buchen.',
+      kopieren: 'Liste kopieren',
+      kopiert: 'Kopiert',
+      kopierenErfolg: 'Bestellliste in die Zwischenablage kopiert.',
+      kopierenFehler: 'Kopieren nicht möglich.',
+      bestellen: 'Bestellt',
+      bestellenLaeuft: 'Speichert …',
+      bestellenFrage:
+        'Bestellung für Q{quartal} {jahr} als bestellt markieren? Der aktuelle Plan wird mit Inventurstand archiviert.',
+      bestellenInventurFehlt: 'Bestellen ist erst nach einer gültigen Inventur möglich.',
+      bestellenFehler: 'Bestellung konnte nicht archiviert werden.',
+      bestelltErfolg: 'Bestellung archiviert.',
+      bestellt: 'Bestellt',
+      bestelltAm: 'Bestellt am {datum} · {kuerzel}',
+      inventurKurz: 'Inventur: {datum} ({kuerzel})',
+      bestellarchiv: 'Bestellarchiv',
       erkannteGroesse: 'Erkannte Größe',
       keineGroesse: 'keine Größe konfiguriert',
       faelligkeit: 'Fällig',
@@ -686,6 +705,13 @@ export default {
         bogenTitel: 'Bogen & Ausgabe',
         layout: 'Bogen-Layout',
         layoutBenutzerdefiniert: 'Benutzerdefiniert',
+        startFeld: 'Startfeld',
+        startFeldHint:
+          'Feld 1 = oben links, von links nach rechts, dann Zeile für Zeile. Bereits benutzte Felder eines angebrochenen Bogens bleiben leer (gilt nur für die erste Seite).',
+        startFeldInfo:
+          'Start bei Feld {feld} von {proSeite}: die ersten {uebersprungen} Felder bleiben leer, dort passen noch {platz} Etiketten.',
+        startFeldUeberlauf:
+          'Startfeld {wert} liegt über der Feldzahl des Bogens ({max}) — es wird auf {max} begrenzt.',
         custom: {
           cols: 'Spalten',
           rows: 'Zeilen',

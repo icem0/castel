@@ -32,6 +32,7 @@
 
 import { getDb } from '../../db/database'
 import type {
+  AkkuBestellung,
   Artikel,
   ArtikelStandortMindestbestand,
   Buchung,
@@ -96,6 +97,7 @@ export interface ReseedPlan {
   einstellungen: number
   akkuNetzteile: number
   akkuProjekte: number
+  akkuBestellungen: number
 }
 
 export interface ReseedResult {
@@ -119,6 +121,7 @@ async function collectRows(): Promise<{
   einstellungen: Array<{ key: string; userId: string | null; value: string; geaendertAm: string }>
   akkuNetzteile: Netzteil[]
   akkuProjekte: Projektakku[]
+  akkuBestellungen: AkkuBestellung[]
 }> {
   const db = getDb()
   const currentUserId = sessionLesen()?.userId ?? null
@@ -131,6 +134,7 @@ async function collectRows(): Promise<{
   const buchungen = sortBuchungenForReseed(await db.buchungen.toArray())
   const akkuNetzteile = await db.akkuNetzteile.toArray()
   const akkuProjekte = await db.akkuProjekte.toArray()
+  const akkuBestellungen = await db.akkuBestellungen.toArray()
 
   const einstellungen: Array<{
     key: string
@@ -153,6 +157,7 @@ async function collectRows(): Promise<{
     einstellungen,
     akkuNetzteile,
     akkuProjekte,
+    akkuBestellungen,
   }
 }
 
@@ -171,6 +176,7 @@ export async function collectReseedPlan(): Promise<ReseedPlan> {
     einstellungen: rows.einstellungen.length,
     akkuNetzteile: rows.akkuNetzteile.length,
     akkuProjekte: rows.akkuProjekte.length,
+    akkuBestellungen: rows.akkuBestellungen.length,
   }
 }
 
@@ -243,7 +249,8 @@ function serverHasData(counts: TableCounts): boolean {
     (counts.hersteller ?? 0) > 0 ||
     (counts.artikelStandortMindestbestand ?? 0) > 0 ||
     (counts.akkuNetzteile ?? 0) > 0 ||
-    (counts.akkuProjekte ?? 0) > 0
+    (counts.akkuProjekte ?? 0) > 0 ||
+    (counts.akkuBestellungen ?? 0) > 0
   )
 }
 
@@ -291,7 +298,8 @@ export async function reseedServer(opts: {
     rows.kommission.length +
     rows.buchungen.length +
     rows.akkuNetzteile.length +
-    rows.akkuProjekte.length
+    rows.akkuProjekte.length +
+    rows.akkuBestellungen.length
   if (total === 0) {
     throw new Error('Lokale Datenbank ist leer — es gibt nichts, das hochgeladen werden könnte.')
   }
@@ -328,6 +336,9 @@ export async function reseedServer(opts: {
   for (const p of rows.akkuProjekte) {
     await queueOp('akku_projekt', 'create', p, nextTs())
   }
+  for (const b of rows.akkuBestellungen) {
+    await queueOp('akku_bestellung', 'create', b, nextTs())
+  }
 
   // 3) Drain the outbox through the regular worker (full sync per cycle,
   //    including pull — idempotent merges). Respect `nextRetryAt` backoff.
@@ -338,6 +349,7 @@ export async function reseedServer(opts: {
     ...rows.artikelStandortMindestbestaende.map((m) => `${m.artikelId}#${m.standortId}`),
     ...rows.kommission.map((p) => p.id),
     ...rows.buchungen.map((b) => b.id),
+    ...rows.akkuBestellungen.map((b) => b.id),
   ])
   await drainOutbox(token, apiBase)
 
@@ -384,6 +396,7 @@ export async function reseedServer(opts: {
       einstellungen: rows.einstellungen.length,
       akkuNetzteile: rows.akkuNetzteile.length,
       akkuProjekte: rows.akkuProjekte.length,
+      akkuBestellungen: rows.akkuBestellungen.length,
     },
     pendingLeft: await pendingCount(),
     quarantinedLeft,

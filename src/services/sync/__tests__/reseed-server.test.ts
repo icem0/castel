@@ -384,6 +384,7 @@ describe('collectReseedPlan', () => {
       einstellungen: 2,
       akkuNetzteile: 0,
       akkuProjekte: 0,
+      akkuBestellungen: 0,
     })
   })
 })
@@ -460,6 +461,7 @@ describe('reseedServer End-to-End', () => {
       einstellungen: 1,
       akkuNetzteile: 0,
       akkuProjekte: 0,
+      akkuBestellungen: 0,
     })
     expect(result.pendingLeft).toBe(0)
     expect(result.quarantinedLeft).toBe(0)

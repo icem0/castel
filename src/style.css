@@ -968,3 +968,57 @@ label.check {
     font-size: 0.85rem;
   }
 }
+
+/* Druck der Akkutausch-Bestellliste: nur der nach <body> teleportierte
+   Bereich wird gedruckt, die App bleibt auf dem Bildschirm unsichtbar. */
+.druck-portal {
+  display: none;
+}
+
+@media print {
+  @page {
+    margin: 15mm;
+  }
+
+  body.druck-bestellliste #app {
+    display: none !important;
+  }
+
+  body.druck-bestellliste .druck-portal {
+    display: block !important;
+    color: #000;
+    background: #fff;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  .druck-portal h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
+  }
+
+  .druck-portal p {
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+  }
+
+  .druck-tabelle {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  .druck-tabelle th,
+  .druck-tabelle td {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #000;
+    text-align: left;
+  }
+
+  .druck-tabelle th {
+    background: #eee;
+  }
+
+  .druck-tabelle tfoot td {
+    font-weight: 700;
+  }
+}

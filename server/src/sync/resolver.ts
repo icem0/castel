@@ -24,6 +24,7 @@ import * as schema from '../db/schema.js'
 import {
   artikel,
   artikelStandortMindestbestaende,
+  akkuBestellungen,
   akkuNetzteile,
   akkuProjekte,
   buchungen,
@@ -42,10 +43,7 @@ import {
   UnbekannteReferenzError,
   ValidationError,
 } from '../domain/errors.js'
-import {
-  berechneDefizit,
-  sollteWarnungAusloesen,
-} from '../domain/mindestbestand.js'
+import { berechneDefizit, sollteWarnungAusloesen } from '../domain/mindestbestand.js'
 import { parseAkkuTypenWert } from '../domain/akkutausch.js'
 import {
   mergeKommissionen,
@@ -94,6 +92,11 @@ const pushSchema = z.discriminatedUnion('entity', [
   z.object({
     op: z.enum(['create', 'update']),
     entity: z.literal('akku_projekt'),
+    payload: z.any(),
+  }),
+  z.object({
+    op: z.literal('create'),
+    entity: z.literal('akku_bestellung'),
     payload: z.any(),
   }),
   z.object({
@@ -237,6 +240,9 @@ export async function resolvePush(
           case 'akku_projekt':
             await resolveAkkuProjekt(tx, op, benutzerRolle)
             break
+          case 'akku_bestellung':
+            await resolveAkkuBestellung(tx, op, benutzerRolle)
+            break
           case 'buchung':
             // IMPORTANT: the bestand read inside must run on `tx`, not on the
             // pool (`db`). The booking was just inserted in this transaction
@@ -323,12 +329,7 @@ function entitaetIdFor(op: PushOp): string {
  * sichtbar macht (sonst steht dort nur eine kryptische `message`,
  * mit der niemand etwas anfangen kann).
  */
-function pushBuchungsError(
-  result: ResolverResult,
-  id: string,
-  err: unknown,
-  op?: PushOp,
-): void {
+function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?: PushOp): void {
   if (err instanceof ConflictError) {
     result.conflicts.push({ id, reason: err.message })
   } else if (err instanceof NegativerBestandError) {
@@ -479,10 +480,7 @@ async function resolveArtikel(
     // Fotos hängen mit `ON DELETE CASCADE` an `artikel` und werden
     // automatisch mit aufgeräumt.
     const [bRes, eRes] = await Promise.all([
-      tx
-        .select({ c: count() })
-        .from(buchungen)
-        .where(eq(buchungen.artikelId, artikelId)),
+      tx.select({ c: count() }).from(buchungen).where(eq(buchungen.artikelId, artikelId)),
       tx
         .select({ c: count() })
         .from(mindestbestandEreignisse)
@@ -531,7 +529,9 @@ async function resolveHersteller(
     if (existing.length > 0) {
       await applyLastWriterWins(tx, hersteller, payload)
     } else {
-      await tx.insert(hersteller).values(normalizeStammdatenTimestamps(hersteller, payload) as never)
+      await tx
+        .insert(hersteller)
+        .values(normalizeStammdatenTimestamps(hersteller, payload) as never)
     }
   } else if (op.op === 'update') {
     await applyLastWriterWins(tx, hersteller, payload)
@@ -541,10 +541,7 @@ async function resolveHersteller(
     // Entkoppeln aller Artikel waere Datenverlust — deshalb explizit
     // HAS_DEPENDENCIES (Client deaktiviert den Button vorab).
     const [aRes] = await Promise.all([
-      tx
-        .select({ c: count() })
-        .from(artikel)
-        .where(eq(artikel.herstellerId, herstellerId)),
+      tx.select({ c: count() }).from(artikel).where(eq(artikel.herstellerId, herstellerId)),
     ])
     assertKeineAbhaengigkeiten('hersteller', herstellerId, [
       { entity: 'artikel', anzahl: Number(aRes[0]?.c ?? 0) },
@@ -553,16 +550,19 @@ async function resolveHersteller(
   }
 }
 
-async function resolveStandort(
-  tx: Tx,
-  op: Extract<PushOp, { entity: 'standort' }>,
-): Promise<void> {
+async function resolveStandort(tx: Tx, op: Extract<PushOp, { entity: 'standort' }>): Promise<void> {
   if (op.op === 'create') {
-    const existing = await tx.select().from(standorte).where(eq(standorte.id, op.payload.id)).limit(1)
+    const existing = await tx
+      .select()
+      .from(standorte)
+      .where(eq(standorte.id, op.payload.id))
+      .limit(1)
     if (existing.length > 0) {
       await applyLastWriterWins(tx, standorte, op.payload)
     } else {
-      await tx.insert(standorte).values(normalizeStammdatenTimestamps(standorte, op.payload) as never)
+      await tx
+        .insert(standorte)
+        .values(normalizeStammdatenTimestamps(standorte, op.payload) as never)
     }
   } else if (op.op === 'update') {
     // Das Hauptlagers (Standard-Standort) darf nicht archiviert werden.
@@ -593,14 +593,8 @@ async function resolveStandort(
     // Konfigurationen haengen dagegen mit CASCADE am Standort und werden
     // beim Loeschen mitentfernt (bewusst kein Blockieren).
     const [qRes, zRes, eRes] = await Promise.all([
-      tx
-        .select({ c: count() })
-        .from(buchungen)
-        .where(eq(buchungen.standortId, op.payload.id)),
-      tx
-        .select({ c: count() })
-        .from(buchungen)
-        .where(eq(buchungen.standortZielId, op.payload.id)),
+      tx.select({ c: count() }).from(buchungen).where(eq(buchungen.standortId, op.payload.id)),
+      tx.select({ c: count() }).from(buchungen).where(eq(buchungen.standortZielId, op.payload.id)),
       tx
         .select({ c: count() })
         .from(mindestbestandEreignisse)
@@ -725,10 +719,7 @@ async function resolveProjekt(
  */
 function pruefeAkkutauschRolle(benutzerRolle: 'admin' | 'user'): void {
   if (benutzerRolle !== 'admin') {
-    throw new ValidationError(
-      'entity',
-      'Akkutausch-Daten koennen nur von Admins geaendert werden',
-    )
+    throw new ValidationError('entity', 'Akkutausch-Daten koennen nur von Admins geaendert werden')
   }
 }
 
@@ -797,6 +788,40 @@ async function resolveAkkuProjekt(
     { op: op.op, payload: op.payload as Record<string, unknown> },
     ['artAh'],
   )
+}
+
+/**
+ * Archives an order snapshot. Append-only and idempotent by UUID: a retried
+ * outbox item changes nothing. The server owns `bestelltAm` so the
+ * incremental snapshot query cannot miss the row because of client clock
+ * drift.
+ */
+async function resolveAkkuBestellung(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'akku_bestellung' }>,
+  benutzerRolle: 'admin' | 'user',
+): Promise<void> {
+  pruefeAkkutauschRolle(benutzerRolle)
+  const payload = op.payload as Record<string, unknown>
+  const id = payload['id'] as string
+  const existing = await tx
+    .select()
+    .from(akkuBestellungen)
+    .where(eq(akkuBestellungen.id, id))
+    .limit(1)
+  if (existing.length > 0) return
+
+  await tx.insert(akkuBestellungen).values({
+    id,
+    jahr: payload['jahr'] as number,
+    quartal: payload['quartal'] as number,
+    bestelltAm: new Date(),
+    bestelltVon: payload['bestelltVon'] as string,
+    bestelltVonKuerzel: payload['bestelltVonKuerzel'] as string,
+    inventurDatum: (payload['inventurDatum'] as string | null) ?? null,
+    inventurVonKuerzel: (payload['inventurVonKuerzel'] as string | null) ?? null,
+    zeilen: payload['zeilen'],
+  } as never)
 }
 
 // ---------- Last-Writer-Wins ----------
@@ -920,9 +945,7 @@ function normalizeStammdatenTimestamps(
  * wurde das Feld nicht normalisiert — Bug, der jetzt symmetrisch zu
  * Stammdaten behoben ist.
  */
-function normalizeBuchungTimestamps(
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
+function normalizeBuchungTimestamps(payload: Record<string, unknown>): Record<string, unknown> {
   return normalizeEntityTimestamps(buchungen, payload)
 }
 
@@ -942,9 +965,7 @@ function toDateOrThrow(v: unknown): Date {
     const d = new Date(v)
     if (!Number.isNaN(d.getTime())) return d
   }
-  throw new TypeError(
-    `toDateOrThrow: nicht-erkannter Timestamp-Wert (${typeof v}): ${String(v)}`,
-  )
+  throw new TypeError(`toDateOrThrow: nicht-erkannter Timestamp-Wert (${typeof v}): ${String(v)}`)
 }
 
 // ---------- Buchungs-Resolver ----------
@@ -1238,10 +1259,7 @@ async function resolveEinstellung(
 
   // 2) Wenn userId gesetzt: muss dem JWT-Sub entsprechen
   if (p.userId !== null && p.userId !== benutzerId) {
-    throw new ValidationError(
-      'einstellung.userId',
-      'Eine fremde User-ID ist nicht erlaubt',
-    )
+    throw new ValidationError('einstellung.userId', 'Eine fremde User-ID ist nicht erlaubt')
   }
 
   // 3) `akkuTypen` ist ein JSON-Array mit den Akku-Groessen. Der Server
@@ -1268,9 +1286,7 @@ async function resolveEinstellung(
   const incomingGeaendertAm = new Date(p.geaendertAm)
   const where = and(
     eq(einstellungen.key, p.key),
-    p.userId === null
-      ? isNull(einstellungen.userId)
-      : eq(einstellungen.userId, p.userId),
+    p.userId === null ? isNull(einstellungen.userId) : eq(einstellungen.userId, p.userId),
   )
   const existing = await tx.select().from(einstellungen).where(where).limit(1)
   if (existing.length === 0) {

@@ -165,6 +165,7 @@ export interface AuditLogEintrag {
     | 'einstellung'
     | 'akku_netzteil'
     | 'akku_projekt'
+    | 'akku_bestellung'
   entitaetId: string
   daten: string // JSON-serialisiert
   zeit: Iso
@@ -209,7 +210,12 @@ export interface ArtikelStandortMindestbestand {
  * Die Domänen-Definitionen liegen in `src/domain/akkutausch/types.ts` —
  * die PWA spiegelt sie 1:1 in IndexedDB (Dexie v16).
  */
-export type { Netzteil, Projektakku } from '../domain/akkutausch/types'
+export type {
+  AkkuBestellung,
+  AkkuBestellungZeile,
+  Netzteil,
+  Projektakku,
+} from '../domain/akkutausch/types'
 
 /** Rolle des eingeloggten Users (Spiegel des Server-Users). */
 export type UserRolle = 'admin' | 'user'
@@ -240,6 +246,7 @@ export type OutboxEntity =
   | 'artikel_standort_mindestbestand'
   | 'akku_netzteil'
   | 'akku_projekt'
+  | 'akku_bestellung'
 export type OutboxOp = 'create' | 'update' | 'delete' | 'upload' | 'upsert'
 
 export interface OutboxEintrag {

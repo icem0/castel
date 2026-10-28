@@ -35,6 +35,7 @@ const CLEARED_DOMAIN_TABLES = [
   'mindestbestand_ereignisse',
   'akku_netzteile',
   'akku_projekte',
+  'akku_bestellungen',
   'audit_log',
   'fotos',
   'buchungen',

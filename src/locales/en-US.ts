@@ -482,6 +482,25 @@ export default {
       quartal3: 'Q3',
       quartal4: 'Q4',
       stichtag: 'Cut-off date',
+      inventurStichtag: 'Inventory cut-off',
+      kuerzel: 'Initials',
+      inventurFehlt:
+        'No inventory of the battery items in the last 4 weeks. The stock is not dated — please book an inventory first.',
+      kopieren: 'Copy list',
+      kopiert: 'Copied',
+      kopierenErfolg: 'Order list copied to the clipboard.',
+      kopierenFehler: 'Could not copy the list.',
+      bestellen: 'Ordered',
+      bestellenLaeuft: 'Saving …',
+      bestellenFrage:
+        'Mark the order for Q{quartal} {jahr} as ordered? The current plan will be archived with the inventory cut-off.',
+      bestellenInventurFehlt: 'Ordering requires a valid inventory.',
+      bestellenFehler: 'Could not archive the order.',
+      bestelltErfolg: 'Order archived.',
+      bestellt: 'Ordered',
+      bestelltAm: 'Ordered on {datum} · {kuerzel}',
+      inventurKurz: 'Inventory: {datum} ({kuerzel})',
+      bestellarchiv: 'Order archive',
       erkannteGroesse: 'Detected size',
       keineGroesse: 'no size configured',
       faelligkeit: 'Due',
@@ -670,6 +689,13 @@ export default {
         bogenTitel: 'Sheet & output',
         layout: 'Sheet layout',
         layoutBenutzerdefiniert: 'Custom',
+        startFeld: 'Start field',
+        startFeldHint:
+          'Field 1 = top left, left to right, then row by row. Fields already used on a partly used sheet stay empty (applies to the first page only).',
+        startFeldInfo:
+          'Starting at field {feld} of {proSeite}: the first {uebersprungen} fields stay empty, there is room for {platz} labels there.',
+        startFeldUeberlauf:
+          'Start field {wert} exceeds the number of fields on the sheet ({max}) — it is limited to {max}.',
         custom: {
           cols: 'Columns',
           rows: 'Rows',

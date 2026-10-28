@@ -17,12 +17,15 @@ import { defineStore } from 'pinia'
 import { liveQuery, type Subscription } from 'dexie'
 import { computed, onScopeDispose, ref } from 'vue'
 import { getDb } from '../db/database'
-import type { Netzteil, Projektakku } from '../db/types'
+import type { AkkuBestellung, Netzteil, Projektakku } from '../db/types'
 import { jetztIso, neueUuid } from '../domain/ids'
 import { queueOp } from '../services/sync/worker'
 import { berechnePlanung, faelligkeit } from '../domain/akkutausch/berechnung'
-import type { AkkuTyp, Planung } from '../domain/akkutausch/types'
+import { ermittleInventurStatus } from '../domain/akkutausch/inventur'
+import { kuerzelAusName } from '../domain/kuerzel'
+import type { AkkuTyp, InventurStatus, Planung } from '../domain/akkutausch/types'
 import { useArtikelStandortMindestbestandStore } from './artikelStandortMindestbestand'
+import { useAuthStore } from './auth'
 import { useBuchungStore } from './buchung'
 import { useSettingsStore } from './settings'
 import { useStandortStore } from './standort'
@@ -64,6 +67,7 @@ function aktuellesQuartal(): number {
 export const useAkkutauschStore = defineStore('akkutausch', () => {
   const netzteile = ref<Netzteil[]>([])
   const projekte = ref<Projektakku[]>([])
+  const bestellungen = ref<AkkuBestellung[]>([])
   const geladen = ref(false)
   let subscription: Subscription | null = null
 
@@ -71,6 +75,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   const buchungStore = useBuchungStore()
   const standortStore = useStandortStore()
   const mindestbestandStore = useArtikelStandortMindestbestandStore()
+  const auth = useAuthStore()
 
   /** Konfigurierte Akku-Groessen (globale Einstellung `akkuTypen`). */
   const typen = computed<AkkuTyp[]>(() => settings.settings.akkuTypen)
@@ -89,15 +94,17 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     mindestbestandStore.start()
     if (subscription) return
     subscription = liveQuery(async () => {
-      const [n, p] = await Promise.all([
+      const [n, p, b] = await Promise.all([
         getDb().akkuNetzteile.toArray(),
         getDb().akkuProjekte.toArray(),
+        getDb().akkuBestellungen.toArray(),
       ])
-      return { n, p }
+      return { n, p, b }
     }).subscribe({
       next: (rows) => {
         netzteile.value = rows.n
         projekte.value = rows.p
+        bestellungen.value = rows.b
         geladen.value = true
       },
       error: (e) => {
@@ -151,6 +158,63 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
       jahr: jahr.value,
     }),
   )
+
+  /** Article IDs that belong to a configured battery size. */
+  const akkuArtikelIds = computed<string[]>(() =>
+    typen.value.map((typ) => typ.artikelId).filter((id): id is string => id !== null && id !== ''),
+  )
+
+  /**
+   * Inventory cut-off of the battery articles (last four weeks). An empty or
+   * stale inventory makes the planned stock undated and blocks ordering.
+   */
+  const inventurStatus = computed<InventurStatus>(() =>
+    ermittleInventurStatus(buchungStore.buchungen, akkuArtikelIds.value),
+  )
+
+  /** Archived order of the selected quarter, if any. */
+  const bestellungFuerQuartal = computed<AkkuBestellung | null>(() => {
+    const treffer = bestellungen.value
+      .filter((b) => b.jahr === jahr.value && b.quartal === quartal.value)
+      .sort((a, b) => (a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0))
+    return treffer[0] ?? null
+  })
+
+  /**
+   * Archives the current planning table as "ordered" for the selected
+   * quarter. Returns `null` when an order already exists or no valid
+   * inventory is present.
+   */
+  async function bestellungMarkieren(): Promise<AkkuBestellung | null> {
+    if (bestellungFuerQuartal.value) return null
+    const inventur = inventurStatus.value
+    if (!inventur.gueltig) return null
+
+    const bestellung: AkkuBestellung = {
+      id: neueUuid(),
+      quartal: quartal.value,
+      jahr: jahr.value,
+      bestelltAm: jetztIso(),
+      bestelltVon: auth.erstelltVon,
+      bestelltVonKuerzel: kuerzelAusName(auth.erstelltVon),
+      inventurDatum: inventur.datum,
+      inventurVonKuerzel: inventur.kuerzel,
+      zeilen: planung.value.zeilen.map((zeile) => ({
+        typId: zeile.typ.id,
+        kapazitaetAh: zeile.typ.kapazitaetAh,
+        von: zeile.typ.von,
+        bis: zeile.typ.bis,
+        soll: zeile.soll,
+        bestand: zeile.bestand,
+        reserve: zeile.reserve,
+        verfuegbar: zeile.verfuegbar,
+        bedarf: zeile.benoetigt,
+      })),
+    }
+    await getDb().akkuBestellungen.add(bestellung)
+    await queueOp('akku_bestellung', 'create', bestellung)
+    return bestellung
+  }
 
   /** Faelligkeit eines Netzteils (ISO-Datum) oder `null`. */
   function faelligkeitVon(netzteil: Netzteil): string | null {
@@ -259,6 +323,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   return {
     netzteile,
     projekte,
+    bestellungen,
     geladen,
     typen,
     hauptlagerId,
@@ -269,8 +334,12 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     bestandJeArtikel,
     reserveJeArtikel,
     planung,
+    akkuArtikelIds,
+    inventurStatus,
+    bestellungFuerQuartal,
     start,
     stop,
+    bestellungMarkieren,
     faelligkeitVon,
     netzteilSpeichern,
     netzteilLoeschen,

@@ -10,14 +10,17 @@
 //
 // Aus der Planung entsteht die Bestellliste (CSV + Druckansicht).
 
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAkkutauschStore } from '../../stores/akkutausch'
 import { useArtikelStore } from '../../stores/artikel'
 import { useAuthStore } from '../../stores/auth'
 import { useSettingsStore } from '../../stores/settings'
+import { useToastStore } from '../../stores/toast'
+import { bestelllisteText } from '../../domain/akkutausch/bestellliste'
 import {
   csvDatei,
+  formatDatum,
   formatKapazitaet,
   formatKapazitaetBereich,
   formatZahl,
@@ -33,8 +36,25 @@ const store = useAkkutauschStore()
 const artikelStore = useArtikelStore()
 const auth = useAuthStore()
 const settings = useSettingsStore()
+const toast = useToastStore()
 
 const locale = computed(() => settings.settings.sprache)
+
+const kopiert = ref(false)
+const bestelltLaeuft = ref(false)
+
+/** Inventory cut-off of the battery articles (last four weeks). */
+const inventur = computed(() => store.inventurStatus)
+
+/** Archived order of the selected quarter, if any. */
+const bestellung = computed(() => store.bestellungFuerQuartal)
+
+/** All archived orders, newest first. */
+const archiv = computed(() =>
+  [...store.bestellungen].sort((a, b) =>
+    a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0,
+  ),
+)
 
 const jahre = computed(() => {
   const aktuell = new Date().getFullYear()
@@ -99,8 +119,85 @@ const gesamtMenge = computed(() =>
   store.planung.bestellzeilen.reduce((summe, z) => summe + z.menge, 0),
 )
 
+/**
+ * Prints only the order list. The portal is teleported to <body> and the
+ * `druck-bestellliste` body class hides the app in the print stylesheet.
+ */
 function drucken(): void {
+  if (store.planung.bestellzeilen.length === 0) return
+  const beenden = (): void => {
+    document.body.classList.remove('druck-bestellliste')
+    window.removeEventListener('afterprint', beenden)
+  }
+  document.body.classList.add('druck-bestellliste')
+  window.addEventListener('afterprint', beenden)
   window.print()
+  // Fallback for browsers without `afterprint`.
+  setTimeout(beenden, 5_000)
+}
+
+/** Copies the order list as plain text for an e-mail. */
+async function kopieren(): Promise<void> {
+  const text = bestelllisteText(store.planung.bestellzeilen, locale.value, {
+    quartal: store.quartal,
+    jahr: store.jahr,
+    inventurDatum: inventur.value.datum,
+    inventurKuerzel: inventur.value.kuerzel,
+    titel: t('view.akkutausch.bestellliste'),
+    inventurLabel: t('view.akkutausch.inventurStichtag'),
+    kopfGroesse: t('view.akkutausch.groesse'),
+    kopfNennkapazitaet: t('view.akkutausch.nennkapazitaet'),
+    kopfMenge: t('view.akkutausch.menge'),
+    gesamtLabel: t('view.akkutausch.gesamt'),
+  })
+
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // Clipboard API needs a secure context — fall back to the legacy path.
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    if (!ok) {
+      toast.show({ text: t('view.akkutausch.kopierenFehler'), status: 'error' })
+      return
+    }
+  }
+
+  kopiert.value = true
+  toast.show({ text: t('view.akkutausch.kopierenErfolg'), status: 'success' })
+  setTimeout(() => {
+    kopiert.value = false
+  }, 2_000)
+}
+
+/** Archives the current plan as "ordered" (admin only, once per quarter). */
+async function bestellen(): Promise<void> {
+  if (bestelltLaeuft.value || bestellung.value || !inventur.value.gueltig) return
+  if (
+    !window.confirm(
+      t('view.akkutausch.bestellenFrage', { quartal: store.quartal, jahr: store.jahr }),
+    )
+  ) {
+    return
+  }
+
+  bestelltLaeuft.value = true
+  try {
+    const result = await store.bestellungMarkieren()
+    if (result) {
+      toast.show({ text: t('view.akkutausch.bestelltErfolg'), status: 'success' })
+    } else {
+      toast.show({ text: t('view.akkutausch.bestellenFehler'), status: 'error' })
+    }
+  } finally {
+    bestelltLaeuft.value = false
+  }
 }
 
 function csvExportieren(): void {
@@ -144,6 +241,21 @@ function csvExportieren(): void {
           </select>
         </label>
         <span class="stichtag">{{ t('view.akkutausch.stichtag') }}: {{ stichtag }}</span>
+      </div>
+    </div>
+
+    <div class="card inventur-card" :class="{ 'inventur-card--fehlt': !inventur.gueltig }">
+      <div class="inventur-zeile">
+        <span class="inventur-label">{{ t('view.akkutausch.inventurStichtag') }}:</span>
+        <template v-if="inventur.gueltig">
+          <strong>{{ formatDatum(inventur.datum, locale) }}</strong>
+          <span v-if="inventur.kuerzel" class="inventur-kuerzel">
+            {{ t('view.akkutausch.kuerzel') }}: {{ inventur.kuerzel }}
+          </span>
+        </template>
+        <span v-else class="inventur-fehler">
+          {{ t('view.akkutausch.inventurFehlt') }}
+        </span>
       </div>
     </div>
 
@@ -201,6 +313,27 @@ function csvExportieren(): void {
 
     <div class="card bestellliste">
       <h2 class="card-titel">{{ t('view.akkutausch.bestellliste') }}</h2>
+
+      <div v-if="bestellung" class="bestellt-status">
+        <strong>{{ t('view.akkutausch.bestellt') }}</strong>
+        <span>
+          {{
+            t('view.akkutausch.bestelltAm', {
+              datum: formatDatum(bestellung.bestelltAm.slice(0, 10), locale),
+              kuerzel: bestellung.bestelltVonKuerzel,
+            })
+          }}
+        </span>
+        <span v-if="bestellung.inventurDatum">
+          {{
+            t('view.akkutausch.inventurKurz', {
+              datum: formatDatum(bestellung.inventurDatum, locale),
+              kuerzel: bestellung.inventurVonKuerzel ?? '—',
+            })
+          }}
+        </span>
+      </div>
+
       <table v-if="store.planung.bestellzeilen.length > 0" class="data">
         <thead>
           <tr>
@@ -225,9 +358,109 @@ function csvExportieren(): void {
 
       <div v-if="store.planung.bestellzeilen.length > 0" class="form-actions">
         <button type="button" @click="csvExportieren">{{ t('view.akkutausch.csvExport') }}</button>
+        <button type="button" @click="kopieren">
+          {{ kopiert ? t('view.akkutausch.kopiert') : t('view.akkutausch.kopieren') }}
+        </button>
         <button type="button" @click="drucken">{{ t('view.akkutausch.drucken') }}</button>
+        <button
+          v-if="auth.istAdmin && !bestellung"
+          type="button"
+          class="primary"
+          :disabled="!inventur.gueltig || bestelltLaeuft"
+          :title="!inventur.gueltig ? t('view.akkutausch.bestellenInventurFehlt') : undefined"
+          @click="bestellen"
+        >
+          {{
+            bestelltLaeuft ? t('view.akkutausch.bestellenLaeuft') : t('view.akkutausch.bestellen')
+          }}
+        </button>
       </div>
     </div>
+
+    <div v-if="archiv.length > 0" class="card bestell-archiv">
+      <h2 class="card-titel">{{ t('view.akkutausch.bestellarchiv') }}</h2>
+      <details v-for="b in archiv" :key="b.id" class="archiv-eintrag">
+        <summary>
+          <strong>Q{{ b.quartal }} {{ b.jahr }}</strong>
+          <span>
+            {{
+              t('view.akkutausch.bestelltAm', {
+                datum: formatDatum(b.bestelltAm.slice(0, 10), locale),
+                kuerzel: b.bestelltVonKuerzel,
+              })
+            }}
+          </span>
+          <span v-if="b.inventurDatum">
+            {{
+              t('view.akkutausch.inventurKurz', {
+                datum: formatDatum(b.inventurDatum, locale),
+                kuerzel: b.inventurVonKuerzel ?? '—',
+              })
+            }}
+          </span>
+        </summary>
+        <table class="data">
+          <thead>
+            <tr>
+              <th>{{ t('view.akkutausch.groesse') }}</th>
+              <th>{{ t('view.akkutausch.soll') }}</th>
+              <th>{{ t('view.akkutausch.bestand') }}</th>
+              <th>{{ t('view.akkutausch.reserve') }}</th>
+              <th>{{ t('view.akkutausch.verfuegbar') }}</th>
+              <th>{{ t('view.akkutausch.benoetigt') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="z in b.zeilen" :key="z.typId">
+              <td>
+                {{ formatKapazitaet(z.kapazitaetAh, locale) }}
+                <span class="band-hinweis">
+                  {{ formatKapazitaetBereich(z.von, z.bis, locale) }}
+                </span>
+              </td>
+              <td>{{ z.soll }}</td>
+              <td>{{ z.bestand }}</td>
+              <td>{{ z.reserve }}</td>
+              <td>{{ z.verfuegbar }}</td>
+              <td>{{ z.bedarf }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </details>
+    </div>
+
+    <Teleport to="body">
+      <div class="druck-portal">
+        <h1>{{ t('view.akkutausch.bestellliste') }} – Q{{ store.quartal }} {{ store.jahr }}</h1>
+        <p>
+          {{ t('view.akkutausch.inventurStichtag') }}:
+          {{ formatDatum(inventur.datum, locale) }}
+          <span v-if="inventur.kuerzel">({{ inventur.kuerzel }})</span>
+        </p>
+        <table class="druck-tabelle">
+          <thead>
+            <tr>
+              <th>{{ t('view.akkutausch.groesse') }}</th>
+              <th>{{ t('view.akkutausch.nennkapazitaet') }}</th>
+              <th>{{ t('view.akkutausch.menge') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="z in store.planung.bestellzeilen" :key="z.typId">
+              <td>{{ formatKapazitaetBereich(z.von, z.bis, locale) }}</td>
+              <td>{{ formatKapazitaet(z.kapazitaetAh, locale) }}</td>
+              <td>{{ z.menge }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2">{{ t('view.akkutausch.gesamt') }}</td>
+              <td>{{ gesamtMenge }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -284,14 +517,63 @@ function csvExportieren(): void {
   color: var(--danger);
 }
 
-@media print {
-  .planung-tab .card:not(.bestellliste) {
-    display: none;
-  }
+.inventur-zeile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
 
-  .bestellliste {
-    border: none;
-    background: none;
-  }
+.inventur-label {
+  color: var(--text-muted);
+}
+
+.inventur-kuerzel {
+  color: var(--text-muted);
+}
+
+.inventur-card--fehlt {
+  border-color: var(--warning);
+}
+
+.inventur-fehler {
+  color: var(--warning);
+}
+
+.bestellt-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--success, #16a34a);
+  background: color-mix(in srgb, var(--success, #16a34a) 8%, transparent);
+  font-size: 0.9rem;
+}
+
+.archiv-eintrag {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.archiv-eintrag:last-child {
+  border-bottom: none;
+}
+
+.archiv-eintrag summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.archiv-eintrag summary span {
+  color: var(--text-muted);
+}
+
+.archiv-eintrag .data {
+  margin-top: 0.5rem;
 }
 </style>

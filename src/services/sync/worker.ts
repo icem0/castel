@@ -16,6 +16,7 @@
 
 import { getDb } from '../../db/database'
 import type {
+  AkkuBestellung,
   Artikel,
   ArtikelStandortMindestbestand,
   Buchung,
@@ -92,6 +93,7 @@ export function zaehleAbweichungen(l: TableCounts | null, s: TableCounts | null)
   }
   if ((l.akkuNetzteile ?? 0) !== (s.akkuNetzteile ?? 0)) n++
   if ((l.akkuProjekte ?? 0) !== (s.akkuProjekte ?? 0)) n++
+  if ((l.akkuBestellungen ?? 0) !== (s.akkuBestellungen ?? 0)) n++
   return n
 }
 
@@ -288,6 +290,8 @@ export interface SyncSnapshot {
   akkuNetzteile?: Netzteil[]
   /** Akkutausch: Projektbatterien je Quartal. Optional. */
   akkuProjekte?: Projektakku[]
+  /** Akkutausch: archivierte Bestellungen (immutable snapshots). Optional. */
+  akkuBestellungen?: AkkuBestellung[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
   /**
@@ -332,6 +336,8 @@ export interface TableCounts {
   akkuNetzteile?: number
   /** Optional, damit aeltere Server-/Test-Fixtures ohne die Zaehler laden. */
   akkuProjekte?: number
+  /** Optional, damit aeltere Server-/Test-Fixtures ohne die Zaehler laden. */
+  akkuBestellungen?: number
 }
 
 export interface ServerStatus {
@@ -923,6 +929,7 @@ async function getLocalCounts(): Promise<TableCounts> {
     mindestbestand,
     akkuNetzteile,
     akkuProjekte,
+    akkuBestellungen,
   ] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
@@ -932,6 +939,7 @@ async function getLocalCounts(): Promise<TableCounts> {
     db.artikelStandortMindestbestaende.count(),
     db.akkuNetzteile.count(),
     db.akkuProjekte.count(),
+    db.akkuBestellungen.count(),
   ])
   return {
     artikel,
@@ -942,6 +950,7 @@ async function getLocalCounts(): Promise<TableCounts> {
     artikelStandortMindestbestand: mindestbestand,
     akkuNetzteile,
     akkuProjekte,
+    akkuBestellungen,
   }
 }
 
@@ -1149,6 +1158,7 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       db.mindestbestandEreignisse,
       db.akkuNetzteile,
       db.akkuProjekte,
+      db.akkuBestellungen,
     ],
     async () => {
       // Artikel
@@ -1200,6 +1210,10 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
         } else if (p.geaendertAm > existing.geaendertAm) {
           await db.akkuProjekte.put(p)
         }
+      }
+      // Akkutausch: Bestell-Snapshots — immutable, the server timestamp wins.
+      for (const b of snap.akkuBestellungen ?? []) {
+        await db.akkuBestellungen.put(b)
       }
       // Standorte
       for (const s of snap.standorte) {

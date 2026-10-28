@@ -50,6 +50,7 @@ export interface ResetLocalDbResult {
     artikelStandortMindestbestaende: number
     akkuNetzteile: number
     akkuProjekte: number
+    akkuBestellungen: number
   }
   /**
    * Was `window.location.reload()` triggered at the end? Set by the caller
@@ -79,6 +80,7 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
       db.mindestbestandEreignisse,
       db.akkuNetzteile,
       db.akkuProjekte,
+      db.akkuBestellungen,
     ],
     async () => {
       if (data.artikel.length > 0) await db.artikel.bulkPut(data.artikel)
@@ -108,6 +110,9 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
       }
       if ((data.akkuProjekte?.length ?? 0) > 0) {
         await db.akkuProjekte.bulkPut(data.akkuProjekte ?? [])
+      }
+      if ((data.akkuBestellungen?.length ?? 0) > 0) {
+        await db.akkuBestellungen.bulkPut(data.akkuBestellungen ?? [])
       }
       if (data.einstellungen.length > 0) {
         // Settings arrive with userId=null; the IndexedDB convention is ''
@@ -198,6 +203,7 @@ export async function resetLocalDbAndPull(opts: {
       artikelStandortMindestbestaende: data.artikelStandortMindestbestaende?.length ?? 0,
       akkuNetzteile: data.akkuNetzteile?.length ?? 0,
       akkuProjekte: data.akkuProjekte?.length ?? 0,
+      akkuBestellungen: data.akkuBestellungen?.length ?? 0,
     },
     reloaded: false,
   }

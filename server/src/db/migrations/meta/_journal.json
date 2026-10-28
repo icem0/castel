@@ -169,6 +169,13 @@
       "when": 1793135934000,
       "tag": "0023_akkutausch_optional",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793173813000,
+      "tag": "0024_akkutausch_bestellungen",
+      "breakpoints": true
     }
   ]
 }

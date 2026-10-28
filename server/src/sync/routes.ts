@@ -6,6 +6,7 @@ import { getDb } from '../db/client.js'
 import {
   artikel,
   artikelStandortMindestbestaende,
+  akkuBestellungen,
   akkuNetzteile,
   akkuProjekte,
   buchungen,
@@ -29,8 +30,9 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   artikelStandortMindestbestand: number
   akkuNetzteile: number
   akkuProjekte: number
+  akkuBestellungen: number
 }> {
-  const [a, s, p, b, h, m, n, q] = await Promise.all([
+  const [a, s, p, b, h, m, n, q, ab] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
@@ -39,6 +41,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     db.select({ c: sql<number>`count(*)::int` }).from(artikelStandortMindestbestaende),
     db.select({ c: sql<number>`count(*)::int` }).from(akkuNetzteile),
     db.select({ c: sql<number>`count(*)::int` }).from(akkuProjekte),
+    db.select({ c: sql<number>`count(*)::int` }).from(akkuBestellungen),
   ])
   return {
     artikel: a[0]?.c ?? 0,
@@ -49,6 +52,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     artikelStandortMindestbestand: m[0]?.c ?? 0,
     akkuNetzteile: n[0]?.c ?? 0,
     akkuProjekte: q[0]?.c ?? 0,
+    akkuBestellungen: ab[0]?.c ?? 0,
   }
 }
 
@@ -89,6 +93,7 @@ export async function syncRoutes(
         mindestbestandRows,
         akkuNetzteilRows,
         akkuProjektRows,
+        akkuBestellungRows,
       ] = await Promise.all([
         db
           .select()
@@ -146,6 +151,11 @@ export async function syncRoutes(
           .select()
           .from(akkuProjekte)
           .where(sql`${akkuProjekte.geaendertAm} > ${sinceIso}`),
+        // Akkutausch: Bestell-Snapshots — append-only, filter on server time.
+        db
+          .select()
+          .from(akkuBestellungen)
+          .where(sql`${akkuBestellungen.bestelltAm} > ${sinceIso}`),
       ])
 
       return reply.send({
@@ -200,6 +210,17 @@ export async function syncRoutes(
           geloescht: r.geloescht,
           geaendertAm: r.geaendertAm.toISOString(),
           erstelltAm: r.erstelltAm.toISOString(),
+        })),
+        akkuBestellungen: akkuBestellungRows.map((r) => ({
+          id: r.id,
+          jahr: r.jahr,
+          quartal: r.quartal,
+          bestelltAm: r.bestelltAm.toISOString(),
+          bestelltVon: r.bestelltVon,
+          bestelltVonKuerzel: r.bestelltVonKuerzel,
+          inventurDatum: r.inventurDatum,
+          inventurVonKuerzel: r.inventurVonKuerzel,
+          zeilen: r.zeilen,
         })),
         einstellungen: einstellungRows.map((r) => ({
           key: r.key,

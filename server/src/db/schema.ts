@@ -56,7 +56,10 @@ export const refreshTokens = pgTable(
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     userAgent: text('user_agent'),
   },
-  (t) => [index('refresh_tokens_user_idx').on(t.userId), index('refresh_tokens_hash_idx').on(t.tokenHash)],
+  (t) => [
+    index('refresh_tokens_user_idx').on(t.userId),
+    index('refresh_tokens_hash_idx').on(t.tokenHash),
+  ],
 )
 
 // ---------- API-Keys (Agentenzugriff) ----------
@@ -378,6 +381,38 @@ export const akkuProjekte = pgTable(
   ],
 )
 
+/**
+ * Akkutausch: immutable order snapshots ("als bestellt markiert").
+ *
+ * Append-only: each order run creates a new row with a frozen copy of the
+ * planning table plus the inventory cut-off and the initials of the person
+ * who triggered it. `bestellt_am` is set by the server (source of truth) so
+ * the incremental snapshot query can never miss a row because of client
+ * clock drift.
+ */
+export const akkuBestellungen = pgTable(
+  'akku_bestellungen',
+  {
+    id: text('id').primaryKey(),
+    jahr: integer('jahr').notNull(),
+    quartal: integer('quartal').notNull(),
+    bestelltAm: timestamp('bestellt_am', { withTimezone: true }).notNull(),
+    bestelltVon: text('bestellt_von').notNull(),
+    bestelltVonKuerzel: text('bestellt_von_kuerzel').notNull(),
+    /** Calendar date (`YYYY-MM-DD`) or null when the stock was not dated. */
+    inventurDatum: date('inventur_datum', { mode: 'string' }),
+    inventurVonKuerzel: text('inventur_von_kuerzel'),
+    /** Frozen planning rows (Groesse/Soll/Bestand/Reserve/Verfuegbar/Bedarf). */
+    zeilen: jsonb('zeilen').notNull(),
+  },
+  (t) => [
+    // Sync-Snapshot filtert auf `bestellt_am > since` — Index ist Pflicht.
+    index('akku_bestellungen_bestellt_am_idx').on(t.bestelltAm),
+    // The UI looks up the order of a quarter.
+    index('akku_bestellungen_quartal_jahr_idx').on(t.jahr, t.quartal),
+  ],
+)
+
 // ---------- Fotos ----------
 
 export const fotos = pgTable(
@@ -422,6 +457,7 @@ export const auditLog = pgTable(
         'artikel_standort_mindestbestand',
         'akku_netzteil',
         'akku_projekt',
+        'akku_bestellung',
       ],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),

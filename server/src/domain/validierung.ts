@@ -165,6 +165,38 @@ export const akkuProjektSchema = z.object({
   erstelltAm: iso,
 })
 
+/** Frozen planning row of an archived battery order. */
+export const akkuBestellungZeileSchema = z.object({
+  typId: id,
+  kapazitaetAh: z.number().positive(),
+  von: z.number().positive(),
+  bis: z.number().positive(),
+  soll: z.number().int().nonnegative(),
+  bestand: z.number().int(),
+  reserve: z.number().int(),
+  verfuegbar: z.number().int(),
+  bedarf: z.number().int().nonnegative(),
+})
+
+/**
+ * Immutable order snapshot ("als bestellt markiert").
+ *
+ * `bestelltAm` is sent by the client but replaced with the server time in
+ * the resolver — it only exists in the payload so the client can render the
+ * local row immediately after the write.
+ */
+export const akkuBestellungSchema = z.object({
+  id,
+  jahr: z.number().int().min(2000).max(2100),
+  quartal: z.number().int().min(1).max(4),
+  bestelltAm: iso,
+  bestelltVon: z.string().min(1).max(200),
+  bestelltVonKuerzel: z.string().min(1).max(20),
+  inventurDatum: isoDatum.nullable(),
+  inventurVonKuerzel: z.string().max(200).nullable(),
+  zeilen: z.array(akkuBestellungZeileSchema).max(1000),
+})
+
 // ---------- Einstellungen ----------
 // Cross-Device-Sync: PWA-Einstellungen (sprache, standardStandortId,
 // artikelTypen) werden in der DB gespiegelt. Whitelist der erlaubten
@@ -238,6 +270,12 @@ export const pushPayloadSchema = z.object({
           op: z.enum(['create', 'update']),
           entity: z.literal('akku_projekt'),
           payload: akkuProjektSchema,
+        }),
+        z.object({
+          // Order snapshots are append-only: no update/delete.
+          op: z.literal('create'),
+          entity: z.literal('akku_bestellung'),
+          payload: akkuBestellungSchema,
         }),
         z.object({
           op: z.literal('create'), // Buchungen sind append-only: nur create

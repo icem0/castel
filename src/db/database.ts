@@ -2,10 +2,9 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v17 (Rabattsatz je Lieferant + Listenpreis in Cent,
-// siehe Kommentar bei v17). Frühere Versionen (v1–v16) sind nur noch für
-// Migration existierender Browser-DBs. Wenn du eine frische DB anlegst,
-// wird direkt v17 verwendet.
+// Aktuelles Schema: v18 (archivierte Akku-Bestellungen, siehe Kommentar bei
+// v18). Frühere Versionen (v1–v17) sind nur noch für Migration existierender
+// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v18 verwendet.
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -13,6 +12,7 @@
 
 import Dexie, { type Table } from 'dexie'
 import type {
+  AkkuBestellung,
   Artikel,
   ArtikelStandortMindestbestand,
   AuditLogEintrag,
@@ -58,6 +58,11 @@ export class CastelDb extends Dexie {
   akkuNetzteile!: Table<Netzteil, string>
   /** Akkutausch: Projektbatterien je Quartal. */
   akkuProjekte!: Table<Projektakku, string>
+  /**
+   * Akkutausch: immutable order snapshots per quarter. Append-only and
+   * synced like the other Akkutausch data (`id` = UUID).
+   */
+  akkuBestellungen!: Table<AkkuBestellung, string>
 
   constructor(name = DB_NAME) {
     super(name)
@@ -463,6 +468,13 @@ export class CastelDb extends Dexie {
           await tx.table('artikel').bulkPut(artikel)
         }
       })
+
+    // v18: Akkutausch — archivierte Bestellungen (immutable snapshots per
+    //      quarter). No data migration: the table starts empty and is filled
+    //      by explicit "marked as ordered" actions.
+    this.version(18).stores({
+      akkuBestellungen: 'id, [jahr+quartal], bestelltAm',
+    })
   }
 }
 

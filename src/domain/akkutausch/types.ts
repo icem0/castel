@@ -149,3 +149,73 @@ export interface Planung {
   /** Warnings that cannot be assigned to a single row. */
   warnungen: Planwarnung[]
 }
+
+/**
+ * Minimal shape of a booking needed to determine the battery inventory date.
+ * Kept free of Dexie types so the logic stays unit-testable.
+ */
+export interface InventurBuchung {
+  artikelId: string
+  typ: string
+  storno: boolean
+  erstelltAm: IsoZeit
+  erstelltVon: string
+}
+
+/**
+ * Result of the inventory check.
+ *
+ * The stock is dated with the oldest inventory booking of a battery article
+ * that lies within the last four weeks. Each inventory booking belongs to the
+ * same inventory run, so the oldest date marks the cut-off and the initials of
+ * the people who booked on that day identify who conducted it.
+ */
+export interface InventurStatus {
+  /** `true` when at least one valid inventory booking exists. */
+  gueltig: boolean
+  /** Cut-off date (`YYYY-MM-DD`) — the oldest booking date in the window. */
+  datum: IsoDatum | null
+  /** Initials of the people who booked the inventory on the cut-off date. */
+  kuerzel: string | null
+  /** Number of valid inventory bookings inside the window. */
+  anzahlBuchungen: number
+}
+
+/** One archived row of the planning table. */
+export interface AkkuBestellungZeile {
+  typId: string
+  kapazitaetAh: number
+  von: number
+  bis: number
+  soll: number
+  bestand: number
+  reserve: number
+  verfuegbar: number
+  bedarf: number
+}
+
+/**
+ * Immutable snapshot of a "marked as ordered" quarter.
+ *
+ * The snapshot freezes the planning table, the inventory cut-off and the
+ * initials of the person who triggered the order, so later stock changes do
+ * not rewrite the archive. Identity is a UUID; the record is append-only and
+ * never edited (a new order run creates a new row).
+ */
+export interface AkkuBestellung {
+  id: string
+  quartal: number
+  jahr: number
+  /** Server-authoritative order timestamp (ISO). */
+  bestelltAm: IsoZeit
+  /** Display name of the user who marked the order. */
+  bestelltVon: string
+  /** Initials of the user who marked the order. */
+  bestelltVonKuerzel: string
+  /** Inventory cut-off date at the time of the order. */
+  inventurDatum: IsoDatum | null
+  /** Initials of the people who conducted that inventory. */
+  inventurVonKuerzel: string | null
+  /** Frozen planning table. */
+  zeilen: AkkuBestellungZeile[]
+}
