@@ -494,3 +494,39 @@ export function setDb(db: CastelDb): void {
 export function resetDbForTests(): void {
   _db = null
 }
+
+/**
+ * Hard-drop der IndexedDB dieses Instanz. `indexedDB.deleteDatabase()`
+ * blockiert, solange eine andere Verbindung offen ist (z. B. ein zweiter
+ * castel-Tab), und Dexie wartet ohne Timeout — wir brechen nach 10 s mit
+ * klarer Ursache ab. Der Aufrufer MUSS die Dexie-Verbindung vorher
+ * schließen (`db.close()`), sonst blockiert sie das Löschen selbst.
+ */
+export async function deleteDatabase(db: CastelDb): Promise<void> {
+  let blockedByOtherTab = false
+  db.on('blocked', () => {
+    blockedByOtherTab = true
+  })
+
+  const timeoutMs = 10_000
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            blockedByOtherTab
+              ? 'Lokale Datenbank wird blockiert — bitte alle weiteren castel-Tabs schließen und erneut versuchen.'
+              : 'Lokale Datenbank konnte nicht gelöscht werden (Timeout).',
+          ),
+        ),
+      timeoutMs,
+    )
+  })
+
+  try {
+    await Promise.race([db.delete(), timeout])
+  } finally {
+    if (timer !== null) clearTimeout(timer)
+  }
+}

@@ -14,7 +14,7 @@
 //     `computeBackoffMs(attempts)`.
 // Wir laufen in einem setInterval + bei `online`-Event + bei `visibilitychange`.
 
-import { getDb } from '../../db/database'
+import { getDb, deleteDatabase, resetDbForTests } from '../../db/database'
 import type {
   AkkuBestellung,
   Artikel,
@@ -309,6 +309,10 @@ export interface SyncSnapshot {
    *  wurde. Wir spiegeln den Wert zurück, damit der Client den
    *  Marker aktualisieren kann (Pagination-Support). */
   mindestSince?: string
+  /** Epoche des letzten serverseitigen Restore (pg_restore), null wenn
+   *  nie restauriert. Optional: aeltere Server liefern das Feld nicht —
+   *  dann bleibt der normale inkrementelle Pfad aktiv. */
+  restoreEpoch?: string | null
 }
 
 export interface PushResult {
@@ -675,6 +679,40 @@ export async function fetchSnapshot(
     })
   }
   return (await res.json()) as SyncSnapshot
+}
+
+/**
+ * Leichter Probe-Request fuer die Restore-Epoche (eine Zeile, kein Payload).
+ * Der Worker fragt sie VOR dem Push ab — nach einem serverseitigen Restore
+ * duerfte die Outbox der Vor-Restore-Welt die restaurierte Server-DB sonst
+ * mit altem Stand ueberschreiben.
+ */
+export async function fetchRestoreEpoch(
+  apiBase: string,
+  token: string | null,
+  signal: AbortSignal | null = null,
+): Promise<string | null> {
+  const res = await fetchWithTimeout(
+    `${apiBase}/api/sync/restore-epoch`,
+    {
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+    },
+    SNAPSHOT_TIMEOUT_MS,
+    signal,
+  )
+  if (!res.ok) {
+    const body = await readErrorBody(res)
+    throw new SyncHttpError(res.status, `Restore-Epoche HTTP ${res.status}: ${body}`, {
+      retryAfterMs: null,
+      category: categorizeStatus(res.status),
+    })
+  }
+  const data = (await res.json()) as { restoreEpoch?: string | null }
+  return data.restoreEpoch ?? null
 }
 
 async function pushOps(
@@ -1622,6 +1660,96 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
   }
 }
 
+// ---------- Restore-Epoche ----------
+
+/**
+ * Client-lokaler Marker fuer die zuletzt gesehene serverseitige
+ * Restore-Epoche (Dexie `einstellungen`, userId ''). Wird nie gepusht —
+ * der Server filtert den Key aus Snapshot und Push (server-interne Keys).
+ */
+export const RESTORE_EPOCH_MARKER = 'server.restoreEpoch'
+
+/**
+ * Vergleicht die serverseitige Restore-Epoche mit dem lokalen Marker und
+ * baut bei Abweichung die komplette lokale IndexedDB neu auf.
+ *
+ * Hintergrund: ein `pg_restore` ersetzt die Server-DB komplett durch einen
+ * alten Stand. Der inkrementelle Sync kann dazu nie konvergieren:
+ *   * restaurierte Zeilen tragen alte `geaendert_am` — vor `lastPullAt`
+ *     liegend werden sie nie wieder ausgeliefert,
+ *   * per Restore geloeschte Zeilen blieben lokal als Geister erhalten,
+ *   * Outbox und Einstellungen der Vor-Restore-Welt wuerden alten Stand
+ *     zurueck in die restaurierte Server-DB schreiben.
+ *
+ * Deshalb VOR dem Push-Check vorgehen (sonst ist die Kontamination langst
+ * passiert):
+ * Worker komplett stilllegen, IndexedDB hart loschen (Outbox inklusive),
+ * vollen Snapshot ziehen, Epoche lokal speichern, Seite neu laden — damit
+ * saemtliche Singletons (Pinia-Stores, Dexie) wieder auf einer frischen DB
+ * arbeiten. Das ist derselbe Flow wie der manuelle Reset-Knopf in der
+ * Entwicklungsansicht, nur automatisch und auf ALLEN Geraeten.
+ *
+ * Liefert true, wenn ein Reset durchgefuehrt wurde — der aufrufende
+ * Sync-Lauf darf dann nicht weiterarbeiten.
+ */
+async function handleRestoreEpochMismatch(
+  apiBase: string,
+  token: string | null,
+  signal: AbortSignal | null,
+): Promise<boolean> {
+  let serverEpoch: string | null
+  try {
+    serverEpoch = await fetchRestoreEpoch(apiBase, token, signal)
+  } catch (e) {
+    // Netzwerkfehler oder Server ohne Unterstuetzung (404 vor der
+    // Epoch-Einfuehrung): normale inkrementelle Sync weiterfuehren.
+    const http = e instanceof SyncHttpError ? e.status : null
+    if (http !== 404) console.warn('[sync] Restore-Epoche-Check fehlgeschlagen:', e)
+    return false
+  }
+  if (serverEpoch === null) return false
+  const localEpoch = (await getDb().einstellungen.get([RESTORE_EPOCH_MARKER, '']))?.value ?? null
+  if (serverEpoch === localEpoch) return false
+
+  console.warn(
+    '[sync] Restore-Epoche geaendert — lokale IndexedDB wird geloescht und vollstaendig neu aufgebaut',
+  )
+  try {
+    // 1) Worker stilllegen (Suspend-Latch bis Reload): kein Tick und kein
+    //    online/visibility-Trigger darf die frisch geloeschte DB wieder
+    //    oeffnen oder teilbefuellen.
+    suspendSyncWorker()
+
+    // 2) Hartes Wischen: Verbindung schliessen, DB loeschen, frische
+    //    Instanz. Damit ist auch die Outbox der Vor-Restore-Welt weg.
+    const oldDb = getDb()
+    oldDb.close()
+    await deleteDatabase(oldDb)
+    resetDbForTests()
+
+    // 3) Vollstandiger Snapshot (kein `since`) in die frische DB.
+    //    applySnapshot setzt dabei die lastPullAt-/mindestbestand-Marker.
+    const full = await fetchSnapshot(apiBase, token, '', '1970-01-01T00:00:00.000Z')
+    await applySnapshot(full)
+
+    // 4) Epoche lokal merken (userId '' — wie die uebrigen Sync-Marker).
+    await getDb().einstellungen.put({
+      key: RESTORE_EPOCH_MARKER,
+      userId: '',
+      value: serverEpoch,
+      geaendertAm: jetztIso(),
+    })
+  } finally {
+    // Reload auch bei Fehlern des Pulls: die DB ist moeglicherweise schon
+    // geloescht — ein Neustart laesst den Worker von vorn ziehen. Im
+    // Test (jsdom) gibt es keine Navigation.
+    if (!import.meta.env.TEST && typeof window !== 'undefined') {
+      window.location.reload()
+    }
+  }
+  return true
+}
+
 // ---------- Sync-Hauptaufruf ----------
 
 /**
@@ -1744,6 +1872,14 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     await prepareRoleForSync(session?.rolle === 'admin')
   } catch (e) {
     console.warn('[sync] role preparation failed:', e)
+  }
+
+  // 0) Restore-Epoche VOR dem Push pruefen: ein serverseitiger pg_restore
+  //    hat die komplette DB ersetzt. Die Outbox der Vor-Restore-Welt duerfen
+  //    wir nicht in die restaurierte Server-DB schreiben — bei Mismatch
+  //    wird die lokale IndexedDB geloescht und vollstaendig neu gezogen.
+  if (await handleRestoreEpochMismatch(apiBase, token, _runAbort?.signal ?? null)) {
+    return
   }
 
   const lastPull = (await getDb().einstellungen.get(['sync.lastPullAt', '']))?.value ?? null

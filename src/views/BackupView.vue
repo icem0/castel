@@ -22,6 +22,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { jwtLesen } from '../auth/session'
+import { resetLocalDbAndPull } from '../services/sync/reset-local-db'
 
 const { t } = useI18n()
 
@@ -263,7 +264,24 @@ async function dateiRestaurieren(name: string): Promise<void> {
       body: { name, confirm: 'yes' },
     })
     erfolg.value = t('view.backup.restoreErfolg', { name })
-    setTimeout(() => (erfolg.value = null), 4000)
+    // Die Server-DB wurde komplett ersetzt — auch dieser Client haelt eine
+    // IndexedDB der Vor-Restore-Welt (Geisterzeilen, veraltete LWW-Stande,
+    // Outbox mit Alt-Data). Lokal sofort wischen und vollstaendig neu
+    // ziehen; alle anderen Geraete bemerken die neue Restore-Epoche beim
+    // naechsten Sync und resettieren sich automatisch (worker.ts).
+    try {
+      await resetLocalDbAndPull({
+        apiBase: getApiBaseUrl(),
+        token: localStorage.getItem('castel.auth.jwt'),
+      })
+      // Der Reset suspendiert den Sync-Worker bis zum Neuladen — danach
+      // arbeiten UI und Worker wieder auf der frischen DB.
+      setTimeout(() => window.location.reload(), 800)
+    } catch (e) {
+      // Lokaler Wiederaufbau fehlgeschlagen — unschaedlich: der Sync-Worker
+      // sieht die veraenderte Restore-Epoche und wiederholt den Reset.
+      console.warn('[backup] Lokaler Reset nach Restore fehlgeschlagen:', e)
+    }
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
   } finally {

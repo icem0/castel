@@ -28,6 +28,7 @@ import {
   rotiereAlteBackups,
   restoreAusZip,
   schreibeBackupSettings,
+  schreibeRestoreEpoch,
   triggerSyncForce,
   warteAufSyncIdle,
   type SyncWaitOpts,
@@ -241,8 +242,12 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
       const pfad = backupDateiPfad(name)
       try {
         const result = await restoreAusZip(pfad, config.DATABASE_URL)
-        app.log.info({ name, ...result }, '[backup] restore fertig')
-        return reply.send({ ok: true, name, ...result })
+        // Epoche ERST nach dem Restore schreiben — der Marker liegt selbst
+        // in der restaurierten DB und wuerde vom Dump sonst ueberschrieben.
+        // Die PWA-Worker bauen bei veraenderter Epoche ihre IndexedDB neu auf.
+        const restoreEpoch = await schreibeRestoreEpoch()
+        app.log.info({ name, restoreEpoch, ...result }, '[backup] restore fertig')
+        return reply.send({ ok: true, name, restoreEpoch, ...result })
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
         app.log.error({ name, err: message }, '[backup] restore fehlgeschlagen')

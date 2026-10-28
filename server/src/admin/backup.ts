@@ -5,7 +5,10 @@
 //   2) Polling auf /api/sync/status bis der buchungen-Count
 //      BACKUP_SYNC_QUIET_MS lang stabil ist (max BACKUP_SYNC_TIMEOUT_MS).
 //   3) pg_dump -Fc -> dump.pgdump (Custom-Format, komprimiert).
-//   4) FOTOS_DIR -> fotos/ (rekursiv).
+//   4) FOTOS_DIR -> fotos/ und DATANORM_DIR -> datanorm/ (rekursiv).
+//      Beides liegt ausserhalb von Postgres — ohne datanorm/ wuerden die
+//      restaurierten `datanorm_dateien`-Zeilen ins Leere zeigen (kein
+//      Re-Import, kein Original-Download).
 //   5) manifest.json + ZIP.
 //
 // Zwei Verbraucher:
@@ -19,7 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable, Transform, Writable } from 'node:stream'
 import archiver from 'archiver'
-import { and, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getClient, getDb } from '../db/client.js'
 import { buchungen, einstellungen } from '../db/schema.js'
 import { config } from '../config/config.js'
@@ -30,6 +33,24 @@ const FORCE_SYNC_KEY = 'sync.forceAt'
 
 const SCHEDULE_KEY = 'backup.schedule'
 const KEEP_COPIES_KEY = 'backup.keepCopies'
+
+/**
+ * Globaler Marker: der zuletzt beanspruchte Tages-Slot des Cron
+ * (`YYYY-MM-DD`). Der Claim ueberlebt API-Neustarts — der In-Memory-Marker
+ * des Cron allein verliert seinen Schutz bei jedem Boot und der Cron wuerde
+ * im Crash-Loop bei jedem Start ein neues Backup anstossen.
+ */
+const LAST_SLOT_KEY = 'backup.lastSlot'
+
+/**
+ * Globaler Marker: die Epoche des letzten Restaurierens (ISO-Zeit). Der
+ * PWA-Sync-Worker vergleicht sie mit seinem lokalen Marker und baut bei
+ * Abweichung seine IndexedDB komplett neu auf — pg_restore zieht alte
+ * `geaendert_am`-Stempel ein, die der inkrementelle Sync nie wieder aus-
+ * liefert; Geisterzeilen und Outbox-Eintraege der Vor-Restore-Welt wuerden
+ * sonst in die restaurierte DB zurueckwandern.
+ */
+const RESTORE_EPOCH_KEY = 'server.restoreEpoch'
 
 export interface BackupSettings {
   /** "HH:MM" in der lokalen Server-Zeit, oder '' fuer 'aus'. */
@@ -89,6 +110,68 @@ export async function schreibeBackupSettings(s: BackupSettings): Promise<void> {
   if (keepFehler) throw new Error(keepFehler)
   await schreibeEinstellung(SCHEDULE_KEY, s.schedule)
   await schreibeEinstellung(KEEP_COPIES_KEY, String(s.keepCopies))
+}
+
+/**
+ * Beansprucht den Tages-Slot des Backup-Crons atomar in der Datenbank.
+ * Nur der Aufrufer, der den Marker von einem anderen Wert auf `slot` dreht,
+ * bekommt true — jeder andere Prozess, jedes Multi-Instanz-Double und jeder
+ * Neustart am selben Tag bekommt false.
+ *
+ * Der bedingte UPDATE ... RETURNING sperrt die Zeile; zusammen mit dem
+ * vorangehenden INSERT ... DO NOTHING ist der Claim auch gegen parallele
+ * Prozesse konkurrenzfrei. Ohne diesen DB-Claim war der "heute schon
+ * gefeuert?"-Schutz rein prozesslokal (`_letzterLauf`) und fiel bei jedem
+ * API-Neustart aus — ein crashender Backup-Lauf (z. B. pg_dump-OOM) liess
+ * den Container neu starten, der Cron feuerte sofort wieder und erzeugte
+ * Backups im Minuten-Takt.
+ *
+ * Auf Fehler wird NICHT zurueckgerollt: ein fehlgeschlagener Backup-Lauf
+ * verbraucht den Slot weiterhin (wie bisher — kein Retry am selben Tag).
+ */
+export async function beansprucheTagesSlot(slot: string): Promise<boolean> {
+  const db = getDb()
+  await db.execute(sql`
+    INSERT INTO einstellungen (key, user_id, value, geaendert_am)
+    VALUES (${LAST_SLOT_KEY}, NULL, '', NOW())
+    ON CONFLICT (key) WHERE (user_id IS NULL) DO NOTHING
+  `)
+  const rows = await db
+    .update(einstellungen)
+    .set({ value: slot, geaendertAm: new Date() })
+    .where(
+      and(
+        eq(einstellungen.key, LAST_SLOT_KEY),
+        isNull(einstellungen.userId),
+        sql`${einstellungen.value} <> ${slot}`,
+      ),
+    )
+    .returning({ key: einstellungen.key })
+  return rows.length > 0
+}
+
+/**
+ * Setzt die Restore-Epoche auf die aktuelle Server-Zeit und liefert sie.
+ * MUSS nach `pg_restore` aufgerufen werden: der Marker liegt selbst in der
+ * Datenbank und wuerde vom Restore sonst auf den Wert des Backups zurueck-
+ * gesetzt. Der Wert ist nur dann nuetzlich, wenn er nach dem Einspielen
+ * neu erzeugt wird.
+ */
+export async function schreibeRestoreEpoch(): Promise<string> {
+  const epoch = new Date().toISOString()
+  await schreibeEinstellung(RESTORE_EPOCH_KEY, epoch)
+  return epoch
+}
+
+/** Liest die aktuelle Restore-Epoche (null, wenn nie restauriert wurde). */
+export async function leseRestoreEpoch(): Promise<string | null> {
+  const db = getDb()
+  const rows = await db
+    .select({ value: einstellungen.value })
+    .from(einstellungen)
+    .where(and(eq(einstellungen.key, RESTORE_EPOCH_KEY), isNull(einstellungen.userId)))
+    .limit(1)
+  return rows[0]?.value ?? null
 }
 
 // ---------- Sync-Trigger + Idle-Wait ----------
@@ -351,6 +434,8 @@ export interface BackupManifest {
   serverTime: string
   dbCounts: { buchungen: number }
   fotoCount: number
+  /** Anzahl der datanorm/-Lieferanten-Unterordner; fehlt bei alten Backups. */
+  datanormCount?: number
   tool: string
   /** Version des benutzten pg_dump (z. B. "pg_dump (PostgreSQL) 16.9"). */
   pgDumpVersion?: string | null
@@ -415,6 +500,24 @@ export async function baueBackupZip(opts: {
     archive.append('', { name: 'fotos/.keep' })
   }
 
+  // DATANORM-Rohkataloge: liegen ausserhalb von Postgres. Ohne sie zeigen
+  // die restaurierten `datanorm_dateien`-Zeilen nach dem Restore ins Leere —
+  // weder Re-Import noch Original-Download waeren moeglich.
+  // datanormCount = Anzahl der Datums-/Lieferanten-Unterordner.
+  let datanormCount = 0
+  try {
+    const datanormStat = statSync(config.DATANORM_DIR)
+    if (datanormStat.isDirectory()) {
+      const entries = await readdir(config.DATANORM_DIR, { withFileTypes: true })
+      datanormCount = entries.filter((e) => e.isDirectory()).length
+      archive.directory(config.DATANORM_DIR, 'datanorm')
+    } else {
+      archive.append('', { name: 'datanorm/.keep' })
+    }
+  } catch {
+    archive.append('', { name: 'datanorm/.keep' })
+  }
+
   // manifest.json
   const dumpVersion = pgDumpVersion()
   const manifest: BackupManifest = {
@@ -424,6 +527,7 @@ export async function baueBackupZip(opts: {
     serverTime: new Date().toISOString(),
     dbCounts,
     fotoCount,
+    datanormCount,
     tool,
     pgDumpVersion: dumpVersion,
     pgDumpMajor: majorAusVersion(dumpVersion),
@@ -495,13 +599,22 @@ async function warteAufPgDumpEnde(exit: Promise<PgDumpResult>): Promise<PgDumpRe
 export interface RestoreErgebnis {
   /** Groesse des eingespielten DB-Dumps in Bytes. */
   dumpBytes: number
-  /** Anzahl der kopierten Foto-Dateien. */
+  /** Anzahl der wiederhergestellten Foto-Dateien. */
   fotoDateien: number
+  /** Anzahl der wiederhergestellten DATANORM-Dateien. */
+  datanormDateien: number
 }
 
 /**
  * Spielt ein Backup-ZIP ein: entpackt in tmpdir, ruft pg_restore,
- * kopiert Fotos nach FOTOS_DIR.
+ * ersetzt Fotos (FOTOS_DIR) und DATANORM-Kataloge (DATANORM_DIR).
+ *
+ * Ersetzen statt Mergen: der Restore-Stand ist die Source of Truth. Beim
+ * frueheren Merge blieben Fotos/Kataloge erhalten, die im Backup nicht
+ * existieren — die Dateien paserten dann nicht mehr zu den restaurierten
+ * Tabellenzeilen (`fotos`, `datanorm_dateien`). Fehlende `fotos/`- oder
+ * `datanorm/`-Verzeichnisse im ZIP (sehr alte Backups) überspringen das
+ * jeweilige Ersetzen — ein alter Dump alone macht die Ablage nicht leer.
  *
  * Wirft, wenn das ZIP kein 'castel-backup-1'-Manifest hat, wenn der
  * enthaltene DB-Dump leer/beschaedigt ist oder wenn `pg_restore`
@@ -524,8 +637,14 @@ export async function restoreAusZip(
     const dumpPath = join(tmp, 'dump.pgdump')
     const dumpBytes = await pruefeDump(dumpPath)
     await spieleDumpEin(dumpPath, databaseUrl)
-    const fotoDateien = await kopiereFotos(tmp)
-    return { dumpBytes, fotoDateien }
+    const fotoDateien = await stelleOrdnerInWieder(tmp, 'fotos', config.FOTOS_DIR, 'cp-fotos')
+    const datanormDateien = await stelleOrdnerInWieder(
+      tmp,
+      'datanorm',
+      config.DATANORM_DIR,
+      'cp-datanorm',
+    )
+    return { dumpBytes, fotoDateien, datanormDateien }
   } finally {
     // Aufraeumen bei Erfolg UND bei Fehlern — sonst bleiben die
     // entpackten Daten (inkl. Fotos) im Temp-Verzeichnis liegen.
@@ -630,26 +749,47 @@ async function spieleDumpEin(dumpPath: string, databaseUrl: string): Promise<voi
   }
 }
 
-/** Kopiert die Fotos aus dem Backup nach FOTOS_DIR. */
-async function kopiereFotos(tmp: string): Promise<number> {
-  const fotosDir = join(tmp, 'fotos')
+/**
+ * Stellt einen Ordner-Eintrag des Backups (z. B. `fotos` oder `datanorm`)
+ * er-setzend wieder her: Zielverzeichnis wird zuerst geleert, dann der
+ * Backup-Stand kopiert. Existiert der Ordner im ZIP nicht (uralte Backups),
+ * bleibt das Ziel unangetastet und die Zahl ist 0.
+ */
+async function stelleOrdnerInWieder(
+  tmp: string,
+  eintrag: string,
+  ziel: string,
+  logTag: string,
+): Promise<number> {
+  const quelle = join(tmp, eintrag)
   let s
   try {
-    s = statSync(fotosDir)
+    s = statSync(quelle)
   } catch {
-    // kein fotos/-Verzeichnis im Backup, ueberspringen
+    // kein Ordner im Backup, ueberspringen (kein Loeschen des Ziels!)
     return 0
   }
   if (!s.isDirectory()) return 0
-  const anzahl = await zaehleDateien(fotosDir)
-  await mkdir(config.FOTOS_DIR, { recursive: true })
-  const r = await fuehreKommando('cp', ['-r', `${fotosDir}/.`, `${config.FOTOS_DIR}/`], 'cp')
+  const anzahl = await zaehleDateien(quelle)
+  await mkdir(ziel, { recursive: true })
+  await leereVerzeichnis(ziel)
+  const r = await fuehreKommando('cp', ['-r', `${quelle}/.`, `${ziel}/`], logTag)
   if (r.code !== 0) {
     throw new Error(
-      `Fotos konnten nicht kopiert werden (cp exit ${r.code}): ${r.stderr.trim() || 'ohne Ausgabe'}`,
+      `${eintrag} konnten nicht wiederhergestellt werden (cp exit ${r.code}): ${
+        r.stderr.trim() || 'ohne Ausgabe'
+      }`,
     )
   }
   return anzahl
+}
+
+/** Loescht den Inhalt eines Verzeichnisses (das Verzeichnis selbst bleibt). */
+async function leereVerzeichnis(dir: string): Promise<void> {
+  const entries = await readdir(dir)
+  for (const name of entries) {
+    await rm(join(dir, name), { recursive: true, force: true })
+  }
 }
 
 /** Zaehlt Dateien rekursiv (fuer die Restore-Zusammenfassung). */

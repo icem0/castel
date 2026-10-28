@@ -52,6 +52,7 @@ import {
   parseKommissionenWert,
 } from '../domain/kommissionen.js'
 import { applyLastWriterWinsMock } from './__test-helpers__.js'
+import { istInterneEinstellung } from './einstellungen-intern.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 
 // ---------- Push-Payload-Type (siehe validierung.ts) ----------
@@ -1305,6 +1306,13 @@ async function resolveEinstellung(
     value: string
     geaendertAm: string
   }
+
+  // 0) Server-interne Marker (`sync.*`, `backup.*`, `server.restoreEpoch`)
+  //    sind schreibgeschuetzt gegen Clients. Alte Client-Staende koennen
+  //    solche Keys noch in der Outbox haben — stillschweigend ignorieren
+  //    (kein Quarantine), sonst blockiert ein einziger Alt-Client seinen
+  //    eigenen Sync.
+  if (istInterneEinstellung(p.key)) return false
 
   // 1) Rollen-Check: artikelTypen (global) nur durch Admins
   if (p.userId === null && ADMIN_ONLY_KEYS.has(p.key) && benutzerRolle !== 'admin') {

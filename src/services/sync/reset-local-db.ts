@@ -29,9 +29,9 @@
 // left to the regular sync worker after the page reload, so the empty state
 // is actually visible in the UI before the data comes back.
 
-import { getDb, resetDbForTests, DB_NAME } from '../../db/database'
+import { getDb, resetDbForTests, deleteDatabase, DB_NAME } from '../../db/database'
 import { jetztIso } from '../../domain/ids'
-import { fetchSnapshot, suspendSyncWorker, type SyncSnapshot } from './worker'
+import { fetchSnapshot, suspendSyncWorker, RESTORE_EPOCH_MARKER, type SyncSnapshot } from './worker'
 
 export { DB_NAME }
 
@@ -166,6 +166,17 @@ async function applyPulledSnapshot(data: SyncSnapshot, opts: ApplySnapshotOption
       geaendertAm: now,
     })
   }
+  // Persist the server's restore epoch. Without it the worker would see a
+  // mismatch on its first tick after this reset and wipe the DB it just
+  // rebuilt — the marker must survive the reset, not be re-detected.
+  if (data.restoreEpoch) {
+    await db.einstellungen.put({
+      key: RESTORE_EPOCH_MARKER,
+      userId: '',
+      value: data.restoreEpoch,
+      geaendertAm: now,
+    })
+  }
 }
 
 /**
@@ -241,46 +252,11 @@ async function wipeAndReopen(): Promise<ReturnType<typeof getDb>> {
   //    blocks while another connection (e.g. a second tab) holds the DB —
   //    guarded by a timeout with a clear error message.
   oldDb.close()
-  await dropDatabase(oldDb)
+  await deleteDatabase(oldDb)
 
   // 3) Fresh Dexie instance, reset singleton.
   resetDbForTests()
   return getDb()
-}
-
-/**
- * Drop the whole IndexedDB. `indexedDB.deleteDatabase()` blocks while
- * another connection is open and Dexie then waits without a timeout — we
- * abort after 10 s and throw a message naming the most likely cause
- * (a second open castel tab).
- */
-async function dropDatabase(db: ReturnType<typeof getDb>): Promise<void> {
-  let blockedByOtherTab = false
-  db.on('blocked', () => {
-    blockedByOtherTab = true
-  })
-
-  const timeoutMs = 10_000
-  let timer: ReturnType<typeof setTimeout> | null = null
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(
-          new Error(
-            blockedByOtherTab
-              ? 'Lokale Datenbank wird blockiert — bitte alle weiteren castel-Tabs schließen und erneut versuchen.'
-              : 'Lokale Datenbank konnte nicht gelöscht werden (Timeout).',
-          ),
-        ),
-      timeoutMs,
-    )
-  })
-
-  try {
-    await Promise.race([db.delete(), timeout])
-  } finally {
-    if (timer !== null) clearTimeout(timer)
-  }
 }
 
 /**

@@ -1,7 +1,7 @@
 // Sync-Routes: GET /api/sync/snapshot, GET /api/sync/status, POST /api/sync/push.
 
 import type { FastifyInstance } from 'fastify'
-import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
   artikel,
@@ -17,7 +17,9 @@ import {
   standorte,
 } from '../db/schema.js'
 import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
+import { leseRestoreEpoch } from '../admin/backup.js'
 import { resolvePush } from './resolver.js'
+import { INTERN_EINSTELLUNGS_KEYS } from './einstellungen-intern.js'
 import { mappeHerstellerRabattsatz, stripEinkaufspreis } from './preise.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 
@@ -94,6 +96,7 @@ export async function syncRoutes(
         akkuNetzteilRows,
         akkuProjektRows,
         akkuBestellungRows,
+        restoreEpoch,
       ] = await Promise.all([
         db
           .select()
@@ -111,7 +114,11 @@ export async function syncRoutes(
           .select()
           .from(buchungen)
           .where(sql`${buchungen.erstelltAm} > ${sinceIso}`),
-        // Einstellungen: alle globalen + die des eingeloggten Users
+        // Einstellungen: alle globalen + die des eingeloggten Users.
+        // Server-interne Marker (`sync.*`, `backup.*`, `server.restoreEpoch`)
+        // bleiben draußen — sonst wären sie in der IndexedDB der Clients und
+        // koennten per Outbox/Reseed alten Stand zurueck auf den Server
+        // schreiben (z. B. ein bereits verbrauchter Backup-Tages-Slot).
         db
           .select()
           .from(einstellungen)
@@ -119,6 +126,7 @@ export async function syncRoutes(
             and(
               sql`${einstellungen.geaendertAm} > ${sinceIso}`,
               or(isNull(einstellungen.userId), eq(einstellungen.userId, user.sub)),
+              notInArray(einstellungen.key, [...INTERN_EINSTELLUNGS_KEYS]),
             ),
           ),
         // Mindestbestand-Ereignisse: nach `erstellt_am > mindestSince`.
@@ -163,6 +171,13 @@ export async function syncRoutes(
               sql`${akkuBestellungen.stornoAm} > ${sinceIso}`,
             ),
           ),
+        // Restore-Epoche (null, wenn nie restauriert). Der Client vergleicht
+        // sie mit seinem lokalen Marker und baut bei Abweichung die komplette
+        // IndexedDB neu auf — inkrementeller Sync kann nach einem pg_restore
+        // nie konvergieren (restaurierte Zeilen tragen alte `geaendert_am`,
+        // es gibt keine Tombstones, und die Outbox der Vor-Restore-Wuerde
+        // geloeschten Stand zurueckpushen).
+        leseRestoreEpoch(),
       ])
 
       return reply.send({
@@ -171,6 +186,8 @@ export async function syncRoutes(
         // mindestSince wird mitgeschickt, damit der Client den Marker
         // bei Bedarf aktualisieren kann (z. B. nach Pagination).
         mindestSince: mindestSinceIso,
+        // Restore-Epoche — siehe `leseRestoreEpoch()` oben.
+        restoreEpoch,
         // Einkaufspreise sind vertraulich und werden nur an Admins
         // ausgeliefert. Fuer alle anderen Rollen steht das Feld auf null.
         artikel: stripEinkaufspreis(artikelRows, user.rolle === 'admin'),
@@ -266,6 +283,16 @@ export async function syncRoutes(
       serverTime: new Date().toISOString(),
       counts,
     })
+  })
+
+  // ---------- GET /api/sync/restore-epoch ----------
+  // Lightweight probe for the restore epoch. The sync worker calls it BEFORE
+  // pushing: a server-side pg_restore replaced the whole database, and the
+  // stale local outbox would push pre-restore state back into the restored
+  // server. On mismatch the client wipes its IndexedDB and pulls a full
+  // snapshot (see src/services/sync/worker.ts).
+  app.get('/api/sync/restore-epoch', { preHandler: app.requireAuth }, async (_req, reply) => {
+    return reply.send({ restoreEpoch: await leseRestoreEpoch() })
   })
 
   // ---------- POST /api/sync/reconcile ----------

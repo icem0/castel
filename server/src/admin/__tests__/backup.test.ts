@@ -15,7 +15,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -57,6 +57,20 @@ vi.mock('node:child_process', async (importOriginal) => {
     },
   }
 })
+
+/**
+ * FOTOS_DIR/DATANORM_DIR auf Temp-Verzeichnisse umbiegen — der Restore
+ * ersetzt deren Inhalt, das darf nicht im echten Pfad passieren. Die Config
+ * wird beim Import gelesen, also MUSS das vor dem Import von backup.js
+ * geschehen.
+ */
+const tempRoot = await mkdtemp(join(tmpdir(), 'castel-backup-cfg-'))
+const fotosDir = join(tempRoot, 'fotos')
+const datanormDir = join(tempRoot, 'datanorm')
+await mkdir(fotosDir, { recursive: true })
+await mkdir(datanormDir, { recursive: true })
+process.env['FOTOS_DIR'] = fotosDir
+process.env['DATANORM_DIR'] = datanormDir
 
 const { baueBackupZip, dumpGroesseImZip, listeBackups, restoreAusZip } = await import(
   '../backup.js'
@@ -166,13 +180,77 @@ describe('baueBackupZip', () => {
       }),
     ).rejects.toThrow(/0 Bytes/)
   })
+
+  it('nimmt die DATANORM-Kataloge ins ZIP auf (datanorm/ + datanormCount im Manifest)', async () => {
+    // Katalog im Ablageverzeichnis anlegen (Lieferanten-/Datumsunterordner).
+    await mkdir(join(datanormDir, '2026-10-20', 'lieferant-x'), { recursive: true })
+    await writeFile(join(datanormDir, '2026-10-20', 'lieferant-x', 'katalog.bin'), 'DATANORM')
+
+    const payload = Buffer.from('PGDMP-dummy-dump')
+    const { writable } = sammleZip()
+    const result = await baueBackupZip({
+      out: writable,
+      pgDump: fakePgDump(payload, 0),
+      forceAt: '2026-10-22T14:07:00.000Z',
+      dbCounts: { buchungen: 3 },
+      tool: 'test',
+    })
+
+    // Der Katalog muss im ZIP liegen — sonst zeigen die restaurierten
+    // `datanorm_dateien`-Zeilen ins Leere.
+    expect(result.manifest.datanormCount).toBe(1)
+
+    // ... und wirklich im Archiv (nicht nur im Manifest).
+    const zipPfad = await backupZipAufPlatte(fakePgDump(payload, 0))
+    try {
+      const listing = await zipListing(zipPfad)
+      expect(listing).toContain('datanorm/')
+      expect(listing).toContain('dump.pgdump')
+      expect(listing).toContain('manifest.json')
+    } finally {
+      await rm(join(zipPfad, '..'), { recursive: true, force: true }).catch(() => {})
+    }
+  })
 })
 
+/** Baut ein echtes Backup-ZIP auf Platte und liefert den Pfad. */
+async function backupZipAufPlatte(pgDump: PgDumpHandle): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'castel-backupzip-'))
+  const zipPfad = join(dir, 'castel-backup-test.zip')
+  const out = createWriteStream(zipPfad)
+  await baueBackupZip({
+    out,
+    pgDump,
+    forceAt: '2026-10-22T14:07:00.000Z',
+    dbCounts: { buchungen: 0 },
+    tool: 'test',
+  })
+  return zipPfad
+}
+
+/**
+ * Inhalt des ZIPs als Text (`unzip -l`). BusyBox-unzip kennt kein `-Z1`,
+ * darum wird die Listing-Ausgabe geparst statt die Eintragsnamen zu
+ * extrahieren — die Assertionen prüfen auf Substrings.
+ */
+async function zipListing(pfad: string): Promise<string> {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const { stdout } = await promisify(execFile)('unzip', ['-l', pfad])
+  return stdout
+}
+
 describe('restoreAusZip', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mocks.pgRestore.code = 0
     mocks.pgRestore.stderr = ''
     mocks.pgRestore.calls = []
+    // Zielverzeichnisse leeren — der Restore ersetzt ihren Inhalt, und die
+    // Tests teilen sich FOTOS_DIR/DATANORM_DIR.
+    await rm(fotosDir, { recursive: true, force: true })
+    await rm(datanormDir, { recursive: true, force: true })
+    await mkdir(fotosDir, { recursive: true })
+    await mkdir(datanormDir, { recursive: true })
   })
 
   it('lehnt ein Backup ohne dump.pgdump ab', async () => {
@@ -237,6 +315,48 @@ describe('restoreAusZip', () => {
     const result = await restoreAusZip(zip, 'postgres://x/y')
     expect(result.dumpBytes).toBe(Buffer.byteLength('PGDMP-testdump'))
     expect(mocks.pgRestore.calls).toHaveLength(1)
+  })
+
+  it('ERSETZT Fotos und DATANORM-Kataloge (kein Merge mit Altbestand)', async () => {
+    // Altbestand, der nach dem Restore nicht mehr existieren darf.
+    await mkdir(join(fotosDir, 'artikel-alt'), { recursive: true })
+    await writeFile(join(fotosDir, 'artikel-alt', 'alt.jpg'), 'ALT')
+    await mkdir(join(datanormDir, '2026-01-01', 'alt'), { recursive: true })
+    await writeFile(join(datanormDir, '2026-01-01', 'alt', 'katalog.bin'), 'ALT')
+
+    const zip = await baueZip({
+      'manifest.json': MANIFEST,
+      'dump.pgdump': Buffer.from('PGDMP-testdump'),
+      'fotos/artikel-neu/bild.jpg': 'NEU',
+      'datanorm/2026-10-20/neu/katalog.bin': 'NEU',
+    })
+
+    const result = await restoreAusZip(zip, 'postgres://x/y')
+
+    // Zaehler: je eine Datei im Backup.
+    expect(result.fotoDateien).toBe(1)
+    expect(result.datanormDateien).toBe(1)
+
+    // Backup-Stand ist da ...
+    expect(await readdir(fotosDir)).toEqual(['artikel-neu'])
+    expect(await readdir(datanormDir)).toEqual(['2026-10-20'])
+    // ... der Altbestand ist weg (Ersetzen statt Mergen). Sonst passten die
+    // Dateien nicht mehr zu den restaurierten Tabellenzeilen.
+    expect(await readdir(join(fotosDir, 'artikel-neu'))).toEqual(['bild.jpg'])
+  })
+
+  it('laesst das Ziel unberuehrt, wenn das Backup kein fotos/-Verzeichnis enthaelt (alte Backups)', async () => {
+    await mkdir(join(fotosDir, 'artikel-alt'), { recursive: true })
+    await writeFile(join(fotosDir, 'artikel-alt', 'alt.jpg'), 'ALT')
+
+    const zip = await baueZip({
+      'manifest.json': MANIFEST,
+      'dump.pgdump': Buffer.from('PGDMP-testdump'),
+    })
+    const result = await restoreAusZip(zip, 'postgres://x/y')
+
+    expect(result.fotoDateien).toBe(0)
+    expect(await readdir(fotosDir)).toEqual(['artikel-alt'])
   })
 })
 
