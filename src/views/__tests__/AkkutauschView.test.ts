@@ -191,4 +191,42 @@ describe('AkkutauschView', () => {
     expect(w.text()).toContain('Netzteil bearbeiten')
     expect(w.find('input').exists()).toBe(true)
   })
+
+  it('speichert ein über den Hinweis geöffnetes Netzteil', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'admin',
+      email: 'admin@example.com',
+      rolle: 'admin',
+    } as never
+
+    const store = useAkkutauschStore(pinia)
+    await store.netzteilSpeichern({
+      anlage: 'A-4711',
+      objekt: 'Objekt 1',
+      name: 'Stromversorgung Zentrale',
+      einbaudatum: '2020-01-15',
+      intervallJahre: 5,
+      kapazitaetAh: 12.5,
+      anzahl: null,
+      gruppe: null,
+      plz: null,
+      vdsAnerkennung: null,
+      bemerkung: null,
+    })
+    const { w } = await setupView()
+    await buttonMitText(w, 'Bearbeiten')?.trigger('click')
+    await flushPromises()
+
+    const anzahl = w
+      .findAll('input')
+      .find((i) => i.attributes('type') === 'number' && i.element.value === '')
+    expect(anzahl).toBeDefined()
+    await anzahl?.setValue('2')
+    await w.find('form').trigger('submit')
+    await flushPromises()
+
+    const gespeichert = await getDb().akkuNetzteile.toCollection().first()
+    expect(gespeichert?.anzahl).toBe(2)
+  })
 })

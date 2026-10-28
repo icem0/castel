@@ -45,9 +45,11 @@ const anlage = ref('')
 const objekt = ref('')
 const name = ref('')
 const einbaudatum = ref('')
-const intervall = ref('5')
+// `v-model` on `type="number"` yields numbers, so the refs must accept both
+// the initial string values and the values written back by the browser.
+const intervall = ref<string | number>('5')
 const kapazitaet = ref('')
-const anzahl = ref('1')
+const anzahl = ref<string | number>('1')
 const gruppe = ref('')
 const plz = ref('')
 const vdsAnerkennung = ref('')
@@ -108,7 +110,7 @@ function speichern(): void {
     return
   }
 
-  const intervallRoh = intervall.value.trim()
+  const intervallRoh = String(intervall.value).trim()
   const intervallZahl = intervallRoh === '' ? null : Number(intervallRoh)
   if (
     intervallRoh !== '' &&
@@ -119,7 +121,7 @@ function speichern(): void {
   }
   const intervallWert = intervallZahl === null ? null : Math.trunc(intervallZahl)
 
-  const anzahlRoh = anzahl.value.trim()
+  const anzahlRoh = String(anzahl.value).trim()
   const anzahlZahl = anzahlRoh === '' ? null : Number(anzahlRoh)
   if (anzahlRoh !== '' && (anzahlZahl === null || !Number.isFinite(anzahlZahl) || anzahlZahl < 1)) {
     fehler.value = t('view.akkutausch.fehlerAnzahl')
