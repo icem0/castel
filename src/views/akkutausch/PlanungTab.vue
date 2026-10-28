@@ -27,9 +27,11 @@ import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { bestelllisteText } from '../../domain/akkutausch/bestellliste'
 import {
+  bestelloptionHtml,
   bestelloptionText,
   ermittleBestelloptionen,
   type Bestelloption,
+  type BestelloptionTextOptionen,
   type OhneKontaktGrund,
 } from '../../domain/akkutausch/bestelloptionen'
 import { bestellMailZiel, bestellWebZiel, type BestellKontakt } from '../../domain/bestellung'
@@ -57,6 +59,7 @@ const toast = useToastStore()
 const locale = computed(() => settings.settings.sprache)
 
 const kopiert = ref(false)
+const htmlKopiert = ref<string | null>(null)
 const bestelltLaeuft = ref(false)
 const rueckgaengigLaeuft = ref(false)
 
@@ -240,9 +243,9 @@ function mailBetreff(): string {
   return t('view.akkutausch.bestellMailBetreff', { quartal: store.quartal, jahr: store.jahr })
 }
 
-/** Order text of one supplier — prefilled into the order mail. */
-function mailText(option: Bestelloption): string {
-  return bestelloptionText(option, {
+/** Shared labels/context for the mail body and the rich-text clipboard. */
+function bestellTextOptionen(): BestelloptionTextOptionen {
+  return {
     quartal: store.quartal,
     jahr: store.jahr,
     inventurDatum: inventur.value.datum,
@@ -255,7 +258,17 @@ function mailText(option: Bestelloption): string {
     kopfMenge: t('view.akkutausch.menge'),
     kopfBestellnummer: t('view.akkutausch.bestellOptionBestellnummer'),
     gesamtLabel: t('view.akkutausch.gesamt'),
-  })
+  }
+}
+
+/** Order text of one supplier — prefilled into the order mail. */
+function mailText(option: Bestelloption): string {
+  return bestelloptionText(option, bestellTextOptionen())
+}
+
+/** HTML fallback for mail clients: copy/paste keeps the table formatting. */
+function bestellHtml(option: Bestelloption): string {
+  return bestelloptionHtml(option, bestellTextOptionen())
 }
 
 /** Mail link of a supplier — `null` when no order mail is stored. */
@@ -270,6 +283,68 @@ function mailHref(option: Bestelloption): string | null {
 /** Website link of a supplier — `null` when no website is stored. */
 function webHref(option: Bestelloption): string | null {
   return bestellWebZiel(kontaktVon(option))?.href ?? null
+}
+
+/** Copies selected rendered HTML for environments without ClipboardItem. */
+function kopiereHtmlAusDom(html: string): boolean {
+  const container = document.createElement('div')
+  container.setAttribute('aria-hidden', 'true')
+  container.style.position = 'fixed'
+  container.style.left = '-9999px'
+  container.style.top = '0'
+  container.style.opacity = '0'
+  container.innerHTML = html
+  document.body.appendChild(container)
+
+  const range = document.createRange()
+  range.selectNodeContents(container)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    selection?.removeAllRanges()
+    document.body.removeChild(container)
+  }
+}
+
+/**
+ * Copies the supplier order as rich HTML.
+ *
+ * `mailto:` bodies are plain text by standard, so the rich clipboard is the
+ * only portable way to paste an actual HTML table into the mail client.
+ */
+async function bestellHtmlKopieren(option: Bestelloption): Promise<void> {
+  const html = bestellHtml(option)
+  const text = mailText(option)
+
+  try {
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ])
+    } else {
+      throw new Error('rich clipboard unavailable')
+    }
+  } catch {
+    if (!kopiereHtmlAusDom(html)) {
+      toast.show({ text: t('view.akkutausch.bestellOptionHtmlFehler'), status: 'error' })
+      return
+    }
+  }
+
+  htmlKopiert.value = option.herstellerId
+  toast.show({ text: t('view.akkutausch.bestellOptionHtmlKopiert'), status: 'success' })
+  setTimeout(() => {
+    if (htmlKopiert.value === option.herstellerId) htmlKopiert.value = null
+  }, 2_000)
 }
 
 /**
@@ -698,6 +773,18 @@ function csvExportieren(): void {
             <a v-if="mailHref(option)" :href="mailHref(option) ?? undefined" class="btn">
               {{ t('view.akkutausch.bestellOptionMail', { hersteller: option.herstellerName }) }}
             </a>
+            <button
+              v-if="mailHref(option)"
+              type="button"
+              class="btn"
+              @click="bestellHtmlKopieren(option)"
+            >
+              {{
+                htmlKopiert === option.herstellerId
+                  ? t('view.akkutausch.bestellOptionHtmlKopiert')
+                  : t('view.akkutausch.bestellOptionHtmlKopieren')
+              }}
+            </button>
             <a
               v-if="webHref(option)"
               :href="webHref(option) ?? undefined"

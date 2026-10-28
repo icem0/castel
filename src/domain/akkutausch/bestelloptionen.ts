@@ -217,6 +217,15 @@ function textWert(wert: string | null | undefined): string {
   return wertText ? wertText.replace(/\s+/g, ' ') : '—'
 }
 
+function htmlWert(wert: string | number | null | undefined): string {
+  return String(wert ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 /**
  * Renders the order of one supplier as a labelled block list.
  *
@@ -251,5 +260,77 @@ export function bestelloptionText(
     posten.join('\n\n'),
     '',
     `${optionen.gesamtLabel}: ${formatZahl(option.gesamtMenge, locale)}`,
+  ].join('\n')
+}
+
+/**
+ * Renders the order of one supplier as a small HTML table.
+ *
+ * `mailto:` links only carry a plain-text body, so the HTML is copied into
+ * the clipboard as rich text and pasted into the mail client when the user
+ * needs a proper table.
+ */
+export function bestelloptionHtml(
+  option: Bestelloption,
+  optionen: BestelloptionTextOptionen,
+): string {
+  const { locale } = optionen
+
+  const inventurDatum = optionen.inventurDatum ? formatDatum(optionen.inventurDatum, locale) : '—'
+  const inventurKuerzel = optionen.inventurKuerzel ? ` (${optionen.inventurKuerzel})` : ''
+
+  const zellstil = 'border:1px solid #cbd5e1;padding:8px;text-align:left;vertical-align:top'
+  const mengeStil = 'border:1px solid #cbd5e1;padding:8px;text-align:right;vertical-align:top'
+  const kopfStil = `${zellstil};background:#e2e8f0;font-weight:700`
+
+  const kopf = [
+    optionen.kopfArtikel,
+    optionen.kopfBestellnummer,
+    optionen.kopfGroesse,
+    optionen.kopfMenge,
+  ]
+    .map((wert, index) => {
+      const stil = index === 3 ? `${mengeStil};background:#e2e8f0;font-weight:700` : kopfStil
+      return `<th scope="col" style="${stil}">${htmlWert(wert)}</th>`
+    })
+    .join('')
+
+  const zeilen = option.zeilen
+    .map(
+      (zeile) =>
+        '<tr>' +
+        `<td style="${zellstil}">${htmlWert(textWert(zeile.artikelTitel))}</td>` +
+        `<td style="${zellstil}">${htmlWert(textWert(zeile.bestellnummer))}</td>` +
+        `<td style="${zellstil}">${htmlWert(formatKapazitaetBereich(zeile.von, zeile.bis, locale))}</td>` +
+        `<td style="${mengeStil}">${htmlWert(formatZahl(zeile.menge, locale))}</td>` +
+        '</tr>',
+    )
+    .join('')
+
+  const summe =
+    `<tr><td colspan="3" style="${zellstil};background:#f1f5f9;font-weight:700">${htmlWert(
+      optionen.gesamtLabel,
+    )}</td>` +
+    `<td style="${mengeStil};background:#f1f5f9;font-weight:700">${htmlWert(
+      formatZahl(option.gesamtMenge, locale),
+    )}</td></tr>`
+
+  return [
+    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937">',
+    `<h2 style="margin:0 0 8px;font-size:18px">${htmlWert(
+      `${optionen.titel} – Q${optionen.quartal} ${optionen.jahr}`,
+    )}</h2>`,
+    `<p style="margin:0 0 12px"><strong>${htmlWert(option.herstellerName)}</strong><br>`,
+    `${htmlWert(optionen.inventurLabel)}: ${htmlWert(inventurDatum)}${htmlWert(inventurKuerzel)}</p>`,
+    '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;min-width:520px;border:1px solid #cbd5e1">',
+    '<thead>',
+    `<tr>${kopf}</tr>`,
+    '</thead>',
+    '<tbody>',
+    zeilen,
+    summe,
+    '</tbody>',
+    '</table>',
+    '</div>',
   ].join('\n')
 }

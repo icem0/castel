@@ -413,6 +413,11 @@ describe('AkkutauschView', () => {
     expect(mails).toHaveLength(2)
     expect(mails[0]?.attributes('href')).toContain('nord@example.com')
     expect(mails[1]?.attributes('href')).toContain('sued@example.com')
+
+    const htmlButtons = w
+      .findAll('button')
+      .filter((b) => b.text().includes('HTML-Tabelle kopieren'))
+    expect(htmlButtons).toHaveLength(2)
   })
 
   it('kann die letzte Bestellung zuruecknehmen', async () => {

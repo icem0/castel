@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  bestelloptionHtml,
   bestelloptionText,
   ermittleBestelloptionen,
   type ArtikelKontakt,
@@ -119,6 +120,35 @@ describe('ermittleBestelloptionen', () => {
 
     expect(ergebnis.optionen).toHaveLength(1)
     expect(ergebnis.optionen[0]?.bestellWebseite).toBe('https://shop.example')
+  })
+})
+
+describe('bestelloptionHtml', () => {
+  it('erzeugt eine HTML-Tabelle mit Kopf, Artikelzeile und Summe', () => {
+    const ergebnis = ermittleBestelloptionen({
+      zeilen: [zeile('t1', 4)],
+      typen: [typ('t1', 'a1')],
+      artikel: new Map([['a1', artikel('a1', 'h1', 'Akku 12,5 Ah', 'ART-77')]]),
+      hersteller: new Map([['h1', hersteller('h1', 'Lieferant', 'l@example.com')]]),
+    })
+
+    const html = bestelloptionHtml(ergebnis.optionen[0]!, {
+      ...labels,
+      quartal: 4,
+      jahr: 2026,
+      inventurDatum: '2026-10-27',
+      inventurKuerzel: 'MM',
+      locale: 'de',
+    })
+
+    expect(html).toContain('<table')
+    expect(html).toContain('Bestellliste – Q4 2026')
+    expect(html).toContain('Lieferant')
+    expect(html).toContain('<th scope="col"')
+    expect(html).toContain('Akku 12,5 Ah')
+    expect(html).toContain('ART-77')
+    expect(html).toContain('12–12,9 Ah')
+    expect(html).toContain('Gesamt')
   })
 })
 

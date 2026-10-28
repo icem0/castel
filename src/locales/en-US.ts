@@ -527,6 +527,9 @@ export default {
       bestellOptionBestellnummer: 'Order no.',
       bestellOptionMail: 'E-mail {hersteller}',
       bestellOptionWeb: 'Website of {hersteller}',
+      bestellOptionHtmlKopieren: 'Copy HTML table',
+      bestellOptionHtmlKopiert: 'HTML table copied — paste it into the e-mail.',
+      bestellOptionHtmlFehler: 'Could not copy the HTML table.',
       bestellOptionenLeer: 'There are no order options for this order list.',
       bestellOptionenOhneKontakt: 'Without an order contact',
       bestellOptionOhneArtikel: 'no item',
@@ -535,7 +538,7 @@ export default {
       bestellOptionGrundKeinKontakt: 'no order e-mail and no website stored',
       bestellOptionenHerstellerPflegen: 'Maintain order contacts',
       bestellOptionenHinweis:
-        'Order at every supplier and confirm the plan with “Ordered” afterwards.',
+        'Order at every supplier and confirm the plan with “Ordered” afterwards. `mailto:` sends plain text only — use “Copy HTML table” and paste it into the e-mail for a real HTML table.',
       bestellMailBetreff: 'Order: Q{quartal} {jahr}',
       erkannteGroesse: 'Detected size',
       keineGroesse: 'no size configured',

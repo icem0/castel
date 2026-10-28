@@ -541,6 +541,9 @@ export default {
       bestellOptionBestellnummer: 'Bestellnummer',
       bestellOptionMail: 'E-Mail an {hersteller}',
       bestellOptionWeb: 'Website von {hersteller}',
+      bestellOptionHtmlKopieren: 'HTML-Tabelle kopieren',
+      bestellOptionHtmlKopiert: 'HTML-Tabelle kopiert — bitte in die E-Mail einfügen.',
+      bestellOptionHtmlFehler: 'HTML-Tabelle konnte nicht kopiert werden.',
       bestellOptionenLeer: 'Für diese Bestellliste gibt es keine Bestellmöglichkeiten.',
       bestellOptionenOhneKontakt: 'Ohne Bestellkontakt',
       bestellOptionOhneArtikel: 'ohne Artikel',
@@ -549,7 +552,7 @@ export default {
       bestellOptionGrundKeinKontakt: 'keine Bestell-E-Mail und keine Website hinterlegt',
       bestellOptionenHerstellerPflegen: 'Bestellkontakte pflegen',
       bestellOptionenHinweis:
-        'Bei jedem Lieferanten bestellen und danach mit „Bestellt“ den Plan bestätigen.',
+        'Bei jedem Lieferanten bestellen und danach mit „Bestellt“ den Plan bestätigen. `mailto:` versendet nur reinen Text — für eine echte HTML-Tabelle „HTML-Tabelle kopieren“ nutzen und in die E-Mail einfügen.',
       bestellMailBetreff: 'Bestellung: Q{quartal} {jahr}',
       erkannteGroesse: 'Erkannte Größe',
       keineGroesse: 'keine Größe konfiguriert',
