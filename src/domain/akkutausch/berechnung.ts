@@ -54,6 +54,11 @@ export interface PlanungEingabe {
   quartal: number
   /** Selected year. */
   jahr: number
+  /**
+   * The quarter was already marked as ordered — it is covered, so nothing is
+   * planned anymore.
+   */
+  bereitsBestellt: boolean
 }
 
 /**
@@ -209,19 +214,23 @@ export function pruefeTypen(typen: readonly AkkuTyp[]): TypFehler[] {
 /**
  * Computes the replacement plan for one quarter.
  *
- * Demand (`bedarf`) comes from the devices whose due date falls into the
- * selected quarter plus the project batteries booked for that quarter. The
- * order quantity covers the demand and tops the buffer (`puffer`) up to its
- * configured value — a stock below the buffer is ordered back to it:
+ * The demand (`bedarf`) comes from the device list (devices whose due date
+ * falls into the selected quarter) plus the project batteries booked for that
+ * quarter — nothing else feeds into it.
+ *
+ * The order quantity is derived from that demand, the current stock and the
+ * buffer ("zur freien Verfuegung"), which is the minimum stock of the battery
+ * article at the main warehouse and is maintained by an admin:
  *
  *   bestandEff   = max(0, bestand)   // negative stock counts as no stock
  *   bestellmenge = max(0, bedarf - bestandEff + puffer)
  *
- * `verfuegbar` is no longer part of that formula. It stays in the row (and in
- * the frozen order snapshot) as an informational value only.
+ * A quarter that was already ordered is covered: its order quantity is 0 and
+ * the order list stays empty.
  */
 export function berechnePlanung(eingabe: PlanungEingabe): Planung {
-  const { typen, netzteile, projektakkus, bestand, puffer, quartal, jahr } = eingabe
+  const { typen, netzteile, projektakkus, bestand, puffer, quartal, jahr, bereitsBestellt } =
+    eingabe
 
   const bedarfJeTyp = new Map<string, number>()
   const warnungen: Planwarnung[] = []
@@ -304,8 +313,7 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
     const pufferWert = artikelId ? (puffer.get(artikelId) ?? 0) : 0
     const bedarf = bedarfJeTyp.get(typ.id) ?? 0
     const bestandEff = Math.max(0, bestandWert)
-    const verfuegbar = Math.max(0, bestandEff - pufferWert)
-    const bestellmenge = Math.max(0, bedarf - bestandEff + pufferWert)
+    const bestellmenge = bereitsBestellt ? 0 : Math.max(0, bedarf - bestandEff + pufferWert)
 
     const zeilenWarnungen: Planwarnung[] = []
     if (!artikelId) {
@@ -317,7 +325,6 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
       bedarf,
       bestand: bestandWert,
       puffer: pufferWert,
-      verfuegbar,
       bestellmenge,
       warnungen: zeilenWarnungen,
     })
@@ -337,16 +344,16 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
 }
 
 /**
- * Buffer ("zur freien Verfügung") derived from a plan row when an order is
- * confirmed: `bedarf - bestand`, never negative.
+ * Buffer ("zur freien Verfuegung") derived from a plan row when an order is
+ * confirmed: the demand (`bedarf`), never negative.
  *
- * A result of 0 means "no buffer" — the minimum stock configuration is sparse
- * and is removed in that case. Negative stock counts as no stock.
+ * The demand comes from the device list (and the project batteries) — the
+ * buffer is not derived from the stock. A result of 0 means "no buffer": the
+ * minimum stock configuration is sparse and is removed in that case.
  */
-export function neuerMindestbestand(bedarf: number, bestand: number): number {
+export function neuerMindestbestand(bedarf: number): number {
   const bedarfEff = Number.isFinite(bedarf) ? Math.max(0, bedarf) : 0
-  const bestandEff = Number.isFinite(bestand) ? Math.max(0, bestand) : 0
-  return Math.max(0, Math.trunc(bedarfEff - bestandEff))
+  return Math.max(0, Math.trunc(bedarfEff))
 }
 
 /**

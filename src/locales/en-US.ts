@@ -419,7 +419,7 @@ export default {
     },
     akkuTypen: {
       h1: 'Battery sizes',
-      hint: 'Defines the battery sizes planned by the battery replacement tool. The item name is derived from the nominal capacity (e.g. “Akku 12,5 Ah”), the band is only the matching rule. The minimum stock at the main warehouse is the buffer “freely available” — it stays free for unforeseen replacements and also acts as the minimum stock warning there.',
+      hint: 'Defines the battery sizes planned by the battery replacement tool. The item name is derived from the nominal capacity (e.g. “Akku 12,5 Ah”), the band is only the matching rule. The minimum stock at the main warehouse is the “freely available” — it is maintained by admins only, serves the order quantity exclusively and also acts as the minimum stock warning there.',
       neuerTyp: 'New battery size',
       von: 'Range from (Ah)',
       bis: 'Range to (Ah)',
@@ -500,11 +500,11 @@ export default {
       bestellen: 'Ordered',
       bestellenLaeuft: 'Saving …',
       bestellenFrage:
-        'Mark the order for Q{quartal} {jahr} as ordered? The current plan will be archived with the inventory cut-off, and the minimum stock of the battery items at the main warehouse will be set to demand − stock.',
+        'Mark the order for Q{quartal} {jahr} as ordered? The current plan will be archived with the inventory cut-off, and the minimum stock of the battery items at the main warehouse will be set to the demand.',
       bestellenInventurFehlt: 'Ordering requires a valid inventory.',
       bestellenFehler: 'Could not archive the order.',
       bestelltErfolg: 'Order archived.',
-      bestelltMindestbestaende: 'Minimum stock set to demand − stock for {anzahl} battery item(s).',
+      bestelltMindestbestaende: 'Minimum stock set to the demand for {anzahl} battery item(s).',
       bestellt: 'Ordered',
       bestelltAm: 'Ordered on {datum} · {kuerzel}',
       bestellungRueckgaengig: 'Undo',
@@ -554,13 +554,14 @@ export default {
       bestand: 'Stock',
       puffer: 'freely available',
       pufferHinweis:
-        'Order quantity = demand − stock + buffer. The buffer stays free for unforeseen replacements and is ordered as well whenever the stock falls below it. It is kept as the minimum stock of the battery item in the main warehouse; only admins can change it here. “Ordered” sets it to demand − stock (0 removes it).',
+        'Order quantity = demand − stock + freely available. The demand comes from the device list (devices due in the quarter) and the project batteries. The “freely available” is kept as the minimum stock of the battery item in the main warehouse, is maintained by admins only and serves the order quantity exclusively. “Ordered” sets it to the demand of the quarter.',
       pufferGespeichert: 'Buffer saved.',
       bestellmenge: 'Order quantity',
       menge: 'Quantity',
       gesamt: 'Total',
       bestellliste: 'Order list',
       keinBedarf: 'No requirement for this quarter.',
+      keinBedarfBestellt: 'This quarter is already ordered — there is no further requirement.',
       keineTypen:
         'No battery sizes are configured. An admin can add them under Settings → Battery sizes.',
       warnungen: 'Warnings',

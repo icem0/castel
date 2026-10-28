@@ -431,7 +431,7 @@ export default {
     },
     akkuTypen: {
       h1: 'Akku-Größen',
-      hint: 'Legt fest, welche Akku-Größen im Akkutausch-Tool geplant werden. Der Artikelname ergibt sich aus der Nennkapazität (z. B. „Akku 12,5 Ah“), das Spektrum ist nur die Zuordnungsregel. Der Mindestbestand am Hauptlager ist der Puffer „zur freien Verfügung“ — er bleibt für unvorhergesehene Wechsel frei und greift zugleich als Mindestbestand-Warnung.',
+      hint: 'Legt fest, welche Akku-Größen im Akkutausch-Tool geplant werden. Der Artikelname ergibt sich aus der Nennkapazität (z. B. „Akku 12,5 Ah“), das Spektrum ist nur die Zuordnungsregel. Der Mindestbestand am Hauptlager ist die „zur freie Verfügung“ — er wird nur von Admins gepflegt, dient ausschließlich der Bestellmenge und greift zugleich als Mindestbestand-Warnung.',
       neuerTyp: 'Neue Akku-Größe',
       von: 'Bereich von (Ah)',
       bis: 'Bereich bis (Ah)',
@@ -513,12 +513,12 @@ export default {
       bestellen: 'Bestellt',
       bestellenLaeuft: 'Speichert …',
       bestellenFrage:
-        'Bestellung für Q{quartal} {jahr} als bestellt markieren? Der aktuelle Plan wird mit Inventurstand archiviert und der Mindestbestand der Akku-Artikel am Hauptlager auf Bedarf − Bestand gesetzt.',
+        'Bestellung für Q{quartal} {jahr} als bestellt markieren? Der aktuelle Plan wird mit Inventurstand archiviert und der Mindestbestand der Akku-Artikel am Hauptlager auf den Bedarf gesetzt.',
       bestellenInventurFehlt: 'Bestellen ist erst nach einer gültigen Inventur möglich.',
       bestellenFehler: 'Bestellung konnte nicht archiviert werden.',
       bestelltErfolg: 'Bestellung archiviert.',
       bestelltMindestbestaende:
-        'Mindestbestand von {anzahl} Akku-Artikel(n) auf Bedarf − Bestand gesetzt.',
+        'Mindestbestand von {anzahl} Akku-Artikel(n) auf den Bedarf gesetzt.',
       bestellt: 'Bestellt',
       bestelltAm: 'Bestellt am {datum} · {kuerzel}',
       bestellungRueckgaengig: 'Rückgängig',
@@ -568,13 +568,14 @@ export default {
       bestand: 'Bestand',
       puffer: 'zur freien Verfügung',
       pufferHinweis:
-        'Bestellmenge = Bedarf − Bestand + Puffer. Der Puffer bleibt für unvorhergesehene Wechsel frei und wird mitbestellt, wenn der Bestand darunter liegt. Er liegt als Mindestbestand des Akku-Artikels im Hauptlager; nur Admins können ihn hier ändern. „Bestellt“ setzt ihn auf Bedarf − Bestand (0 entfernt ihn).',
+        'Bestellmenge = Bedarf − Bestand + zur freie Verfügung. Der Bedarf kommt aus der Netzteilliste (im Quartal fällige Geräte) und den Projektakkus. Die „zur freie Verfügung“ liegt als Mindestbestand des Akku-Artikels im Hauptlager, wird nur von Admins gepflegt und dient ausschließlich der Bestellmenge. „Bestellt“ setzt sie auf den Bedarf des Quartals.',
       pufferGespeichert: 'Puffer gespeichert.',
       bestellmenge: 'Bestellmenge',
       menge: 'Menge',
       gesamt: 'Gesamt',
       bestellliste: 'Bestellliste',
       keinBedarf: 'Für dieses Quartal besteht kein Bedarf.',
+      keinBedarfBestellt: 'Dieses Quartal ist bereits bestellt — es besteht kein weiterer Bedarf.',
       keineTypen:
         'Es sind keine Akku-Größen konfiguriert. Der Admin legt sie unter Einstellungen → Akku-Größen an.',
       warnungen: 'Hinweise',

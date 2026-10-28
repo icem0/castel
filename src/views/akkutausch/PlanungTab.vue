@@ -5,13 +5,15 @@
 // werden muessen (Spalten: Bestand, Bedarf, zur freien Verfuegung,
 // Bestellmenge):
 //   bestand      = verfuegbarer Bestand des Akku-Artikels (alle Standorte)
-//   bedarf       = faellige Wechsel im Quartal + Projektakkus
+//   bedarf       = Anforderungen aus der Netzteilliste (faellige Wechsel im
+//                  Quartal) + Projektakkus des Quartals
 //   puffer       = zur freien Verfuegung (Mindestbestand am Hauptlager, nur
 //                  fuer Admins direkt in der Tabelle editierbar)
 //   bestellmenge = max(0, bedarf - max(0, bestand) + puffer)
 //
 // "Bestellt" archiviert den Plan (mit dem bisherigen Puffer) und setzt den
-// Mindestbestand der Akku-Artikel am Hauptlager auf Bedarf - Bestand.
+// Mindestbestand der Akku-Artikel mit Bedarf am Hauptlager auf den Bedarf.
+// Ein bereits bestelltes Quartal ist gedeckt: die Bestellmenge ist 0.
 //
 // Aus der Planung entsteht die Bestellliste (CSV + Druckansicht).
 
@@ -627,7 +629,9 @@ function csvExportieren(): void {
           </tr>
         </tbody>
       </table>
-      <p v-else class="empty-state">{{ t('view.akkutausch.keinBedarf') }}</p>
+      <p v-else class="empty-state">
+        {{ bestellung ? t('view.akkutausch.keinBedarfBestellt') : t('view.akkutausch.keinBedarf') }}
+      </p>
 
       <div v-if="store.planung.bestellzeilen.length > 0" class="form-actions">
         <button type="button" @click="csvExportieren">{{ t('view.akkutausch.csvExport') }}</button>

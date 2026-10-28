@@ -12,10 +12,13 @@
 //   - Bestand = Summe der aktiven Buchungen ueber alle Standorte
 //   - Puffer  = Mindestbestand des Akku-Artikels am Hauptlager
 //                (Konfiguration aus `artikel_standort_mindestbestaende`)
+//   - Bedarf  = Anforderungen aus der Netzteilliste (faellige Geraete im
+//                Quartal) + Projektakkus des Quartals
 //
 // Markiert ein Admin das Quartal als "bestellt", wird der Mindestbestand der
-// Akku-Artikel am Hauptlager auf `Bedarf - Bestand` gesetzt (0 entfernt die
-// sparse Konfiguration). Das Archiv behaelt den bisherigen Puffer.
+// Akku-Artikel mit Bedarf am Hauptlager auf den Bedarf gesetzt (0 entfernt
+// die sparse Konfiguration). Das Archiv behaelt den bisherigen Puffer. Ein
+// bereits bestelltes Quartal ist gedeckt: die Bestellmenge ist 0.
 //
 // Die letzte Bestellung kann rueckgaengig gemacht werden (Fehler nach dem
 // "Bestellt"-Vorgang): der Snapshot bleibt im Archiv und wird als storniert
@@ -176,6 +179,17 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     return map
   })
 
+  /**
+   * Archived order of the selected quarter, if any. A quarter with an active
+   * order is covered — it is not planned anymore.
+   */
+  const bestellungFuerQuartal = computed<AkkuBestellung | null>(() => {
+    const treffer = bestellungen.value
+      .filter((b) => b.jahr === jahr.value && b.quartal === quartal.value && !b.storno)
+      .sort((a, b) => (a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0))
+    return treffer[0] ?? null
+  })
+
   /** Die Austauschplanung fuer das gewaehlte Quartal. */
   const planung = computed<Planung>(() =>
     berechnePlanung({
@@ -186,6 +200,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
       puffer: pufferJeArtikel.value,
       quartal: quartal.value,
       jahr: jahr.value,
+      bereitsBestellt: bestellungFuerQuartal.value !== null,
     }),
   )
 
@@ -202,14 +217,6 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     ermittleInventurStatus(buchungStore.buchungen, akkuArtikelIds.value),
   )
 
-  /** Archived order of the selected quarter, if any. */
-  const bestellungFuerQuartal = computed<AkkuBestellung | null>(() => {
-    const treffer = bestellungen.value
-      .filter((b) => b.jahr === jahr.value && b.quartal === quartal.value && !b.storno)
-      .sort((a, b) => (a.bestelltAm < b.bestelltAm ? 1 : a.bestelltAm > b.bestelltAm ? -1 : 0))
-    return treffer[0] ?? null
-  })
-
   /**
    * The newest archived order — the only one that can be undone. An order
    * that was already undone stays the newest one, so no older order can be
@@ -223,14 +230,15 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   })
 
   /**
-   * Rewrites the minimum stock (buffer "zur freien Verfuegung") of every
-   * battery article at the main warehouse after an order was confirmed:
-   * `mindestbestand neu = bedarf - bestand`.
+   * Rewrites the buffer ("zur freien Verfuegung") of every battery article
+   * with a demand after an order was confirmed: `mindestbestand neu = bedarf`.
    *
-   * Rows without demand (or with enough stock) end up at 0, which removes the
-   * sparse configuration — the tool re-plans the buffer from quarter to
-   * quarter. Rows without a linked article or without a main warehouse are
-   * skipped, unchanged values do not create an outbox entry.
+   * The demand comes from the device list (and the project batteries) — the
+   * buffer is never derived from the stock. Sizes without a demand are left
+   * untouched: their buffer stays as the admin configured it. A value of 0
+   * removes the sparse configuration. Rows without a linked article or without
+   * a main warehouse are skipped, unchanged values do not create an outbox
+   * entry.
    */
   async function aktualisiereMindestbestaende(zeilen: readonly Planzeile[]): Promise<number> {
     const standortId = hauptlagerId.value
@@ -240,7 +248,8 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     for (const zeile of zeilen) {
       const artikelId = zeile.typ.artikelId
       if (!artikelId) continue
-      const wert = neuerMindestbestand(zeile.bedarf, zeile.bestand)
+      if (zeile.bedarf <= 0) continue
+      const wert = neuerMindestbestand(zeile.bedarf)
       if (wert === mindestbestandStore.wertFuer(artikelId, standortId)) continue
       await mindestbestandStore.setzen(artikelId, standortId, wert)
       anzahl++
@@ -250,8 +259,8 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
 
   /**
    * Archives the current planning table as "ordered" for the selected
-   * quarter. Afterwards the minimum stock of the battery articles is set to
-   * `bedarf - bestand` (the snapshot keeps the previous buffer). Returns
+   * quarter. Afterwards the buffer of the battery articles with a demand is
+   * set to their demand (the snapshot keeps the previous buffer). Returns
    * `bestellung = null` when an order already exists or no valid inventory is
    * present.
    */
@@ -286,7 +295,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
         soll: zeile.bedarf,
         bestand: zeile.bestand,
         reserve: zeile.puffer,
-        verfuegbar: zeile.verfuegbar,
+        verfuegbar: Math.max(0, zeile.bestand - zeile.puffer),
         bedarf: zeile.bestellmenge,
       })),
     }

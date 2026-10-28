@@ -20,12 +20,17 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
   - **Der Standard-Standort (Hauptlager) ist geschützt**: weder löschbar noch archivierbar (`PROTECTED_STANDORT`, DB-seitig geprüft).
   - Ein gelöschter Artikel/Standort nimmt seine Konfigurationen per `ON DELETE CASCADE` mit — das Löschen wird dadurch nicht blockiert (Buchungen und Mindestbestand-Ereignisse tun das weiterhin).
 
-### Akkutausch: Bestell-Snapshots
+### Akkutausch: Planung und Bestell-Snapshots
 
+- **Der Bedarf kommt aus der Netzteilliste** — Geräte, deren Fälligkeit (`einbaudatum` + `intervall_jahre`) ins gewählte Quartal fällt (× `anzahl`), gruppiert über die Kapazitätsbänder der `akkuTypen` — **plus** die Projektakkus des Quartals. Nichts anderes speist den Bedarf an.
+- **Die „zur freie Verfügung" (Puffer) ist eine reine Admin-Konfiguration**: der Mindestbestand des Akku-Artikels am **Hauptlager** (`artikel_standort_mindestbestaende`). Sie wird nur von Admins gepflegt (Plantabelle, Einstellungen → Akku-Größen) und dient **ausschließlich** der Bestellmenge:
+  `bestellmenge = max(0, bedarf − max(0, bestand) + puffer)`.
+  Der Puffer wird **nie** aus dem Bestand oder dem Bedarf umgerechnet — kein `verfuegbar`-Zwischenwert, keine automatische Nachführung.
 - **„Bestellt" archiviert einen Snapshot** in `akku_bestellungen` (Migration `0024`): eingefrorene Plantabelle (`zeilen` als JSONB), Inventur-Stichtag und Kürzel der auslösenden Person. `bestellt_am` setzt der Server (Source of Truth), `create` ist per UUID idempotent.
+- **Ein bestelltes Quartal ist gedeckt**: `berechnePlanung` bekommt `bereitsBestellt` und liefert dann Bestellmenge 0 (leere Bestellliste). Der Bedarf bleibt sichtbar, die bestellte Menge steht im Archiv.
 - **Nur die letzte Bestellung ist rückgängig zu machen.** Ein `update`-Op (`op: 'update'`, Entity `akku_bestellung`) setzt `storno = true` + `storno_am` (Server-Zeit). Der Server prüft, dass die Zielzeile die **neueste** ist (`ORDER BY bestellt_am DESC LIMIT 1`) — sonst `NICHT_LETZTE_BESTELLUNG` (Client legt das Outbox-Item sofort still, `HARD_QUARANTINE_CODES`).
 - **Der Snapshot bleibt Historie.** Die Zeile wird nicht gelöscht; `storno`-Bestellungen zählen nicht mehr als „bestellt" für ihr Quartal (`bestellungFuerQuartal` filtert sie), das Quartal kann also erneut bestellt werden.
-- **Nebenwirkung wird zurückgenommen.** „Bestellt" setzt den Mindestbestand der Akku-Artikel am Hauptlager auf *Bedarf − Bestand*; der Snapshot merkt sich den alten Puffer in `zeilen[].reserve` (sowie `artikelId` und `standort_id`), das Rückgängig-Machen schreibt ihn zurück (0 entfernt die sparse Zeile).
+- **Nebenwirkung wird zurückgenommen.** „Bestellt" setzt den Mindestbestand der Akku-Artikel mit Bedarf am Hauptlager auf **den Bedarf** (nicht auf `Bedarf − Bestand` — sonst zählt der Puffer in der Bestellmenge doppelt). Größen **ohne** Bedarf bleiben unangetastet — ihr Admin-Puffer wird nicht überschrieben. Der Snapshot merkt sich den alten Puffer in `zeilen[].reserve` (sowie `artikelId` und `standort_id`), das Rückgängig-Machen schreibt ihn zurück (0 entfernt die sparse Zeile).
 - **Der Snapshot-Filter zieht Stornos nach**: `bestellt_am > since OR storno_am > since` — sonst käme das Rückgängig-Machen auf anderen Geräten nie an.
 
 ### Preise, Rabatt und Lagerwert

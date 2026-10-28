@@ -477,6 +477,48 @@ describe('AkkutauschView', () => {
     expect(buttonMitText(w, 'Bestellt')).toBeDefined()
   })
 
+  it('plant fuer ein bereits bestelltes Quartal keine Bestellmenge', async () => {
+    await setupPlanung()
+
+    const store = useAkkutauschStore(pinia)
+    await getDb().akkuBestellungen.put({
+      id: 'b-1',
+      quartal: store.quartal,
+      jahr: store.jahr,
+      bestelltAm: jetztIso(),
+      bestelltVon: 'Admin',
+      bestelltVonKuerzel: 'AD',
+      inventurDatum: '2026-10-01',
+      inventurVonKuerzel: 'AD',
+      standortId: 's-1',
+      storno: false,
+      stornoAm: null,
+      stornoVon: null,
+      stornoVonKuerzel: null,
+      zeilen: [
+        {
+          typId: 't1',
+          artikelId: 'a-1',
+          kapazitaetAh: 12.5,
+          von: 12,
+          bis: 12.9,
+          soll: 10,
+          bestand: 0,
+          reserve: 0,
+          verfuegbar: 0,
+          bedarf: 10,
+        },
+      ],
+    })
+
+    const { w } = await setupView()
+    // Der Bedarf aus der Netzteilliste bleibt sichtbar, die Bestellmenge ist 0.
+    const zellen = w.findAll('table.data tbody tr td')
+    expect(zellen[2]?.text().trim()).toBe('10')
+    expect(zellen[4]?.text().trim()).toBe('0')
+    expect(w.text()).toContain('Dieses Quartal ist bereits bestellt')
+  })
+
   it('zeigt Mitarbeitern keine Ruecknahme-Aktion', async () => {
     const auth = useAuthStore(pinia)
     auth.session = {

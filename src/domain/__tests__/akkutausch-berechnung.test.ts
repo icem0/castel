@@ -219,11 +219,11 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.zeilen[0]?.bedarf).toBe(5)
     expect(planung.zeilen[0]?.bestand).toBe(3)
     expect(planung.zeilen[0]?.puffer).toBe(1)
-    expect(planung.zeilen[0]?.verfuegbar).toBe(2)
     expect(planung.zeilen[0]?.bestellmenge).toBe(3)
   })
 
@@ -236,6 +236,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.zeilen[0]?.bedarf).toBe(0)
   })
@@ -249,6 +250,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.zeilen[0]?.bedarf).toBe(4)
     expect(planung.zeilen[0]?.bestellmenge).toBe(2)
@@ -263,8 +265,8 @@ describe('berechnePlanung', () => {
       puffer: new Map([['a1', 2]]),
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
-    expect(planung.zeilen[0]?.verfuegbar).toBe(8)
     expect(planung.zeilen[0]?.bestellmenge).toBe(0)
   })
 
@@ -277,8 +279,8 @@ describe('berechnePlanung', () => {
       puffer: new Map([['a1', 0]]),
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
-    expect(planung.zeilen[0]?.verfuegbar).toBe(0)
     expect(planung.zeilen[0]?.bestellmenge).toBe(2)
   })
 
@@ -291,11 +293,28 @@ describe('berechnePlanung', () => {
       puffer: new Map([['a1', 5]]),
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     // Bedarf 2 - Bestand 1 + Puffer 5: der fehlende Puffer wird mitbestellt.
-    expect(planung.zeilen[0]?.verfuegbar).toBe(0)
     expect(planung.zeilen[0]?.bestellmenge).toBe(6)
     expect(planung.bestellzeilen[0]?.menge).toBe(6)
+  })
+
+  it('orders nothing for a quarter that was already ordered', () => {
+    const planung = berechnePlanung({
+      typen,
+      netzteile: [netzteil({ id: 'n1', anzahl: 2 })],
+      projektakkus: [],
+      bestand,
+      puffer,
+      quartal: 1,
+      jahr: 2025,
+      bereitsBestellt: true,
+    })
+    // Der Bedarf bleibt sichtbar, das Quartal ist aber gedeckt.
+    expect(planung.zeilen[0]?.bedarf).toBe(2)
+    expect(planung.zeilen[0]?.bestellmenge).toBe(0)
+    expect(planung.bestellzeilen).toHaveLength(0)
   })
 
   it('ignores soft-deleted records', () => {
@@ -307,6 +326,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.zeilen[0]?.bedarf).toBe(0)
   })
@@ -320,6 +340,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.warnungen.map((w) => w.code)).toEqual([
       'netzteil_keine_groesse',
@@ -339,6 +360,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.warnungen[0]?.code).toBe('netzteil_ungueltiges_datum')
   })
@@ -352,6 +374,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.warnungen[0]?.code).toBe('netzteil_unvollstaendig')
     expect(planung.warnungen[0]?.bezug).toBe('Ohne Angabe')
@@ -371,6 +394,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.zeilen[0]?.warnungen[0]?.code).toBe('typ_ohne_artikel')
     expect(planung.zeilen[0]?.bestand).toBe(0)
@@ -385,6 +409,7 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.bestellzeilen).toHaveLength(1)
     expect(planung.bestellzeilen[0]?.typId).toBe('t1')
@@ -405,24 +430,20 @@ describe('berechnePlanung', () => {
       puffer,
       quartal: 1,
       jahr: 2025,
+      bereitsBestellt: false,
     })
     expect(planung.zeilen.map((z) => z.typ.id)).toEqual(['t1', 't2'])
   })
 })
 
 describe('neuerMindestbestand', () => {
-  it('setzt den Puffer auf Bedarf minus Bestand', () => {
-    expect(neuerMindestbestand(10, 3)).toBe(7)
+  it('setzt den Puffer auf den Bedarf', () => {
+    expect(neuerMindestbestand(10)).toBe(10)
   })
 
   it('sinkt nie unter 0 — 0 bedeutet "kein Mindestbestand"', () => {
-    expect(neuerMindestbestand(3, 10)).toBe(0)
-    expect(neuerMindestbestand(5, 5)).toBe(0)
-    expect(neuerMindestbestand(0, 0)).toBe(0)
-  })
-
-  it('zaehlt negative Bestaende als kein Bestand', () => {
-    expect(neuerMindestbestand(2, -5)).toBe(2)
+    expect(neuerMindestbestand(0)).toBe(0)
+    expect(neuerMindestbestand(-5)).toBe(0)
   })
 })
 

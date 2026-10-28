@@ -113,19 +113,23 @@ export interface Planwarnung {
 /** One row of the replacement plan (one configured battery size). */
 export interface Planzeile {
   typ: AkkuTyp
-  /** Demand for the selected quarter (devices due x batteries each). */
+  /**
+   * Demand for the selected quarter — devices due in the quarter (device list)
+   * plus the project batteries booked for it.
+   */
   bedarf: number
   /** Total stock of the linked article across all locations. */
   bestand: number
-  /** Buffer kept free for unforeseen replacements (minimum stock, main warehouse). */
+  /**
+   * Buffer ("zur freien Verfuegung") — the minimum stock of the battery
+   * article at the main warehouse. It is maintained by an admin and only
+   * feeds into the order quantity.
+   */
   puffer: number
   /**
-   * Informational value: `bestand - puffer`, never negative. It is not part of
-   * the order calculation any more — it only documents the stock that would be
-   * usable for the plan.
+   * Quantity to order: `bedarf - max(0, bestand) + puffer`, never negative.
+   * Zero for a quarter that was already ordered — it is covered.
    */
-  verfuegbar: number
-  /** Quantity to order: `bedarf - max(0, bestand) + puffer`, never negative. */
   bestellmenge: number
   /** Warnings that belong to this row. */
   warnungen: Planwarnung[]
@@ -209,6 +213,12 @@ export interface AkkuBestellungZeile {
   bestand: number
   /** Buffer ("zur freien Verfügung"). */
   reserve: number
+  /**
+   * Frozen stock that was usable for the plan (`bestand - reserve`).
+   *
+   * Part of the wire format of the server contract — the planning itself does
+   * not know an intermediate "verfuegbar" value any more.
+   */
   verfuegbar: number
   /** Order quantity ("Bestellmenge"). */
   bedarf: number
