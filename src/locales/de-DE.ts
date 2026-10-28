@@ -162,6 +162,8 @@ export default {
       filter: {
         typ: 'Typ',
         typAlle: '- alle -',
+        hersteller: 'Hersteller',
+        herstellerAlle: 'alle Hersteller',
         status: 'Status',
         statusAlle: 'alle',
         standort: 'Standort',

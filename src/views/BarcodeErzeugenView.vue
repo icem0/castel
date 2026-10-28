@@ -67,9 +67,15 @@ function waehleArtikel(id: string): void {
 
 const tab = ref<'serie' | 'einzel'>('serie')
 
-const { suche, filterTyp, filterStatus, filterStandort, gefiltert } = useArtikelFilter(
-  () => artikelStore.artikel,
-)
+const {
+  suche,
+  filterTyp,
+  filterStatus,
+  filterStandort,
+  filterHersteller,
+  herstellerOptionen,
+  gefiltert,
+} = useArtikelFilter(() => artikelStore.artikel)
 
 // Standard: nur die als "neu" markierten Artikel zeigen — das ist der
 // Arbeitsfall "Bogen fuer die neuen Artikel drucken". Der Filter laesst
@@ -350,6 +356,10 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
           <select v-model="filterTyp">
             <option value="">{{ t('view.artikel.filter.typAlle') }}</option>
             <option v-for="typ in alleBenutzten" :key="typ" :value="typ">{{ typ }}</option>
+          </select>
+          <select v-model="filterHersteller">
+            <option value="">{{ t('view.artikel.filter.herstellerAlle') }}</option>
+            <option v-for="h in herstellerOptionen" :key="h.id" :value="h.id">{{ h.name }}</option>
           </select>
           <select v-model="filterStatus">
             <option v-for="opt in statusOptionen" :key="opt.value" :value="opt.value">
