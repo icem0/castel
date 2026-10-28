@@ -330,9 +330,29 @@ in der letzten Antwort des Agents an den User. Das Format ist verbindlich:
 Commit-Status: committed <hash> | not committed | partially committed
 Push-Status:   pushed to origin/<branch> | not pushed | rejected (<Grund>)
 Build-Status:  verified success | FAILED (<conclusion>) | not pushed | pending verification
+Version:       v<MAJOR.MINOR.PATCH> (<sha>) | n/a (not committed)
 ```
 
 **Regeln:**
+
+- `Version` ist **verbindlich**, sobald committet/pusht wurde, und nennt die
+  Version **des gepushten Commits** — nicht die des Arbeitstrees vor dem
+  Commit. Der Husky-`pre-commit`-Hook bumped die Patch-Nummer erst während
+  des Commits; die Zahl davor ist also wertlos. Verbindliche Beschaffung
+  (liest den Stand *im* Commit, nicht die Dateien auf der Platte):
+  ```bash
+  git show <sha>:package.json        # version-Feld -> v<...>
+  git show <sha>:server/package.json # muss identisch sein
+  ```
+  Root und Server MÜSSEN in dem Commit dieselbe Version tragen. Weichen sie
+  ab, ist das ein Fehler: der Agent meldet beide Werte explizit und verbucht
+  keinen sauberen Abschluss.
+- Die gemeldete Version ist die, die der CI-Build für denselben SHA in die
+  Images schreibt (`write-version.mjs` liest `package.json`) — das ist die
+  Antwort auf „unter welcher Version ist dasDeployment?" nach dem Deploy
+  (`docker compose exec api node -e "console.log(require('./package.json').version)"`).
+- Kein `v*` Git-Tag (bestehende Regel): `v0.4.120` in der Meldung bezeichnet
+  die **package.json-Version** des Commits, nicht einen Tag.
 
 - `Build-Status` wird **nie** ohne die Verifikation aus dem Build-&-Deployment-
   Abschnitt gefüllt. Ohne den 2-Minuten-Delay + `gh run watch` auf
@@ -377,7 +397,10 @@ verbindliche Reihenfolge:
    **gecrasht**: Ursache mit `gh run view <id> --log-failed` melden und
    **keinen** Erfolg verbuchen.
 6. **Erfolgsmeldung** — erst nach verifiziertem `completed success` wird
-   Erfolg verbucht und ein Deploy empfohlen.
+   Erfolg verbucht und ein Deploy empfohlen. Die Meldung enthält zwingend
+   den Abschluss-Status inkl. `Version:` (Version des gepushten Commits,
+   via `git show <sha>:package.json` gelesen — siehe *Finetuning-Runden —
+   Abschluss-Status*).
    Ohne Schritt 5 gilt der Build als `pending verification`, nicht als
    Erfolg.
 
