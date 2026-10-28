@@ -142,9 +142,14 @@ describe('bestelloptionText', () => {
 
     expect(text).toContain('Bestellliste – Q4 2026')
     expect(text).toContain('Inventur: 27.10.2026 (MM)')
-    expect(text).toContain('Akku 12,5 Ah')
-    expect(text).toContain('12–12,9 Ah')
-    expect(text).toContain('ART-77')
+    expect(text).toContain(
+      [
+        '1. Artikel: Akku 12,5 Ah',
+        '   Bestellnummer: ART-77',
+        '   Größe: 12–12,9 Ah',
+        '   Menge: 4',
+      ].join('\n'),
+    )
     expect(text).toContain('Gesamt: 4')
   })
 })

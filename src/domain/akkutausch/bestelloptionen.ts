@@ -212,12 +212,19 @@ export interface BestelloptionTextOptionen {
   gesamtLabel: string
 }
 
+function textWert(wert: string | null | undefined): string {
+  const wertText = wert?.trim()
+  return wertText ? wertText.replace(/\s+/g, ' ') : '—'
+}
+
 /**
- * Renders the order of one supplier as aligned plain text.
+ * Renders the order of one supplier as a labelled block list.
  *
  * The supplier needs the article title, the size, the quantity and the
  * order number of the article — the capacity alone is not enough to identify
- * the battery.
+ * the battery. The list is deliberately kept as one field per line: mail
+ * clients may collapse leading spaces or switch to a proportional font, so
+ * fixed-width table columns can turn into running text.
  */
 export function bestelloptionText(
   option: Bestelloption,
@@ -225,43 +232,23 @@ export function bestelloptionText(
 ): string {
   const { locale } = optionen
 
-  const tabelle = option.zeilen.map((zeile) => [
-    zeile.artikelTitel,
-    formatKapazitaetBereich(zeile.von, zeile.bis, locale),
-    formatZahl(zeile.menge, locale),
-    zeile.bestellnummer ?? '—',
-  ])
-
-  const breite = (werte: readonly string[]): number =>
-    werte.reduce((max, wert) => Math.max(max, wert.length), 0)
-
-  const breiteArtikel = breite([optionen.kopfArtikel, ...tabelle.map((z) => z[0] ?? '')])
-  const breiteGroesse = breite([optionen.kopfGroesse, ...tabelle.map((z) => z[1] ?? '')])
-  const breiteMenge = breite([optionen.kopfMenge, ...tabelle.map((z) => z[2] ?? '')])
-
   const inventurDatum = optionen.inventurDatum ? formatDatum(optionen.inventurDatum, locale) : '—'
   const inventurKuerzel = optionen.inventurKuerzel ? ` (${optionen.inventurKuerzel})` : ''
 
-  const zeilenText = tabelle.map((zeile) =>
+  const posten = option.zeilen.map((zeile, index) =>
     [
-      (zeile[0] ?? '').padEnd(breiteArtikel),
-      (zeile[1] ?? '').padEnd(breiteGroesse),
-      (zeile[2] ?? '').padEnd(breiteMenge),
-      zeile[3] ?? '',
-    ].join('  '),
+      `${index + 1}. ${optionen.kopfArtikel}: ${textWert(zeile.artikelTitel)}`,
+      `   ${optionen.kopfBestellnummer}: ${textWert(zeile.bestellnummer)}`,
+      `   ${optionen.kopfGroesse}: ${formatKapazitaetBereich(zeile.von, zeile.bis, locale)}`,
+      `   ${optionen.kopfMenge}: ${formatZahl(zeile.menge, locale)}`,
+    ].join('\n'),
   )
 
   return [
     `${optionen.titel} – Q${optionen.quartal} ${optionen.jahr}`,
     `${optionen.inventurLabel}: ${inventurDatum}${inventurKuerzel}`,
     '',
-    [
-      optionen.kopfArtikel.padEnd(breiteArtikel),
-      optionen.kopfGroesse.padEnd(breiteGroesse),
-      optionen.kopfMenge.padEnd(breiteMenge),
-      optionen.kopfBestellnummer,
-    ].join('  '),
-    ...zeilenText,
+    posten.join('\n\n'),
     '',
     `${optionen.gesamtLabel}: ${formatZahl(option.gesamtMenge, locale)}`,
   ].join('\n')
