@@ -766,7 +766,7 @@ export default {
         preset30er: '30-label sheet (63.5 × 25.4 mm)',
         preset12er: '12-label sheet (99.1 × 42.5 mm)',
         preset8er: '8-label sheet (99.1 × 66 mm)',
-        presetListe: 'List (A4, one row per item)',
+        presetListe: 'List (A4, 26 rows of 190 × 9.5 mm)',
       },
     },
     scan: {

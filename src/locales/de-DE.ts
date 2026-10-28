@@ -784,7 +784,7 @@ export default {
         preset30er: '30er-Bogen (63,5 × 25,4 mm)',
         preset12er: '12er-Bogen (99,1 × 42,5 mm)',
         preset8er: '8er-Bogen (99,1 × 66 mm)',
-        presetListe: 'Liste (A4, eine Zeile je Artikel)',
+        presetListe: 'Liste (A4, 26 Zeilen à 190 × 9,5 mm)',
       },
     },
     scan: {

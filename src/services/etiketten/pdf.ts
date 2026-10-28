@@ -2,17 +2,24 @@
 //
 // Ablauf:
 //   1. Layout: `planeEtiketten()` verteilt die Auswahl auf die Seiten.
-//   2. Barcode: JsBarcode zeichnet den Code in ein Offscreen-Canvas
+//   2. Artikelname: `passeTextEin()` bricht den Namen wortweise um und
+//      waehlt die groesste Schriftgroesse, die in die Textzone passt.
+//      Der Name bleibt vollstaendig — erst wenn selbst die kleinste Groesse
+//      nicht reicht, wird die letzte Zeile mit "…" gekuerzt und eine
+//      Warnung ausgegeben.
+//   3. Barcode: JsBarcode zeichnet den Code in ein Offscreen-Canvas
 //      (300 dpi), das Ergebnis wird als PNG in das PDF eingebettet.
 //      Vektor-PDF ist nicht moeglich, ohne die Barcode-Encoder selbst
 //      nachzubauen — 300 dpi reicht fuer handelsuebliche Scanner.
-//   3. jsPDF wird erst beim Klick geladen (`await import('jspdf')`),
+//      Der Code weicht dem Namen bis auf `BARCODE_MIN_HOEHE_MM`.
+//   4. jsPDF wird erst beim Klick geladen (`await import('jspdf')`),
 //      damit das initiale Bundle der PWA klein bleibt.
 //
 // Alle Masse in Millimetern, Seitenformat A4 hochkant.
 
 import JsBarcode from 'jsbarcode'
-import { planeEtiketten } from './layout'
+import type { jsPDF } from 'jspdf'
+import { planeEtiketten, type EtikettPosition } from './layout'
 import { seitenAnzahl, type EtikettenPreset } from './presets'
 import type { BarcodeTyp } from '../../stores/settings'
 
@@ -25,6 +32,24 @@ const MODUL_MM = 0.4
 const BARCODE_HOEHE_MM = 12
 /** Innenabstand des Etiketts in mm. */
 const PAD_MM = 1.5
+/** Innenabstand einer Listenzeile in mm. */
+const LISTE_PAD_MM = 1
+/** Mindesthoehe des Barcodes, wenn der Artikelname mehr Platz braucht. */
+const BARCODE_MIN_HOEHE_MM = 6
+/** Mindesthoehe des Barcodes in einer Listenzeile (flache Zeilen). */
+const LISTE_BAR_MIN_HOEHE_MM = 4
+/** Textzone (Name + Barcode-Wert) in mm, solange der Name hineinpasst. */
+const TEXT_ZONE_MM = 9
+/** Anteil der Etikettenhoehe, die maximal als Textzone dienen darf. */
+const TEXT_ZONE_ANTEIL = 0.32
+/** Faktor der Zeilenhoehe relativ zum Schriftgrad. */
+const ZEILEN_FAKTOR = 1.2
+/** Schriftgroessen des Artikelnamens in pt (abwaerts probiert, abbruchsicher). */
+const NAMEN_GROSSEN_RASTER = [7, 6.5, 6, 5.5, 5]
+const NAMEN_GROSSEN_LISTE = [8, 7, 6.5, 6, 5.5, 5]
+/** Schriftgroessen des Barcode-Werts in pt (abwaerts probiert). */
+const WERT_GROESSE_PT = 6
+const WERT_GROSSEN = [WERT_GROESSE_PT, 5.5, 5, 4.5]
 
 export interface EtikettDaten {
   id: string
@@ -48,6 +73,11 @@ interface BarcodeBild {
   /** natuerliche Hoehe in mm (px / dpi) */
   hoeheMm: number
 }
+
+/** Misst die Textbreite in mm ( fuer eine feste Schriftgroesse). */
+export type BreitenMesser = (text: string) => number
+/** Misst die Textbreite in mm bei beliebigem Schriftgrad in pt. */
+export type SkalenMesser = (text: string, groessePt: number) => number
 
 function pxZuMm(px: number): number {
   return (px / DPI) * MM_PRO_INCH
@@ -135,22 +165,309 @@ function barcodeBild(
   }
 }
 
-/** Kuerzt einen Text auf eine maximale Zeichenzahl (Anzeige mit "…"). */
-export function kuerze(text: string, maxZeichen: number): string {
-  if (maxZeichen <= 0) return ''
-  if (text.length <= maxZeichen) return text
-  return `${text.slice(0, Math.max(1, maxZeichen - 1))}…`
+// ---------------------------------------------------------------------------
+// Textlayout (rein, ohne jsPDF — die Breite kommt per Messer herein)
+// ---------------------------------------------------------------------------
+
+/** Zeilenhoehe (Baselines-Abstand) eines Helvetica-Satzes in mm. */
+export function zeilenHoeheMm(fontSizePt: number): number {
+  return (fontSizePt * ZEILEN_FAKTOR * MM_PRO_INCH) / 72
 }
 
-/** Grobe Zeichenbreite eines Helvetica-Satzes in mm (0.52 * Schriftgrad). */
-function zeichenBreiteMm(fontSizePt: number): number {
-  return (0.52 * fontSizePt * MM_PRO_INCH) / 72
+/** Abstand zweier Textblock-Stapel (Name / Barcode-Wert) in mm. */
+function textAbstandMm(nameZeileMm: number, wertZeileMm: number): number {
+  return 0.45 * (nameZeileMm + wertZeileMm)
 }
+
+/** Laengste Zeichenkette am Anfang von `text`, die in `maxBreiteMm` passt. */
+function langsterPraefix(text: string, maxBreiteMm: number, messen: BreitenMesser): number {
+  let lo = 1
+  let hi = text.length - 1
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (messen(text.slice(0, mid)) <= maxBreiteMm) lo = mid
+    else hi = mid - 1
+  }
+  return lo
+}
+
+/**
+ * Bricht `text` wortweise auf eine maximale Breite um. Woerter, die allein
+ * breiter sind als die Zeile, werden an der Zeichenkette getrennt.
+ */
+export function zeilenUmbrechen(
+  text: string,
+  maxBreiteMm: number,
+  messen: BreitenMesser,
+): string[] {
+  const worte = text
+    .trim()
+    .split(/\s+/)
+    .filter((wort) => wort !== '')
+  if (worte.length === 0 || maxBreiteMm <= 0) return []
+
+  const zeilen: string[] = []
+  let aktuelle = ''
+  const abschliessen = (): void => {
+    if (aktuelle !== '') {
+      zeilen.push(aktuelle)
+      aktuelle = ''
+    }
+  }
+
+  for (const wort of worte) {
+    if (aktuelle === '') {
+      aktuelle = wort
+    } else if (messen(`${aktuelle} ${wort}`) <= maxBreiteMm) {
+      aktuelle = `${aktuelle} ${wort}`
+    } else {
+      abschliessen()
+      aktuelle = wort
+    }
+    // Einzelwort breiter als die Zeile -> hart trennen.
+    while (aktuelle.length > 1 && messen(aktuelle) > maxBreiteMm) {
+      const schnitt = langsterPraefix(aktuelle, maxBreiteMm, messen)
+      zeilen.push(aktuelle.slice(0, schnitt))
+      aktuelle = aktuelle.slice(schnitt)
+    }
+  }
+  abschliessen()
+  return zeilen
+}
+
+/** Kuerzt einen Text auf eine maximale Breite (ohne Marker, wenn er passt). */
+export function kuerzeBreite(text: string, maxBreiteMm: number, messen: BreitenMesser): string {
+  if (text === '') return ''
+  if (messen(text) <= maxBreiteMm) return text
+  return mitAuslassung(text, maxBreiteMm, messen)
+}
+
+/** Kuerzt auf die Breite und setzt in jedem Fall "…" dahinter. */
+function mitAuslassung(text: string, maxBreiteMm: number, messen: BreitenMesser): string {
+  if (messen(`${text}…`) <= maxBreiteMm) return `${text}…`
+  let ende = text.length
+  while (ende > 1 && messen(`${text.slice(0, ende)}…`) > maxBreiteMm) ende -= 1
+  return `${text.slice(0, ende)}…`
+}
+
+export interface Passform {
+  zeilen: string[]
+  groessePt: number
+  /** true, wenn der Text nicht vollstaendig passte (letzte Zeile mit "…"). */
+  abgeschnitten: boolean
+}
+
+/**
+ * Wahlt die groesste Schriftgroesse aus `groessenPt` (absteigend), deren
+ * umbrochener Text in Breite und Hoehe passt. Reicht die kleinste Groesse
+ * nicht, werden Zeilen verworfen und die letzte mit "…" gekuerzt —
+ * `abgeschnitten` zeigt das dem Aufrufer an.
+ */
+export function passeTextEin(
+  text: string,
+  groessenPt: number[],
+  maxBreiteMm: number,
+  maxHoeheMm: number,
+  messen: SkalenMesser,
+): Passform {
+  const groessen = groessenPt.filter((g) => Number.isFinite(g) && g > 0).sort((a, b) => b - a)
+  if (text.trim() === '') {
+    return { zeilen: [], groessePt: groessen[0] ?? 0, abgeschnitten: false }
+  }
+  if (groessen.length === 0 || maxBreiteMm <= 0 || maxHoeheMm <= 0) {
+    return { zeilen: [], groessePt: 0, abgeschnitten: true }
+  }
+
+  for (const groesse of groessen) {
+    const zeilen = zeilenUmbrechen(text, maxBreiteMm, (t) => messen(t, groesse))
+    if (zeilen.length * zeilenHoeheMm(groesse) <= maxHoeheMm + 1e-6) {
+      return { zeilen, groessePt: groesse, abgeschnitten: false }
+    }
+  }
+
+  const kleinste = groessen[groessen.length - 1]
+  if (kleinste === undefined) return { zeilen: [], groessePt: 0, abgeschnitten: true }
+  const messer: BreitenMesser = (t) => messen(t, kleinste)
+  const zeilen = zeilenUmbrechen(text, maxBreiteMm, messer)
+  const maxZeilen = Math.max(1, Math.floor((maxHoeheMm + 1e-6) / zeilenHoeheMm(kleinste)))
+  const gekuerzt = zeilen.slice(0, maxZeilen)
+  const letzte = gekuerzt[gekuerzt.length - 1]
+  if (letzte !== undefined) {
+    gekuerzt[gekuerzt.length - 1] = mitAuslassung(letzte, maxBreiteMm, messer)
+  }
+  return { zeilen: gekuerzt, groessePt: kleinste, abgeschnitten: true }
+}
+
+/** Einzeilige Darstellung: groesste Groesse, sonst letzte Groesse mit "…". */
+export function einzeilig(
+  text: string,
+  groessenPt: number[],
+  maxBreiteMm: number,
+  messen: SkalenMesser,
+): { text: string; groessePt: number } {
+  const groessen = groessenPt.filter((g) => Number.isFinite(g) && g > 0).sort((a, b) => b - a)
+  for (const groesse of groessen) {
+    if (messen(text, groesse) <= maxBreiteMm) return { text, groessePt: groesse }
+  }
+  const kleinste = groessen[groessen.length - 1] ?? 0
+  if (kleinste <= 0 || maxBreiteMm <= 0) return { text: '', groessePt: 0 }
+  return {
+    text: kuerzeBreite(text, maxBreiteMm, (t) => messen(t, kleinste)),
+    groessePt: kleinste,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Zeichnen
+// ---------------------------------------------------------------------------
 
 function datumHeute(): string {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+interface ZeichenKontext {
+  doc: jsPDF
+  misst: SkalenMesser
+  format: BarcodeTyp
+  warnungen: string[]
+}
+
+/**
+ * Raster-Etikett: Barcode oben, Artikelname (mehrzeilig) + Barcode-Wert
+ * darunter. Die Textzone waechst mit dem Namen — der Barcode weicht bis auf
+ * `BARCODE_MIN_HOEHE_MM` zurueck.
+ */
+function zeichneRaster(
+  ctx: ZeichenKontext,
+  pos: EtikettPosition,
+  artikel: EtikettDaten,
+  wert: string,
+  boxW: number,
+  boxH: number,
+): void {
+  const { doc, misst, format, warnungen } = ctx
+  const innenBreite = boxW - 2 * PAD_MM
+  const innenHoehe = boxH - 2 * PAD_MM
+  const wertZeile = zeilenHoeheMm(WERT_GROESSE_PT)
+  const zoneStandard = Math.min(TEXT_ZONE_MM, boxH * TEXT_ZONE_ANTEIL)
+  const zoneMax = Math.max(zoneStandard, innenHoehe - BARCODE_MIN_HOEHE_MM)
+  const groessteName = Math.max(...NAMEN_GROSSEN_RASTER)
+  const nameBudget = Math.max(
+    1,
+    zoneMax - wertZeile - textAbstandMm(zeilenHoeheMm(groessteName), wertZeile),
+  )
+
+  const name = passeTextEin(artikel.titel, NAMEN_GROSSEN_RASTER, innenBreite, nameBudget, misst)
+  const nameZeile = zeilenHoeheMm(name.groessePt)
+  const abstand = textAbstandMm(nameZeile, wertZeile)
+  const benoetigt = name.zeilen.length * nameZeile + abstand + wertZeile
+  const zone = Math.min(zoneMax, Math.max(zoneStandard, benoetigt))
+  const barHoehe = Math.max(3, innenHoehe - zone)
+
+  const bild = barcodeBild(wert, format, innenBreite, barHoehe)
+  if (!bild) {
+    warnungen.push(`${artikel.titel}: Barcode „${wert}" ist für ${format} ungültig.`)
+  }
+
+  // Barcode oben, zentriert in der freien Flaeche.
+  const skala = bild ? Math.min(1, innenBreite / bild.breiteMm, barHoehe / bild.hoeheMm) : 1
+  const bW = bild ? bild.breiteMm * skala : 0
+  const bH = bild ? bild.hoeheMm * skala : 0
+  const bX = pos.x + (boxW - bW) / 2
+  const bY = pos.y + PAD_MM + Math.max(0, (barHoehe - bH) / 2)
+  if (bild) {
+    doc.addImage(bild.dataUrl, 'PNG', bX, bY, bW, bH)
+  } else {
+    // Kein valider Barcode: Platzhalter in der Barcode-Flaeche, damit
+    // die Luecke auf dem Bogen sichtbar ist.
+    doc.setFontSize(8)
+    doc.text('kein gueltiger Barcode', pos.x + boxW / 2, bY + barHoehe / 2, { align: 'center' })
+  }
+
+  // Barcode-Wert auf der letzten Baseline, Name darueber (von unten nach oben).
+  const mitte = pos.x + boxW / 2
+  const wertDarstellung = einzeilig(wert, WERT_GROSSEN, innenBreite, misst)
+  doc.setFontSize(wertDarstellung.groessePt)
+  doc.text(wertDarstellung.text, mitte, pos.y + boxH - PAD_MM, { align: 'center' })
+
+  doc.setFontSize(name.groessePt)
+  const untersteBaseline = pos.y + boxH - PAD_MM - abstand
+  name.zeilen.forEach((zeile, idx) => {
+    const vonUnten = name.zeilen.length - 1 - idx
+    doc.text(zeile, mitte, untersteBaseline - vonUnten * nameZeile, { align: 'center' })
+  })
+
+  if (name.abgeschnitten) {
+    warnungen.push(
+      `${artikel.titel}: Name passt nicht vollständig aufs Etikett (${name.groessePt} pt, ${name.zeilen.length} Zeile(n)).`,
+    )
+  }
+}
+
+/**
+ * Listenzeile: Artikelname links (bis zu zwei Zeilen, mehr wenn die Schrift
+ * dafuer kleiner wird), Barcode rechts, Barcode-Wert unter dem Code.
+ */
+function zeichneListe(
+  ctx: ZeichenKontext,
+  pos: EtikettPosition,
+  artikel: EtikettDaten,
+  wert: string,
+  boxW: number,
+  boxH: number,
+): void {
+  const { doc, misst, format, warnungen } = ctx
+  const wertZeile = zeilenHoeheMm(WERT_GROESSE_PT)
+  const innenHoehe = boxH - 2 * LISTE_PAD_MM
+  // Der Barcode-Wert braucht eine eigene Zeile unter dem Code — wenn die
+  // Zeile dafuer zu flach ist, faellt er weg.
+  const zeigtWert = innenHoehe - LISTE_BAR_MIN_HOEHE_MM >= wertZeile
+  const imageW = Math.min(45, boxW * 0.26)
+  const nameX = pos.x + LISTE_PAD_MM
+  const nameBreite = boxW - 2 * LISTE_PAD_MM - imageW - 3
+  const name = passeTextEin(artikel.titel, NAMEN_GROSSEN_LISTE, nameBreite, innenHoehe, misst)
+  const barHoehe = Math.max(
+    LISTE_BAR_MIN_HOEHE_MM,
+    innenHoehe - (zeigtWert ? zeilenHoeheMm(WERT_GROESSE_PT) : 0),
+  )
+
+  const bild = barcodeBild(wert, format, imageW, barHoehe)
+  if (!bild) {
+    warnungen.push(`${artikel.titel}: Barcode „${wert}" ist für ${format} ungültig.`)
+  }
+
+  const nameZeile = zeilenHoeheMm(name.groessePt)
+  const blockHoehe = name.zeilen.length * nameZeile
+  const yStart = pos.y + Math.max(LISTE_PAD_MM, (boxH - blockHoehe) / 2) + nameZeile * 0.8
+  doc.setFontSize(name.groessePt)
+  name.zeilen.forEach((zeile, idx) => {
+    doc.text(zeile, nameX, yStart + idx * nameZeile)
+  })
+
+  const codeX = pos.x + boxW - LISTE_PAD_MM
+  if (bild) {
+    const skala = Math.min(1, imageW / bild.breiteMm, barHoehe / bild.hoeheMm)
+    const w = bild.breiteMm * skala
+    const h = bild.hoeheMm * skala
+    doc.addImage(bild.dataUrl, 'PNG', codeX - w, pos.y + LISTE_PAD_MM, w, h)
+  } else {
+    doc.setFontSize(6)
+    doc.text('kein gueltiger Barcode', codeX, pos.y + boxH / 2, { align: 'right' })
+  }
+
+  if (zeigtWert) {
+    const darstellung = einzeilig(wert, WERT_GROSSEN, imageW, misst)
+    doc.setFontSize(darstellung.groessePt)
+    doc.text(darstellung.text, codeX, pos.y + boxH - LISTE_PAD_MM, { align: 'right' })
+  }
+
+  if (name.abgeschnitten) {
+    warnungen.push(
+      `${artikel.titel}: Name passt nicht vollständig aufs Etikett (${name.groessePt} pt, ${name.zeilen.length} Zeile(n)).`,
+    )
+  }
 }
 
 /**
@@ -179,13 +496,18 @@ export async function erzeugeEtikettenPdf(
 
   const positionen = planeEtiketten(mitBarcode.length, preset, startFeld)
   const istListe = preset.layout === 'liste'
-
-  // Etiketten-Box: Innenraum, Textplatz und Barcode-Flaeche.
   const boxW = preset.labelW
   const boxH = preset.labelH
-  const textHoehe = istListe ? 0 : Math.min(9, boxH * 0.32)
-  const barHoehe = istListe ? Math.max(3, boxH - 1.2) : boxH - 2 * PAD_MM - textHoehe
-  const barBreite = istListe ? Math.min(55, boxW * 0.35) : boxW - 2 * PAD_MM
+
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(0, 0, 0)
+  // Echte Helvetica-Metriken statt Zeichen-Zaehlung: nur so ist der Umbruch
+  // identisch mit dem, spaeter auch gedruckt wird.
+  const misst: SkalenMesser = (text, groessePt) => {
+    doc.setFontSize(groessePt)
+    return doc.getTextWidth(text)
+  }
+  const ctx: ZeichenKontext = { doc, misst, format, warnungen }
 
   mitBarcode.forEach((artikel, i) => {
     const pos = positionen[i]
@@ -193,59 +515,12 @@ export async function erzeugeEtikettenPdf(
     if (pos.seite > 1 && (i === 0 || positionen[i - 1]?.seite !== pos.seite)) {
       doc.addPage()
     }
-
     const wert = (artikel.barcode ?? '').trim()
-    const bild = barcodeBild(wert, format, barBreite, barHoehe)
-    if (!bild) {
-      warnungen.push(`${artikel.titel}: Barcode „${wert}" ist für ${format} ungültig.`)
-    }
-
-    doc.setFont('helvetica', 'normal')
-    doc.setTextColor(0, 0, 0)
-
     if (istListe) {
-      // Listenzeile: Artikelname links, Barcode-Wert + Bild rechts.
-      const nameX = pos.x + 1
-      const imageW = Math.min(55, boxW * 0.35)
-      const imageH = Math.max(3, boxH - 1.2)
-      const valueX = pos.x + boxW - 1 - imageW - 2
-      const nameMax = Math.max(4, Math.floor((valueX - 4 - nameX) / zeichenBreiteMm(8)))
-      doc.setFontSize(8)
-      doc.text(kuerze(artikel.titel, nameMax), nameX, pos.y + boxH / 2 + 1)
-      doc.setFontSize(6)
-      doc.text(wert, valueX, pos.y + boxH / 2 + 1, { align: 'right' })
-      if (bild) {
-        const skala = Math.min(1, imageW / bild.breiteMm, imageH / bild.hoeheMm)
-        const w = bild.breiteMm * skala
-        const h = bild.hoeheMm * skala
-        doc.addImage(bild.dataUrl, 'PNG', pos.x + boxW - 1 - w, pos.y + (boxH - h) / 2, w, h)
-      }
+      zeichneListe(ctx, pos, artikel, wert, boxW, boxH)
       return
     }
-
-    // Raster-Etikett: Barcode oben, Artikelname + Wert darunter.
-    const skala = bild
-      ? Math.min(1, barBreite / bild.breiteMm, Math.max(1, barHoehe) / bild.hoeheMm)
-      : 1
-    const bW = bild ? bild.breiteMm * skala : 0
-    const bH = bild ? bild.hoeheMm * skala : 0
-    const bX = pos.x + (boxW - bW) / 2
-    const bY = pos.y + PAD_MM + Math.max(0, (barHoehe - bH) / 2)
-    if (bild) {
-      doc.addImage(bild.dataUrl, 'PNG', bX, bY, bW, bH)
-    } else {
-      // Kein valider Barcode: Platzhalter in der Barcode-Flaeche, damit
-      // die Luecke auf dem Bogen sichtbar ist.
-      doc.setFontSize(8)
-      doc.text('kein gueltiger Barcode', pos.x + boxW / 2, bY + barHoehe / 2, { align: 'center' })
-    }
-
-    const titelY = pos.y + boxH - PAD_MM - 4.2
-    doc.setFontSize(7)
-    const maxZeichen = Math.max(4, Math.floor((boxW - 2 * PAD_MM) / zeichenBreiteMm(7)))
-    doc.text(kuerze(artikel.titel, maxZeichen), pos.x + boxW / 2, titelY, { align: 'center' })
-    doc.setFontSize(6)
-    doc.text(wert, pos.x + boxW / 2, pos.y + boxH - PAD_MM, { align: 'center' })
+    zeichneRaster(ctx, pos, artikel, wert, boxW, boxH)
   })
 
   // Wenn nichts druckbar war, bleibt ein leeres Blatt — besser ein Hinweis

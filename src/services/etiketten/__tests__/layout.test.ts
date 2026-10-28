@@ -22,7 +22,7 @@ describe('etiketten/presets', () => {
 
   it('etikettenJeSeite multipliziert Spalten und Zeilen', () => {
     expect(etikettenJeSeite(PRESET_21ER)).toBe(21)
-    expect(etikettenJeSeite(PRESET_LISTE)).toBe(40)
+    expect(etikettenJeSeite(PRESET_LISTE)).toBe(26)
   })
 
   it('seitenAnzahl rundet auf ganze Seiten auf', () => {

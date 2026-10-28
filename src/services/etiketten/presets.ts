@@ -7,7 +7,8 @@
 //                  Spalten/Zeilen (jedes Etikett: Barcode + Artikelname).
 //   - 'liste'   → eine Zeile je Artikel (Artikelname links, Barcode
 //                  rechts) — die "aufgelistete" Variante fuer den
-//                  Etikettenbogen ohne Stanzmasse.
+//                  Etikettenbogen ohne Stanzmasse. Die Zeilen sind hoch
+//                  genug fuer mehrzeilige Artikelnamen.
 //
 // `marginX`/`marginY` = `null` bedeutet: der Block wird auf der Seite
 // zentriert (aus Spalten/Zeilen/Etikettenmasse berechnet). Der
@@ -98,14 +99,16 @@ export const PRESET_8ER: EtikettenPreset = {
   marginY: null,
 }
 
+// 26 Zeilen à 9,5 mm: hoch genug für zwei Zeilen Artikelname. Der
+// Listen-Bogen ist nicht gestanzt, die Zeilenhoehe ist also frei waehlbar.
 export const PRESET_LISTE: EtikettenPreset = {
   id: 'liste',
   nameKey: 'view.barcode.layout.presetListe',
   layout: 'liste',
   cols: 1,
-  rows: 40,
+  rows: 26,
   labelW: 190,
-  labelH: 6.2,
+  labelH: 9.5,
   gapX: 0,
   gapY: 0,
   marginX: null,
