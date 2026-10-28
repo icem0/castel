@@ -13,6 +13,12 @@ import { useSettingsStore } from '../../stores/settings'
 import { getDb } from '../../db/database'
 import { sessionSchreiben } from '../../auth/session'
 import { jetztIso } from '../../domain/ids'
+import {
+  kommissionMerken,
+  kommissionVergessen,
+  letzteKommission,
+  MERKDAUER_MS,
+} from '../../services/kommission/merken'
 
 const mocks = vi.hoisted(() => ({
   syncUndBestaetigeBuchungen: vi.fn(),
@@ -31,6 +37,7 @@ beforeEach(async () => {
   setActivePinia(pinia)
   i18n.global.locale.value = 'de-DE'
   localStorage.removeItem('castel.auth.session')
+  kommissionVergessen()
   sessionSchreiben({
     userId: 'user-1',
     email: 'user@example.com',
@@ -46,6 +53,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   localStorage.removeItem('castel.auth.session')
+  kommissionVergessen()
   await clearLocalDbForTests()
   vi.restoreAllMocks()
 })
@@ -137,8 +145,49 @@ describe('BuchungFormView — Kommission', () => {
     const buchungen = await getDb().buchungen.toArray()
     expect(buchungen).toHaveLength(1)
     expect(buchungen[0]?.projekt).toBe('Projekt Müller')
+    // Die zuletzt gebuchte Kommission wird gemerkt (1 h, pro User).
+    expect(letzteKommission('user-1')).toBe('Projekt Müller')
 
     standortStore.stop()
     settings.stop()
+  })
+
+  it('füllt das Formular mit der gemerkten Kommission (unter einer Stunde)', async () => {
+    kommissionMerken('user-1', 'Projekt Müller')
+
+    const { w, standortStore } = await setupView()
+    const select = w
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.attributes('value') === ''))
+    expect(select).toBeDefined()
+    expect((select!.element as HTMLSelectElement).value).toBe('Projekt Müller')
+
+    standortStore.stop()
+  })
+
+  it('füllt NICHT mit einer Kommission, älter als eine Stunde', async () => {
+    kommissionMerken('user-1', 'Projekt Müller', Date.now() - MERKDAUER_MS - 5000)
+
+    const { w, standortStore } = await setupView()
+    const select = w
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.attributes('value') === ''))
+    expect(select).toBeDefined()
+    expect((select!.element as HTMLSelectElement).value).toBe('')
+
+    standortStore.stop()
+  })
+
+  it('füllt nicht mit der Kommission eines anderen Users', async () => {
+    kommissionMerken('user-2', 'Fremde Kommission')
+
+    const { w, standortStore } = await setupView()
+    const select = w
+      .findAll('select')
+      .find((s) => s.findAll('option').some((o) => o.attributes('value') === ''))
+    expect(select).toBeDefined()
+    expect((select!.element as HTMLSelectElement).value).toBe('')
+
+    standortStore.stop()
   })
 })

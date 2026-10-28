@@ -387,9 +387,9 @@ function onTaste(e: KeyboardEvent): void {
         role="dialog"
         aria-modal="true"
         :aria-label="t('datanorm.drawer.titel')"
-        @touchstart="onTouchStart"
         :class="{ ziehend: istZiehend }"
         :style="{ transform: istZiehend ? `translateX(${touchCurrentX - touchStartX}px)` : '' }"
+        @touchstart="onTouchStart"
       >
         <header class="drawer-head">
           <h2>{{ t('datanorm.drawer.titel') }}</h2>

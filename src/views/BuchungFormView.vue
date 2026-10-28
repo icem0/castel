@@ -9,6 +9,7 @@ import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { getApiBaseUrl } from '../auth/api'
 import { syncUndBestaetigeBuchungen } from '../services/sync/buchung-bestaetigung'
+import { kommissionMerken, letzteKommission } from '../services/kommission/merken'
 import type { BuchungsTyp } from '../db/types'
 import {
   NegativerBestandWarnung,
@@ -46,6 +47,12 @@ const laufend = ref(false)
 onMounted(() => {
   if (!standortId.value) {
     standortId.value = standortStore.standardlager?.id ?? ''
+  }
+  // Convenience: keep the last commission for one hour (sliding window) so
+  // successive bookings for the same commission need no re-selection.
+  if (projekt.value === '') {
+    const gemerkt = letzteKommission(auth.userId ?? '')
+    if (gemerkt) projekt.value = gemerkt
   }
 })
 
@@ -176,6 +183,12 @@ async function speichern(): Promise<void> {
         kommentar: kommentar.value || null,
       })
       buchungIds.push(res.buchung.id)
+    }
+
+    // Remember the commission for the next booking (inventur posts none —
+    // it leaves the saved value untouched).
+    if (typ.value !== 'inventur' && projekt.value.trim() !== '') {
+      kommissionMerken(auth.userId ?? '', projekt.value.trim())
     }
 
     const toastId = toast.show({

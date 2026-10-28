@@ -36,9 +36,7 @@ function diagnostics(overrides: Partial<Diagnostics> = {}): Diagnostics {
     missingBookings: [],
     missingBookingsTotal: 0,
     quarantinedItems: [],
-    findings: [
-      { level: 'error', text: '2 artikel: nur lokal vorhanden (lokal 145, Server 143).' },
-    ],
+    findings: [{ level: 'error', text: '2 artikel: nur lokal vorhanden (lokal 145, Server 143).' }],
     idCheckUnsupported: false,
     serverReachable: true,
     ...overrides,
@@ -108,7 +106,10 @@ describe('SyncDiagnostics', () => {
         localOnly: [],
         localOnlyTotal: 0,
         findings: [
-          { level: 'warn', text: 'Der Server unterstützt die ID-Prüfung noch nicht (alte Server-Version).' },
+          {
+            level: 'warn',
+            text: 'Der Server unterstützt die ID-Prüfung noch nicht (alte Server-Version).',
+          },
         ],
       }),
     )

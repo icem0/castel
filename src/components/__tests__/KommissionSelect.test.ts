@@ -170,4 +170,98 @@ describe('KommissionSelect', () => {
     expect(w.find('a[href="/einstellungen/kommissionen"]').exists()).toBe(true)
     settings.stop()
   })
+
+  // --- Scan ("Sannen") ----------------------------------------------------
+
+  const AUFTRAG_PDF = `Arbeitsauftrag - Nr:Kd.-Nummer:
+Beleg-Datum:
+Ihre Anfrage vom:
+Unser Zeichen:
+Telefon Kunde:
+Telefon Hausmeister:
+Mobiltelefon Kunde:
+Seite:
+
+908454
+00012775
+05.03.2024
+
+cf
++49 (8031) 616970
+
++49 (160) 93768904`
+
+  it('sannen: legt aus eingefuegtem Text eine neue Kommission an und waehlt sie', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await warteAufStore()
+
+    const w = mount(KommissionSelect, {
+      props: { modelValue: '' },
+      global: { plugins: [pinia, i18n, routerMit()] },
+    })
+    await flushPromises()
+
+    await w.find('.kommission-scan textarea').setValue(AUFTRAG_PDF)
+    await w.find('.scan-erkennen').trigger('click')
+    await flushPromises()
+
+    expect(w.find('.scan-ergebnis strong').text()).toBe('908454')
+    expect(w.find('.scan-typ').text()).toBe('Arbeitsauftrag')
+
+    await w.find('.scan-uebernehmen').trigger('click')
+    await warteAufStore()
+
+    expect(settings.settings.kommissionen).toEqual(['908454'])
+    const emittiert = w.emitted('update:modelValue')
+    expect(emittiert?.[emittiert.length - 1]).toEqual(['908454'])
+    settings.stop()
+  })
+
+  it('sannen: matcht eine bestehende Kommission, ohne neu anzulegen', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await settings.setKommissionen(['AA 908454'])
+    await warteAufStore()
+
+    const w = mount(KommissionSelect, {
+      props: { modelValue: '' },
+      global: { plugins: [pinia, i18n, routerMit()] },
+    })
+    await flushPromises()
+
+    await w.find('.kommission-scan textarea').setValue(AUFTRAG_PDF)
+    await w.find('.scan-erkennen').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('Bestehende Kommission: AA 908454')
+
+    await w.find('.scan-uebernehmen').trigger('click')
+    await warteAufStore()
+
+    expect(settings.settings.kommissionen).toEqual(['AA 908454'])
+    const emittiert = w.emitted('update:modelValue')
+    expect(emittiert?.[emittiert.length - 1]).toEqual(['AA 908454'])
+    settings.stop()
+  })
+
+  it('sannen: meldet, wenn nichts erkannt wird', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await warteAufStore()
+
+    const w = mount(KommissionSelect, {
+      props: { modelValue: '' },
+      global: { plugins: [pinia, i18n, routerMit()] },
+    })
+    await flushPromises()
+
+    await w.find('.kommission-scan textarea').setValue('nur text ohne jeende zahl')
+    await w.find('.scan-erkennen').trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('Keine Auftragsnummer erkannt')
+    expect(w.find('.scan-uebernehmen').exists()).toBe(false)
+    settings.stop()
+  })
 })

@@ -138,19 +138,19 @@ export function useMindestbestandAlarm(
   }
 
   /**
- * Löst den vollständigen Alarm aus. Setzt VOR den Nebenwirkungen
- * den Cooldown-Anker — sonst käme ein Fehler in `alarmKlingeln` dazu,
- * dass der nächste Tick erneut versucht.
- *
- * Erwartet eine LIVE ausgewertete Zeile (siehe `MindestbestandZeile`),
- * nicht das rohe Event: Eine Zeile mit `offen === false` ist erledigt
- * (Bestand wieder aufgefüllt oder Schwelle entfernt) und löst deshalb
- * bewusst KEINEN Alarm aus. Genau das war der Fehler, den der Nutzer
- * gemeldet hat: die Glocke klingelte für einen Bestand von 3 weiter,
- * obwohl im Hauptlager 15 lagen.
- *
- * @returns `true`, wenn tatsächlich ein Signal ausgelöst wurde.
- */
+   * Löst den vollständigen Alarm aus. Setzt VOR den Nebenwirkungen
+   * den Cooldown-Anker — sonst käme ein Fehler in `alarmKlingeln` dazu,
+   * dass der nächste Tick erneut versucht.
+   *
+   * Erwartet eine LIVE ausgewertete Zeile (siehe `MindestbestandZeile`),
+   * nicht das rohe Event: Eine Zeile mit `offen === false` ist erledigt
+   * (Bestand wieder aufgefüllt oder Schwelle entfernt) und löst deshalb
+   * bewusst KEINEN Alarm aus. Genau das war der Fehler, den der Nutzer
+   * gemeldet hat: die Glocke klingelte für einen Bestand von 3 weiter,
+   * obwohl im Hauptlager 15 lagen.
+   *
+   * @returns `true`, wenn tatsächlich ein Signal ausgelöst wurde.
+   */
   async function signalAusloesen(
     zeile: MindestbestandZeile | null | undefined,
     optionen: SignalOptionen = {},

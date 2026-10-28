@@ -29,8 +29,24 @@ vi.mock('../../services/datanorm/lookup', async (importOriginal) => {
 })
 
 const LIEFERANTEN = [
-  { id: 'l1', name: 'Mueller GmbH', matchcode: 'MUE', aktiv: true, ort: null, format: 'auto' as const, geaendertAm: '' },
-  { id: 'l2', name: 'Sanitaer Meier', matchcode: 'MEI', aktiv: true, ort: null, format: 'auto' as const, geaendertAm: '' },
+  {
+    id: 'l1',
+    name: 'Mueller GmbH',
+    matchcode: 'MUE',
+    aktiv: true,
+    ort: null,
+    format: 'auto' as const,
+    geaendertAm: '',
+  },
+  {
+    id: 'l2',
+    name: 'Sanitaer Meier',
+    matchcode: 'MEI',
+    aktiv: true,
+    ort: null,
+    format: 'auto' as const,
+    geaendertAm: '',
+  },
 ]
 
 const TREFFER = {
@@ -323,7 +339,11 @@ describe('HerstellerKatalogDrawer', () => {
   it('schliesst den Drawer bei Wisch nach rechts über dem Schwellenwert', async () => {
     const w = start()
     await flushPromises()
-    const vm = w.wrapper.vm as { onTouchStart: (e: TouchEvent) => void; onTouchMove: (e: TouchEvent) => void; onTouchEnd: () => void }
+    const vm = w.wrapper.vm as {
+      onTouchStart: (e: TouchEvent) => void
+      onTouchMove: (e: TouchEvent) => void
+      onTouchEnd: () => void
+    }
     const startX = 100
     const preventDefault = vi.fn()
     vm.onTouchStart({
@@ -342,7 +362,11 @@ describe('HerstellerKatalogDrawer', () => {
   it('schliesst den Drawer nicht bei Wisch nach links oder unter dem Schwellenwert', async () => {
     const w = start()
     await flushPromises()
-    const vm = w.wrapper.vm as { onTouchStart: (e: TouchEvent) => void; onTouchMove: (e: TouchEvent) => void; onTouchEnd: () => void }
+    const vm = w.wrapper.vm as {
+      onTouchStart: (e: TouchEvent) => void
+      onTouchMove: (e: TouchEvent) => void
+      onTouchEnd: () => void
+    }
     const startX = 200
     vm.onTouchStart({
       touches: [{ clientX: startX, clientY: 200 }],
@@ -359,7 +383,11 @@ describe('HerstellerKatalogDrawer', () => {
   it('verhindert Default-Verhalten beim horizontalen Wisch (kein Browser-Back)', async () => {
     const w = start()
     await flushPromises()
-    const vm = w.wrapper.vm as { onTouchStart: (e: TouchEvent) => void; onTouchMove: (e: TouchEvent) => void; onTouchEnd: () => void }
+    const vm = w.wrapper.vm as {
+      onTouchStart: (e: TouchEvent) => void
+      onTouchMove: (e: TouchEvent) => void
+      onTouchEnd: () => void
+    }
     const preventDefault = vi.fn()
     vm.onTouchStart({
       touches: [{ clientX: 50, clientY: 200 }],
