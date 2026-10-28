@@ -10,6 +10,7 @@ import {
   typFuerKapazitaet,
 } from '../akkutausch/berechnung'
 import { parseAkkuTypen, serialisiereAkkuTypen } from '../akkutausch/serialisierung'
+import { DEFAULT_AKKU_GROESSEN } from '../akkutausch/defaults'
 import {
   artikelTitel,
   csvDatei,
@@ -389,6 +390,33 @@ describe('berechnePlanung', () => {
       jahr: 2025,
     })
     expect(planung.zeilen.map((z) => z.typ.id)).toEqual(['t1', 't2'])
+  })
+})
+
+describe('Standard-Akku-Größen', () => {
+  it('uses the standard battery types with their capacity corridors', () => {
+    expect(DEFAULT_AKKU_GROESSEN.map((d) => [d.kapazitaetAh, d.von, d.bis])).toEqual([
+      [1.2, 1, 1.9],
+      [2.3, 2, 2.9],
+      [3.4, 3, 3.9],
+      [5, 4.5, 5.9],
+      [7.2, 7, 7.9],
+      [9, 8.5, 9.9],
+      [12, 10, 12.9],
+      [18, 17, 19],
+      [26, 22, 28],
+      [45, 41, 49],
+      [63, 60, 69],
+    ])
+  })
+
+  it('passes the range validation (no overlaps, nominal inside the band)', () => {
+    const typen = DEFAULT_AKKU_GROESSEN.map((d, i) => ({
+      ...d,
+      id: `default-${i}`,
+      artikelId: null,
+    }))
+    expect(pruefeTypen(typen)).toEqual([])
   })
 })
 
