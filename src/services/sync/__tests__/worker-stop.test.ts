@@ -90,8 +90,16 @@ describe('stopSyncWorker', () => {
     fetchMock.mockClear()
     sichtbar(true)
 
-    // Genau ein Sync, nicht zwei (kein doppelt registrierter Listener).
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    // Genau ein Sync-Lauf, nicht zwei (kein doppelt registrierter Listener).
+    // Ein Sync-Lauf holt den Snapshot; der Restore-Epoche-Check davor ist
+    // ein eigener, zusaetzlicher Request — deshalb zaehlen wir die
+    // Snapshot-Requests und nicht alle Fetches.
+    const snapshotRequests = () =>
+      fetchMock.mock.calls.filter((c) => String(c[0]).includes('/api/sync/snapshot')).length
+    await vi.waitFor(() => expect(snapshotRequests()).toBe(1))
+    // Kein zweiter Sync-Lauf durch einen doppelt registrierten Listener.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(snapshotRequests()).toBe(1)
   })
 
   it('suspendSyncWorker() blocks a restart triggered by the app', async () => {

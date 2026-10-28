@@ -1703,8 +1703,10 @@ async function handleRestoreEpochMismatch(
   } catch (e) {
     // Netzwerkfehler oder Server ohne Unterstuetzung (404 vor der
     // Epoch-Einfuehrung): normale inkrementelle Sync weiterfuehren.
+    // Andere HTTP-Fehler (401/5xx) meldet der nachfolgende Sync ohnehin —
+    // sie sollen hier kein Log-Feuer erzeugen.
     const http = e instanceof SyncHttpError ? e.status : null
-    if (http !== 404) console.warn('[sync] Restore-Epoche-Check fehlgeschlagen:', e)
+    if (http === null) console.warn('[sync] Restore-Epoche-Check fehlgeschlagen:', e)
     return false
   }
   if (serverEpoch === null) return false
