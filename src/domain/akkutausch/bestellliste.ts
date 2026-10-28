@@ -22,6 +22,9 @@ export interface BestelllisteTextOptionen {
   gesamtLabel: string
 }
 
+/** Spaces between two columns — wide enough to stay readable in monospace. */
+const SPALTEN_ABSTAND = 4
+
 /**
  * Renders the order list as aligned plain text.
  *
@@ -45,30 +48,38 @@ export function bestelllisteText(
 
   const breiteGroesse = breite([optionen.kopfGroesse, ...tabelle.map((z) => z[0] ?? '')])
   const breiteKapazitaet = breite([optionen.kopfNennkapazitaet, ...tabelle.map((z) => z[1] ?? '')])
+  const breiteMenge = breite([optionen.kopfMenge, ...tabelle.map((z) => z[2] ?? '')])
 
   const inventurDatum = optionen.inventurDatum ? formatDatum(optionen.inventurDatum, locale) : '—'
   const inventurKuerzel = optionen.inventurKuerzel ? ` (${optionen.inventurKuerzel})` : ''
   const gesamt = zeilen.reduce((summe, zeile) => summe + zeile.menge, 0)
 
-  const zeilenText = tabelle.map((zeile) =>
+  /** One table line: the quantity column is right-aligned like a number. */
+  const tabellenZeile = (werte: readonly string[]): string =>
     [
-      (zeile[0] ?? '').padEnd(breiteGroesse),
-      (zeile[1] ?? '').padEnd(breiteKapazitaet),
-      zeile[2] ?? '',
-    ].join('  '),
-  )
+      (werte[0] ?? '').padEnd(breiteGroesse),
+      (werte[1] ?? '').padEnd(breiteKapazitaet),
+      (werte[2] ?? '').padStart(breiteMenge),
+    ]
+      .join(' '.repeat(SPALTEN_ABSTAND))
+      .trimEnd()
+
+  const kopf = tabellenZeile([
+    optionen.kopfGroesse,
+    optionen.kopfNennkapazitaet,
+    optionen.kopfMenge,
+  ])
+  const zeilenText = tabelle.map((zeile) => tabellenZeile(zeile))
+  const gesamtText = `${optionen.gesamtLabel}: ${formatZahl(gesamt, locale)}`
 
   return [
     `${optionen.titel} – Q${optionen.quartal} ${optionen.jahr}`,
     `${optionen.inventurLabel}: ${inventurDatum}${inventurKuerzel}`,
     '',
-    [
-      optionen.kopfGroesse.padEnd(breiteGroesse),
-      optionen.kopfNennkapazitaet.padEnd(breiteKapazitaet),
-      optionen.kopfMenge,
-    ].join('  '),
+    kopf,
+    '-'.repeat(kopf.length),
     ...zeilenText,
     '',
-    `${optionen.gesamtLabel}: ${formatZahl(gesamt, locale)}`,
+    gesamtText.padStart(kopf.length),
   ].join('\n')
 }

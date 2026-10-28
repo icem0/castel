@@ -47,6 +47,32 @@ describe('bestelllisteText', () => {
     expect(text).toContain('Gesamt: 10')
   })
 
+  it('trennt die Spalten breit und richtet die Menge rechts aus', () => {
+    const text = bestelllisteText([zeile(), zeile({ typId: 't-2', menge: 60 })], 'de', {
+      ...labels,
+      quartal: 4,
+      jahr: 2026,
+      inventurDatum: '2026-10-27',
+      inventurKuerzel: 'MM',
+    })
+    const zeilen = text.split('\n')
+    const kopf = zeilen[3]!
+    const trenn = zeilen[4]!
+
+    expect(kopf).toContain('Größe')
+    expect(kopf).toMatch(/ {4}/)
+    expect(trenn).toBe('-'.repeat(kopf.length))
+    // Menge rechts ausgerichtet: die Werte enden in derselben Spalte.
+    expect(zeilen[5]?.endsWith('4')).toBe(true)
+    expect(zeilen[6]?.endsWith('60')).toBe(true)
+    // Beide Zeilen enden an derselben (rechten) Kante.
+    expect(zeilen[6]?.length).toBe(zeilen[5]?.length)
+    // Summe am rechten Rand der Tabelle.
+    const letzte = zeilen[zeilen.length - 1]
+    expect(letzte?.endsWith('Gesamt: 64')).toBe(true)
+    expect(letzte?.length).toBe(kopf.length)
+  })
+
   it('kennzeichnet ein fehlendes Inventurdatum', () => {
     const text = bestelllisteText([zeile()], 'de', {
       ...labels,
