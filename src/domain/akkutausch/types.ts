@@ -104,6 +104,10 @@ export interface Planwarnung {
   bezug: string
   /** Additional value, e.g. the unmatched capacity. */
   wert?: string
+  /** Plant / system of the device, shown to disambiguate warnings. */
+  anlage?: string
+  /** Device ID — lets the UI jump straight to the entry for editing. */
+  netzteilId?: string
 }
 
 /** One row of the replacement plan (one configured battery size). */

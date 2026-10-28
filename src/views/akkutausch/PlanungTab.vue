@@ -14,6 +14,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAkkutauschStore } from '../../stores/akkutausch'
 import { useArtikelStore } from '../../stores/artikel'
+import { useAuthStore } from '../../stores/auth'
 import { useSettingsStore } from '../../stores/settings'
 import {
   csvDatei,
@@ -23,9 +24,14 @@ import {
 } from '../../domain/akkutausch/formatierung'
 import type { PlanwarnungCode } from '../../domain/akkutausch/types'
 
+const emit = defineEmits<{
+  (e: 'netzteil-oeffnen', netzteilId: string): void
+}>()
+
 const { t } = useI18n()
 const store = useAkkutauschStore()
 const artikelStore = useArtikelStore()
+const auth = useAuthStore()
 const settings = useSettingsStore()
 
 const locale = computed(() => settings.settings.sprache)
@@ -64,13 +70,16 @@ function feldLabel(key: string): string {
   }
 }
 
-function warnungText(code: PlanwarnungCode, bezug: string, wert?: string): string {
+function warnungText(code: PlanwarnungCode, bezug: string, wert?: string, anlage?: string): string {
+  // Include the plant number so identical device names stay distinguishable.
+  const bezugMitAnlage =
+    anlage && anlage !== bezug ? `${bezug} (${t('view.akkutausch.feldAnlage')}: ${anlage})` : bezug
   switch (code) {
     case 'netzteil_ungueltiges_datum':
-      return t('view.akkutausch.warnungDatum', { bezug })
+      return t('view.akkutausch.warnungDatum', { bezug: bezugMitAnlage })
     case 'netzteil_unvollstaendig':
       return t('view.akkutausch.warnungUnvollstaendig', {
-        bezug,
+        bezug: bezugMitAnlage,
         wert: (wert ?? '')
           .split(',')
           .filter((f) => f !== '')
@@ -78,7 +87,7 @@ function warnungText(code: PlanwarnungCode, bezug: string, wert?: string): strin
           .join(', '),
       })
     case 'netzteil_keine_groesse':
-      return t('view.akkutausch.warnungGroesseNetzteil', { bezug, wert })
+      return t('view.akkutausch.warnungGroesseNetzteil', { bezug: bezugMitAnlage, wert })
     case 'projektakku_keine_groesse':
       return t('view.akkutausch.warnungGroesseProjekt', { bezug, wert })
     case 'typ_ohne_artikel':
@@ -146,7 +155,15 @@ function csvExportieren(): void {
       <h2 class="card-titel">{{ t('view.akkutausch.warnungen') }}</h2>
       <ul>
         <li v-for="(w, i) in store.planung.warnungen" :key="i">
-          {{ warnungText(w.code, w.bezug, w.wert) }}
+          <span>{{ warnungText(w.code, w.bezug, w.wert, w.anlage) }}</span>
+          <button
+            v-if="auth.istAdmin && w.netzteilId"
+            type="button"
+            class="warn-link"
+            @click="emit('netzteil-oeffnen', w.netzteilId)"
+          >
+            {{ t('view.akkutausch.bearbeiten') }}
+          </button>
         </li>
       </ul>
     </div>
@@ -230,6 +247,21 @@ function csvExportieren(): void {
   padding-left: 1.1rem;
   color: var(--warning);
   font-size: 0.9rem;
+}
+
+.warn-card li {
+  margin-bottom: 0.25rem;
+}
+
+.warn-link {
+  margin-left: 0.4rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent, #2563eb);
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .warn-inline {

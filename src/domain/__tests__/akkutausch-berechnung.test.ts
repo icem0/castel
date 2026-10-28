@@ -308,6 +308,8 @@ describe('berechnePlanung', () => {
       'projektakku_keine_groesse',
     ])
     expect(planung.warnungen[0]?.bezug).toBe('Notlicht')
+    expect(planung.warnungen[0]?.anlage).toBe('Anlage 1')
+    expect(planung.warnungen[0]?.netzteilId).toBe('n1')
   })
 
   it('warns about invalid installation dates', () => {
@@ -336,6 +338,8 @@ describe('berechnePlanung', () => {
     expect(planung.warnungen[0]?.code).toBe('netzteil_unvollstaendig')
     expect(planung.warnungen[0]?.bezug).toBe('Ohne Angabe')
     expect(planung.warnungen[0]?.wert).toBe('kapazitaetAh,anzahl')
+    expect(planung.warnungen[0]?.anlage).toBe('Anlage 1')
+    expect(planung.warnungen[0]?.netzteilId).toBe('n1')
     // The device cannot be planned — it does not add any demand.
     expect(planung.zeilen[0]?.soll).toBe(0)
   })

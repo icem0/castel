@@ -233,6 +233,8 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
         code: 'netzteil_unvollstaendig',
         bezug: netzteil.name || netzteil.anlage,
         wert: fehlend.join(','),
+        anlage: netzteil.anlage,
+        netzteilId: netzteil.id,
       })
       continue
     }
@@ -243,6 +245,8 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
         code: 'netzteil_ungueltiges_datum',
         bezug: netzteil.name || netzteil.anlage,
         wert: netzteil.einbaudatum ?? undefined,
+        anlage: netzteil.anlage,
+        netzteilId: netzteil.id,
       })
       continue
     }
@@ -258,6 +262,8 @@ export function berechnePlanung(eingabe: PlanungEingabe): Planung {
         code: 'netzteil_keine_groesse',
         bezug: netzteil.name || netzteil.anlage,
         wert: String(kapazitaet),
+        anlage: netzteil.anlage,
+        netzteilId: netzteil.id,
       })
       continue
     }

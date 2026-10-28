@@ -31,6 +31,15 @@ import {
 } from '../../services/import/netzteil-import'
 import NetzteilForm from './NetzteilForm.vue'
 
+const props = defineProps<{
+  /** ID eines Netzteils, das direkt zum Bearbeiten geoeffnet werden soll. */
+  bearbeitenId?: string | null
+}>()
+
+const emit = defineEmits<{
+  (e: 'bearbeiten-uebernommen'): void
+}>()
+
 const { t } = useI18n()
 const store = useAkkutauschStore()
 const auth = useAuthStore()
@@ -125,6 +134,21 @@ function formSchliessen(): void {
   formOffen.value = false
   bearbeitet.value = null
 }
+
+/** Opens a device requested by another tab (e.g. a planning warning link). */
+function oeffneAngefragtesNetzteil(): void {
+  const id = props.bearbeitenId
+  if (!id) return
+  const netzteil = store.netzteile.find((n) => n.id === id && !n.geloescht)
+  if (!netzteil) return
+  bearbeitet.value = netzteil
+  formOffen.value = true
+  emit('bearbeiten-uebernommen')
+}
+
+watch(() => [props.bearbeitenId, store.netzteile] as const, oeffneAngefragtesNetzteil, {
+  immediate: true,
+})
 
 async function speichern(eingabe: Parameters<typeof store.netzteilSpeichern>[0]): Promise<void> {
   await store.netzteilSpeichern(eingabe)

@@ -25,6 +25,16 @@ const store = useAkkutauschStore()
 const artikelStore = useArtikelStore()
 
 const tab = ref<Tab>('planung')
+const netzteilBearbeitenId = ref<string | null>(null)
+
+function netzteilOeffnen(netzteilId: string): void {
+  netzteilBearbeitenId.value = netzteilId
+  tab.value = 'netzteile'
+}
+
+function netzteilBearbeitenUebernommen(): void {
+  netzteilBearbeitenId.value = null
+}
 
 onMounted(() => {
   store.start()
@@ -70,8 +80,12 @@ onMounted(() => {
       </div>
     </header>
 
-    <PlanungTab v-if="tab === 'planung'" />
-    <NetzteileTab v-else-if="tab === 'netzteile'" />
+    <PlanungTab v-if="tab === 'planung'" @netzteil-oeffnen="netzteilOeffnen" />
+    <NetzteileTab
+      v-else-if="tab === 'netzteile'"
+      :bearbeiten-id="netzteilBearbeitenId"
+      @bearbeiten-uebernommen="netzteilBearbeitenUebernommen"
+    />
     <ProjektakkusTab v-else />
   </section>
 </template>

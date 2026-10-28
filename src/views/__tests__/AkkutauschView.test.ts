@@ -156,4 +156,39 @@ describe('AkkutauschView', () => {
     expect(w.text()).toContain('Gesamt')
     expect(w.findAll('tbody tr').length).toBeGreaterThan(0)
   })
+
+  it('nennt die Anlage in Warnungen und springt in die Bearbeitung', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'admin',
+      email: 'admin@example.com',
+      rolle: 'admin',
+    } as never
+
+    const store = useAkkutauschStore(pinia)
+    await store.netzteilSpeichern({
+      anlage: 'A-4711',
+      objekt: 'Objekt 1',
+      name: 'Stromversorgung Zentrale',
+      einbaudatum: '2020-01-15',
+      intervallJahre: 5,
+      kapazitaetAh: 12.5,
+      anzahl: null,
+      gruppe: null,
+      plz: null,
+      vdsAnerkennung: null,
+      bemerkung: null,
+    })
+
+    const { w } = await setupView()
+    expect(w.text()).toContain('A-4711')
+
+    const bearbeiten = buttonMitText(w, 'Bearbeiten')
+    expect(bearbeiten).toBeDefined()
+    await bearbeiten?.trigger('click')
+    await flushPromises()
+
+    expect(w.text()).toContain('Netzteil bearbeiten')
+    expect(w.find('input').exists()).toBe(true)
+  })
 })
