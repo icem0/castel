@@ -105,6 +105,19 @@ watchEffect(() => {
   applyTheme(settings.settings.theme)
 })
 
+// The Akkutausch tool is opt-in. When the setting is off (or an admin just
+// disabled it), leave its routes immediately. Waiting for `geladen` prevents
+// a redirect while the local setting row is still being loaded.
+watch(
+  () => [settings.geladen, settings.settings.akkutauschAktiv, route.name] as const,
+  ([geladen, aktiv, name]) => {
+    if (!geladen || aktiv) return
+    if (name === 'akkutausch' || name === 'einstellungen-akku-typen') {
+      void router.replace({ name: 'dashboard' })
+    }
+  },
+)
+
 onMounted(() => {
   // Stores nur dann starten, wenn eine Session existiert. Das verhindert
   // data-leaks zwischen Login-Versuchen.
@@ -755,7 +768,9 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/">{{ t('app.nav.dashboard') }}</RouterLink>
         <RouterLink to="/artikel">{{ t('app.nav.artikel') }}</RouterLink>
         <RouterLink to="/buchungen">{{ t('app.nav.buchungen') }}</RouterLink>
-        <RouterLink to="/akkutausch">{{ t('app.nav.akkutausch') }}</RouterLink>
+        <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
+          t('app.nav.akkutausch')
+        }}</RouterLink>
         <RouterLink to="/scan" class="scan-link">{{ t('app.nav.scan') }}</RouterLink>
       </nav>
       <div class="header-right">
@@ -859,7 +874,7 @@ function formatRelativ(iso: string | null): string {
         <span class="bn-icon" aria-hidden="true">⇄</span>
         <span class="bn-label">{{ t('app.nav.buchungen') }}</span>
       </RouterLink>
-      <RouterLink to="/akkutausch" active-class="active">
+      <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch" active-class="active">
         <span class="bn-icon" aria-hidden="true">⚡</span>
         <span class="bn-label">{{ t('app.nav.akkutausch') }}</span>
       </RouterLink>

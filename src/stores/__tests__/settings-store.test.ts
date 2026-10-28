@@ -343,3 +343,41 @@ describe('useSettingsStore — theme (per User)', () => {
     store.stop()
   })
 })
+
+// The Akkutausch tool is opt-in and the switch is a global admin setting.
+describe('useSettingsStore — akkutauschAktiv (global)', () => {
+  beforeEach(() => {
+    resetDbForTests()
+    setDb(getDb())
+    setActivePinia(createPinia())
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  it('ist standardmäßig deaktiviert', async () => {
+    const store = useSettingsStore()
+    store.start()
+    await new Promise<void>((r) => setTimeout(r, 20))
+
+    expect(store.settings.akkutauschAktiv).toBe(false)
+
+    store.stop()
+  })
+
+  it('setAkkutauschAktiv schreibt eine globale Zeile (userId = "")', async () => {
+    const store = useSettingsStore()
+    store.start()
+
+    await store.setAkkutauschAktiv(true)
+
+    const row = await getDb().einstellungen.get(['akkutauschAktiv', ''])
+    expect(row?.value).toBe('true')
+    // Nicht an den User gebunden — die Sichtbarkeit gilt app-weit.
+    expect(await getDb().einstellungen.get(['akkutauschAktiv', 'user-x'])).toBeUndefined()
+
+    store.stop()
+  })
+})

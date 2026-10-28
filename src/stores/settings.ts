@@ -1,6 +1,6 @@
 // Settings-Store: liest die `einstellungen`-Tabelle reaktiv via Dexie liveQuery.
-// Speichert sprache, standardStandortId, artikelTypen, kommissionen, companyName,
-// barcodeTyp, onboardingSeen.
+// Speichert sprache, standardStandortId, artikelTypen, akkuTypen, akkutauschAktiv,
+// kommissionen, companyName, barcodeTyp, onboardingSeen.
 //
 // Diese Einstellungen sind Cross-Device-synchronisiert:
 //   - artikelTypen, kommissionen, companyName, barcodeTyp → userId = null (global)
@@ -46,6 +46,12 @@ export interface Settings {
    * Gespeichert als JSON-Array in der Einstellung `akkuTypen`.
    */
   akkuTypen: AkkuTyp[]
+  /**
+   * Globaler Schalter für die Sichtbarkeit des Akkutausch-Tools. Nur Admins
+   * dürfen ihn ändern; ist er aus, werden Navigation, Route und Einstiege
+   * ausgeblendet.
+   */
+  akkutauschAktiv: boolean
   /** Konfigurierbare Liste der Kommissionen/Projekte (Reihenfolge wie angelegt). */
   kommissionen: string[]
   /** Firmenzeichen, nur von Admins konfigurierbar. */
@@ -105,6 +111,7 @@ const DEFAULTS: Settings = {
   standardStandortId: null,
   artikelTypen: ['Zubehör', 'Verbrauchsmaterial'],
   akkuTypen: [],
+  akkutauschAktiv: false,
   kommissionen: [],
   companyName: '',
   barcodeTyp: 'CODE128',
@@ -118,6 +125,7 @@ const DEFAULTS: Settings = {
 const GLOBAL_KEYS = new Set<string>([
   'artikelTypen',
   'akkuTypen',
+  'akkutauschAktiv',
   'kommissionen',
   'companyName',
   'barcodeTyp',
@@ -186,6 +194,10 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     akkuTypen = parseAkkuTypen(akkuTypenRow.value)
   }
 
+  const akkutauschRow = byKey.get('akkutauschAktiv')
+  const akkutauschAktiv =
+    akkutauschRow !== undefined ? akkutauschRow.value === 'true' : DEFAULTS.akkutauschAktiv
+
   const spracheRow = byKey.get('sprache')
   // The client stores 'de' | 'en', but the server-side setup route writes
   // 'de-DE' | 'en-US' (see server/src/auth/setup-routes.ts). Both spellings
@@ -248,6 +260,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
     standardStandortId,
     artikelTypen: typen,
     akkuTypen,
+    akkutauschAktiv,
     kommissionen,
     companyName,
     barcodeTyp,
@@ -375,6 +388,14 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('akkuTypen', serialisiereAkkuTypen(typen))
   }
 
+  /**
+   * Aktiviert/deaktiviert das Akkutausch-Tool. Global und damit Admin-only —
+   * der Server lehnt Schreibversuche von normalen Usern ab.
+   */
+  async function setAkkutauschAktiv(aktiv: boolean): Promise<void> {
+    await setKey('akkutauschAktiv', aktiv ? 'true' : 'false')
+  }
+
   async function setKommissionen(typen: string[]): Promise<void> {
     await setKey('kommissionen', JSON.stringify(typen))
   }
@@ -418,6 +439,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setStandardStandort,
     setArtikelTypen,
     setAkkuTypen,
+    setAkkutauschAktiv,
     setKommissionen,
     setBarcodeTyp,
     setOnboardingSeen,

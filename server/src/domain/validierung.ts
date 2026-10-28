@@ -176,6 +176,7 @@ export const EINSTELLUNG_KEYS = [
   'standardStandortId',
   'artikelTypen',
   'akkuTypen',
+  'akkutauschAktiv',
   'kommissionen',
   'companyName',
   'barcodeTyp',

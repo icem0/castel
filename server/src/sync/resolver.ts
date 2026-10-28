@@ -1203,6 +1203,7 @@ async function resolveUmlagerungPaar(
 const ADMIN_ONLY_KEYS = new Set<string>([
   'artikelTypen',
   'akkuTypen',
+  'akkutauschAktiv',
   'companyName',
   'barcodeTyp',
 ])

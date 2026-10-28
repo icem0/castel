@@ -98,6 +98,16 @@ async function themeAendern(e: Event): Promise<void> {
   await settings.setTheme(ziel)
 }
 
+/**
+ * Enables/disables the Akkutausch tool for everyone. The store write is
+ * local-first; the sync worker pushes the global (admin-only) setting.
+ */
+async function akkutauschAendern(e: Event): Promise<void> {
+  const aktiv = (e.target as HTMLInputElement).checked
+  if (aktiv === settings.settings.akkutauschAktiv) return
+  await settings.setAkkutauschAktiv(aktiv)
+}
+
 onBeforeUnmount(() => {
   if (statusTimer !== null) {
     clearTimeout(statusTimer)
@@ -205,6 +215,19 @@ onBeforeUnmount(() => {
       <RouterLink to="/einstellungen/entwicklung">{{ t('view.settings.entwicklung') }}</RouterLink>
     </div>
 
+    <h2 v-if="auth.istAdmin">{{ t('view.settings.werkzeuge') }}</h2>
+    <div v-if="auth.istAdmin" class="card">
+      <label class="account-setting">
+        <span class="label">{{ t('view.settings.akkutauschAktiv') }}</span>
+        <input
+          type="checkbox"
+          :checked="settings.settings.akkutauschAktiv"
+          @change="akkutauschAendern"
+        />
+        <small class="hint">{{ t('view.settings.akkutauschAktivHint') }}</small>
+      </label>
+    </div>
+
     <h2>{{ t('view.settings.daten') }}</h2>
     <div class="card quick-links">
       <RouterLink to="/import">{{ t('view.settings.csvImport') }}</RouterLink>
@@ -215,13 +238,17 @@ onBeforeUnmount(() => {
     <h2>{{ t('view.settings.stammdaten') }}</h2>
     <div class="card quick-links">
       <RouterLink to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
-      <RouterLink to="/akkutausch">{{ t('view.akkutausch.h1') }}</RouterLink>
+      <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
+        t('view.akkutausch.h1')
+      }}</RouterLink>
       <RouterLink v-if="auth.istAdmin" to="/einstellungen/artikel-typen">{{
         t('view.artikelTypen.h1')
       }}</RouterLink>
-      <RouterLink v-if="auth.istAdmin" to="/einstellungen/akku-typen">{{
-        t('view.akkuTypen.h1')
-      }}</RouterLink>
+      <RouterLink
+        v-if="auth.istAdmin && settings.settings.akkutauschAktiv"
+        to="/einstellungen/akku-typen"
+        >{{ t('view.akkuTypen.h1') }}</RouterLink
+      >
       <RouterLink v-if="auth.istAdmin" to="/einstellungen/kommissionen">{{
         t('view.kommissionen.h1')
       }}</RouterLink>

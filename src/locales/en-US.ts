@@ -349,6 +349,10 @@ export default {
       administration: 'Administration',
       benutzerVerwaltung: 'User management',
       entwicklung: 'Development',
+      werkzeuge: 'Tools',
+      akkutauschAktiv: 'Enable battery replacement tool',
+      akkutauschAktivHint:
+        'When disabled, the battery replacement tool and its battery sizes are hidden from the navigation and settings. Only admins can change this setting.',
       daten: 'Data',
       csvImport: 'CSV import',
       backup: 'Backup &amp; Restore',

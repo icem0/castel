@@ -130,6 +130,11 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     expect(ueberschriften).not.toContain('Benachrichtigungen')
   })
 
+  it('zeigt den Akkutausch-Schalter nicht für normale User', () => {
+    const { w } = mountSettings()
+    expect(w.text()).not.toContain('Akkutausch-Tool aktivieren')
+  })
+
   it('wendet die neue Sprache sofort an (lokal + i18n-Locale, ohne "Speichern")', async () => {
     const { w, pinia } = mountSettings()
     const store = useSettingsStore(pinia)
@@ -194,5 +199,19 @@ describe('SettingsView — Benachrichtigungen (Admin)', () => {
     const link = karte.querySelector('a[href="/einstellungen/mindestbestand"]')
     expect(link).not.toBeNull()
     expect(link?.textContent).toContain('Alle Ereignisse anzeigen')
+  })
+
+  it('zeigt Admins den Akkutausch-Schalter in der Kategorie "Werkzeuge"', () => {
+    const { w } = mountSettings()
+
+    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Werkzeuge')
+    expect(ueberschrift).toBeDefined()
+
+    const karte = ueberschrift!.element.nextElementSibling as HTMLElement
+    expect(karte).not.toBeNull()
+    expect(karte.textContent).toContain('Akkutausch-Tool aktivieren')
+    expect(karte.querySelector('input[type="checkbox"]')).not.toBeNull()
+    // The tool is opt-in: the default checkbox state is unchecked.
+    expect((karte.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false)
   })
 })

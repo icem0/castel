@@ -204,6 +204,24 @@ describe('pushPayloadSchema — einstellung', () => {
     expect(r.success).toBe(true)
   })
 
+  it('akzeptiert gültigen upsert auf globalen Key "akkutauschAktiv"', () => {
+    const r = pushPayloadSchema.safeParse({
+      ops: [
+        {
+          op: 'upsert',
+          entity: 'einstellung',
+          payload: {
+            key: 'akkutauschAktiv',
+            userId: null,
+            value: 'true',
+            geaendertAm: '2025-04-14T11:00:00.000Z',
+          },
+        },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
   it('lehnt andere Ops als upsert ab (Settings sind nur upsert)', () => {
     const r = pushPayloadSchema.safeParse({
       ops: [

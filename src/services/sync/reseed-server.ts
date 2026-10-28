@@ -63,6 +63,7 @@ import {
 const GLOBAL_SETTING_KEYS = new Set<string>([
   'artikelTypen',
   'akkuTypen',
+  'akkutauschAktiv',
   'kommissionen',
   'companyName',
   'barcodeTyp',

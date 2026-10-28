@@ -359,6 +359,10 @@ export default {
       administration: 'Administration',
       benutzerVerwaltung: 'Benutzer-Verwaltung',
       entwicklung: 'Entwicklung',
+      werkzeuge: 'Werkzeuge',
+      akkutauschAktiv: 'Akkutausch-Tool aktivieren',
+      akkutauschAktivHint:
+        'Wenn deaktiviert, ist das Akkutausch-Tool samt Akku-Größen in Navigation und Einstellungen ausgeblendet. Nur Admins können diese Einstellung ändern.',
       daten: 'Daten',
       csvImport: 'CSV-Import',
       backup: 'Backup &amp; Restore',

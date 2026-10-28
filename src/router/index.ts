@@ -13,6 +13,7 @@
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useSettingsStore } from '../stores/settings'
 import { istMobilLayout, sollMobilenScannerStarten } from '../services/layout'
 
 import DashboardView from '../views/DashboardView.vue'
@@ -157,6 +158,7 @@ let scannerStartErledigt = false
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
+  const settings = useSettingsStore()
   const isPublic = to.meta.public === true
   const requiresAdmin = to.meta.requiresAdmin === true
 
@@ -173,6 +175,16 @@ router.beforeEach((to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
   if (requiresAdmin && !auth.istAdmin) {
+    return { name: 'dashboard' }
+  }
+
+  // Akkutausch is opt-in. The App.vue watcher catches the case where the
+  // setting finishes loading after this guard ran.
+  if (
+    settings.geladen &&
+    !settings.settings.akkutauschAktiv &&
+    (to.name === 'akkutausch' || to.name === 'einstellungen-akku-typen')
+  ) {
     return { name: 'dashboard' }
   }
 
