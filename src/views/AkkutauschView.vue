@@ -14,6 +14,7 @@ import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAkkutauschStore } from '../stores/akkutausch'
 import { useArtikelStore } from '../stores/artikel'
+import { useHerstellerStore } from '../stores/hersteller'
 import PlanungTab from './akkutausch/PlanungTab.vue'
 import NetzteileTab from './akkutausch/NetzteileTab.vue'
 import ProjektakkusTab from './akkutausch/ProjektakkusTab.vue'
@@ -23,6 +24,7 @@ type Tab = 'planung' | 'netzteile' | 'projektakkus'
 const { t } = useI18n()
 const store = useAkkutauschStore()
 const artikelStore = useArtikelStore()
+const herstellerStore = useHerstellerStore()
 
 const tab = ref<Tab>('planung')
 const netzteilBearbeitenId = ref<string | null>(null)
@@ -39,6 +41,8 @@ function netzteilBearbeitenUebernommen(): void {
 onMounted(() => {
   store.start()
   artikelStore.start()
+  // Die Hersteller-Stammdaten liefern den Bestellkontakt der Akku-Artikel.
+  herstellerStore.start()
 })
 </script>
 

@@ -16,9 +16,17 @@ import { useI18n } from 'vue-i18n'
 import { useAkkutauschStore } from '../../stores/akkutausch'
 import { useArtikelStore } from '../../stores/artikel'
 import { useAuthStore } from '../../stores/auth'
+import { useHerstellerStore } from '../../stores/hersteller'
 import { useSettingsStore } from '../../stores/settings'
 import { useToastStore } from '../../stores/toast'
 import { bestelllisteText } from '../../domain/akkutausch/bestellliste'
+import {
+  bestelloptionText,
+  ermittleBestelloptionen,
+  type Bestelloption,
+  type OhneKontaktGrund,
+} from '../../domain/akkutausch/bestelloptionen'
+import { bestellMailZiel, bestellWebZiel, type BestellKontakt } from '../../domain/bestellung'
 import {
   csvDatei,
   formatDatum,
@@ -36,6 +44,7 @@ const { t } = useI18n()
 const store = useAkkutauschStore()
 const artikelStore = useArtikelStore()
 const auth = useAuthStore()
+const herstellerStore = useHerstellerStore()
 const settings = useSettingsStore()
 const toast = useToastStore()
 
@@ -43,6 +52,9 @@ const locale = computed(() => settings.settings.sprache)
 
 const kopiert = ref(false)
 const bestelltLaeuft = ref(false)
+
+/** The order options are shown after the "Bestellen" button was pressed. */
+const bestellOptionenOffen = ref(false)
 
 /** Inventory cut-off of the battery articles (last four weeks). */
 const inventur = computed(() => store.inventurStatus)
@@ -174,6 +186,100 @@ const gesamtMenge = computed(() =>
 )
 
 /**
+ * Order options of the current order list: every battery is resolved to its
+ * article and its supplier, the lines are grouped by supplier.
+ */
+const bestellOptionen = computed(() =>
+  ermittleBestelloptionen({
+    zeilen: store.planung.bestellzeilen,
+    typen: store.typen,
+    artikel: new Map(artikelStore.artikel.map((a) => [a.id, a] as const)),
+    hersteller: new Map(herstellerStore.hersteller.map((h) => [h.id, h] as const)),
+  }),
+)
+
+/** Contact data of a supplier (order mail and/or order website). */
+function kontaktVon(option: Bestelloption): BestellKontakt {
+  return {
+    bestellEmail: option.bestellEmail,
+    bestellWebseite: option.bestellWebseite,
+  }
+}
+
+/** Subject of the order mail. */
+function mailBetreff(): string {
+  return t('view.akkutausch.bestellMailBetreff', { quartal: store.quartal, jahr: store.jahr })
+}
+
+/** Order text of one supplier — prefilled into the order mail. */
+function mailText(option: Bestelloption): string {
+  return bestelloptionText(option, {
+    quartal: store.quartal,
+    jahr: store.jahr,
+    inventurDatum: inventur.value.datum,
+    inventurKuerzel: inventur.value.kuerzel,
+    locale: locale.value,
+    titel: t('view.akkutausch.bestellliste'),
+    inventurLabel: t('view.akkutausch.inventurStichtag'),
+    kopfArtikel: t('view.akkutausch.bestellOptionArtikel'),
+    kopfGroesse: t('view.akkutausch.groesse'),
+    kopfMenge: t('view.akkutausch.menge'),
+    kopfBestellnummer: t('view.akkutausch.bestellOptionBestellnummer'),
+    gesamtLabel: t('view.akkutausch.gesamt'),
+  })
+}
+
+/** Mail link of a supplier — `null` when no order mail is stored. */
+function mailHref(option: Bestelloption): string | null {
+  const ziel = bestellMailZiel(kontaktVon(option), {
+    betreff: mailBetreff(),
+    text: mailText(option),
+  })
+  return ziel?.href ?? null
+}
+
+/** Website link of a supplier — `null` when no website is stored. */
+function webHref(option: Bestelloption): string | null {
+  return bestellWebZiel(kontaktVon(option))?.href ?? null
+}
+
+/**
+ * Starts the order: the options are shown and — with a single supplier —
+ * the order mail is opened right away. With several suppliers every option
+ * gets its own link.
+ */
+function bestellen(): void {
+  bestellOptionenOffen.value = true
+  const optionen = bestellOptionen.value.optionen
+  if (optionen.length !== 1) return
+  const option = optionen[0]
+  if (!option) return
+
+  const mail = bestellMailZiel(kontaktVon(option), {
+    betreff: mailBetreff(),
+    text: mailText(option),
+  })
+  if (mail) {
+    window.location.href = mail.href
+    return
+  }
+  const web = bestellWebZiel(kontaktVon(option))
+  if (web) window.open(web.href, '_blank', 'noopener')
+}
+
+/** Label of an order line that cannot be ordered. */
+function ohneKontaktText(grund: OhneKontaktGrund): string {
+  switch (grund) {
+    case 'kein_artikel':
+      return t('view.akkutausch.bestellOptionGrundKeinArtikel')
+    case 'kein_hersteller':
+      return t('view.akkutausch.bestellOptionGrundKeinHersteller')
+    case 'kein_bestellkontakt':
+      return t('view.akkutausch.bestellOptionGrundKeinKontakt')
+  }
+}
+
+/**
  * Prints only the order list. The portal is teleported to <body> and the
  * `druck-bestellliste` body class hides the app in the print stylesheet.
  */
@@ -231,7 +337,7 @@ async function kopieren(): Promise<void> {
 }
 
 /** Archives the current plan as "ordered" (admin only, once per quarter). */
-async function bestellen(): Promise<void> {
+async function bestellungBestaetigen(): Promise<void> {
   if (bestelltLaeuft.value || bestellung.value || !inventur.value.gueltig) return
   if (
     !window.confirm(
@@ -433,18 +539,95 @@ function csvExportieren(): void {
           {{ kopiert ? t('view.akkutausch.kopiert') : t('view.akkutausch.kopieren') }}
         </button>
         <button type="button" @click="drucken">{{ t('view.akkutausch.drucken') }}</button>
+        <button type="button" class="primary" @click="bestellen">
+          {{ t('view.akkutausch.bestellOptionen') }}
+        </button>
         <button
           v-if="auth.istAdmin && !bestellung"
           type="button"
-          class="primary"
           :disabled="!inventur.gueltig || bestelltLaeuft"
           :title="!inventur.gueltig ? t('view.akkutausch.bestellenInventurFehlt') : undefined"
-          @click="bestellen"
+          @click="bestellungBestaetigen"
         >
           {{
             bestelltLaeuft ? t('view.akkutausch.bestellenLaeuft') : t('view.akkutausch.bestellen')
           }}
         </button>
+      </div>
+
+      <div v-if="bestellOptionenOffen" class="bestell-optionen">
+        <h3 class="card-titel">{{ t('view.akkutausch.bestellOptionenTitel') }}</h3>
+
+        <p
+          v-if="bestellOptionen.optionen.length === 0 && bestellOptionen.ohneKontakt.length === 0"
+          class="empty-state"
+        >
+          {{ t('view.akkutausch.bestellOptionenLeer') }}
+        </p>
+
+        <div
+          v-for="option in bestellOptionen.optionen"
+          :key="option.herstellerId"
+          class="bestell-option"
+        >
+          <div class="option-kopf">
+            <strong>{{ option.herstellerName }}</strong>
+            <span
+              >{{ t('view.akkutausch.gesamt') }}: {{ formatZahl(option.gesamtMenge, locale) }}</span
+            >
+          </div>
+          <table class="data">
+            <thead>
+              <tr>
+                <th>{{ t('view.akkutausch.bestellOptionArtikel') }}</th>
+                <th>{{ t('view.akkutausch.groesse') }}</th>
+                <th>{{ t('view.akkutausch.menge') }}</th>
+                <th>{{ t('view.akkutausch.bestellOptionBestellnummer') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="z in option.zeilen" :key="z.artikelId">
+                <td>{{ z.artikelTitel }}</td>
+                <td>{{ formatKapazitaetBereich(z.von, z.bis, locale) }}</td>
+                <td>{{ z.menge }}</td>
+                <td>{{ z.bestellnummer ?? '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="option-aktionen">
+            <a v-if="mailHref(option)" :href="mailHref(option) ?? undefined" class="btn">
+              {{ t('view.akkutausch.bestellOptionMail', { hersteller: option.herstellerName }) }}
+            </a>
+            <a
+              v-if="webHref(option)"
+              :href="webHref(option) ?? undefined"
+              target="_blank"
+              rel="noopener"
+              class="btn"
+            >
+              {{ t('view.akkutausch.bestellOptionWeb', { hersteller: option.herstellerName }) }}
+            </a>
+          </div>
+        </div>
+
+        <div v-if="bestellOptionen.ohneKontakt.length > 0" class="bestell-hinweis">
+          <strong>{{ t('view.akkutausch.bestellOptionenOhneKontakt') }}</strong>
+          <ul>
+            <li v-for="(z, i) in bestellOptionen.ohneKontakt" :key="i">
+              <span>
+                {{ z.artikelTitel ?? t('view.akkutausch.bestellOptionOhneArtikel') }}
+                — {{ formatKapazitaetBereich(z.von, z.bis, locale) }} ·
+                {{ formatZahl(z.menge, locale) }}
+              </span>
+              <span class="option-grund">{{ ohneKontaktText(z.grund) }}</span>
+            </li>
+          </ul>
+          <RouterLink v-if="auth.istAdmin" to="/einstellungen/hersteller" class="option-link">
+            {{ t('view.akkutausch.bestellOptionenHerstellerPflegen') }}
+          </RouterLink>
+        </div>
+
+        <p class="plan-hinweis">{{ t('view.akkutausch.bestellOptionenHinweis') }}</p>
       </div>
     </div>
 
@@ -659,5 +842,63 @@ function csvExportieren(): void {
 
 .archiv-eintrag .data {
   margin-top: 0.5rem;
+}
+
+.bestell-optionen {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.bestell-option {
+  margin-bottom: 1rem;
+}
+
+.option-kopf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.option-kopf span {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.option-aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.bestell-hinweis {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  font-size: 0.9rem;
+}
+
+.bestell-hinweis ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.bestell-hinweis li {
+  margin-bottom: 0.2rem;
+}
+
+.option-grund {
+  color: var(--text-muted);
+}
+
+.option-link {
+  display: inline-block;
+  margin-top: 0.35rem;
+  color: var(--accent, #2563eb);
+  font-size: 0.9rem;
 }
 </style>
