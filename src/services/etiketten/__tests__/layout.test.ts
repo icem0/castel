@@ -10,6 +10,7 @@ import {
   etikettenJeSeite,
   randPreset,
   seitenAnzahl,
+  startfeldVersatz,
 } from '../presets'
 
 describe('etiketten/presets', () => {
@@ -85,5 +86,54 @@ describe('etiketten/layout', () => {
 
     const unsinnig = { ...benutzerdefiniertesPreset(), cols: 0 }
     expect(presetWarnungen(unsinnig)).toContain('cols')
+  })
+})
+
+describe('etiketten/startfeld', () => {
+  it('berechnet den Versatz aus dem Startfeld', () => {
+    expect(startfeldVersatz(1, PRESET_21ER)).toBe(0)
+    expect(startfeldVersatz(7, PRESET_21ER)).toBe(6)
+    expect(startfeldVersatz(21, PRESET_21ER)).toBe(20)
+  })
+
+  it('begrenzt den Versatz auf die Feldzahl des Bogens', () => {
+    expect(startfeldVersatz(0, PRESET_21ER)).toBe(0)
+    expect(startfeldVersatz(999, PRESET_21ER)).toBe(20)
+    expect(startfeldVersatz(Number.NaN, PRESET_21ER)).toBe(0)
+  })
+
+  it('startet ab dem gewaehlten Feld (Feld 1 = oben links)', () => {
+    // 21er-Bogen: 3 Spalten — Feld 7 ist die erste Spalte der dritten Zeile.
+    const pos = planeEtiketten(4, PRESET_21ER, 7)
+    expect(pos[0]).toMatchObject({ seite: 1, spalte: 0, zeile: 2 })
+    expect(pos[1]).toMatchObject({ seite: 1, spalte: 1, zeile: 2 })
+    expect(pos[2]).toMatchObject({ seite: 1, spalte: 2, zeile: 2 })
+    expect(pos[3]).toMatchObject({ seite: 1, spalte: 0, zeile: 3 })
+  })
+
+  it('nutzt auf der ersten Seite nur die freien Felder', () => {
+    const pos = planeEtiketten(15, PRESET_21ER, 7)
+    expect(pos).toHaveLength(15)
+    expect(pos[14]).toMatchObject({ seite: 1, zeile: 6, spalte: 2 })
+
+    // Das 16. Etikett passt nicht mehr auf die erste Seite.
+    const pos2 = planeEtiketten(16, PRESET_21ER, 7)
+    expect(pos2[15]).toMatchObject({ seite: 2, zeile: 0, spalte: 0 })
+  })
+
+  it('zaehlt Seiten mit dem verkleinerten ersten Bogen', () => {
+    expect(seitenAnzahl(15, PRESET_21ER, 7)).toBe(1)
+    expect(seitenAnzahl(16, PRESET_21ER, 7)).toBe(2)
+    expect(seitenAnzahl(21, PRESET_21ER, 7)).toBe(2)
+    expect(seitenAnzahl(36, PRESET_21ER, 7)).toBe(2)
+    expect(seitenAnzahl(37, PRESET_21ER, 7)).toBe(3)
+    // Ohne Startfeld unveraendert.
+    expect(seitenAnzahl(21, PRESET_21ER, 1)).toBe(1)
+  })
+
+  it('startet im Listen-Layout ab der gewaehlten Zeile', () => {
+    const pos = planeEtiketten(3, PRESET_LISTE, 5)
+    expect(pos[0]).toMatchObject({ seite: 1, zeile: 4, spalte: 0 })
+    expect(pos[2]).toMatchObject({ seite: 1, zeile: 6, spalte: 0 })
   })
 })

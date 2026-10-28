@@ -9,6 +9,7 @@ import {
   A4_HOEHE_MM,
   etikettenJeSeite,
   randPreset,
+  startfeldVersatz,
   type EtikettenPreset,
 } from './presets'
 
@@ -32,15 +33,28 @@ export interface EtikettPosition {
 /**
  * Verteilt `anzahl` Etiketten auf die Seiten des Bogens.
  * Die Reihenfolge entspricht der Auswahl-Reihenfolge des Aufrufers.
+ *
+ * `startFeld` ist 1-basiert und zaehlt die Felder des Bogens zeilenweise
+ * von links oben (Feld 1 = oben links). Ein Startfeld > 1 laesst die
+ * bereits benutzten Felder eines angebrochenen Bogens frei; der Versatz
+ * gilt nur fuer die ERSTE Seite — die Folgeseiten sind voll.
  */
-export function planeEtiketten(anzahl: number, p: EtikettenPreset): EtikettPosition[] {
+export function planeEtiketten(
+  anzahl: number,
+  p: EtikettenPreset,
+  startFeld = 1,
+): EtikettPosition[] {
   const out: EtikettPosition[] = []
   if (anzahl <= 0) return out
   const { marginX, marginY } = randPreset(p)
   const jeSeite = etikettenJeSeite(p)
+  const versatz = startfeldVersatz(startFeld, p)
   for (let i = 0; i < anzahl; i++) {
-    const seite = Math.floor(i / jeSeite)
-    const index = i % jeSeite
+    // Laufindex ueber alle Seiten inklusive Versatz: der Wrap auf die
+    // naechste Seite faellt automatisch, weil `slot % jeSeite` zuruecksetzt.
+    const slot = i + versatz
+    const seite = Math.floor(slot / jeSeite)
+    const index = slot % jeSeite
     const spalte = index % Math.max(1, p.cols)
     const zeile = Math.floor(index / Math.max(1, p.cols))
     out.push({

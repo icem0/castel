@@ -158,8 +158,32 @@ export function etikettenJeSeite(p: EtikettenPreset): number {
   return Math.max(1, p.cols * p.rows)
 }
 
-/** Anzahl Seiten fuer `anzahl` Etiketten. */
-export function seitenAnzahl(anzahl: number, p: EtikettenPreset): number {
+/**
+ * Anzahl der Felder, die auf der ersten Seite uebersprungen werden.
+ *
+ * `startFeld` ist 1-basiert und zaehlt die Felder des Bogens zeilenweise
+ * von links oben (Feld 1 = oben links). Ein Startfeld > 1 laesst die
+ * bereits benutzten Felder eines angebrochenen Bogens frei; der Versatz
+ * gilt nur fuer die ERSTE Seite — die Folgeseiten sind voll.
+ *
+ * Werte ausserhalb [1, etikettenJeSeite] werden begrenzt.
+ */
+export function startfeldVersatz(startFeld: number, p: EtikettenPreset): number {
+  const jeSeite = etikettenJeSeite(p)
+  if (!Number.isFinite(startFeld)) return 0
+  const feld = Math.floor(startFeld)
+  return Math.min(Math.max(feld - 1, 0), jeSeite - 1)
+}
+
+/**
+ * Anzahl Seiten fuer `anzahl` Etiketten.
+ *
+ * `startFeld` (1-basiert, von links oben) verkleinert die erste Seite um
+ * die uebersprungenen Felder — die Folgeseiten sind voll.
+ */
+export function seitenAnzahl(anzahl: number, p: EtikettenPreset, startFeld = 1): number {
   if (anzahl <= 0) return 0
-  return Math.ceil(anzahl / etikettenJeSeite(p))
+  const jeSeite = etikettenJeSeite(p)
+  const versatz = startfeldVersatz(startFeld, p)
+  return Math.ceil((anzahl + versatz) / jeSeite)
 }

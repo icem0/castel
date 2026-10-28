@@ -19,6 +19,11 @@ import {
   type EtikettenPreset,
 } from '../services/etiketten/presets'
 import { presetWarnungen } from '../services/etiketten/layout'
+import {
+  ladeStartFeld,
+  normalisiereStartFeld,
+  speichereStartFeld,
+} from '../services/etiketten/startfeld'
 import { downloadPdf, erzeugeEtikettenPdf, type EtikettDaten } from '../services/etiketten/pdf'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 import ArtikelLink from '../components/ArtikelLink.vue'
@@ -130,7 +135,43 @@ const preset = computed<EtikettenPreset>(() => {
 
 const layoutWarnungen = computed(() => presetWarnungen(preset.value))
 const etikettenProSeite = computed(() => etikettenJeSeite(preset.value))
-const seiten = computed(() => seitenAnzahl(auswahlAnzahl.value, preset.value))
+
+// ---------- Startfeld (angebrochener Bogen) ----------
+//
+// Das Startfeld zaehlt die Felder des Bogens zeilenweise von links oben
+// (Feld 1 = oben links). Alles davor bleibt auf der ERSTEN Seite leer —
+// praktisch, wenn ein Bogen schon teilweise bedruckt ist. Die Folgeseiten
+// sind voll.
+
+/** Rohwert aus dem Eingabefeld (kann leer/ungueltig sein). */
+const startFeld = ref<number | string>(ladeStartFeld(presetId.value))
+/** Hoechstes gueltiges Startfeld = Anzahl Felder je Bogen. */
+const startFeldMax = computed(() => etikettenProSeite.value)
+/** Tatsaechlich verwendetes Startfeld (bereinigt/begrenzt). */
+const startFeldEffektiv = computed(() => normalisiereStartFeld(startFeld.value, startFeldMax.value))
+/** Anzahl der uebersprungenen Felder auf der ersten Seite. */
+const startFeldUebersprungen = computed(() => startFeldEffektiv.value - 1)
+/** Etiketten, die auf der ersten Seite noch Platz haben. */
+const startFeldPlatz = computed(() => startFeldMax.value - startFeldUebersprungen.value)
+/** true, wenn die Eingabe ueber der Feldzahl des Bogens liegt. */
+const startFeldUeberlauf = computed(() => {
+  const roh = typeof startFeld.value === 'number' ? startFeld.value : Number.NaN
+  return Number.isFinite(roh) && roh > startFeldMax.value
+})
+
+/** Speichert das Startfeld des aktuellen Bogen-Layouts. */
+function startFeldSpeichern(): void {
+  speichereStartFeld(presetId.value, startFeldEffektiv.value)
+}
+
+// Beim Wechsel des Bogen-Layouts das dort gespeicherte Startfeld laden.
+watch(presetId, (id) => {
+  startFeld.value = ladeStartFeld(id)
+})
+
+const seiten = computed(() =>
+  seitenAnzahl(auswahlAnzahl.value, preset.value, startFeldEffektiv.value),
+)
 
 // ---------- Aktionen ----------
 
@@ -155,7 +196,12 @@ async function pdfErzeugen(): Promise<void> {
         typ: a.typ,
         barcode: a.barcode,
       }))
-    const ergebnis = await erzeugeEtikettenPdf(daten, preset.value, settings.settings.barcodeTyp)
+    const ergebnis = await erzeugeEtikettenPdf(
+      daten,
+      preset.value,
+      settings.settings.barcodeTyp,
+      startFeldEffektiv.value,
+    )
     downloadPdf(ergebnis.blob, ergebnis.dateiname)
     pdfWarnungen.value = ergebnis.warnungen
     aktionsHinweis.value = t('view.barcode.serie.pdfFertig', {
@@ -391,6 +437,36 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
             </option>
           </select>
         </label>
+
+        <label class="form-label">
+          <span>{{ t('view.barcode.serie.startFeld') }}</span>
+          <input
+            v-model.number="startFeld"
+            type="number"
+            min="1"
+            :max="startFeldMax"
+            @change="startFeldSpeichern"
+          />
+        </label>
+        <p class="hint">{{ t('view.barcode.serie.startFeldHint') }}</p>
+        <p v-if="startFeldUeberlauf" class="hint fehler">
+          {{
+            t('view.barcode.serie.startFeldUeberlauf', {
+              wert: startFeld,
+              max: startFeldMax,
+            })
+          }}
+        </p>
+        <p v-else-if="startFeldEffektiv > 1" class="hint">
+          {{
+            t('view.barcode.serie.startFeldInfo', {
+              feld: startFeldEffektiv,
+              proSeite: startFeldMax,
+              uebersprungen: startFeldUebersprungen,
+              platz: startFeldPlatz,
+            })
+          }}
+        </p>
 
         <div v-if="presetId === PRESET_ID_BENUTZERDEFINIERT" class="custom-grid">
           <label>

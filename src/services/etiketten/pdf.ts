@@ -13,7 +13,7 @@
 
 import JsBarcode from 'jsbarcode'
 import { planeEtiketten } from './layout'
-import { etikettenJeSeite, type EtikettenPreset } from './presets'
+import { seitenAnzahl, type EtikettenPreset } from './presets'
 import type { BarcodeTyp } from '../../stores/settings'
 
 /** Aufloesung der eingebetteten Barcode-Bilder. */
@@ -157,11 +157,15 @@ function datumHeute(): string {
  * Erzeugt das A4-PDF der Auswahl.
  * `auswahl` = Artikel in der Reihenfolge, in der sie etikettiert werden
  * sollen. Artikel ohne Barcode werden uebersprungen (mit Warnung).
+ *
+ * `startFeld` (1-basiert, von links oben) ueberspringt auf der ersten
+ * Seite die bereits benutzten Felder eines angebrochenen Bogens.
  */
 export async function erzeugeEtikettenPdf(
   auswahl: EtikettDaten[],
   preset: EtikettenPreset,
   format: BarcodeTyp,
+  startFeld = 1,
 ): Promise<PdfErgebnis> {
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
@@ -173,8 +177,7 @@ export async function erzeugeEtikettenPdf(
     return false
   })
 
-  const positionen = planeEtiketten(mitBarcode.length, preset)
-  const jeSeite = etikettenJeSeite(preset)
+  const positionen = planeEtiketten(mitBarcode.length, preset, startFeld)
   const istListe = preset.layout === 'liste'
 
   // Etiketten-Box: Innenraum, Textplatz und Barcode-Flaeche.
@@ -257,7 +260,7 @@ export async function erzeugeEtikettenPdf(
   return {
     blob,
     dateiname,
-    seiten: Math.max(1, Math.ceil(mitBarcode.length / jeSeite)),
+    seiten: Math.max(1, seitenAnzahl(mitBarcode.length, preset, startFeld)),
     warnungen,
   }
 }
