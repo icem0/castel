@@ -21,6 +21,7 @@ import { istMobilLayout, MOBILE_LAYOUT_QUERY } from './services/layout'
 import { version, commit, branch, buildDate } from './version'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
 import AppToast from './components/AppToast.vue'
+import SyncDiagnostics from './components/SyncDiagnostics.vue'
 import MindestbestandGlocke from './views/components/MindestbestandGlocke.vue'
 
 // Responsive Layout-Umschaltung: <html data-layout="mobile|desktop">.
@@ -458,6 +459,31 @@ function buildErrorText(): string {
       }
     }
   }
+  const d = st.diagnostics
+  if (d) {
+    parts.push(`Fehleranalyse (${d.at}):`)
+    for (const finding of d.findings) parts.push(`  [${finding.level}] ${finding.text}`)
+    for (const t of d.tables) {
+      parts.push(`  Tabelle ${t.table}: lokal ${t.local}, Server ${t.server ?? '–'}`)
+    }
+    if (d.pendingTotal > 0) {
+      parts.push(`  Ausstehende Ops: ${d.pendingTotal}`)
+      for (const p of d.pendingItems) {
+        parts.push(
+          `    ${p.entity}/${p.op} ${p.label || p.payloadId} (Versuch ${p.attempts})` +
+            (p.lastError ? ` → ${p.lastError}` : ''),
+        )
+      }
+    }
+    if (d.missingBookingsTotal > 0) {
+      parts.push(`  Buchungen ohne Server-Daten: ${d.missingBookingsTotal}`)
+      for (const b of d.missingBookings) parts.push(`    ${b.id} ${b.label} ${b.reason ?? ''}`)
+    }
+    if (d.localOnlyTotal > 0) {
+      parts.push(`  Nur lokal vorhanden: ${d.localOnlyTotal}`)
+      for (const r of d.localOnly) parts.push(`    ${r.entity} ${r.id} — ${r.label}`)
+    }
+  }
   return parts.join('\n') + `\n\nVersion: v${version}`
 }
 
@@ -541,7 +567,11 @@ const syncBannerSichtbar = computed(
       sync.status.status === 'offline' ||
       sync.status.status === 'origin-unavailable' ||
       sync.status.quarantined > 0 ||
-      nichtGespeicherteBuchungen.value.length > 0),
+      nichtGespeicherteBuchungen.value.length > 0 ||
+      // Die Fehleranalyse meldet Fehler, die der Sync-Status allein nicht
+      // sieht (z. B. Datensätze, die nur lokal existieren). Auch die sollen
+      // sofort sichtbar sein — nicht erst nach drei Sync-Läufen.
+      (sync.status.diagnostics?.findings.some((f) => f.level === 'error') ?? false)),
 )
 
 /**
@@ -554,11 +584,14 @@ const syncFehlerDetail = computed((): string | null => {
   const f = st.lastFailure
   const message = st.lastError ?? f?.message ?? null
   const code = st.lastErrorCode ?? f?.code ?? null
-  if (!message && !code) return null
+  // Fallback: der konkrete Befund aus der Fehleranalyse.
+  const befund = st.diagnostics?.findings.find((x) => x.level === 'error')
+  if (!message && !code && !befund) return null
 
   const parts: string[] = []
   if (code) parts.push(`[${code}]`)
   if (message) parts.push(message)
+  if (!message && befund) parts.push(befund.text)
   if (f?.status !== null && f?.status !== undefined) parts.push(`HTTP ${f.status}`)
   const sample = f?.sampleErrors?.[0]
   if (sample && !(message ?? '').includes(sample.message)) {
@@ -655,6 +688,11 @@ const syncZustandLabel = computed((): string => {
 const syncZustandTitel = computed(() => {
   const basis = `DB-Sync: ${syncZustandLabel.value}`
   if (lastErrorMitVersion.value) return `${basis} — ${lastErrorMitVersion.value}`
+  // Auch ohne harten Fehler den konkreten Befund zeigen (Tooltip).
+  const befund = sync.status.diagnostics?.findings.find(
+    (f) => f.level === 'error' || f.level === 'warn',
+  )
+  if (befund) return `${basis} — ${befund.text}`
   return basis
 })
 
@@ -1280,61 +1318,9 @@ function formatRelativ(iso: string | null): string {
         </ul>
       </div>
 
-      <h3>Datensätze</h3>
-      <table class="sync-counts">
-        <thead>
-          <tr>
-            <th>Tabelle</th>
-            <th>Lokal</th>
-            <th>Server</th>
-            <th>Δ</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="row in [
-              {
-                name: 'Artikel',
-                local: sync.status.localCounts?.artikel,
-                server: sync.status.serverCounts?.artikel,
-              },
-              {
-                name: 'Standorte',
-                local: sync.status.localCounts?.standorte,
-                server: sync.status.serverCounts?.standorte,
-              },
-              {
-                name: 'Kommissionen',
-                local: sync.status.localCounts?.commission,
-                server: sync.status.serverCounts?.commission,
-              },
-              {
-                name: 'Buchungen',
-                local: sync.status.localCounts?.buchungen,
-                server: sync.status.serverCounts?.buchungen,
-              },
-            ]"
-            :key="row.name"
-          >
-            <td>{{ row.name }}</td>
-            <td>{{ row.local ?? '–' }}</td>
-            <td>{{ row.server ?? '–' }}</td>
-            <td
-              :class="
-                row.local != null && row.server != null && row.local !== row.server
-                  ? 'wert-warn'
-                  : 'wert-ok'
-              "
-            >
-              {{
-                row.local != null && row.server != null
-                  ? (row.server - row.local > 0 ? '+' : '') + (row.server - row.local)
-                  : '–'
-              }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- Fehleranalyse: Findings, alle Tabellen, ausstehende Ops, fehlende
+           Datensätze. Immer sichtbar, per Button jederzeit neu berechenbar. -->
+      <SyncDiagnostics />
 
       <p v-if="syncDetail === 'fetching'" class="hint">Aktualisiere Status…</p>
       <p v-else-if="syncDetail === 'error'" class="hint wert-fehler">

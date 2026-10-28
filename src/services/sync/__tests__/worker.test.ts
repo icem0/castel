@@ -1986,10 +1986,13 @@ describe('Sync — Divergenz-Diagnose', () => {
         if (url.includes('/api/sync/snapshot')) return snapshotResponse()
         if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
           const body = JSON.parse(String(init?.body)) as { entity?: string; ids: string[] }
-          return new Response(JSON.stringify({ present: [], missing: body.ids }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          })
+          return new Response(
+            JSON.stringify({ entity: body.entity, present: [], missing: body.ids }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          )
         }
         if (url.endsWith('/api/sync/status')) return statusResponse(serverArtikel)
         return new Response('not found', { status: 404 })
@@ -2010,6 +2013,10 @@ describe('Sync — Divergenz-Diagnose', () => {
       'Nur lokal A1',
       'Nur lokal A2',
     ])
+    // Die Fehleranalyse liegt immer im Status — nicht nur im Fehlerfall.
+    expect(st.diagnostics?.localOnlyTotal).toBe(2)
+    expect(st.diagnostics?.divergent).toBe(true)
+    expect(st.diagnostics?.findings.some((f) => f.level === 'error')).toBe(true)
 
     await runSync({ token: null, apiBase: 'http://test.local' })
     expect(getSyncStatus().lastFailure?.divergence?.streak).toBe(2)
@@ -2029,5 +2036,70 @@ describe('Sync — Divergenz-Diagnose', () => {
     expect(st.status).toBe('idle')
     expect(st.lastFailure).toBeNull()
     expect(st.lastError).toBeNull()
+    expect(st.diagnostics?.divergent).toBe(false)
+  })
+
+  it('meldet einen alten Server (ohne entity-Echo) statt falscher local-only-Daten', async () => {
+    const a1 = artikelAnlage(neueUuid(), 'Nur lokal A1')
+    await getDb().artikel.add(a1)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        const method = init?.method ?? 'GET'
+        if (url.includes('/api/sync/snapshot')) return snapshotResponse()
+        if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as { entity?: string; ids: string[] }
+          // Alter Server: kein entity-Echo, prüft nur Buchungen.
+          return new Response(JSON.stringify({ present: [], missing: body.ids }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        if (url.endsWith('/api/sync/status')) return statusResponse(0)
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const { runSync, getSyncStatus } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    const st = getSyncStatus()
+    expect(st.diagnostics?.idCheckUnsupported).toBe(true)
+    // Keine falschen local-only-Daten melden.
+    expect(st.diagnostics?.localOnlyTotal).toBe(0)
+    expect(st.diagnostics?.findings.some((f) => f.text.includes('ID-Prüfung noch nicht'))).toBe(
+      true,
+    )
+  })
+
+  it('runDiagnostics liefert Findings und aktualisiert den Status', async () => {
+    const a1 = artikelAnlage(neueUuid(), 'Nur lokal A1')
+    await getDb().artikel.add(a1)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        const method = init?.method ?? 'GET'
+        if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as { entity?: string; ids: string[] }
+          return new Response(
+            JSON.stringify({ entity: body.entity, present: [], missing: body.ids }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+        if (url.endsWith('/api/sync/status')) return statusResponse(0)
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const { runDiagnostics, getSyncStatus } = await import('../worker')
+    const diag = await runDiagnostics({ token: null, apiBase: 'http://test.local' })
+
+    expect(diag.localOnlyTotal).toBe(1)
+    expect(diag.findings.length).toBeGreaterThan(0)
+    expect(getSyncStatus().diagnostics?.localOnlyTotal).toBe(1)
   })
 })

@@ -357,7 +357,69 @@ export interface SyncLocalOnlyRecord {
 export interface SyncDivergenceTable {
   table: string
   local: number
-  server: number
+  server: number | null
+}
+
+/** Ein noch nicht zum Server übertragener Outbox-Eintrag. */
+export interface SyncPendingItem {
+  outboxId: string
+  entity: string
+  op: string
+  payloadId: string
+  /** Human-readable label of the payload (Titel/Name/Buchungsart). */
+  label: string
+  attempts: number
+  lastError: string | null
+  createdAt: string
+}
+
+/** Eine Buchung, die der Server nicht kennt (lokal als "nicht gespeichert" markiert). */
+export interface SyncMissingBooking {
+  id: string
+  label: string
+  createdAt: string
+  reason: string | null
+}
+
+/** Ein Befund der Fehleranalyse — die eigentliche "Warum"-Ausgabe. */
+export interface SyncFinding {
+  level: 'error' | 'warn' | 'info'
+  text: string
+}
+
+/**
+ * Vollständige Fehleranalyse des Sync-Zustands. Wird nach jedem Sync-Lauf
+ * neu berechnet und kann im Sync-Panel über "Fehleranalyse ausführen" auch
+ * jederzeit manuell angestoßen werden.
+ */
+export interface SyncDiagnostics {
+  /** Zeitpunkt der Analyse (ISO). */
+  at: string
+  /** Row-Counts aller Tabellen (lokal vs. Server). */
+  tables: SyncDivergenceTable[]
+  /** True, wenn mindestens eine Tabelle abweicht. */
+  divergent: boolean
+  /** Lokal vorhandene Datensätze, die der Server nicht kennt. */
+  localOnly: SyncLocalOnlyRecord[]
+  /** Gesamtzahl der local-only Datensätze (kann > localOnly.length sein). */
+  localOnlyTotal: number
+  /** Ausstehende Outbox-Einträge (noch nicht gepusht). */
+  pendingItems: SyncPendingItem[]
+  pendingTotal: number
+  /** Buchungen, die der Server nicht übernommen hat. */
+  missingBookings: SyncMissingBooking[]
+  missingBookingsTotal: number
+  /** Stillgelegte Outbox-Einträge. */
+  quarantinedItems: QuarantinedItem[]
+  /** Die Befunde — Klartext, was das Problem ist. */
+  findings: SyncFinding[]
+  /**
+   * True, wenn der Server die Entitäts-Prüfung nicht unterstützt (alte
+   * Server-Version). Dann sind die local-only-Aussagen nicht belastbar.
+   */
+  idCheckUnsupported: boolean
+  /** False, wenn der Server-Status nicht abrufbar war. */
+  serverReachable: boolean
 }
 
 /**
@@ -472,6 +534,8 @@ export interface SyncStatus {
   nextRetryAt: string | null
   /** Strukturierte Diagnose-Info für den letzten Fehler (oder `null`). */
   lastFailure: SyncLastFailure | null
+  /** Vollständige Fehleranalyse (Findings, Details). Immer sichtbar. */
+  diagnostics: SyncDiagnostics | null
   /** Last worker phase for UI/diagnostics. */
   lastStep: SyncStep
   lastStepAt: string | null
@@ -494,6 +558,7 @@ let _status: SyncStatus = {
   serverTime: null,
   nextRetryAt: null,
   lastFailure: null,
+  diagnostics: null,
   lastStep: null,
   lastStepAt: null,
   lastErrorCode: null,
@@ -671,6 +736,12 @@ export async function fetchServerStatus(
 interface ReconcileResult {
   present: string[]
   missing: string[]
+  /**
+   * Echo der geprüften Entität. Fehlt sie, läuft der Client gegen einen
+   * älteren Server, der nur Buchungen prüfen kann — das Ergebnis wäre dann
+   * nicht interpretierbar.
+   */
+  entity?: string
 }
 
 export type ReconcileEntity = 'buchung' | 'artikel' | 'standort' | 'kommission' | 'hersteller'
@@ -761,6 +832,9 @@ async function reconcileBookings(
 /**
  * Collects local-only record IDs for one entity. The server answers with
  * the subset of IDs it does not know. Batched to respect the 500-ID limit.
+ *
+ * Throws, wenn der Server die Entitäts-Prüfung nicht unterstützt (alte
+ * Server-Version ohne `entity`-Echo) — dann wäre das Ergebnis falsch.
  */
 async function collectMissingIds(
   apiBase: string,
@@ -774,6 +848,11 @@ async function collectMissingIds(
     if (signal?.aborted) throw new SyncTimeoutError('Sync abgebrochen')
     const chunk = ids.slice(i, i + RECONCILE_BATCH_SIZE)
     const result = await postReconcile(apiBase, token, chunk, signal, entity)
+    if (result.entity !== entity) {
+      throw new Error(
+        `Der Server unterstützt die ID-Prüfung für "${entity}" nicht (Antwort ohne entity-Echo).`,
+      )
+    }
     for (const id of result.missing) missing.add(id)
   }
   return missing
@@ -786,136 +865,368 @@ async function collectMissingIds(
  *
  * Never throws for individual entities — a failing check only means we
  * have less detail, not that the sync failed.
+/**
+ * Liest die Labels der noch nicht gepushten Outbox-Einträge, damit die
+ * Fehleranalyse nicht nur IDs, sondern auch Titel/Namen anzeigt.
  */
-export async function diagnoseDivergence(
-  apiBase: string,
-  token: string | null,
-  localCounts: TableCounts,
-  serverCounts: TableCounts,
-  signal: AbortSignal | null = null,
-): Promise<Omit<SyncDivergence, 'streak'>> {
-  const db = getDb()
-  const diff = (l: number, s: number): boolean => l !== s
-  const tables: SyncDivergenceTable[] = []
-  if (diff(localCounts.artikel, serverCounts.artikel)) {
-    tables.push({ table: 'artikel', local: localCounts.artikel, server: serverCounts.artikel })
+function labelForPayload(entity: string, payload: unknown): string {
+  if (!payload || typeof payload !== 'object') return ''
+  const p = payload as Record<string, unknown>
+  if (entity === 'artikel' && typeof p.titel === 'string') return p.titel
+  if (entity === 'standort' && typeof p.name === 'string') return p.name
+  if (entity === 'kommission') {
+    if (typeof p.nummer === 'string') return p.nummer
+    if (typeof p.name === 'string') return p.name
   }
-  if (diff(localCounts.standorte, serverCounts.standorte)) {
-    tables.push({
-      table: 'standorte',
-      local: localCounts.standorte,
-      server: serverCounts.standorte,
+  if (entity === 'hersteller' && typeof p.name === 'string') return p.name
+  if (entity === 'buchung') {
+    const typ = typeof p.typ === 'string' ? p.typ : 'buchung'
+    const menge = typeof p.menge === 'number' ? ` ${p.menge}` : ''
+    return `${typ}${menge}`
+  }
+  return ''
+}
+
+/**
+ * Liest die Payload-IDs der noch nicht gepushten Outbox-Einträge. Sie
+ * werden von der Divergenz-Diagnose abgezogen: ein Datensatz, der noch in
+ * der Outbox liegt, ist "in Arbeit" und kein unerklärter Fund.
+ */
+async function pendingPayloadIds(): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>()
+  const all = await getDb().outbox.toArray()
+  for (const o of all) {
+    if (o.syncedAt != null || o.quarantinedAt != null) continue
+    let payloadId = ''
+    try {
+      payloadId = payloadIdFor(o.entity, JSON.parse(o.payload)) ?? ''
+    } catch {
+      // korrupte payload — nicht zuordenbar
+    }
+    if (!payloadId) continue
+    let set = out.get(o.entity)
+    if (!set) {
+      set = new Set()
+      out.set(o.entity, set)
+    }
+    set.add(payloadId)
+  }
+  return out
+}
+
+/**
+ * Alle noch nicht übertragenen Outbox-Einträge — inklusive derer, die
+ * noch nie einen Fehler hatten. Der User sieht damit sofort, WAS wartet.
+ */
+export async function collectPendingItems(limit = 20): Promise<SyncPendingItem[]> {
+  const all = await getDb().outbox.orderBy('createdAt').toArray()
+  const pending = all.filter((o) => o.syncedAt == null && o.quarantinedAt == null)
+  const out: SyncPendingItem[] = []
+  for (const o of pending.slice(0, limit)) {
+    let payloadId = ''
+    let label = ''
+    try {
+      const parsed = JSON.parse(o.payload) as unknown
+      payloadId = payloadIdFor(o.entity, parsed) ?? ''
+      label = labelForPayload(o.entity, parsed)
+    } catch {
+      // korrupte payload
+    }
+    out.push({
+      outboxId: o.id,
+      entity: o.entity,
+      op: o.op,
+      payloadId,
+      label,
+      attempts: o.attempts,
+      lastError: o.lastError,
+      createdAt: o.createdAt,
     })
   }
-  if (diff(localCounts.commission, serverCounts.commission)) {
-    tables.push({
-      table: 'kommissionen',
-      local: localCounts.commission,
-      server: serverCounts.commission,
-    })
-  }
-  if (diff(localCounts.buchungen, serverCounts.buchungen)) {
-    tables.push({
-      table: 'buchungen',
-      local: localCounts.buchungen,
-      server: serverCounts.buchungen,
-    })
-  }
-  if (diff(localCounts.hersteller ?? 0, serverCounts.hersteller ?? 0)) {
-    tables.push({
-      table: 'hersteller',
-      local: localCounts.hersteller ?? 0,
-      server: serverCounts.hersteller ?? 0,
-    })
-  }
-  if (
-    diff(
+  return out
+}
+
+/** Anzahl der noch nicht übertragenen Outbox-Einträge (inkl. quarantäne). */
+async function pendingTotalAll(): Promise<number> {
+  const all = await getDb().outbox.toArray()
+  return all.filter((o) => o.syncedAt == null && o.quarantinedAt == null).length
+}
+
+/** Buchungen, die der Server nicht kennt (lokal als "nicht gespeichert" markiert). */
+export async function collectMissingBookings(limit = 10): Promise<SyncMissingBooking[]> {
+  const rows = await getDb()
+    .buchungen.filter((b) => b.nichtGespeichert === true)
+    .toArray()
+  return rows.slice(0, limit).map((b) => ({
+    id: b.id,
+    label: `${b.typ} ${b.menge} — Artikel ${b.artikelId.slice(0, 8)}…`,
+    createdAt: b.erstelltAm,
+    reason: b.skipReason ?? null,
+  }))
+}
+
+/** Anzahl der Buchungen, die der Server nicht kennt. */
+async function missingBookingsTotal(): Promise<number> {
+  return getDb()
+    .buchungen.filter((b) => b.nichtGespeichert === true)
+    .count()
+}
+
+/**
+ * Vollständige Fehleranalyse. Liefert Klartext-Befunde ("was ist los?")
+ * plus alle Details, die man für die Reparatur braucht.
+ *
+ * Wird nach jedem Sync-Lauf und auf Knopfdruck im Sync-Panel ausgeführt.
+ */
+export async function buildDiagnostics(opts: {
+  apiBase: string
+  token: string | null
+  localCounts: TableCounts
+  serverCounts: TableCounts | null
+  signal?: AbortSignal | null
+  /** Vorgegebene lokale Counts (fuer nicht divergente Buchungen). */
+  unexplainedLocalCounts?: TableCounts
+}): Promise<SyncDiagnostics> {
+  const { localCounts, serverCounts } = opts
+  const signal = opts.signal ?? null
+  const findings: SyncFinding[] = []
+
+  const table = (name: string, local: number, server: number | null): SyncDivergenceTable => ({
+    table: name,
+    local,
+    server,
+  })
+
+  const tables: SyncDivergenceTable[] = [
+    table('artikel', localCounts.artikel, serverCounts?.artikel ?? null),
+    table('standorte', localCounts.standorte, serverCounts?.standorte ?? null),
+    table('kommissionen', localCounts.commission, serverCounts?.commission ?? null),
+    table('buchungen', localCounts.buchungen, serverCounts?.buchungen ?? null),
+    table('hersteller', localCounts.hersteller ?? 0, serverCounts?.hersteller ?? null),
+    table(
+      'mindestbestände',
       localCounts.artikelStandortMindestbestand ?? 0,
-      serverCounts.artikelStandortMindestbestand ?? 0,
-    )
-  ) {
-    tables.push({
-      table: 'mindestbestände',
-      local: localCounts.artikelStandortMindestbestand ?? 0,
-      server: serverCounts.artikelStandortMindestbestand ?? 0,
+      serverCounts?.artikelStandortMindestbestand ?? null,
+    ),
+    table('akku-netzteile', localCounts.akkuNetzteile ?? 0, serverCounts?.akkuNetzteile ?? null),
+    table('akku-projekte', localCounts.akkuProjekte ?? 0, serverCounts?.akkuProjekte ?? null),
+    table(
+      'akku-bestellungen',
+      localCounts.akkuBestellungen ?? 0,
+      serverCounts?.akkuBestellungen ?? null,
+    ),
+  ]
+  const divergent = tables.some((t) => t.server !== null && t.local !== t.server)
+
+  // --- Ausstehende Outbox-Eintraege ---
+  const [pendingItems, pendingTotal, missingBookings, missingTotal, quarantinedItems] =
+    await Promise.all([
+      collectPendingItems(20),
+      pendingTotalAll(),
+      collectMissingBookings(10),
+      missingBookingsTotal(),
+      collectQuarantinedItems(20),
+    ])
+
+  if (pendingTotal > 0) {
+    const failed = pendingItems.filter((p) => p.lastError)
+    findings.push({
+      level: failed.length > 0 ? 'error' : 'warn',
+      text:
+        `${pendingTotal} lokale Änderung(en) warten noch auf den Push zum Server` +
+        (failed.length > 0
+          ? ` — davon ${failed.length} bereits vom Server abgelehnt: ` +
+            failed
+              .slice(0, 3)
+              .map(
+                (f) =>
+                  `${f.entity}/${f.op} „${f.label || f.payloadId.slice(0, 8)}“: ${f.lastError}`,
+              )
+              .join(' | ')
+          : '.'),
+    })
+  }
+  if (quarantinedItems.length > 0) {
+    findings.push({
+      level: 'error',
+      text:
+        `${quarantinedItems.length} Eintrag/Einträge sind stillgelegt (Quarantäne) und werden ` +
+        'nicht mehr gesendet — bitte im Sync-Panel freigeben oder verwerfen.',
+    })
+  }
+  if (missingTotal > 0) {
+    findings.push({
+      level: 'error',
+      text: `${missingTotal} Buchung(en) wurden vom Server nicht übernommen (als „nicht gespeichert“ markiert).`,
     })
   }
 
+  // --- Divergenz der Counts ---
   const localOnly: SyncLocalOnlyRecord[] = []
   let localOnlyTotal = 0
-  const collect = async (
-    entity: SyncLocalOnlyRecord['entity'],
-    rows: Array<{ id: string; label: string }>,
-  ): Promise<void> => {
-    if (rows.length === 0) return
-    try {
-      const missing = await collectMissingIds(
-        apiBase,
-        token,
-        entity,
-        rows.map((r) => r.id),
-        signal,
-      )
-      for (const row of rows) {
-        if (!missing.has(row.id)) continue
-        localOnlyTotal++
-        if (localOnly.length < 20) localOnly.push({ entity, id: row.id, label: row.label })
+  let idCheckUnsupported = false
+
+  if (serverCounts === null) {
+    findings.push({
+      level: 'error',
+      text: 'Server-Status nicht abrufbar — der Vergleich lokal ↔ Server ist nicht möglich.',
+    })
+  } else {
+    const pendingIds = await pendingPayloadIds()
+    const db = getDb()
+    const check = async (
+      entity: SyncLocalOnlyRecord['entity'],
+      outboxEntity: string,
+      rows: Array<{ id: string; label: string }>,
+    ): Promise<void> => {
+      if (rows.length === 0) return
+      try {
+        const missing = await collectMissingIds(
+          opts.apiBase,
+          opts.token,
+          entity,
+          rows.map((r) => r.id),
+          signal,
+        )
+        const inFlight = pendingIds.get(outboxEntity) ?? new Set<string>()
+        for (const row of rows) {
+          if (!missing.has(row.id)) continue
+          // Liegt der Datensatz noch in der Outbox, ist er "in Arbeit".
+          if (inFlight.has(row.id)) continue
+          localOnlyTotal++
+          if (localOnly.length < 20) localOnly.push({ entity, id: row.id, label: row.label })
+        }
+      } catch (e) {
+        console.warn(`[sync] ID-Prüfung für ${entity} fehlgeschlagen:`, e)
+        idCheckUnsupported = true
       }
-    } catch (e) {
-      console.warn(`[sync] divergence diagnosis failed for ${entity}:`, e)
+    }
+
+    if (localCounts.artikel > serverCounts.artikel) {
+      const rows = await db.artikel.toArray()
+      await check(
+        'artikel',
+        'artikel',
+        rows.map((r) => ({ id: r.id, label: r.titel })),
+      )
+    }
+    if (localCounts.standorte > serverCounts.standorte) {
+      const rows = await db.standorte.toArray()
+      await check(
+        'standort',
+        'standort',
+        rows.map((r) => ({ id: r.id, label: r.name })),
+      )
+    }
+    if (localCounts.commission > serverCounts.commission) {
+      const rows = await db.commission.toArray()
+      await check(
+        'kommission',
+        'kommission',
+        rows.map((r) => ({ id: r.id, label: r.nummer })),
+      )
+    }
+    if ((localCounts.hersteller ?? 0) > (serverCounts.hersteller ?? 0)) {
+      const rows = await db.hersteller.toArray()
+      await check(
+        'hersteller',
+        'hersteller',
+        rows.map((r) => ({ id: r.id, label: r.name })),
+      )
+    }
+
+    for (const t of tables) {
+      if (t.server === null || t.local === t.server) continue
+      const delta = t.local - t.server
+      if (delta > 0) {
+        findings.push({
+          level: 'warn',
+          text: `${t.table}: ${delta} Datensätze nur lokal vorhanden (lokal ${t.local}, Server ${t.server}).`,
+        })
+      } else {
+        findings.push({
+          level: 'warn',
+          text: `${t.table}: ${-delta} Datensätze nur auf dem Server (lokal ${t.local}, Server ${t.server}) — der Pull hat sie nicht übernommen.`,
+        })
+      }
+    }
+    if (localOnlyTotal > 0) {
+      findings.push({
+        level: 'error',
+        text:
+          `${localOnlyTotal} Datensätze existieren lokal, sind dem Server aber unbekannt ` +
+          '(kein Outbox-Eintrag mehr — nie gepusht oder dort gelöscht): ' +
+          localOnly
+            .slice(0, 5)
+            .map((r) => `${r.entity} „${r.label}“`)
+            .join(', ') +
+          (localOnlyTotal > localOnly.length ? ' …' : ''),
+      })
+    }
+    if (idCheckUnsupported) {
+      findings.push({
+        level: 'warn',
+        text: 'Der Server unterstützt die ID-Prüfung noch nicht (alte Server-Version) — welche Datensätze fehlen, kann der Client nicht ermitteln. Server aktualisieren.',
+      })
+    }
+    if (findings.length === 0) {
+      findings.push({
+        level: 'info',
+        text: 'Keine Auffälligkeiten — lokale und serverseitige Datenbank stimmen überein.',
+      })
     }
   }
 
-  // Only rows that exist locally in surplus can be "local only". A server
-  // surplus is a pull problem, not a push problem.
-  if (localCounts.artikel > serverCounts.artikel) {
-    const rows = await db.artikel.toArray()
-    await collect(
-      'artikel',
-      rows.map((r) => ({ id: r.id, label: r.titel })),
-    )
+  return {
+    at: jetztIso(),
+    tables,
+    divergent,
+    localOnly,
+    localOnlyTotal,
+    pendingItems,
+    pendingTotal,
+    missingBookings,
+    missingBookingsTotal: missingTotal,
+    quarantinedItems,
+    findings,
+    idCheckUnsupported,
+    serverReachable: serverCounts !== null,
   }
-  if (localCounts.standorte > serverCounts.standorte) {
-    const rows = await db.standorte.toArray()
-    await collect(
-      'standort',
-      rows.map((r) => ({ id: r.id, label: r.name })),
-    )
-  }
-  if (localCounts.commission > serverCounts.commission) {
-    const rows = await db.commission.toArray()
-    await collect(
-      'kommission',
-      rows.map((r) => ({ id: r.id, label: r.nummer })),
-    )
-  }
-  if ((localCounts.hersteller ?? 0) > (serverCounts.hersteller ?? 0)) {
-    const rows = await db.hersteller.toArray()
-    await collect(
-      'hersteller',
-      rows.map((r) => ({ id: r.id, label: r.name })),
-    )
-  }
-
-  return { tables, localOnly, localOnlyTotal }
 }
 
-/** Human-readable one-liner for the divergence diagnostic. */
-export function divergenceMessage(divergence: Omit<SyncDivergence, 'streak'>): string {
-  const parts = divergence.tables.map((t) =>
-    t.local > t.server
-      ? `${t.local - t.server} ${t.table} nur lokal vorhanden`
-      : `${t.server - t.local} ${t.table} nur auf dem Server`,
-  )
-  if (divergence.localOnlyTotal > 0) {
-    parts.push(
-      `${divergence.localOnlyTotal} lokale Datensätze sind auf dem Server unbekannt ` +
-        '(nie gepusht oder dort gelöscht)',
-    )
+/**
+ * Fuehrt die Fehleranalyse auf Abruf aus (Button im Sync-Panel) und
+ * schreibt das Ergebnis in den Sync-Status. Aktualisiert zusaetzlich die
+ * Counts, damit die Tabelle im Panel frisch ist.
+ */
+export async function runDiagnostics(opts: {
+  token: string | null
+  apiBase: string
+}): Promise<SyncDiagnostics> {
+  let serverCounts: TableCounts | null = null
+  let serverTime: string | null = null
+  try {
+    const st = await fetchServerStatus(opts.apiBase, opts.token)
+    serverCounts = st.counts
+    serverTime = st.serverTime
+  } catch {
+    // offline / Server nicht erreichbar — die Findings sagen das.
   }
-  return parts.length > 0
-    ? `Sync konnte die Abweichung nicht beheben: ${parts.join('; ')}.`
-    : 'Sync konnte die Abweichung nicht beheben.'
+  const localCounts = await getLocalCounts()
+  const diagnostics = await buildDiagnostics({
+    apiBase: opts.apiBase,
+    token: opts.token,
+    localCounts,
+    serverCounts,
+  })
+  updateStatus({
+    diagnostics,
+    localCounts,
+    serverCounts,
+    serverTime,
+    ...(await syncCountPatch()),
+  })
+  return diagnostics
 }
 
 async function getLocalCounts(): Promise<TableCounts> {
@@ -1717,51 +2028,55 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       buchungen: localCounts.buchungen - notSavedAfterReconcile,
     }
 
-    // Divergenz-Diagnose: Der Sync ist formal durchgelaufen, aber die
-    // Counts passen weiterhin nicht und es gibt keine ausstehenden
-    // Outbox-Items mehr. Ohne diesen Schritt blieb nur der nichtsagende
-    // Hinweis "Counts weichen ab" stehen — ohne Grund und ohne Namen der
-    // betroffenen Datensätze. Nach DIVERGENCE_ALERT_THRESHOLD Läufen
-    // eskaliert die Diagnose zu einem echten Fehler (Banner/Toast).
-    let divergence: Omit<SyncDivergence, 'streak'> | null = null
+    // Fehleranalyse: Der Sync ist formal durchgelaufen, aber die Counts
+    // passen weiterhin nicht. Die Analyse liefert Klartext-Befunde und
+    // benennt die betroffenen Datensätze. Nach DIVERGENCE_ALERT_THRESHOLD
+    // Laeufen eskaliert sie zu einem echten Fehler (Banner/Toast).
+    let diagnostics: SyncDiagnostics | null = null
     let divergenceFailure: SyncLastFailure | null = null
     let divergenceEscalated = false
-    if (!hadPartialRejection && stillPending === 0 && serverCounts !== null) {
-      try {
-        if (zaehleAbweichungen(unexplainedLocalCounts, serverCounts) > 0) {
-          _divergenceStreak += 1
-          divergence = await diagnoseDivergence(
-            apiBase,
-            token,
-            unexplainedLocalCounts,
-            serverCounts,
-            signal,
-          )
-          if (_runToken !== runToken) return
-          divergenceEscalated = _divergenceStreak >= DIVERGENCE_ALERT_THRESHOLD
-          const message = divergenceMessage(divergence)
-          const at = jetztIso()
-          divergenceFailure = {
-            at,
-            source: 'counts',
-            status: null,
-            code: 'UNRESOLVED_DIVERGENCE',
-            message,
-            retryAfterMs: null,
-            rejectedItems: 0,
-            sampleErrors: [],
-            stuckItems: await collectStuckItems(5),
-            divergence: { ...divergence, streak: _divergenceStreak },
-          }
-        } else {
-          _divergenceStreak = 0
+    try {
+      diagnostics = await buildDiagnostics({
+        apiBase,
+        token,
+        localCounts,
+        serverCounts,
+        signal,
+      })
+      if (_runToken !== runToken) return
+      const divergent = zaehleAbweichungen(unexplainedLocalCounts, serverCounts) > 0
+      if (divergent && !hadPartialRejection) {
+        _divergenceStreak += 1
+        divergenceEscalated = _divergenceStreak >= DIVERGENCE_ALERT_THRESHOLD
+        const message =
+          diagnostics.findings
+            .filter((f) => f.level === 'error' || f.level === 'warn')
+            .map((f) => f.text)
+            .join(' ') || 'Sync konnte die Abweichung nicht beheben.'
+        const at = jetztIso()
+        divergenceFailure = {
+          at,
+          source: 'counts',
+          status: null,
+          code: 'UNRESOLVED_DIVERGENCE',
+          message,
+          retryAfterMs: null,
+          rejectedItems: 0,
+          sampleErrors: [],
+          stuckItems: await collectStuckItems(5),
+          divergence: {
+            tables: diagnostics.tables.filter((t) => t.server !== null && t.local !== t.server),
+            localOnly: diagnostics.localOnly,
+            localOnlyTotal: diagnostics.localOnlyTotal,
+            streak: _divergenceStreak,
+          },
         }
-      } catch (e) {
-        // Die Diagnose ist optional — der Sync selbst war erfolgreich.
-        console.warn('[sync] divergence diagnosis failed:', e)
+      } else {
         _divergenceStreak = 0
       }
-    } else {
+    } catch (e) {
+      // Die Diagnose ist optional — der Sync selbst war erfolgreich.
+      console.warn('[sync] diagnosis failed:', e)
       _divergenceStreak = 0
     }
 
@@ -1781,6 +2096,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       serverCounts,
       serverTime,
       localCounts,
+      diagnostics,
       nextRetryAt: null,
       lastStep: 'done',
       lastStepAt: finishedAt,
@@ -1788,13 +2104,8 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       lastErrorAt: keepPartial ? _status.lastErrorAt : (divergenceFailure?.at ?? null),
       lastErrorFingerprint: keepPartial
         ? _status.lastErrorFingerprint
-        : divergenceEscalated && divergence
-          ? syncErrorFingerprint(
-              'counts',
-              'UNRESOLVED_DIVERGENCE',
-              null,
-              divergenceMessage(divergence),
-            )
+        : divergenceEscalated && divergenceFailure
+          ? syncErrorFingerprint('counts', 'UNRESOLVED_DIVERGENCE', null, divergenceFailure.message)
           : null,
     })
     _consecutiveFailures = 0
@@ -1863,6 +2174,29 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       lastErrorCode: code,
       lastErrorAt: at,
       lastErrorFingerprint: syncErrorFingerprint(source, code, newFailure.status, msg),
+    }
+
+    // Auch im Fehlerfall eine Analyse liefern: der User soll sofort sehen,
+    // was gerade klemmt (Netzwerk, Auth, abgelehnte Ops, Warteschlange).
+    try {
+      const diagnostics = await buildDiagnostics({
+        apiBase,
+        token,
+        localCounts: localCounts ?? (await getLocalCounts()),
+        serverCounts: _status.serverCounts,
+        signal,
+      })
+      if (_runToken !== runToken) return
+      const withError: SyncFinding = {
+        level: 'error',
+        text: `Sync abgebrochen (${code}): ${msg}`,
+      }
+      failurePatch.diagnostics = {
+        ...diagnostics,
+        findings: [withError, ...diagnostics.findings],
+      }
+    } catch {
+      // Analyse ist optional.
     }
 
     if (isNetwork) {
@@ -1981,11 +2315,28 @@ export async function refreshStatus(opts: {
     lastError = e instanceof Error ? e.message : String(e)
   }
 
+  // Fehleranalyse mit aktualisieren — das Panel soll beim Öffnen immer
+  // den aktuellen Stand zeigen, nicht nur Zählerstände.
+  let diagnostics: SyncDiagnostics | null = null
+  if (localCounts) {
+    try {
+      diagnostics = await buildDiagnostics({
+        apiBase: opts.apiBase,
+        token: opts.token,
+        localCounts,
+        serverCounts,
+      })
+    } catch (e) {
+      console.warn('[sync] diagnostics failed:', e)
+    }
+  }
+
   updateStatus({
     localCounts,
     serverCounts,
     serverTime,
     lastError,
+    diagnostics,
     ...(await syncCountPatch()),
   })
 }
@@ -2183,6 +2534,7 @@ export function _resetSyncForTests(): void {
     serverTime: null,
     nextRetryAt: null,
     lastFailure: null,
+    diagnostics: null,
     lastStep: null,
     lastStepAt: null,
     lastErrorCode: null,

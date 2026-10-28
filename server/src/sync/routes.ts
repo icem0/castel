@@ -314,6 +314,10 @@ export async function syncRoutes(
       }
     }
     return reply.send({
+      // The client checks this echo: an older server (without `entity`)
+      // answers without it — then the client knows that the per-entity
+      // ID check is not supported and does not interpret the answer.
+      entity: parsed.data.entity,
       present: ids.filter((id) => presentIds.has(id)),
       missing: ids.filter((id) => !presentIds.has(id)),
     })
