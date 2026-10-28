@@ -166,7 +166,10 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.artikel.h1') }}</h1>
-      <RouterLink to="/artikel/neu" class="btn primary">{{ t('view.artikel.neu') }}</RouterLink>
+      <div class="head-actions">
+        <RouterLink to="/etiketten" class="btn">{{ t('view.barcode.h1') }}</RouterLink>
+        <RouterLink to="/artikel/neu" class="btn primary">{{ t('view.artikel.neu') }}</RouterLink>
+      </div>
     </header>
 
     <div class="filter-bar">
@@ -286,6 +289,13 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
 </template>
 
 <style scoped>
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .data .num {
   font-variant-numeric: tabular-nums;
   text-align: right;
