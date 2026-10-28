@@ -90,10 +90,22 @@ export async function syncRoutes(
         akkuNetzteilRows,
         akkuProjektRows,
       ] = await Promise.all([
-        db.select().from(artikel).where(sql`${artikel.geaendertAm} > ${sinceIso}`),
-        db.select().from(standorte).where(sql`${standorte.geaendertAm} > ${sinceIso}`),
-        db.select().from(projekte).where(sql`${projekte.geaendertAm} > ${sinceIso}`),
-        db.select().from(buchungen).where(sql`${buchungen.erstelltAm} > ${sinceIso}`),
+        db
+          .select()
+          .from(artikel)
+          .where(sql`${artikel.geaendertAm} > ${sinceIso}`),
+        db
+          .select()
+          .from(standorte)
+          .where(sql`${standorte.geaendertAm} > ${sinceIso}`),
+        db
+          .select()
+          .from(projekte)
+          .where(sql`${projekte.geaendertAm} > ${sinceIso}`),
+        db
+          .select()
+          .from(buchungen)
+          .where(sql`${buchungen.erstelltAm} > ${sinceIso}`),
         // Einstellungen: alle globalen + die des eingeloggten Users
         db
           .select()
@@ -115,7 +127,10 @@ export async function syncRoutes(
           .limit(500),
         // Hersteller-Stammdaten (Bestellkontakt) — inkrementell wie die
         // übrigen Stammdaten.
-        db.select().from(hersteller).where(sql`${hersteller.geaendertAm} > ${sinceIso}`),
+        db
+          .select()
+          .from(hersteller)
+          .where(sql`${hersteller.geaendertAm} > ${sinceIso}`),
         // Mindestbestand je (Artikel, Standort) — LWW ueber `geaendert_am`.
         db
           .select()
@@ -211,67 +226,90 @@ export async function syncRoutes(
   // ---------- GET /api/sync/status ----------
   // Liefert Server-Zeit + Row-Counts pro Tabelle. Wird vom Client genutzt,
   // um die Divergenz zwischen lokaler IndexedDB und Postgres anzuzeigen.
-  app.get(
-    '/api/sync/status',
-    { preHandler: app.requireAuth },
-    async (_req, reply) => {
-      const db = getDb()
-      const counts = await countRows(db)
-      return reply.send({
-        serverTime: new Date().toISOString(),
-        counts,
-      })
-    },
-  )
+  app.get('/api/sync/status', { preHandler: app.requireAuth }, async (_req, reply) => {
+    const db = getDb()
+    const counts = await countRows(db)
+    return reply.send({
+      serverTime: new Date().toISOString(),
+      counts,
+    })
+  })
 
   // ---------- POST /api/sync/reconcile ----------
-  // Cheap existence check for local booking IDs. The client uses it to
-  // detect bookings that were marked synced locally but never reached the
-  // server (e.g. after a partial/aborted push).
-  app.post(
-    '/api/sync/reconcile',
-    { preHandler: app.requireAuth },
-    async (req, reply) => {
-      const parsed = reconcileSchema.safeParse(req.body)
-      if (!parsed.success) {
-        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+  // Cheap existence check for local record IDs. The client uses it to
+  // detect rows that exist locally but never reached the server (e.g. after
+  // a partial/aborted push or a server-side deletion). Bookings are the
+  // default for backward compatibility; master data can be checked by
+  // passing `entity`.
+  app.post('/api/sync/reconcile', { preHandler: app.requireAuth }, async (req, reply) => {
+    const parsed = reconcileSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+    }
+    const { ids } = parsed.data
+    const db = getDb()
+    let presentIds: Set<string>
+    switch (parsed.data.entity) {
+      case 'artikel': {
+        const rows = await db
+          .select({ id: artikel.id })
+          .from(artikel)
+          .where(inArray(artikel.id, ids))
+        presentIds = new Set(rows.map((r) => r.id))
+        break
       }
-      const ids = parsed.data.ids
-      const db = getDb()
-      const rows = await db
-        .select({ id: buchungen.id })
-        .from(buchungen)
-        .where(inArray(buchungen.id, ids))
-      const presentIds = new Set(rows.map((r) => r.id))
-      return reply.send({
-        present: ids.filter((id) => presentIds.has(id)),
-        missing: ids.filter((id) => !presentIds.has(id)),
-      })
-    },
-  )
+      case 'standort': {
+        const rows = await db
+          .select({ id: standorte.id })
+          .from(standorte)
+          .where(inArray(standorte.id, ids))
+        presentIds = new Set(rows.map((r) => r.id))
+        break
+      }
+      case 'kommission': {
+        const rows = await db
+          .select({ id: projekte.id })
+          .from(projekte)
+          .where(inArray(projekte.id, ids))
+        presentIds = new Set(rows.map((r) => r.id))
+        break
+      }
+      case 'hersteller': {
+        const rows = await db
+          .select({ id: hersteller.id })
+          .from(hersteller)
+          .where(inArray(hersteller.id, ids))
+        presentIds = new Set(rows.map((r) => r.id))
+        break
+      }
+      case 'buchung':
+      default: {
+        const rows = await db
+          .select({ id: buchungen.id })
+          .from(buchungen)
+          .where(inArray(buchungen.id, ids))
+        presentIds = new Set(rows.map((r) => r.id))
+        break
+      }
+    }
+    return reply.send({
+      present: ids.filter((id) => presentIds.has(id)),
+      missing: ids.filter((id) => !presentIds.has(id)),
+    })
+  })
 
   // ---------- POST /api/sync/push ----------
-  app.post(
-    '/api/sync/push',
-    { preHandler: app.requireAuth },
-    async (req, reply) => {
-      const parsed = pushPayloadSchema.safeParse(req.body)
-      if (!parsed.success) {
-        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
-      }
-      const user = req.authUser
-      if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
+  app.post('/api/sync/push', { preHandler: app.requireAuth }, async (req, reply) => {
+    const parsed = pushPayloadSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+    }
+    const user = req.authUser
+    if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
-      const db = getDb()
-      const result = await resolvePush(
-        db,
-        parsed.data.ops,
-        user.sub,
-        user.rolle,
-        notificationGateway,
-      )
+    const db = getDb()
+    const result = await resolvePush(db, parsed.data.ops, user.sub, user.rolle, notificationGateway)
 
-      return reply.send(result)
-    },
-  )
+    return reply.send(result)
+  })
 }

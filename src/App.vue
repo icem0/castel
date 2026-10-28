@@ -445,6 +445,18 @@ function buildErrorText(): string {
       if (e.stack) parts.push(`Stack: ${e.stack}`)
       if (e.payload !== undefined) parts.push(`Payload: ${JSON.stringify(e.payload)}`)
     }
+    if (f.divergence) {
+      parts.push(`Divergenz-Läufe: ${f.divergence.streak}`)
+      for (const t of f.divergence.tables) {
+        parts.push(`Tabelle ${t.table}: lokal ${t.local}, Server ${t.server}`)
+      }
+      if (f.divergence.localOnlyTotal > 0) {
+        parts.push(`Lokal vorhanden, auf dem Server unbekannt: ${f.divergence.localOnlyTotal}`)
+        for (const r of f.divergence.localOnly) {
+          parts.push(`  ${r.entity} ${r.id} — ${r.label}`)
+        }
+      }
+    }
   }
   return parts.join('\n') + `\n\nVersion: v${version}`
 }
@@ -1200,6 +1212,38 @@ function formatRelativ(iso: string | null): string {
             </li>
           </ul>
         </details>
+        <details v-if="sync.status.lastFailure.divergence" class="sync-diag-details" open>
+          <summary>
+            Divergenz-Details (Lauf {{ sync.status.lastFailure.divergence.streak }})
+          </summary>
+          <ul class="sync-diag-list">
+            <li v-for="tbl in sync.status.lastFailure.divergence.tables" :key="tbl.table">
+              <code class="mono">{{ tbl.table }}</code>
+              <span> lokal {{ tbl.local }} · Server {{ tbl.server }} </span>
+            </li>
+          </ul>
+          <template v-if="sync.status.lastFailure.divergence.localOnlyTotal > 0">
+            <p class="wert-warn">
+              {{ sync.status.lastFailure.divergence.localOnlyTotal }} Datensätze existieren lokal,
+              sind dem Server aber unbekannt (nie gepusht oder dort gelöscht):
+            </p>
+            <ul class="sync-diag-list">
+              <li
+                v-for="r in sync.status.lastFailure.divergence.localOnly"
+                :key="`${r.entity}:${r.id}`"
+              >
+                <code class="mono">{{ r.entity }}</code>
+                <span>{{ r.label }}</span>
+                <span class="muted mono"> {{ r.id.slice(0, 8) }}… </span>
+              </li>
+            </ul>
+            <p class="hint">
+              Diese Zeilen haben keinen Outbox-Eintrag mehr und werden deshalb nie gepusht. Ein
+              Admin kann sie unter Einstellungen → Entwicklung → „Server aus lokalen Daten aufbauen“
+              wiederherstellen oder lokal löschen.
+            </p>
+          </template>
+        </details>
         <p v-if="serverVermutlichGeleert" class="wert-warn">
           Der Server enthält weniger Daten als lokal und lehnt Buchungen wegen unbekannter
           Referenzen ab — die Server-DB wurde vermutlich geleert. Admin-Reparatur: Einstellungen →
@@ -1313,8 +1357,23 @@ function formatRelativ(iso: string | null): string {
       >
         Beide Datenbanken sind konsistent.
       </p>
-      <p v-else-if="syncZustand === 'diverged'" class="hint wert-warn">
-        Counts weichen ab — ein Sync holt fehlende Datensätze bzw. pusht lokale Änderungen.
+      <p
+        v-else-if="syncZustand === 'diverged'"
+        class="hint"
+        :class="sync.status.lastFailure?.divergence ? 'wert-fehler' : 'wert-warn'"
+      >
+        <template v-if="sync.status.lastFailure?.divergence">
+          {{ sync.status.lastFailure.message }}
+          <template v-if="sync.status.lastFailure.divergence.localOnlyTotal > 0">
+            Details stehen oben in der Diagnose ({{
+              sync.status.lastFailure.divergence.localOnlyTotal
+            }}
+            lokal vorhandene, serverseitig unbekannte Datensätze).
+          </template>
+        </template>
+        <template v-else>
+          Counts weichen ab — ein Sync holt fehlende Datensätze bzw. pusht lokale Änderungen.
+        </template>
       </p>
       <p v-else-if="sync.status.pending > 0" class="hint wert-warn">
         Lokale Änderungen warten auf den Push zum Server.

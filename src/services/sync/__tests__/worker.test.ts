@@ -1933,3 +1933,101 @@ describe('Sync — Akkutausch-Snapshot', () => {
     expect((await getDb().akkuNetzteile.get('n-1'))?.anlage).toBe('Anlage 1')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Divergenz-Diagnose (lokal vorhandene, serverseitig unbekannte Datensätze)
+// ---------------------------------------------------------------------------
+
+describe('Sync — Divergenz-Diagnose', () => {
+  function snapshotResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        serverTime: new Date().toISOString(),
+        since: '1970-01-01T00:00:00.000Z',
+        artikel: [],
+        standorte: [],
+        commission: [],
+        buchungen: [],
+        einstellungen: [],
+        mindestbestandEreignisse: [],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  function statusResponse(artikelCount: number): Response {
+    return new Response(
+      JSON.stringify({
+        serverTime: new Date().toISOString(),
+        counts: {
+          artikel: artikelCount,
+          standorte: 0,
+          commission: 0,
+          buchungen: 0,
+          hersteller: 0,
+          artikelStandortMindestbestand: 0,
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  it('listet local-only Artikel und eskaliert nach 3 Läufen zum Fehler', async () => {
+    const a1 = artikelAnlage(neueUuid(), 'Nur lokal A1')
+    const a2 = artikelAnlage(neueUuid(), 'Nur lokal A2')
+    await getDb().artikel.bulkAdd([a1, a2])
+
+    let serverArtikel = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        const method = init?.method ?? 'GET'
+        if (url.includes('/api/sync/snapshot')) return snapshotResponse()
+        if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
+          const body = JSON.parse(String(init?.body)) as { entity?: string; ids: string[] }
+          return new Response(JSON.stringify({ present: [], missing: body.ids }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+        if (url.endsWith('/api/sync/status')) return statusResponse(serverArtikel)
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const { runSync, getSyncStatus } = await import('../worker')
+
+    await runSync({ token: null, apiBase: 'http://test.local' })
+    let st = getSyncStatus()
+    // Erster Lauf: Diagnose ist da, aber noch kein harter Fehler.
+    expect(st.status).toBe('idle')
+    expect(st.lastFailure?.code).toBe('UNRESOLVED_DIVERGENCE')
+    expect(st.lastFailure?.source).toBe('counts')
+    expect(st.lastFailure?.divergence?.localOnlyTotal).toBe(2)
+    expect(st.lastFailure?.divergence?.streak).toBe(1)
+    expect(st.lastFailure?.divergence?.localOnly.map((r) => r.label).sort()).toEqual([
+      'Nur lokal A1',
+      'Nur lokal A2',
+    ])
+
+    await runSync({ token: null, apiBase: 'http://test.local' })
+    expect(getSyncStatus().lastFailure?.divergence?.streak).toBe(2)
+    expect(getSyncStatus().status).toBe('idle')
+
+    await runSync({ token: null, apiBase: 'http://test.local' })
+    st = getSyncStatus()
+    expect(st.status).toBe('error')
+    expect(st.lastErrorCode).toBe('UNRESOLVED_DIVERGENCE')
+    expect(st.lastFailure?.divergence?.streak).toBe(3)
+    expect(st.lastError).toContain('nur lokal vorhanden')
+
+    // Sobald der Server die Zeilen doch kennt, verschwindet die Diagnose.
+    serverArtikel = 2
+    await runSync({ token: null, apiBase: 'http://test.local' })
+    st = getSyncStatus()
+    expect(st.status).toBe('idle')
+    expect(st.lastFailure).toBeNull()
+    expect(st.lastError).toBeNull()
+  })
+})

@@ -255,4 +255,13 @@ describe('reconcileSchema', () => {
       reconcileSchema.safeParse({ ids: Array.from({ length: 501 }, (_, i) => `b${i}`) }).success,
     ).toBe(false)
   })
+
+  it('akzeptiert Stammdaten-Entitäten und defaultet auf buchung', () => {
+    const parsed = reconcileSchema.parse({ ids: ['a1'] })
+    expect(parsed.entity).toBe('buchung')
+    for (const entity of ['artikel', 'standort', 'kommission', 'hersteller'] as const) {
+      expect(reconcileSchema.safeParse({ entity, ids: ['a1'] }).success).toBe(true)
+    }
+    expect(reconcileSchema.safeParse({ entity: 'unbekannt', ids: ['a1'] }).success).toBe(false)
+  })
 })

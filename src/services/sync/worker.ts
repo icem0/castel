@@ -46,6 +46,13 @@ const RETRY_AFTER_CAP_MS = 5 * 60_000
 const QUARANTINE_THRESHOLD = 5
 /** Server-Codes, die ein Item sofort stilllegen (kein Retry hilft). */
 const HARD_QUARANTINE_CODES = new Set(['UNKNOWN_REFERENCE', 'BEREITS_STORNIED', 'HAS_DEPENDENCIES'])
+/**
+ * Number of consecutive completed syncs with unchanged row counts before
+ * the divergence is escalated from a quiet hint to an error (banner/toast).
+ * A single run can legitimately end diverged when another device is
+ * mid-write; three runs (~90s) means the sync really cannot fix it.
+ */
+export const DIVERGENCE_ALERT_THRESHOLD = 3
 
 export const PUSH_TIMEOUT_MS = 30_000
 export const SNAPSHOT_TIMEOUT_MS = 90_000
@@ -332,8 +339,37 @@ export interface ServerStatus {
   counts: TableCounts
 }
 
+/** Ein lokal vorhandener Datensatz, den der Server nicht kennt. */
+export interface SyncLocalOnlyRecord {
+  entity: 'artikel' | 'standort' | 'kommission' | 'hersteller'
+  id: string
+  /** Human-readable label (title/name/number) for the UI. */
+  label: string
+}
+
+/** Per-table row counts that differ between IndexedDB and Postgres. */
+export interface SyncDivergenceTable {
+  table: string
+  local: number
+  server: number
+}
+
+/**
+ * Result of the divergence diagnosis. Populated after a successful sync
+ * when the row counts still differ and no local writes are pending.
+ */
+export interface SyncDivergence {
+  tables: SyncDivergenceTable[]
+  /** Up to 20 examples of locally present rows missing on the server. */
+  localOnly: SyncLocalOnlyRecord[]
+  /** Total number of local-only rows (may exceed `localOnly.length`). */
+  localOnlyTotal: number
+  /** Consecutive sync runs that ended with the same unresolved divergence. */
+  streak: number
+}
+
 /** Wo der letzte Server-Fehler aufgetreten ist. */
-export type SyncFailureSource = 'push' | 'snapshot' | 'status' | 'network' | null
+export type SyncFailureSource = 'push' | 'snapshot' | 'status' | 'counts' | 'network' | null
 
 /** Strukturierte Diagnose-Info für den letzten Fehler. */
 export interface SyncLastFailure {
@@ -374,6 +410,11 @@ export interface SyncLastFailure {
     lastError: string | null
     createdAt: string
   }>
+  /**
+   * Details when the counts still differ after a completed sync run.
+   * Present for code `UNRESOLVED_DIVERGENCE` (and only then).
+   */
+  divergence?: SyncDivergence
 }
 
 /**
@@ -482,6 +523,8 @@ let _suspended = false
 let _running = false
 /** Anzahl der aufeinanderfolgenden Fehlversuche (für Backoff). */
 let _consecutiveFailures = 0
+/** Aufeinanderfolgende abgeschlossene Syncs mit unveränderter Divergenz. */
+let _divergenceStreak = 0
 /** Callback, der bei 401 einmalig aufgerufen wird, damit die App den
  *  Auth-Store zurücksetzen und zur Login-View navigieren kann. */
 let _onAuthRevoked: (() => void) | null = null
@@ -624,6 +667,8 @@ interface ReconcileResult {
   missing: string[]
 }
 
+export type ReconcileEntity = 'buchung' | 'artikel' | 'standort' | 'kommission' | 'hersteller'
+
 const RECONCILE_BATCH_SIZE = 500
 
 async function postReconcile(
@@ -631,6 +676,7 @@ async function postReconcile(
   token: string | null,
   ids: string[],
   signal: AbortSignal | null,
+  entity: ReconcileEntity = 'buchung',
 ): Promise<ReconcileResult> {
   const res = await fetchWithTimeout(
     `${apiBase}/api/sync/reconcile`,
@@ -641,7 +687,7 @@ async function postReconcile(
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       credentials: 'include',
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ entity, ids }),
     },
     PUSH_TIMEOUT_MS,
     signal,
@@ -704,6 +750,166 @@ async function reconcileBookings(
     }
   }
   return missingCount
+}
+
+/**
+ * Collects local-only record IDs for one entity. The server answers with
+ * the subset of IDs it does not know. Batched to respect the 500-ID limit.
+ */
+async function collectMissingIds(
+  apiBase: string,
+  token: string | null,
+  entity: ReconcileEntity,
+  ids: string[],
+  signal: AbortSignal | null,
+): Promise<Set<string>> {
+  const missing = new Set<string>()
+  for (let i = 0; i < ids.length; i += RECONCILE_BATCH_SIZE) {
+    if (signal?.aborted) throw new SyncTimeoutError('Sync abgebrochen')
+    const chunk = ids.slice(i, i + RECONCILE_BATCH_SIZE)
+    const result = await postReconcile(apiBase, token, chunk, signal, entity)
+    for (const id of result.missing) missing.add(id)
+  }
+  return missing
+}
+
+/**
+ * Diagnoses a persistent count divergence: which tables differ and which
+ * local master-data rows are unknown to the server. This is what turns
+ * "Counts weichen ab" into an actionable message.
+ *
+ * Never throws for individual entities — a failing check only means we
+ * have less detail, not that the sync failed.
+ */
+export async function diagnoseDivergence(
+  apiBase: string,
+  token: string | null,
+  localCounts: TableCounts,
+  serverCounts: TableCounts,
+  signal: AbortSignal | null = null,
+): Promise<Omit<SyncDivergence, 'streak'>> {
+  const db = getDb()
+  const diff = (l: number, s: number): boolean => l !== s
+  const tables: SyncDivergenceTable[] = []
+  if (diff(localCounts.artikel, serverCounts.artikel)) {
+    tables.push({ table: 'artikel', local: localCounts.artikel, server: serverCounts.artikel })
+  }
+  if (diff(localCounts.standorte, serverCounts.standorte)) {
+    tables.push({
+      table: 'standorte',
+      local: localCounts.standorte,
+      server: serverCounts.standorte,
+    })
+  }
+  if (diff(localCounts.commission, serverCounts.commission)) {
+    tables.push({
+      table: 'kommissionen',
+      local: localCounts.commission,
+      server: serverCounts.commission,
+    })
+  }
+  if (diff(localCounts.buchungen, serverCounts.buchungen)) {
+    tables.push({
+      table: 'buchungen',
+      local: localCounts.buchungen,
+      server: serverCounts.buchungen,
+    })
+  }
+  if (diff(localCounts.hersteller ?? 0, serverCounts.hersteller ?? 0)) {
+    tables.push({
+      table: 'hersteller',
+      local: localCounts.hersteller ?? 0,
+      server: serverCounts.hersteller ?? 0,
+    })
+  }
+  if (
+    diff(
+      localCounts.artikelStandortMindestbestand ?? 0,
+      serverCounts.artikelStandortMindestbestand ?? 0,
+    )
+  ) {
+    tables.push({
+      table: 'mindestbestände',
+      local: localCounts.artikelStandortMindestbestand ?? 0,
+      server: serverCounts.artikelStandortMindestbestand ?? 0,
+    })
+  }
+
+  const localOnly: SyncLocalOnlyRecord[] = []
+  let localOnlyTotal = 0
+  const collect = async (
+    entity: SyncLocalOnlyRecord['entity'],
+    rows: Array<{ id: string; label: string }>,
+  ): Promise<void> => {
+    if (rows.length === 0) return
+    try {
+      const missing = await collectMissingIds(
+        apiBase,
+        token,
+        entity,
+        rows.map((r) => r.id),
+        signal,
+      )
+      for (const row of rows) {
+        if (!missing.has(row.id)) continue
+        localOnlyTotal++
+        if (localOnly.length < 20) localOnly.push({ entity, id: row.id, label: row.label })
+      }
+    } catch (e) {
+      console.warn(`[sync] divergence diagnosis failed for ${entity}:`, e)
+    }
+  }
+
+  // Only rows that exist locally in surplus can be "local only". A server
+  // surplus is a pull problem, not a push problem.
+  if (localCounts.artikel > serverCounts.artikel) {
+    const rows = await db.artikel.toArray()
+    await collect(
+      'artikel',
+      rows.map((r) => ({ id: r.id, label: r.titel })),
+    )
+  }
+  if (localCounts.standorte > serverCounts.standorte) {
+    const rows = await db.standorte.toArray()
+    await collect(
+      'standort',
+      rows.map((r) => ({ id: r.id, label: r.name })),
+    )
+  }
+  if (localCounts.commission > serverCounts.commission) {
+    const rows = await db.commission.toArray()
+    await collect(
+      'kommission',
+      rows.map((r) => ({ id: r.id, label: r.nummer })),
+    )
+  }
+  if ((localCounts.hersteller ?? 0) > (serverCounts.hersteller ?? 0)) {
+    const rows = await db.hersteller.toArray()
+    await collect(
+      'hersteller',
+      rows.map((r) => ({ id: r.id, label: r.name })),
+    )
+  }
+
+  return { tables, localOnly, localOnlyTotal }
+}
+
+/** Human-readable one-liner for the divergence diagnostic. */
+export function divergenceMessage(divergence: Omit<SyncDivergence, 'streak'>): string {
+  const parts = divergence.tables.map((t) =>
+    t.local > t.server
+      ? `${t.local - t.server} ${t.table} nur lokal vorhanden`
+      : `${t.server - t.local} ${t.table} nur auf dem Server`,
+  )
+  if (divergence.localOnlyTotal > 0) {
+    parts.push(
+      `${divergence.localOnlyTotal} lokale Datensätze sind auf dem Server unbekannt ` +
+        '(nie gepusht oder dort gelöscht)',
+    )
+  }
+  return parts.length > 0
+    ? `Sync konnte die Abweichung nicht beheben: ${parts.join('; ')}.`
+    : 'Sync konnte die Abweichung nicht beheben.'
 }
 
 async function getLocalCounts(): Promise<TableCounts> {
@@ -1486,17 +1692,77 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       if (_runToken !== runToken) return
     }
 
+    // Bookings that were already flagged as "not saved" explain their own
+    // divergence (and have a dedicated banner). Do not escalate them as an
+    // unknown divergence, otherwise every sync would cry wolf.
+    const notSavedAfterReconcile = await getDb()
+      .buchungen.filter((b) => b.nichtGespeichert === true)
+      .count()
+    const unexplainedLocalCounts: TableCounts = {
+      ...localCounts,
+      buchungen: localCounts.buchungen - notSavedAfterReconcile,
+    }
+
+    // Divergenz-Diagnose: Der Sync ist formal durchgelaufen, aber die
+    // Counts passen weiterhin nicht und es gibt keine ausstehenden
+    // Outbox-Items mehr. Ohne diesen Schritt blieb nur der nichtsagende
+    // Hinweis "Counts weichen ab" stehen — ohne Grund und ohne Namen der
+    // betroffenen Datensätze. Nach DIVERGENCE_ALERT_THRESHOLD Läufen
+    // eskaliert die Diagnose zu einem echten Fehler (Banner/Toast).
+    let divergence: Omit<SyncDivergence, 'streak'> | null = null
+    let divergenceFailure: SyncLastFailure | null = null
+    let divergenceEscalated = false
+    if (!hadPartialRejection && stillPending === 0 && serverCounts !== null) {
+      try {
+        if (zaehleAbweichungen(unexplainedLocalCounts, serverCounts) > 0) {
+          _divergenceStreak += 1
+          divergence = await diagnoseDivergence(
+            apiBase,
+            token,
+            unexplainedLocalCounts,
+            serverCounts,
+            signal,
+          )
+          if (_runToken !== runToken) return
+          divergenceEscalated = _divergenceStreak >= DIVERGENCE_ALERT_THRESHOLD
+          const message = divergenceMessage(divergence)
+          const at = jetztIso()
+          divergenceFailure = {
+            at,
+            source: 'counts',
+            status: null,
+            code: 'UNRESOLVED_DIVERGENCE',
+            message,
+            retryAfterMs: null,
+            rejectedItems: 0,
+            sampleErrors: [],
+            stuckItems: await collectStuckItems(5),
+            divergence: { ...divergence, streak: _divergenceStreak },
+          }
+        } else {
+          _divergenceStreak = 0
+        }
+      } catch (e) {
+        // Die Diagnose ist optional — der Sync selbst war erfolgreich.
+        console.warn('[sync] divergence diagnosis failed:', e)
+        _divergenceStreak = 0
+      }
+    } else {
+      _divergenceStreak = 0
+    }
+
     const counts = await syncCountPatch()
     if (_runToken !== runToken) return
     const finishedAt = jetztIso()
+    const keepPartial = hadPartialRejection
     safeUpdate({
-      status: hadPartialRejection ? 'error' : 'idle',
+      status: keepPartial || divergenceEscalated ? 'error' : 'idle',
       lastSyncAt: finishedAt,
       // lastError/lastFailure nur zurücksetzen, wenn der aktuelle
-      // Zyklus keine Ablehnung hatte (und der catch-Block sie nicht
-      // schon wegen eines späteren Fehlers überschrieben hat).
-      lastError: hadPartialRejection ? _status.lastError : null,
-      lastFailure: hadPartialRejection ? _status.lastFailure : null,
+      // Zyklus weder eine Ablehnung noch eine ungelöste Divergenz hatte
+      // (und der catch-Block sie nicht schon überschrieben hat).
+      lastError: keepPartial ? _status.lastError : (divergenceFailure?.message ?? null),
+      lastFailure: keepPartial ? _status.lastFailure : divergenceFailure,
       ...counts,
       serverCounts,
       serverTime,
@@ -1504,9 +1770,18 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       nextRetryAt: null,
       lastStep: 'done',
       lastStepAt: finishedAt,
-      lastErrorCode: hadPartialRejection ? _status.lastErrorCode : null,
-      lastErrorAt: hadPartialRejection ? _status.lastErrorAt : null,
-      lastErrorFingerprint: hadPartialRejection ? _status.lastErrorFingerprint : null,
+      lastErrorCode: keepPartial ? _status.lastErrorCode : (divergenceFailure?.code ?? null),
+      lastErrorAt: keepPartial ? _status.lastErrorAt : (divergenceFailure?.at ?? null),
+      lastErrorFingerprint: keepPartial
+        ? _status.lastErrorFingerprint
+        : divergenceEscalated && divergence
+          ? syncErrorFingerprint(
+              'counts',
+              'UNRESOLVED_DIVERGENCE',
+              null,
+              divergenceMessage(divergence),
+            )
+          : null,
     })
     _consecutiveFailures = 0
     // Erfolgreicher Push beweist: Token ist wieder gültig (oder war es die
@@ -1533,13 +1808,19 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     const waitMs = http?.retryAfterMs ?? backoffMs
     const nextRetryAt = waitMs > 0 ? new Date(Date.now() + waitMs).toISOString() : null
 
-    // Diagnose: nur setzen, wenn der innere Push-Handler es nicht schon getan
-    // hat (partieller Erfolg mit Server-Rejects). Sonst überschreiben wir
-    // dessen Source/Code mit der hier beobachteten Information.
+    // Diagnose: nur übernehmen, wenn der innere Push-Handler in DIESEM Lauf
+    // einen partiellen Reject gemeldet hat. Eine alte Divergenz-Diagnose aus
+    // dem vorherigen Lauf darf einen echten Netzwerk-/Snapshot-Fehler nicht
+    // als 'counts' etikettieren.
     const existingFailure = _status.lastFailure
+    const keepPushFailure = existingFailure?.source === 'push'
     const at = jetztIso()
     const source: SyncFailureSource =
-      existingFailure?.source ?? (timeout || isNetwork ? 'network' : 'snapshot')
+      keepPushFailure && existingFailure
+        ? existingFailure.source
+        : timeout || isNetwork
+          ? 'network'
+          : 'snapshot'
     const code = timeout ? 'SYNC_TIMEOUT' : (http?.category ?? (isNetwork ? 'NETWORK' : 'UNKNOWN'))
     const newFailure: SyncLastFailure = {
       at,
@@ -1548,8 +1829,8 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       code,
       message: msg,
       retryAfterMs: http?.retryAfterMs ?? null,
-      rejectedItems: existingFailure?.rejectedItems ?? 0,
-      sampleErrors: existingFailure?.sampleErrors ?? [],
+      rejectedItems: keepPushFailure ? (existingFailure?.rejectedItems ?? 0) : 0,
+      sampleErrors: keepPushFailure ? (existingFailure?.sampleErrors ?? []) : [],
       stuckItems: await collectStuckItems(5),
     }
     if (_runToken !== runToken) return
@@ -1895,6 +2176,7 @@ export function _resetSyncForTests(): void {
     lastErrorFingerprint: null,
   }
   _consecutiveFailures = 0
+  _divergenceStreak = 0
   _authRevokedNotified = false
   _onAuthRevoked = null
   _rerunRequested = false
