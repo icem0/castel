@@ -309,13 +309,42 @@ export const pushPayloadSchema = z.object({
 })
 
 /**
- * IDs lokaler Datensätze, deren Existenz der Client gegen den Server prüft.
+ * IDs lokaler Datensätze, deren Existenz der Client gegen dem Server prüft.
  * Ohne `entity` wird aus Kompatibilitätsgründen `buchung` geprüft.
+ *
+ * Sonderfall `artikel_standort_mindestbestand`: dort ist die Identität das
+ * Paar (artikelId, standortId) — der Client übergibt es als
+ * "artikelId#standortId" (siehe `payloadIdFor` im PWA-Worker). Die IDs sind
+ * daher keine UUIDs, sondern zwei UUIDs mit Trennzeichen.
  */
-export const reconcileSchema = z.object({
-  entity: z.enum(['buchung', 'artikel', 'standort', 'kommission', 'hersteller']).default('buchung'),
-  ids: z.array(id).min(1, 'mindestens eine ID').max(500, 'maximal 500 IDs pro Request'),
-})
+export const reconcileSchema = z
+  .object({
+    entity: z
+      .enum([
+        'buchung',
+        'artikel',
+        'standort',
+        'kommission',
+        'hersteller',
+        'artikel_standort_mindestbestand',
+      ])
+      .default('buchung'),
+    ids: z.array(id).min(1, 'mindestens eine ID').max(500, 'maximal 500 IDs pro Request'),
+  })
+  .superRefine((val, ctx) => {
+    if (val.entity !== 'artikel_standort_mindestbestand') return
+    const ungueltig = val.ids.find((roh) => {
+      const teile = roh.split('#')
+      return teile.length !== 2 || teile[0]!.length === 0 || teile[1]!.length === 0
+    })
+    if (ungueltig !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Mindestbestand-IDs müssen als "artikelId#standortId" übergeben werden',
+        path: ['ids'],
+      })
+    }
+  })
 
 // ---------- Auth ----------
 

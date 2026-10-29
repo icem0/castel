@@ -1102,10 +1102,11 @@ describe('Sync — einstellung/upsert End-to-End', () => {
     expect(remaining[0]?.attempts).toBe(1)
   })
 
-  it('Einstellung mit fremder userId wird nicht an den Server pushed', async () => {
+  it('Einstellung mit fremder userId wird ohne Session nicht gepusht, aber behalten', async () => {
     // Outbox-Item trägt userId 'u1', es ist aber kein Session-User
-    // angemeldet (currentUserId = null). Der Guard muss das Item lokal
-    // als fehlgeschlagen markieren, OHNE es an den Server zu senden.
+    // angemeldet (currentUserId = null). Ohne Session wissen wir nicht,
+    // wem das Item gehört — es bleibt unangetastet im Outbox, wird aber
+    // NICHT an den Server geschickt (der Server würde es ablehnen).
     const e = einstellungPayload('sprache', 'u1', 'en-US')
     await getDb().outbox.add({
       id: neueUuid(),
@@ -1164,8 +1165,74 @@ describe('Sync — einstellung/upsert End-to-End', () => {
     const remaining = await getDb().outbox.toArray()
     expect(remaining.length).toBe(1)
     expect(remaining[0]?.syncedAt).toBeNull()
-    expect(remaining[0]?.lastError).toContain('VALIDATION')
-    expect(remaining[0]?.lastError).toContain('einem anderen Nutzer')
+    // Kein Fehlereintrag: das Item ist "in Arbeit", nicht abgelehnt.
+    expect(remaining[0]?.lastError).toBeNull()
+  })
+
+  it('fremde per-User-Einstellung wird beim User-Wechsel aus der Outbox entfernt', async () => {
+    // Der neue User kann die Einstellung des alten Users nicht pushen
+    // (der Server lehnt fremde userId ab). Das Item bliebe sonst für
+    // immer als "vom Server abgelehnt" in der Diagnose stehen.
+    const e = einstellungPayload('theme', 'u-alt', 'dark')
+    await getDb().outbox.add({
+      id: neueUuid(),
+      entity: 'einstellung',
+      op: 'upsert',
+      payload: JSON.stringify(e),
+      createdAt: jetztIso(),
+      syncedAt: null,
+      attempts: 0,
+      lastError: null,
+      quarantinedAt: null,
+      quarantineReason: null,
+    })
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.endsWith('/api/sync/push') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ accepted: [], conflicts: [], errors: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.includes('/api/sync/snapshot')) {
+        return new Response(
+          JSON.stringify({
+            serverTime: new Date().toISOString(),
+            since: '1970-01-01T00:00:00.000Z',
+            artikel: [],
+            standorte: [],
+            commission: [],
+            buchungen: [],
+            einstellungen: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      if (url.endsWith('/api/sync/status')) {
+        return new Response(
+          JSON.stringify({
+            serverTime: new Date().toISOString(),
+            counts: { artikel: 0, standorte: 0, commission: 0, buchungen: 0 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response('not found', { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    // Angemeldet als *anderer* User.
+    localStorage.setItem(
+      'castel.auth.session',
+      JSON.stringify({ userId: 'u-neu', email: 'neu@test.local', rolle: 'user' }),
+    )
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    const remaining = await getDb().outbox.toArray()
+    expect(remaining.length).toBe(0)
   })
 
   it('Einstellungs-Diagnose (stuckItems/quarantinedItems): payloadId ist key#userId, nicht leer', async () => {
@@ -2101,5 +2168,244 @@ describe('Sync — Divergenz-Diagnose', () => {
     expect(diag.localOnlyTotal).toBe(1)
     expect(diag.findings.length).toBeGreaterThan(0)
     expect(getSyncStatus().diagnostics?.localOnlyTotal).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Geister-Bereinigung (lokal vorhanden, serverseitig gelöscht)
+// ---------------------------------------------------------------------------
+
+describe('Sync — Geister-Bereinigung', () => {
+  /** Snapshot-Antwort ohne Daten (der Server liefert nichts Neues). */
+  function snapshotResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        serverTime: new Date().toISOString(),
+        since: '1970-01-01T00:00:00.000Z',
+        artikel: [],
+        standorte: [],
+        commission: [],
+        buchungen: [],
+        einstellungen: [],
+        mindestbestandEreignisse: [],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  function statusResponse(counts: Partial<TableCounts>): Response {
+    return new Response(
+      JSON.stringify({
+        serverTime: new Date().toISOString(),
+        counts: {
+          artikel: 0,
+          standorte: 0,
+          commission: 0,
+          buchungen: 0,
+          hersteller: 0,
+          artikelStandortMindestbestand: 0,
+          ...counts,
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  /**
+   * Mock des Servers: `serverArtikel` sind die Artikel-IDs, die der Server
+   * kennt — alles andere wurde auf einem anderen Gerät gelöscht.
+   */
+  function fetchMock(opts: {
+    serverArtikel: string[]
+    /** Paare (artikelId#standortId), die der Server kennt. */
+    serverPaare?: string[]
+    /** Anzahl der Mindestbestand-Konfigurationen auf dem Server. */
+    serverPaareAnzahl?: number
+    /** Alter Server: antwortet ohne `entity`-Echo. */
+    ohneEcho?: boolean
+  }) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      const method = init?.method ?? 'GET'
+      if (url.includes('/api/sync/snapshot')) return snapshotResponse()
+      // Leerer Push-Erfolg: kein Item wird angenommen, abgelehnt oder
+      // konflikiert — die Outbox-Einträge bleiben "in Arbeit" stehen und
+      // dürfen von der Geister-Bereinigung nicht angefasst werden.
+      if (url.endsWith('/api/sync/push') && method === 'POST') {
+        return new Response(
+          JSON.stringify({ accepted: [], skipped: [], conflicts: [], errors: [] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
+        const body = JSON.parse(String(init?.body)) as { entity?: string; ids: string[] }
+        let present: string[] = []
+        if (body.entity === 'artikel') {
+          present = body.ids.filter((id) => opts.serverArtikel.includes(id))
+        } else if (body.entity === 'artikel_standort_mindestbestand') {
+          present = body.ids.filter((id) => (opts.serverPaare ?? []).includes(id))
+        }
+        const payload: Record<string, unknown> = {
+          present,
+          missing: body.ids.filter((id) => !present.includes(id)),
+        }
+        if (!opts.ohneEcho) payload['entity'] = body.entity
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (url.endsWith('/api/sync/status')) {
+        return statusResponse({
+          artikel: opts.serverArtikel.length,
+          artikelStandortMindestbestand: opts.serverPaareAnzahl ?? 0,
+        })
+      }
+      return new Response('not found', { status: 404 })
+    })
+  }
+
+  it('entfernt lokal-only Artikel, die der Server nicht (mehr) kennt', async () => {
+    const bekannt = artikelAnlage(neueUuid(), 'Server kennt das')
+    const geist = artikelAnlage(neueUuid(), 'Auf anderem Gerät gelöscht')
+    await getDb().artikel.bulkAdd([bekannt, geist])
+
+    vi.stubGlobal('fetch', fetchMock({ serverArtikel: [bekannt.id] }))
+
+    const { runSync, getSyncStatus } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    // Der Geist ist weg, der dem Server bekannte Artikel bleibt.
+    expect(await getDb().artikel.get(geist.id)).toBeUndefined()
+    expect(await getDb().artikel.get(bekannt.id)).toBeDefined()
+    // Keine Divergenz mehr — der Sync ist wieder konsistent.
+    expect(getSyncStatus().status).toBe('idle')
+    expect(getSyncStatus().lastFailure).toBeNull()
+  })
+
+  it('behält Artikel, die noch in der Outbox liegen', async () => {
+    const bekannt = artikelAnlage(neueUuid(), 'Server kennt das')
+    const wartend = artikelAnlage(neueUuid(), 'Noch nicht gepusht')
+    const geist = artikelAnlage(neueUuid(), 'Auf anderem Gerät gelöscht')
+    await getDb().artikel.bulkAdd([bekannt, wartend, geist])
+    await getDb().outbox.add({
+      id: neueUuid(),
+      entity: 'artikel',
+      op: 'create',
+      payload: JSON.stringify(wartend),
+      createdAt: jetztIso(),
+      syncedAt: null,
+      attempts: 0,
+      lastError: null,
+      quarantinedAt: null,
+      quarantineReason: null,
+    })
+
+    // Der Server kennt nur den ersten Artikel.
+    vi.stubGlobal('fetch', fetchMock({ serverArtikel: [bekannt.id] }))
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    // Der wartende Artikel bleibt (er ist "in Arbeit"), der Geist ist weg.
+    expect(await getDb().artikel.get(wartend.id)).toBeDefined()
+    expect(await getDb().artikel.get(geist.id)).toBeUndefined()
+  })
+
+  it('löscht die Mindestbestand-Konfiguration eines gelöschten Artikels mit', async () => {
+    const bekannt = artikelAnlage(neueUuid(), 'Server kennt das')
+    const geist = artikelAnlage(neueUuid(), 'Gelöscht')
+    const standortId = neueUuid()
+    await getDb().artikel.bulkAdd([bekannt, geist])
+    await getDb().artikelStandortMindestbestaende.add({
+      artikelId: geist.id,
+      standortId,
+      mindestbestand: 5,
+      geaendertAm: jetztIso(),
+      erstelltAm: jetztIso(),
+    })
+
+    vi.stubGlobal('fetch', fetchMock({ serverArtikel: [bekannt.id] }))
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    expect(await getDb().artikel.get(geist.id)).toBeUndefined()
+    expect(
+      await getDb().artikelStandortMindestbestaende.get([geist.id, standortId]),
+    ).toBeUndefined()
+  })
+
+  it('entfernt Mindestbestand-Paare, die der Server nicht kennt', async () => {
+    const unbekannt = { artikelId: neueUuid(), standortId: neueUuid() }
+    const bekannt = { artikelId: neueUuid(), standortId: neueUuid() }
+    await getDb().artikelStandortMindestbestaende.bulkAdd([
+      {
+        artikelId: unbekannt.artikelId,
+        standortId: unbekannt.standortId,
+        mindestbestand: 3,
+        geaendertAm: jetztIso(),
+        erstelltAm: jetztIso(),
+      },
+      // Zweites Paar, das der Server kennt — es bleibt stehen.
+      {
+        artikelId: bekannt.artikelId,
+        standortId: bekannt.standortId,
+        mindestbestand: 4,
+        geaendertAm: jetztIso(),
+        erstelltAm: jetztIso(),
+      },
+    ])
+
+    vi.stubGlobal(
+      'fetch',
+      fetchMock({
+        serverArtikel: [],
+        serverPaare: [`${bekannt.artikelId}#${bekannt.standortId}`],
+        serverPaareAnzahl: 1,
+      }),
+    )
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    expect(
+      await getDb().artikelStandortMindestbestaende.get([
+        unbekannt.artikelId,
+        unbekannt.standortId,
+      ]),
+    ).toBeUndefined()
+    expect(
+      await getDb().artikelStandortMindestbestaende.get([bekannt.artikelId, bekannt.standortId]),
+    ).toBeDefined()
+  })
+
+  it('löscht nichts, wenn der Server die Entitäts-Prüfung nicht unterstützt', async () => {
+    const bekannt = artikelAnlage(neueUuid(), 'Server kennt das')
+    const geist = artikelAnlage(neueUuid(), 'Bleibt')
+    await getDb().artikel.bulkAdd([bekannt, geist])
+
+    // Alter Server: antwortet ohne `entity`-Echo.
+    vi.stubGlobal('fetch', fetchMock({ serverArtikel: [bekannt.id], ohneEcho: true }))
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    expect(await getDb().artikel.get(geist.id)).toBeDefined()
+  })
+
+  it('löscht nichts, wenn der Server komplett leer ist (Reseed-Weg bleibt offen)', async () => {
+    const lokal = artikelAnlage(neueUuid(), 'Lokal, Server leer')
+    await getDb().artikel.add(lokal)
+
+    // Server kennt 0 Artikel → das ist der "Server wurde geleert"-Fall:
+    // hier darf die Bereinigung NICHT löschen, sonst ist die einzige
+    // Kopie der Daten weg (Reseed: "Server aus lokalen Daten aufbauen").
+    vi.stubGlobal('fetch', fetchMock({ serverArtikel: [] }))
+
+    const { runSync } = await import('../worker')
+    await runSync({ token: null, apiBase: 'http://test.local' })
+
+    expect(await getDb().artikel.get(lokal.id)).toBeDefined()
   })
 })

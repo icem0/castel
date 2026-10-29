@@ -342,6 +342,37 @@ export async function syncRoutes(
         presentIds = new Set(rows.map((r) => r.id))
         break
       }
+      case 'artikel_standort_mindestbestand': {
+        // Identitaet ist das Paar (artikelId, standortId) — der Client
+        // uebergibt "artikelId#standortId". Wir fragen die beteiligten
+        // Artikel-/Standort-IDs ab (Index-Nutzung) und filtern danach
+        // auf die tatsaechlich vorhandenen Paare.
+        const artikelIds = [
+          ...new Set(ids.map((roh) => roh.split('#')[0]).filter((v): v is string => !!v)),
+        ]
+        const standortIds = [
+          ...new Set(ids.map((roh) => roh.split('#')[1]).filter((v): v is string => !!v)),
+        ]
+        if (artikelIds.length === 0 || standortIds.length === 0) {
+          presentIds = new Set()
+          break
+        }
+        const rows = await db
+          .select({
+            artikelId: artikelStandortMindestbestaende.artikelId,
+            standortId: artikelStandortMindestbestaende.standortId,
+          })
+          .from(artikelStandortMindestbestaende)
+          .where(
+            and(
+              inArray(artikelStandortMindestbestaende.artikelId, artikelIds),
+              inArray(artikelStandortMindestbestaende.standortId, standortIds),
+            ),
+          )
+        const vorhanden = new Set(rows.map((r) => `${r.artikelId}#${r.standortId}`))
+        presentIds = new Set(ids.filter((roh) => vorhanden.has(roh)))
+        break
+      }
       case 'buchung':
       default: {
         const rows = await db

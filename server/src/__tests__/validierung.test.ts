@@ -7,6 +7,7 @@ import {
   buchungSchema,
   loginSchema,
   pushPayloadSchema,
+  reconcileSchema,
   snapshotQuerySchema,
 } from '../domain/validierung.js'
 
@@ -220,6 +221,57 @@ describe('validierung.schemas', () => {
     it('lehnt Müll ab', () => {
       const r = snapshotQuerySchema.safeParse({ since: 'kein-datum' })
       expect(r.success).toBe(false)
+    })
+  })
+
+  describe('reconcileSchema', () => {
+    const paar = (a: string, b: string) => `${a}#${b}`
+
+    it('hält entity = buchungen als Default (alte Clients ohne entity)', () => {
+      const r = reconcileSchema.safeParse({ ids: ['b1'] })
+      expect(r.success).toBe(true)
+      expect(r.success && r.data.entity).toBe('buchung')
+    })
+
+    it('akzeptiert artikel_standort_mindestbestand mit Paar-IDs', () => {
+      const r = reconcileSchema.safeParse({
+        entity: 'artikel_standort_mindestbestand',
+        ids: [paar('a1', 's1'), paar('a2', 's2')],
+      })
+      expect(r.success).toBe(true)
+    })
+
+    it('lehnt IDs ohne Trennzeichen für Mindestbestand ab', () => {
+      const r = reconcileSchema.safeParse({
+        entity: 'artikel_standort_mindestbestand',
+        ids: ['a1'],
+      })
+      expect(r.success).toBe(false)
+    })
+
+    it('lehnt unvollständige Paare ab', () => {
+      expect(
+        reconcileSchema.safeParse({
+          entity: 'artikel_standort_mindestbestand',
+          ids: [paar('a1', '')],
+        }).success,
+      ).toBe(false)
+      expect(
+        reconcileSchema.safeParse({
+          entity: 'artikel_standort_mindestbestand',
+          ids: [paar('', 's1')],
+        }).success,
+      ).toBe(false)
+    })
+
+    it('verlangt keine Paar-IDs für andere Entitäten', () => {
+      const r = reconcileSchema.safeParse({ entity: 'hersteller', ids: ['h1'] })
+      expect(r.success).toBe(true)
+    })
+
+    it('begrenzt die IDs pro Request auf 500', () => {
+      const ids = Array.from({ length: 501 }, (_, i) => `b${i}`)
+      expect(reconcileSchema.safeParse({ entity: 'buchung', ids }).success).toBe(false)
     })
   })
 })

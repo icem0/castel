@@ -787,7 +787,13 @@ interface ReconcileResult {
   entity?: string
 }
 
-export type ReconcileEntity = 'buchung' | 'artikel' | 'standort' | 'kommission' | 'hersteller'
+export type ReconcileEntity =
+  | 'buchung'
+  | 'artikel'
+  | 'standort'
+  | 'kommission'
+  | 'hersteller'
+  | 'artikel_standort_mindestbestand'
 
 const RECONCILE_BATCH_SIZE = 500
 
@@ -899,6 +905,209 @@ async function collectMissingIds(
     for (const id of result.missing) missing.add(id)
   }
   return missing
+}
+
+/** Ergebnis der Geister-Bereinigung (lokal vorhanden, Server unbekannt). */
+export interface GhostReconcileResult {
+  /** Anzahl der lokal entfernten Zeilen (über alle Entitäten). */
+  removed: number
+  /** Kurzfassung pro Entität, z. B. `artikel: 132`. */
+  details: string[]
+}
+
+/**
+ * Entfernt lokale "Geister"-Zeilen: Datensätze, die lokal existieren, dem
+ * Server aber unbekannt sind.
+ *
+ * Hintergrund: Der Server löscht Artikel, Standorte und Mindestbestände
+ * hart — es gibt keine Tombstones. Der inkrementelle Snapshot kann eine
+ * Löschung gar nicht ausdrücken, er upsertet nur (`applySnapshot`). Ein
+ * Client, der die Löschung nicht selbst ausgeführt hat (Löschung auf einem
+ * anderen Gerät), behält die Zeilen dauerhaft. Die Divergenz-Diagnose
+ * meldet sie dann als "lokal vorhanden, Server unbekannt" und eskaliert
+ * nach drei Läufen zu einem harten Fehler — ohne dass der Sync sie je
+ * auflösen könnte.
+ *
+ * Der Server ist Source of Truth (siehe AGENTS.md), deshalb werden diese
+ * Zeilen lokal entfernt und der Client konvergiert wieder. Zwei
+ * Voraussetzungen:
+ *   * der Server bestätigt die IDs explizit als fehlend
+ *     (`POST /api/sync/reconcile`),
+ *   * die Zeile liegt NICHT in der Outbox — eine offene Zeile ist nur noch
+ *     nicht gepusht und darf nicht weggeworfen werden.
+ *
+ * Sicherheitsnetze:
+ *   * Pro Entität wird nur gehandelt, wenn der Server dort überhaupt Daten
+ *     hält (`server > 0`). Bei einem geleerten Server bleibt der
+ *     Reseed-Weg ("Server aus lokalen Daten aufbauen") offen, statt die
+ *     Daten zu vernichten.
+ *   * Ein alter Server ohne `entity`-Echo oder ein Reconcile-Fehler bricht
+ *     die Bereinigung ab — es wird nichts gelöscht.
+ */
+export async function reconcileLocalOnly(opts: {
+  apiBase: string
+  token: string | null
+  localCounts: TableCounts
+  serverCounts: TableCounts
+  signal?: AbortSignal | null
+}): Promise<GhostReconcileResult> {
+  const db = getDb()
+  const signal = opts.signal ?? null
+  const { localCounts, serverCounts } = opts
+  const pending = await pendingPayloadIds()
+  /** IDs, die noch in der Outbox liegen — sie sind "in Arbeit", nicht ghost. */
+  const inFlight = (entity: string): Set<string> => pending.get(entity) ?? new Set<string>()
+  const details: string[] = []
+  let removed = 0
+
+  /** Nur bereinigen, wenn der Server in der Tabelle überhaupt Daten hat. */
+  const divergent = (local: number, server: number): boolean => local > server && server > 0
+
+  // ---------- Artikel ----------
+  if (divergent(localCounts.artikel, serverCounts.artikel)) {
+    const kandidaten = (await db.artikel.toArray())
+      .map((a) => a.id)
+      .filter((id) => !inFlight('artikel').has(id))
+    if (kandidaten.length > 0) {
+      const missing = await collectMissingIds(
+        opts.apiBase,
+        opts.token,
+        'artikel',
+        kandidaten,
+        signal,
+      )
+      if (missing.size > 0) {
+        await db.transaction('rw', [db.artikel, db.artikelStandortMindestbestaende], async () => {
+          for (const id of missing) {
+            await db.artikel.delete(id)
+            // Kaskade: die Mindestbestand-Konfiguration des Artikels ist
+            // serverseitig mit weggefallen (ON DELETE CASCADE).
+            await db.artikelStandortMindestbestaende.where('artikelId').equals(id).delete()
+          }
+        })
+        removed += missing.size
+        details.push(`artikel: ${missing.size}`)
+      }
+    }
+  }
+
+  // ---------- Standorte ----------
+  if (divergent(localCounts.standorte, serverCounts.standorte)) {
+    const kandidaten = (await db.standorte.toArray())
+      .map((s) => s.id)
+      .filter((id) => !inFlight('standort').has(id))
+    if (kandidaten.length > 0) {
+      const missing = await collectMissingIds(
+        opts.apiBase,
+        opts.token,
+        'standort',
+        kandidaten,
+        signal,
+      )
+      if (missing.size > 0) {
+        await db.transaction('rw', [db.standorte, db.artikelStandortMindestbestaende], async () => {
+          for (const id of missing) {
+            await db.standorte.delete(id)
+            await db.artikelStandortMindestbestaende.where('standortId').equals(id).delete()
+          }
+        })
+        removed += missing.size
+        details.push(`standort: ${missing.size}`)
+      }
+    }
+  }
+
+  // ---------- Hersteller ----------
+  if (divergent(localCounts.hersteller ?? 0, serverCounts.hersteller ?? 0)) {
+    const kandidaten = (await db.hersteller.toArray())
+      .map((h) => h.id)
+      .filter((id) => !inFlight('hersteller').has(id))
+    if (kandidaten.length > 0) {
+      const missing = await collectMissingIds(
+        opts.apiBase,
+        opts.token,
+        'hersteller',
+        kandidaten,
+        signal,
+      )
+      if (missing.size > 0) {
+        await db.transaction('rw', db.hersteller, async () => {
+          for (const id of missing) await db.hersteller.delete(id)
+        })
+        removed += missing.size
+        details.push(`hersteller: ${missing.size}`)
+      }
+    }
+  }
+
+  // ---------- Kommissionen ----------
+  if (divergent(localCounts.commission, serverCounts.commission)) {
+    const kandidaten = (await db.commission.toArray())
+      .map((p) => p.id)
+      .filter((id) => !inFlight('kommission').has(id))
+    if (kandidaten.length > 0) {
+      const missing = await collectMissingIds(
+        opts.apiBase,
+        opts.token,
+        'kommission',
+        kandidaten,
+        signal,
+      )
+      if (missing.size > 0) {
+        await db.transaction('rw', db.commission, async () => {
+          for (const id of missing) await db.commission.delete(id)
+        })
+        removed += missing.size
+        details.push(`kommission: ${missing.size}`)
+      }
+    }
+  }
+
+  // ---------- Mindestbestände (Identität ist das Paar) ----------
+  // Nach den Kaskaden above sind die Konfigurationen der gelöschten
+  // Artikel/Standorte schon weg. Hier bleiben die Paare, die der Server
+  // gar nicht (mehr) kennt — z. B. weil der Mindestbestand auf einem
+  // anderen Gerät auf 0 gesetzt (gelöscht) wurde.
+  //
+  // Eigener try/catch: ein Server, der die Paar-Prüfung noch nicht kennt
+  // (ältere Version), darf die bereits erledigte Bereinigung der
+  // Stammdaten nicht wieder zunichtemachen.
+  if (
+    divergent(
+      localCounts.artikelStandortMindestbestand ?? 0,
+      serverCounts.artikelStandortMindestbestand ?? 0,
+    )
+  ) {
+    try {
+      const kandidaten = (await db.artikelStandortMindestbestaende.toArray())
+        .map((m) => `${m.artikelId}#${m.standortId}`)
+        .filter((id) => !inFlight('artikel_standort_mindestbestand').has(id))
+      if (kandidaten.length > 0) {
+        const missing = await collectMissingIds(
+          opts.apiBase,
+          opts.token,
+          'artikel_standort_mindestbestand',
+          kandidaten,
+          signal,
+        )
+        if (missing.size > 0) {
+          const paare = [...missing].map((id) => id.split('#'))
+          await db.transaction('rw', db.artikelStandortMindestbestaende, async () => {
+            for (const [artikelId, standortId] of paare) {
+              if (!artikelId || !standortId) continue
+              await db.artikelStandortMindestbestaende.delete([artikelId, standortId])
+            }
+          })
+          removed += missing.size
+          details.push(`mindestbestand: ${missing.size}`)
+        }
+      }
+    } catch (e) {
+      console.warn('[sync] Mindestbestand-Reconcile nicht möglich (Server zu alt?):', e)
+    }
+  }
+
+  return { removed, details }
 }
 
 /**
@@ -1919,27 +2128,32 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
         // Einstellungen pro User dürfen nur vom authentifizierten User
         // gepusht werden. Eine fremde userId würde vom Server mit
         // "Eine fremde User-ID ist nicht erlaubt" abgelehnt
-        // (server/src/sync/resolver.ts:resolveEinstellung). Wir pushen
-        // solche Items nicht (vermeidet PARTIAL_REJECTED + Endlos-Retry)
-        // und markieren sie stattdessen lokal als fehlgeschlagen, damit
-        // sie in der Sync-Diagnose sichtbar bleiben und beim nächsten
-        // Login des passenden Users erneut pushbar sind.
+        // (server/src/sync/resolver.ts:resolveEinstellung).
+        //
+        // Wir pushen solche Items nicht (vermeidet PARTIAL_REJECTED +
+        // Endlos-Retry). Sind wir als *anderer* User angemeldet, gehören
+        // sie zu einer fremden Sitzung und können in dieser Sitzung
+        // nie gepusht werden — sie werden dann verworfen. Sonst (keine
+        // Session) bleiben sie unangetastet, damit der passende User
+        // sie beim nächsten Login nachholen kann.
         if (o.entity === 'einstellung') {
           const p = payload as { key?: unknown; userId?: unknown }
           const puid = p.userId
-          if (
-            puid !== null &&
-            puid !== undefined &&
-            puid !== '' &&
-            String(puid) !== currentUserId
-          ) {
-            const row = await getDb().outbox.get(o.id)
-            if (row) {
-              await getDb().outbox.put({
-                ...row,
-                lastError: `VALIDATION: einstellung.userId gehört zu einem anderen Nutzer`,
-              })
-            }
+          const fremdeUserId =
+            puid !== null && puid !== undefined && puid !== '' && String(puid) !== currentUserId
+          if (fremdeUserId && currentUserId !== null) {
+            // Fremde per-User-Einstellung: aus der Outbox entfernen. Sie
+            // gehört zu einer anderen Anmeldung und würde jeden Sync als
+            // "vom Server abgelehnt" melden — für den angemeldeten User
+            // ist das eine irreführende Fehlermeldung (UNRESOLVED_DIVERGENCE).
+            await getDb().outbox.delete(o.id)
+            console.warn(
+              `[sync] Fremde per-User-Einstellung verworfen (key=${String(p.key)}, user=${String(puid)})`,
+            )
+            continue
+          }
+          if (fremdeUserId) {
+            // Keine Session: pushen wäre verboten, verwerfen wäre Datenverlust.
             continue
           }
         }
@@ -2179,9 +2393,44 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     const notSavedAfterReconcile = await getDb()
       .buchungen.filter((b) => b.nichtGespeichert === true)
       .count()
-    const unexplainedLocalCounts: TableCounts = {
+    let unexplainedLocalCounts: TableCounts = {
       ...localCounts,
       buchungen: localCounts.buchungen - notSavedAfterReconcile,
+    }
+
+    // 5) Geister bereinigen: lokale Zeilen, die der Server nicht (mehr)
+    //    kennt (z. B. auf einem anderen Gerät dort gelöscht). Ohne diesen
+    //    Schritt bleibt die Divergenz dauerhaft bestehen — der inkrementelle
+    //    Snapshot kann eine serverseitige Löschung nicht ausdrücken.
+    if (serverCounts !== null) {
+      try {
+        const ghosts = await reconcileLocalOnly({
+          apiBase,
+          token,
+          localCounts,
+          serverCounts,
+          signal,
+        })
+        if (ghosts.removed > 0) {
+          console.warn(
+            `[sync] ${ghosts.removed} lokale Zeile(n) entfernt — der Server kennt sie nicht mehr: ` +
+              ghosts.details.join(', '),
+          )
+          // Counts neu holen, damit die Diagnose den bereinigten Stand sieht.
+          try {
+            localCounts = await getLocalCounts()
+          } catch {
+            // Counts sind nur Anzeige.
+          }
+          unexplainedLocalCounts = {
+            ...localCounts,
+            buchungen: localCounts.buchungen - notSavedAfterReconcile,
+          }
+        }
+      } catch (e) {
+        // Die Bereinigung ist optional — der Sync selbst war erfolgreich.
+        console.warn('[sync] Geister-Bereinigung fehlgeschlagen:', e)
+      }
     }
 
     // Fehleranalyse: Der Sync ist formal durchgelaufen, aber die Counts
