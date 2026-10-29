@@ -14,14 +14,14 @@
 // Laufzeit einen klaren Fehler statt still zu sein.
 
 import {
-  createReadStream,
+  _createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
   copyFileSync,
   statSync,
 } from 'node:fs'
-import { createGzip } from 'node:zlib'
+import { _createGzip } from 'node:zlib'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
