@@ -517,33 +517,6 @@ export async function getBestand(
   }))
   const gesamt = bestaende.reduce((sum, b) => sum + b.menge, 0)
   return { artikelId, standortId: null, menge: gesamt, proStandort }
-  const db = getDb()
-  const artikelRows = await db
-    .select({ id: artikel.id, titel: artikel.titel })
-    .from(artikel)
-    .where(eq(artikel.id, artikelId))
-    .limit(1)
-  if (artikelRows.length === 0) {
-    throw new ApiV1Error(404, 'NOT_FOUND', `Artikel ${artikelId} nicht gefunden`)
-  }
-  if (standortId) {
-    const menge = await berechneBestand(db, artikelId, standortId)
-    return { artikelId, standortId, menge, proStandort: [] }
-  }
-  const bestaende = await berechneBestaendeProArtikel(db, artikelId)
-  const standortRows = await db.select().from(standorte)
-  const namen = new Map(standortRows.map((s) => [s.id, s.name]))
-  const proStandort = bestaende.map((b) => ({
-    standortId: b.standortId,
-    standortName: namen.get(b.standortId) ?? b.standortId,
-    menge: b.menge,
-  }))
-  return {
-    artikelId,
-    standortId: null,
-    menge: proStandort.reduce((sum, b) => sum + b.menge, 0),
-    proStandort,
-  }
 }
 
 // ---------- Buchungen ----------
