@@ -4,9 +4,10 @@
 // PWA-/Sync-Routen bleiben JWT-only. Alle schreibenden Operationen laufen
 // ueber den gemeinsamen Service-Layer (siehe service.ts).
 
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { agentenRateLimit } from '../../auth/rate-limit.js'
-import { ApiV1Error } from './service.js'
+import {
+  adminRoutes,
+  type FilterCriteria,
+} from '../admin/routes.js'
 import {
   artikelCreateSchema,
   artikelPatchSchema,
@@ -32,6 +33,7 @@ import {
   getBestand,
   getStatus,
   kommissioniereBuchung,
+  listeAlleStandorte,
   listeArtikel,
   listeAudit,
   listeBuchungen,
@@ -73,9 +75,10 @@ export async function apiV1Routes(
 ): Promise<void> {
   const limit = agentenRateLimit(app)
 
-  const readOnly = { preHandler: [app.requireApiAuth, limit, app.requireApiScope('read')] }
-  const write = { preHandler: [app.requireApiAuth, limit, app.requireApiScope('write')] }
   const admin = { preHandler: [app.requireApiAuth, limit, app.requireApiScope('admin')] }
+
+  // ---------- Admin-Routes ----------
+  await adminRoutes(app)
 
   // ---------- Meta (public) ----------
   app.get('/api/v1/meta', async (_req, reply) => {
