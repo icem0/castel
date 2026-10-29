@@ -1,7 +1,7 @@
 {
   "name": "castel",
   "private": true,
-  "version": "0.4.138",
+  "version": "0.4.139",
   "type": "module",
   "scripts": {
     "dev": "npm run version:write && vite",
@@ -29,6 +29,7 @@
     "jsbarcode": "^3.12.3",
     "jspdf": "^4.2.1",
     "pinia": "^2.3.0",
+    "tesseract.js": "^7.0.0",
     "vue": "^3.5.42",
     "vue-i18n": "^11.0.0",
     "vue-router": "^4.5.0"
