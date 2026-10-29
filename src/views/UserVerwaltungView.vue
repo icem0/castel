@@ -79,6 +79,23 @@ async function aktivieren(id: string): Promise<void> {
   }
 }
 
+async function loeschen(id: string, email: string): Promise<void> {
+  if (
+    !confirm(
+      `Benutzer „${email}" endgültig löschen?\n\n` +
+        'Konto, API-Keys und Einstellungen werden entfernt. Buchungen und Audit-Log bleiben erhalten.',
+    )
+  ) {
+    return
+  }
+  try {
+    await auth.loescheUser(id)
+    await userStore.laden()
+  } catch (e) {
+    alert(e instanceof Error ? e.message : String(e))
+  }
+}
+
 async function anzeigenameAendern(id: string, aktuell: string): Promise<void> {
   const eingabe = prompt('Anzeigename', aktuell)
   if (eingabe === null) return
@@ -260,6 +277,23 @@ function formatDatum(iso: string | null): string {
               Name ändern
             </button>
             <button type="button" @click="passwortZuruecksetzen(u.id)">PW-Reset</button>
+            <button
+              type="button"
+              class="danger"
+              :disabled="
+                u.id === auth.userId || (u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1)
+              "
+              :title="
+                u.id === auth.userId
+                  ? 'Eigenen Benutzer nicht löschbar'
+                  : u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1
+                    ? 'Letzter aktiver Admin – nicht löschbar'
+                    : 'Endgültig löschen'
+              "
+              @click="loeschen(u.id, u.email)"
+            >
+              Löschen
+            </button>
           </td>
         </tr>
       </tbody>

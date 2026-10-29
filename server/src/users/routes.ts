@@ -2,7 +2,7 @@
 
 import type { FastifyInstance } from 'fastify'
 import argon2 from 'argon2'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { users } from '../db/schema.js'
 import { createUserSchema, patchUserSchema } from '../domain/validierung.js'
@@ -97,7 +97,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
-  // ---------- DELETE /api/users/:id (Soft-Delete via aktiv=false) ----------
+  // ---------- DELETE /api/users/:id (Hard-Delete) ----------
   app.delete<{ Params: { id: string } }>(
     '/api/users/:id',
     { preHandler: app.requireAdmin },
@@ -108,9 +108,23 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       if (!user) throw new NotFoundError('User', req.params.id)
       // Self-Delete verhindern
       if (req.authUser?.sub === req.params.id) {
-        return reply.code(400).send({ code: 'SELF_DELETE', message: 'Eigenen User nicht deaktivierbar' })
+        return reply.code(400).send({ code: 'SELF_DELETE', message: 'Eigenen User nicht löschbar' })
       }
-      await db.update(users).set({ aktiv: false }).where(eq(users.id, req.params.id))
+      // Den letzten aktiven Admin nicht löschen
+      if (user.rolle === 'admin' && user.aktiv) {
+        const aktiveAdmins = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.rolle, 'admin'), eq(users.aktiv, true)))
+        if (aktiveAdmins.length <= 1) {
+          return reply
+            .code(400)
+            .send({ code: 'LAST_ADMIN', message: 'Letzter aktiver Admin nicht löschbar' })
+        }
+      }
+      // FK-Kaskaden: refresh_tokens, api_keys, einstellungen
+      // datanorm_importe.benutzer_id -> SET NULL, audit/buchungen behalten die ID
+      await db.delete(users).where(eq(users.id, req.params.id))
       return reply.code(204).send()
     },
   )

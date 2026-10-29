@@ -103,7 +103,7 @@ export async function aendereEigenesPasswortServer(
   })
 }
 
-export async function deaktiviereUserServer(id: string): Promise<void> {
+export async function loescheUserServer(id: string): Promise<void> {
   await apiFetch(`/api/users/${id}`, {
     method: 'DELETE',
   })

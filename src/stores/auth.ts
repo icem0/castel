@@ -27,7 +27,7 @@ import {
   aendereEigenesPasswortServer,
   aendereAnzeigenameServer,
   aendereRolleServer,
-  deaktiviereUserServer,
+  loescheUserServer,
   holeAktiveUserliste,
   holeSetupStatus,
   legeUserAnServer,
@@ -310,8 +310,8 @@ export const useAuthStore = defineStore('auth', () => {
     await setzePasswortServer(userId, neuesPasswort)
   }
 
-  async function deaktiviereUser(userId: string): Promise<void> {
-    await deaktiviereUserServer(userId)
+  async function loescheUser(userId: string): Promise<void> {
+    await loescheUserServer(userId)
   }
 
   // ---------- Initialisierung: gespeichertes JWT beim Start setzen ----------
@@ -351,7 +351,7 @@ export const useAuthStore = defineStore('auth', () => {
     aendereAnzeigename,
     setzeAktiv,
     setzePasswortFuer,
-    deaktiviereUser,
+    loescheUser,
     init,
   }
 })
