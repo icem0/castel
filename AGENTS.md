@@ -8,6 +8,41 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Offline-first** – die App funktioniert ohne Netzverbindung. Änderungen werden lokal in der Outbox gepuffert und bei vorhandener Verbindung mit der API synchronisiert.
 - **Lokale Datenbank im Browser (Cache)** – die PWA persistiert eine vollständige Arbeitskopie lokal (IndexedDB via Dexie). Source of Truth ist die API (Fastify + PostgreSQL); der Client gilt als flüchtig und wird beim Sync überschrieben.
 
+## Neue Funktion: Bulk Booking Deletion in Development Settings
+
+### Anforderung
+Fügen Sie einen Menüpunkt unter den Entwickler-Einstellungen hinzu, der es ermöglicht:
+- Alle Buchungen basierend auf verschiedenen Kriterien zu filtern (nach Artikel, Standort, Datumsbereich, Typ, etc.)
+- Gefilterte Buchungen auszuwählen und zu löschen
+- Sicherheitswarnung vor Löschung anzuzeigen
+- Funktionalität nur für Admins verfügbar (d.h. unter `/einstellungen/entwicklung`)
+
+### Implementierungsschritte
+
+1. **Server-seitige API-Endpunkte** (erweitern server/src/admin/routes.ts):
+   - POST `/api/admin/buchungen/filter` – filtert Buchungen basierend auf Suchkriterien
+   - POST `/api/admin/buchungen/bulk-delete` – löscht mehrere Buchungen mit Sicherheitsabfrage
+
+2. **Datenbankabfragen**:
+   - Schreiben Sie SQL-Abfragen zum Filtern von Buchungen basierend auf Artikeln, Standorten, Datumsbereichen, Typ, etc.
+   - Schreiben Sie Abfrage zu ID für Delete-Operation
+
+3. **Client-seitige UI** (erweitern src/views/DevelopmentView.vue):
+   - Hinzufügen eines neuen Abschnitts für Bulk-Operationen
+   - Filter-Komponente (Artikelauswahl, Standortauswahl, Datumsbereich, Typfilter)
+   - Auswahltabelle für gefilterte Buchungen
+   - Bestätigungsdialog vor Löschung
+   - Lade- und Statusanzeigen
+
+4. **Translation** (hinzufügen in src/i18n/langs/de.json und en.json):
+   - Begriffe für den neuen Filter und Löschdialog
+   - Beschreibungen und Hinweistexte
+
+5. **Testing**:
+   - Integrationstests für API-Endpunkte
+   - UI-Komponententests
+   - Sicherheitsüberprüfungen für Admin-only-Zugriff
+
 ## Datenmodell
 
 - **Bestand ist die Summe von Buchungen.** Es gibt keine überschreibenden Mengenupdates.

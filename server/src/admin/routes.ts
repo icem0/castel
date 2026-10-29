@@ -13,6 +13,12 @@
 //                                    vom PWA-Worker genutzt, um festzu-
 //                                    stellen, ob der Server einen Push
 //                                    angefordert hat.
+//   * POST /api/admin/db/clear     - leert alle Domain-Datentabellen im Server.
+//   * POST /api/admin/buchungen/filter - filtert Buchungen basierend auf Kriterien.
+//   * POST /api/admin/buchungen/bulk-delete - bereitet Bulk-Löschung von Buchungen vor.
+//   * POST /api/admin/buchungen/execute-bulk-delete - führt Bulk-Löschung aus.
+//   * POST /api/admin/standorte/bulk-rename - benennt mehrere Standorte um.
+//   * POST /api/admin/standorte/bulk-archive - archiviert mehrere Standorte.
 //
 // Konzept: Die PWA pollt ohnehin zyklisch (Standard 30 s) und pusht ihre
 // Outbox. Wir setzen hier nur das Signal "jetzt bitte alle pushen, was
@@ -21,9 +27,21 @@
 // auf demselben Marker aufsetzen.
 
 import type { FastifyInstance } from 'fastify'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen } from '../db/schema.js'
+import { buchungen } from '../db/schema.js'
+import { standorte } from '../db/schema.js'
+
+export type FilterCriteria = {
+  standortId?: string
+  artikelId?: string
+  datumVon?: string
+  datumBis?: string
+  typ?: string
+  projekt?: string
+  kennzeichen?: string
+}
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
 
@@ -47,6 +65,8 @@ const CLEARED_DOMAIN_TABLES = [
 ] as const
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
+  await bulkBookingRoutes(app)
+
   // POST /api/admin/sync/all
   // Admin-only. Setzt den globalen `sync.forceAt`-Marker auf die aktuelle
   // Server-Zeit. Existiert der Marker schon, wird er ueberschrieben
@@ -113,6 +133,168 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       )
 
       return reply.send({ cleared: true })
+    },
+  )
+
+  // POST /api/admin/buchungen/filter
+  // Admin-only. Filtert Buchungen basierend auf Suchkriterien.
+  app.post(
+    '/api/admin/buchungen/filter',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const { filter } = req.body as { filter: FilterCriteria }
+      
+      const db = getDb()
+      const { standortId, artikelId, datumVon, datumBis, typ, projekt, kennzeichen } = filter
+      
+      let query = db.select().from(buchungen)
+      
+      if (standortId) {
+        query = query.where(eq(buchungen.standortId, standortId))
+      }
+      if (artikelId) {
+        query = query.where(eq(buchungen.artikelId, artikelId))
+      }
+      if (datumVon && datumBis) {
+        query = query.where(
+          and(
+            sql`${buchungen.datum} >= ${datumVon}`,
+            sql`${buchungen.datum} <= ${datumBis}`
+          )
+        )
+      }
+      if (typ) {
+        query = query.where(eq(buchungen.typ, typ))
+      }
+      if (projekt) {
+        query = query.where(eq(buchungen.projekt, projekt))
+      }
+      if (kennzeichen) {
+        query = query.where(eq(buchungen.kennzeichen, kennzeichen))
+      }
+      
+      const filteredBuchungen = await query
+      return reply.send(filteredBuchungen)
+    },
+  )
+
+  // POST /api/admin/buchungen/bulk-delete
+  // Admin-only. Löscht mehrere Buchungen mit Sicherheitsabfrage.
+  app.post(
+    '/api/admin/buchungen/bulk-delete',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const { ids } = req.body as { ids: string[] }
+      
+      if (!ids || ids.length === 0) {
+        return reply.status(400).send({ error: 'Keine IDs angegeben' })
+      }
+      
+      const db = getDb()
+      
+      // Sicherheitsabfrage - Anzahl der zu löschenden Buchungen
+      const zuLoeschende = await db
+        .select({ c: count() })
+        .from(buchungen)
+        .where(inArray(buchungen.id, ids))
+      
+      const anzahl = zuLoeschende[0]?.c || 0
+      
+      // Rückgabe der Anzahl für die Bestätigung im UI
+      return reply.send({ 
+        count: anzahl,
+        ids: ids
+      })
+    },
+  )
+
+  // POST /api/admin/buchungen/execute-bulk-delete
+  // Admin-only. Führt den Bulk-Löschvorgang nach Bestätigung aus.
+  app.post(
+    '/api/admin/buchungen/execute-bulk-delete',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const { ids } = req.body as { ids: string[] }
+      
+      if (!ids || ids.length === 0) {
+        return reply.status(400).send({ error: 'Keine IDs angegeben' })
+      }
+      
+      const db = getDb()
+      
+      // Tatsächliche Löschung
+      await db.delete(buchungen).where(inArray(buchungen.id, ids))
+      
+      return reply.send({ success: true })
+    },
+  )
+
+  // POST /api/admin/standorte/bulk-rename
+  // Admin-only. Benennt mehrere Standorte um.
+  app.post(
+    '/api/admin/standorte/bulk-rename',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const { ids, newName } = req.body as { ids: string[]; newName: string }
+      
+      if (!ids || ids.length === 0) {
+        return reply.status(400).send({ error: 'Keine Standorte ausgewählt' })
+      }
+      if (!newName || newName.trim().length === 0) {
+        return reply.status(400).send({ error: 'Neuer Name ist erforderlich' })
+      }
+      
+      const db = getDb()
+      const now = new Date().toISOString()
+      
+      // Aktualisiere alle ausgewählten Standorte
+      for (const id of ids) {
+        await db
+          .update(standorte)
+          .set({ name: newName, geaendertAm: now })
+          .where(eq(standorte.id, id))
+      }
+      
+      return reply.send({ success: true, updated: ids.length })
+    },
+  )
+
+  // POST /api/admin/standorte/bulk-archive
+  // Admin-only. Archiviert mehrere Standorte.
+  app.post(
+    '/api/admin/standorte/bulk-archive',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const { ids, archiviert } = req.body as { ids: string[]; archiviert: boolean }
+      
+      if (!ids || ids.length === 0) {
+        return reply.status(400).send({ error: 'Keine Standorte ausgewählt' })
+      }
+      
+      const db = getDb()
+      const now = new Date().toISOString()
+      
+      // Prüfe ob irgendein Standort der Standard ist (geschuetzt)
+      const standardStandorte = await db
+        .select({ id: standorte.id })
+        .from(standorte)
+        .where(and(eq(standorte.id, ids[0]), eq(standorte.standard, true)))
+      
+      if (standardStandorte.length > 0) {
+        return reply.status(409).send({
+          error: 'Standort kann nicht archiviert werden: Standardlager darf nicht archiviert werden'
+        })
+      }
+      
+      // Archiviere alle ausgewählten Standorte
+      for (const id of ids) {
+        await db
+          .update(standorte)
+          .set({ archiviert: archiviert, geaendertAm: now })
+          .where(eq(standorte.id, id))
+      }
+      
+      return reply.send({ success: true, updated: ids.length })
     },
   )
 }
