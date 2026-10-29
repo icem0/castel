@@ -14,11 +14,6 @@
 //                                    stellen, ob der Server einen Push
 //                                    angefordert hat.
 //   * POST /api/admin/db/clear     - leert alle Domain-Datentabellen im Server.
-//   * POST /api/admin/buchungen/filter - filtert Buchungen basierend auf Kriterien.
-//   * POST /api/admin/buchungen/bulk-delete - bereitet Bulk-Löschung von Buchungen vor.
-//   * POST /api/admin/buchungen/execute-bulk-delete - führt Bulk-Löschung aus.
-//   * POST /api/admin/standorte/bulk-rename - benennt mehrere Standorte um.
-//   * POST /api/admin/standorte/bulk-archive - archiviert mehrere Standorte.
 //
 // Konzept: Die PWA pollt ohnehin zyklisch (Standard 30 s) und pusht ihre
 // Outbox. Wir setzen hier nur das Signal "jetzt bitte alle pushen, was
@@ -30,17 +25,6 @@ import type { FastifyInstance } from 'fastify'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen } from '../db/schema.js'
-import { bulkBookingRoutes } from './bulk-booking-routes.js'
-
-export type FilterCriteria = {
-  standortId?: string
-  artikelId?: string
-  datumVon?: string
-  datumBis?: string
-  typ?: string
-  projekt?: string
-  kennzeichen?: string
-}
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
 
@@ -64,8 +48,6 @@ const CLEARED_DOMAIN_TABLES = [
 ] as const
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
-  await bulkBookingRoutes(app)
-
   // POST /api/admin/sync/all
   // Admin-only. Setzt den globalen `sync.forceAt`-Marker auf die aktuelle
   // Server-Zeit. Existiert der Marker schon, wird er ueberschrieben

@@ -8,41 +8,6 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Offline-first** – die App funktioniert ohne Netzverbindung. Änderungen werden lokal in der Outbox gepuffert und bei vorhandener Verbindung mit der API synchronisiert.
 - **Lokale Datenbank im Browser (Cache)** – die PWA persistiert eine vollständige Arbeitskopie lokal (IndexedDB via Dexie). Source of Truth ist die API (Fastify + PostgreSQL); der Client gilt als flüchtig und wird beim Sync überschrieben.
 
-## Neue Funktion: Bulk Booking Deletion in Development Settings
-
-### Anforderung
-Fügen Sie einen Menüpunkt unter den Entwickler-Einstellungen hinzu, der es ermöglicht:
-- Alle Buchungen basierend auf verschiedenen Kriterien zu filtern (nach Artikel, Standort, Datumsbereich, Typ, etc.)
-- Gefilterte Buchungen auszuwählen und zu löschen
-- Sicherheitswarnung vor Löschung anzuzeigen
-- Funktionalität nur für Admins verfügbar (d.h. unter `/einstellungen/entwicklung`)
-
-### Implementierungsschritte
-
-1. **Server-seitige API-Endpunkte** (erweitern server/src/admin/routes.ts):
-   - POST `/api/admin/buchungen/filter` – filtert Buchungen basierend auf Suchkriterien
-   - POST `/api/admin/buchungen/bulk-delete` – löscht mehrere Buchungen mit Sicherheitsabfrage
-
-2. **Datenbankabfragen**:
-   - Schreiben Sie SQL-Abfragen zum Filtern von Buchungen basierend auf Artikeln, Standorten, Datumsbereichen, Typ, etc.
-   - Schreiben Sie Abfrage zu ID für Delete-Operation
-
-3. **Client-seitige UI** (erweitern src/views/DevelopmentView.vue):
-   - Hinzufügen eines neuen Abschnitts für Bulk-Operationen
-   - Filter-Komponente (Artikelauswahl, Standortauswahl, Datumsbereich, Typfilter)
-   - Auswahltabelle für gefilterte Buchungen
-   - Bestätigungsdialog vor Löschung
-   - Lade- und Statusanzeigen
-
-4. **Translation** (hinzufügen in src/i18n/langs/de.json und en.json):
-   - Begriffe für den neuen Filter und Löschdialog
-   - Beschreibungen und Hinweistexte
-
-5. **Testing**:
-   - Integrationstests für API-Endpunkte
-   - UI-Komponententests
-   - Sicherheitsüberprüfungen für Admin-only-Zugriff
-
 ## Datenmodell
 
 - **Bestand ist die Summe von Buchungen.** Es gibt keine überschreibenden Mengenupdates.
@@ -54,6 +19,13 @@ Fügen Sie einen Menüpunkt unter den Entwickler-Einstellungen hinzu, der es erm
   - **Identität ist das Paar** (`artikelId#standortId`), keine eigene UUID — analog `einstellung` (`key#userId`). `entitaetIdFor` (Server) und `payloadIdFor` (PWA) bilden denselben String.
   - **Der Standard-Standort (Hauptlager) ist geschützt**: weder löschbar noch archivierbar (`PROTECTED_STANDORT`, DB-seitig geprüft).
   - Ein gelöschter Artikel/Standort nimmt seine Konfigurationen per `ON DELETE CASCADE` mit — das Löschen wird dadurch nicht blockiert (Buchungen und Mindestbestand-Ereignisse tun das weiterhin).
+
+### Standort: Löschen vs. Umbenennen/Archivieren
+
+- **Löschen** ist nur möglich, solange keine Zeile auf den Standort verweist. Der Server prüft `buchungen.standort_id`, `buchungen.standort_ziel_id` und `mindestbestand_ereignisse.standort_id` und wirft sonst `HAS_DEPENDENCIES` (HTTP 409). Der Client legt ein solches `delete` in die Quarantäne (`HARD_QUARANTINE_CODES`) — der User sieht erst beim Sync, dass es nicht geklappt hat.
+- **Umbenennen und Archivieren laufen über `op: 'update'`** und sind daher **immer** erlaubt — der Resolver prüft beim Update keine Abhängigkeiten. Der Server wertet `update` per LWW auf `geaendert_am` aus.
+- **Der Client prüft das Löschen vorab** (`referenzierteBuchungen` im Store, `StandortHatBuchungenError`): Sind lokal Buchungen vorhanden, die auf den Standort zeigen, wird gar kein `delete` in die Outbox geschrieben, sondern eine klare Meldung mit Verweis auf Umbenennen/Archivieren angezeigt. Grund: Buchungen sind append-only — eine lokal vorhandene Buchung existiert auch auf dem Server, der lokale Zähler ist also eine verlässliche Untergrenze für die Server-Prüfung.
+- **Konsequenz für Server-Tools:** Wer Buchungen direkt in der DB löscht, erzeugt auf den Clients **Geister-Buchungen**. `reconcileBookings` markiert fehlende Buchungen nur als `nichtGespeichert` / `SERVER_MISSING` und löscht sie **nie**; der lokale Bestand (Summe der Buchungen) weicht dann dauerhaft vom Server ab. Buchungen dürfen deshalb nur per Storno-/Gegenbuchung korrigiert werden, nie per Direkt-DELETE.
 
 ### Akkutausch: Planung und Bestell-Snapshots
 

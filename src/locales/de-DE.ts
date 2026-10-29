@@ -348,7 +348,14 @@ export default {
         abbrechen: 'Abbrechen',
       },
       loeschen: 'Löschen',
+      loeschenFrage: 'Standort unwiderruflich löschen?',
+      loeschenBlockiert:
+        'Standort kann nicht gelöscht werden: {anzahl} Buchung(en) verweisen auf ihn. Bitte stattdessen umbenennen oder archivieren.',
+      archivierenFrage: 'Standort archivieren?',
       wiederherstellen: 'Wiederherstellen',
+      umbenennen: 'Umbenennen',
+      umbenennenSpeichern: 'Neuer Name',
+      umbenennenLeer: 'Der Name darf nicht leer sein.',
       leer: 'Noch keine Standorte.',
     },
     settings: {

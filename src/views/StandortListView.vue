@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useStandortStore } from '../stores/standort'
+import { StandortHatBuchungenError, useStandortStore } from '../stores/standort'
 import type { StandortTyp } from '../db/types'
 
 const { t } = useI18n()
 const standortStore = useStandortStore()
+
+onMounted(() => {
+  // Der Store liest per liveQuery aus IndexedDB. `start()` ist idempotent —
+  // App.vue startet ihn ebenfalls, der Aufruf hier haelt die View aber
+  // eigenstaendig (siehe HerstellerView / AkkuTypenView).
+  standortStore.start()
+})
 
 interface Form {
   name: string
@@ -23,6 +30,12 @@ const formularOffen = ref(false)
 const formular = ref<Form>(leeresFormular())
 const fehler = ref('')
 const laufend = ref(false)
+
+/** Standort, der gerade umbenannt wird (null = kein Dialog offen). */
+const umbenennenId = ref<string | null>(null)
+const umbenennenName = ref('')
+const umbenennenFehler = ref('')
+const umbenennenLaufend = ref(false)
 
 function reset(): void {
   formular.value = leeresFormular()
@@ -60,8 +73,41 @@ async function setStandard(id: string): Promise<void> {
   }
 }
 
+function umbenennenStarten(id: string, aktuellerName: string): void {
+  umbenennenId.value = id
+  umbenennenName.value = aktuellerName
+  umbenennenFehler.value = ''
+}
+
+function umbenennenAbbrechen(): void {
+  umbenennenId.value = null
+  umbenennenName.value = ''
+  umbenennenFehler.value = ''
+}
+
+async function umbenennenSpeichern(): Promise<void> {
+  const id = umbenennenId.value
+  if (!id || umbenennenLaufend.value) return
+  const name = umbenennenName.value.trim()
+  if (!name) {
+    umbenennenFehler.value = t('view.standort.umbenennenLeer')
+    return
+  }
+  umbenennenLaufend.value = true
+  umbenennenFehler.value = ''
+  try {
+    await standortStore.umbenennen(id, name)
+    umbenennenAbbrechen()
+  } catch (e) {
+    umbenennenFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    umbenennenLaufend.value = false
+  }
+}
+
 async function archivieren(id: string): Promise<void> {
-  if (!confirm('Archivieren?')) return
+  if (!confirm(t('view.standort.archivierenFrage'))) return
+  fehler.value = ''
   try {
     await standortStore.archivieren(id)
   } catch (e) {
@@ -78,10 +124,19 @@ async function wiederherstellen(id: string): Promise<void> {
 }
 
 async function loeschen(id: string): Promise<void> {
-  if (!confirm('Standort unwiderruflich löschen?')) return
+  if (!confirm(t('view.standort.loeschenFrage'))) return
+  fehler.value = ''
   try {
     await standortStore.loeschen(id)
   } catch (e) {
+    // Buchungen verweisen auf den Standort → der Server wuerde das Loeschen
+    // mit HAS_DEPENDENCIES ablehnen. Wir erklaeren das hier und bieten
+    // "Archivieren" als Alternative an, statt den User in die Quarantaene
+    // laufen zu lassen.
+    if (e instanceof StandortHatBuchungenError) {
+      fehler.value = t('view.standort.loeschenBlockiert', { anzahl: e.anzahl })
+      return
+    }
     fehler.value = e instanceof Error ? e.message : String(e)
   }
 }
@@ -150,7 +205,34 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
       </thead>
       <tbody>
         <tr v-for="s in sichtbareStandorte" :key="s.id" :class="{ archived: s.archiviert }">
-          <td>{{ s.name }}</td>
+          <td>
+            <template v-if="umbenennenId === s.id">
+              <input
+                v-model="umbenennenName"
+                type="text"
+                class="umbenennen-input"
+                :disabled="umbenennenLaufend"
+                :aria-label="t('view.standort.umbenennen')"
+                @keyup.enter="umbenennenSpeichern"
+                @keyup.esc="umbenennenAbbrechen"
+              />
+              <p v-if="umbenennenFehler" class="fehler" role="alert">{{ umbenennenFehler }}</p>
+              <div class="umbenennen-aktionen">
+                <button
+                  type="button"
+                  class="primary"
+                  :disabled="umbenennenLaufend || !umbenennenName.trim()"
+                  @click="umbenennenSpeichern"
+                >
+                  {{ t('view.standort.umbenennenSpeichern') }}
+                </button>
+                <button type="button" :disabled="umbenennenLaufend" @click="umbenennenAbbrechen">
+                  {{ t('view.common.abbrechen') }}
+                </button>
+              </div>
+            </template>
+            <template v-else>{{ s.name }}</template>
+          </td>
           <td>
             <span class="badge">{{ t(`view.standort.typen.${s.typ}`) }}</span>
           </td>
@@ -160,6 +242,13 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
             <span v-else class="muted">{{ t('view.common.nein') }}</span>
           </td>
           <td class="actions-cell">
+            <button
+              v-if="umbenennenId !== s.id"
+              type="button"
+              @click="umbenennenStarten(s.id, s.name)"
+            >
+              {{ t('view.standort.umbenennen') }}
+            </button>
             <button v-if="!s.archiviert && !s.standard" type="button" @click="setStandard(s.id)">
               {{ t('view.standort.spalten.standard') }}
             </button>
@@ -188,5 +277,19 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
 .data tr.archived td {
   color: var(--text-muted, #888);
   text-decoration: line-through;
+}
+.umbenennen-input {
+  width: 100%;
+  min-width: 10rem;
+}
+.umbenennen-aktionen {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+.umbenennen-aktionen button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
 }
 </style>

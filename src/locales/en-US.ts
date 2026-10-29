@@ -338,7 +338,14 @@ export default {
         abbrechen: 'Cancel',
       },
       loeschen: 'Delete',
+      loeschenFrage: 'Permanently delete this location?',
+      loeschenBlockiert:
+        'Location cannot be deleted: {anzahl} booking(s) still reference it. Please rename or archive it instead.',
+      archivierenFrage: 'Archive this location?',
       wiederherstellen: 'Restore',
+      umbenennen: 'Rename',
+      umbenennenSpeichern: 'New name',
+      umbenennenLeer: 'The name must not be empty.',
       leer: 'No locations yet.',
     },
     settings: {

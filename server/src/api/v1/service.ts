@@ -480,11 +480,6 @@ export async function updateStandort(
 
 // ---------- Bestand ----------
 
-export async function listeAlleStandorte(): Promise<StandortDto[]> {
-  const rows = await getDb().select().from(standorte)
-  return rows.map(standortDto)
-}
-
 export async function getBestand(
   artikelId: string,
   standortId?: string,
@@ -515,8 +510,12 @@ export async function getBestand(
     standortName: namen.get(b.standortId) ?? b.standortId,
     menge: b.menge,
   }))
-  const gesamt = bestaende.reduce((sum, b) => sum + b.menge, 0)
-  return { artikelId, standortId: null, menge: gesamt, proStandort }
+  return {
+    artikelId,
+    standortId: null,
+    menge: proStandort.reduce((sum, b) => sum + b.menge, 0),
+    proStandort,
+  }
 }
 
 // ---------- Buchungen ----------

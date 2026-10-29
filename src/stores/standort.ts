@@ -17,6 +17,23 @@ export interface StandortEingabe {
   standard?: boolean
 }
 
+/**
+ * Ein Standort kann nicht geloescht werden, solange Buchungen auf ihn
+ * verweisen. Die View uebersetzt die Anzahl in eine lokalisierte Meldung
+ * und bietet "Archivieren" als Alternative an.
+ */
+export class StandortHatBuchungenError extends Error {
+  constructor(
+    public readonly standortId: string,
+    public readonly anzahl: number,
+  ) {
+    super(
+      `Standort ${standortId} kann nicht gelöscht werden: ${anzahl} Buchung(en) verweisen auf ihn.`,
+    )
+    this.name = 'StandortHatBuchungenError'
+  }
+}
+
 export const useStandortStore = defineStore('standort', () => {
   const standorte = ref<Standort[]>([])
   const geladen = ref(false)
@@ -96,6 +113,45 @@ export const useStandortStore = defineStore('standort', () => {
     if (updated) await queueOp('standort', 'update', updated)
   }
 
+  /**
+   * Anzahl der Buchungen, die auf den Standort verweisen — als Quelle
+   * (`standortId`) oder als Lagerungsziel (`standortZielId`). Beide
+   * Indizes existieren in Dexie (`id, artikelId, standortId, standortZielId, …`).
+   *
+   * Buchungen sind append-only (Korrekturen laufen ueber Storno- bzw.
+   * Gegenbuchungen), eine lokal vorhandene Buchung existiert also auch auf
+   * dem Server. Der Zaehler ist damit eine verlaessliche Untergrenze fuer
+   * die Server-Pruefung `HAS_DEPENDENCIES`.
+   */
+  async function referenzierteBuchungen(id: string): Promise<number> {
+    const db = getDb()
+    const [alsQuelle, alsZiel] = await Promise.all([
+      db.buchungen.where('standortId').equals(id).count(),
+      db.buchungen.where('standortZielId').equals(id).count(),
+    ])
+    return alsQuelle + alsZiel
+  }
+
+  /**
+   * Umbenennen eines Standorts. Der Server wertet `update` per LWW ohne
+   * Abhaengigkeits-Pruefung aus — Umbenennen ist deshalb auch moeglich,
+   * wenn bereits Buchungen auf den Standort zeigen.
+   */
+  async function umbenennen(id: string, name: string): Promise<void> {
+    const neuerName = name.trim()
+    if (!neuerName) {
+      throw new Error('Der Name darf nicht leer sein.')
+    }
+    const existing = await getDb().standorte.get(id)
+    if (!existing) {
+      throw new Error(`Standort ${id} nicht gefunden`)
+    }
+    const now = jetztIso()
+    await getDb().standorte.update(id, { name: neuerName, geaendertAm: now })
+    const updated = await getDb().standorte.get(id)
+    if (updated) await queueOp('standort', 'update', updated)
+  }
+
   async function archivieren(id: string): Promise<void> {
     const existing = await getDb().standorte.get(id)
     if (existing?.standard) {
@@ -120,6 +176,16 @@ export const useStandortStore = defineStore('standort', () => {
     if (existing.standard) {
       throw new Error('Das Hauptlager kann nicht gelöscht werden.')
     }
+    // Buchungen referenzieren den Standort ohne ON DELETE CASCADE — der
+    // Server wuerde das Loeschen mit `HAS_DEPENDENCIES` ablehnen und der
+    // Client legt das Outbox-Item in die Quarantaene. Wir pruefen vorab,
+    // damit der User eine klare Handlungsanweisung bekommt statt eines
+    // spaeten Sync-Fehlers. Der Server bleibt die Autoritaet: sind lokal
+    // keine Buchungen sichtbar, entscheidet er.
+    const anzahl = await referenzierteBuchungen(id)
+    if (anzahl > 0) {
+      throw new StandortHatBuchungenError(id, anzahl)
+    }
     await getDb().standorte.delete(id)
     await queueOp('standort', 'delete', existing)
   }
@@ -136,6 +202,8 @@ export const useStandortStore = defineStore('standort', () => {
     byId,
     anlegen,
     setStandard,
+    umbenennen,
+    referenzierteBuchungen,
     archivieren,
     wiederherstellen,
     loeschen,
