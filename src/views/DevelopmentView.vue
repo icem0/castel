@@ -58,11 +58,10 @@ const geraeteListe = ref<Geraet[]>([])
 const geraeteUserListe = ref<UserDto[]>([])
 const geraeteSelectedUser = ref<string>('')
 
-// Sync-Fehler-Report Modal (Details fuer ein Geraet).
-const syncErrorModalOpen = ref(false)
-const syncErrorModalDeviceId = ref<string>('')
-const syncErrorModalDeviceLabel = ref<string>('')
-const syncErrorModalReports = ref<
+// Sync-Fehler-Report Bereich (ausklappbar unter der Geraetetabelle).
+const syncErrorExpandedDeviceId = ref<string>('')
+const syncErrorExpandedDeviceLabel = ref<string>('')
+const syncErrorExpandedReports = ref<
   {
     id: string
     occurredAt: string
@@ -76,8 +75,8 @@ const syncErrorModalReports = ref<
     createdAt: string
   }[]
 >([])
-const syncErrorModalPhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
-const syncErrorModalFehler = ref<string | null>(null)
+const syncErrorExpandedPhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
+const syncErrorExpandedFehler = ref<string | null>(null)
 
 type BulkBuchung = {
   id: string
@@ -331,17 +330,25 @@ async function ladeGeraete(): Promise<void> {
 }
 
 async function ladeSyncErrorReports(deviceId: string, deviceLabel: string): Promise<void> {
-  syncErrorModalOpen.value = true
-  syncErrorModalDeviceId.value = deviceId
-  syncErrorModalDeviceLabel.value = deviceLabel
-  syncErrorModalReports.value = []
-  syncErrorModalPhase.value = 'laufend'
-  syncErrorModalFehler.value = null
+  // Wenn dasselbe Geraet schon erweitert ist, wieder einklappen.
+  if (syncErrorExpandedDeviceId.value === deviceId && syncErrorExpandedReports.value.length > 0) {
+    syncErrorExpandedDeviceId.value = ''
+    syncErrorExpandedDeviceLabel.value = ''
+    syncErrorExpandedReports.value = []
+    syncErrorExpandedPhase.value = 'idle'
+    syncErrorExpandedFehler.value = null
+    return
+  }
+  syncErrorExpandedDeviceId.value = deviceId
+  syncErrorExpandedDeviceLabel.value = deviceLabel
+  syncErrorExpandedReports.value = []
+  syncErrorExpandedPhase.value = 'laufend'
+  syncErrorExpandedFehler.value = null
   try {
     const data = await apiFetch<{ reports: unknown[] }>(
       `/api/admin/geraete/${encodeURIComponent(deviceId)}/sync-error-reports`,
     )
-    syncErrorModalReports.value = data.reports as {
+    syncErrorExpandedReports.value = data.reports as {
       id: string
       occurredAt: string
       source: string
@@ -353,10 +360,10 @@ async function ladeSyncErrorReports(deviceId: string, deviceLabel: string): Prom
       diagnostics: unknown
       createdAt: string
     }[]
-    syncErrorModalPhase.value = 'idle'
+    syncErrorExpandedPhase.value = 'idle'
   } catch (e) {
-    syncErrorModalFehler.value = e instanceof Error ? e.message : String(e)
-    syncErrorModalPhase.value = 'fehler'
+    syncErrorExpandedFehler.value = e instanceof Error ? e.message : String(e)
+    syncErrorExpandedPhase.value = 'fehler'
   }
 }
 
@@ -1006,68 +1013,65 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
       </template>
     </div>
 
-    <!-- Sync-Fehler-Report Modal (Overlay, über dem gesamten Inhalt) -->
-    <div
-      v-if="syncErrorModalOpen"
-      class="sync-error-modal"
-      role="alertdialog"
-      aria-modal="true"
-      @click.self="syncErrorModalOpen = false"
-    >
-      <div class="sync-error-modal-backdrop" />
-      <div class="sync-error-modal-content">
-        <p>
-          <strong>{{
-            t('view.development.syncErrorModalTitel', { gerät: syncErrorModalDeviceLabel })
-          }}</strong>
-        </p>
-        <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
+    <!-- Sync-Fehler-Report ausklappbar unter der Geraetetabelle -->
+    <div v-if="syncErrorExpandedDeviceId" class="card sync-error-card">
+      <div class="sync-error-header" @click="syncErrorExpandedDeviceId = ''">
+        <strong>{{
+          t('view.development.syncErrorModalTitel', {
+            gerät: syncErrorExpandedDeviceLabel,
+          })
+        }}</strong>
+        <span class="hint">({{ syncErrorExpandedDeviceLabel }})</span>
+      </div>
+      <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
 
-        <div v-if="syncErrorModalPhase === 'fehler' && syncErrorModalFehler" class="wert-fehler">
-          {{ syncErrorModalFehler }}
-        </div>
+      <div
+        v-if="syncErrorExpandedPhase === 'fehler' && syncErrorExpandedFehler"
+        class="wert-fehler"
+      >
+        {{ syncErrorExpandedFehler }}
+      </div>
 
-        <div v-if="syncErrorModalPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
+      <div v-if="syncErrorExpandedPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
 
-        <table
-          v-if="syncErrorModalReports.length > 0 && syncErrorModalPhase === 'idle'"
-          class="tabelle"
-          style="margin-top: 0.5rem"
+      <table
+        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
+        class="tabelle"
+        style="margin-top: 0.5rem"
+      >
+        <thead>
+          <tr>
+            <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in syncErrorExpandedReports" :key="r.id">
+            <td class="hint">{{ (r.occurredAt ?? '').slice(0, 16) }}</td>
+            <td class="hint">{{ r.source }}</td>
+            <td class="wert-fehler">{{ r.code }}</td>
+            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div
+        v-if="syncErrorExpandedReports.length === 0 && syncErrorExpandedPhase === 'idle'"
+        class="hint"
+      >
+        {{ t('view.development.syncErrorKeine') }}
+      </div>
+
+      <div class="actions" style="margin-top: 0.75rem">
+        <button
+          type="button"
+          :disabled="syncErrorExpandedPhase === 'laufend'"
+          @click="syncErrorExpandedDeviceId = ''"
         >
-          <thead>
-            <tr>
-              <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
-              <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
-              <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
-              <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in syncErrorModalReports" :key="r.id">
-              <td class="hint">{{ (r.occurredAt ?? '').slice(0, 16) }}</td>
-              <td class="hint">{{ r.source }}</td>
-              <td class="wert-fehler">{{ r.code }}</td>
-              <td class="hint">{{ r.httpStatus ?? '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div
-          v-if="syncErrorModalReports.length === 0 && syncErrorModalPhase === 'idle'"
-          class="hint"
-        >
-          {{ t('view.development.syncErrorKeine') }}
-        </div>
-
-        <div class="actions" style="margin-top: 0.75rem">
-          <button
-            type="button"
-            :disabled="syncErrorModalPhase === 'laufend'"
-            @click="syncErrorModalOpen = false"
-          >
-            {{ t('view.common.schliessen') }}
-          </button>
-        </div>
+          {{ t('view.common.schliessen') }}
+        </button>
       </div>
     </div>
   </section>
@@ -1116,37 +1120,21 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
   margin-top: 0.75rem;
   overflow-x: auto;
 }
-.sync-error-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 9999;
+.sync-error-card {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.sync-error-header {
+  cursor: pointer;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
 }
-.sync-error-modal-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 9998;
-}
-.sync-error-modal-content {
-  position: relative;
-  z-index: 9999;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  max-width: 900px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+.sync-error-header:hover {
+  text-decoration: underline;
 }
 </style>
