@@ -1027,7 +1027,13 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           {{ syncErrorModalFehler }}
         </div>
 
-        <table v-if="syncErrorModalReports.length > 0" class="tabelle" style="margin-top: 0.5rem">
+        <div v-if="syncErrorModalPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
+
+        <table
+          v-if="syncErrorModalReports.length > 0 && syncErrorModalPhase === 'idle'"
+          class="tabelle"
+          style="margin-top: 0.5rem"
+        >
           <thead>
             <tr>
               <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
@@ -1127,7 +1133,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.25);
   z-index: 51;
 }
 .sync-error-modal-content {
