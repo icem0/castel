@@ -135,6 +135,7 @@ function auswahlAufheben(): void {
 
 const presetId = ref<string>(ETIKETTEN_PRESETS[0]?.id ?? PRESET_ID_BENUTZERDEFINIERT)
 const custom = ref<EtikettenPreset>(benutzerdefiniertesPreset())
+const layoutGeaendert = ref(false)
 
 // Gespeichertes benutzerdefiniertes Layout vom Server laden (falls vorhanden).
 // Wird beim Mount in `onMounted` nachgeladen, sobald der Store geladen ist.
@@ -270,24 +271,28 @@ watch(
   (gespeichert) => {
     if (gespeichert) {
       custom.value = { ...gespeichert, nameKey: '' }
+      layoutGeaendert.value = false
     }
   },
   { immediate: true },
 )
 
-// Änderungen am benutzerdefinierten Layout serverseitig speichern.
-watch(
-  custom,
-  (neu) => {
-    if (!etikettenBogenLayoutStore.geladen) return
-    const { nameKey: _nameKey, ...layoutOhneNameKey } = neu
-    etikettenBogenLayoutStore.setLayout(layoutOhneNameKey)
-  },
-  { deep: true },
-)
+/** Speichert das geänderte benutzerdefinierte Layout serverseitig. */
+async function layoutSpeichern(): Promise<void> {
+  if (!etikettenBogenLayoutStore.geladen) return
+  const { nameKey: _nameKey, ...layoutOhneNameKey } = custom.value
+  try {
+    await etikettenBogenLayoutStore.setLayout(layoutOhneNameKey)
+    layoutGeaendert.value = false
+    aktionsHinweis.value = t('view.barcode.serie.custom.gespeichert')
+  } catch (e) {
+    aktionsHinweis.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
 function layoutZuruecksetzen(): void {
   custom.value = benutzerdefiniertesPreset()
+  layoutGeaendert.value = false
   void etikettenBogenLayoutStore.deleteLayout()
 }
 
@@ -515,35 +520,89 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
         <div v-if="presetId === PRESET_ID_BENUTZERDEFINIERT" class="custom-grid">
           <label>
             <span>{{ t('view.barcode.serie.custom.cols') }}</span>
-            <input v-model.number="custom.cols" type="number" min="1" max="20" />
+            <input
+              v-model.number="custom.cols"
+              type="number"
+              min="1"
+              max="20"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.rows') }}</span>
-            <input v-model.number="custom.rows" type="number" min="1" max="100" />
+            <input
+              v-model.number="custom.rows"
+              type="number"
+              min="1"
+              max="100"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.labelW') }}</span>
-            <input v-model.number="custom.labelW" type="number" min="5" max="210" step="0.1" />
+            <input
+              v-model.number="custom.labelW"
+              type="number"
+              min="5"
+              max="210"
+              step="0.1"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.labelH') }}</span>
-            <input v-model.number="custom.labelH" type="number" min="3" max="297" step="0.1" />
+            <input
+              v-model.number="custom.labelH"
+              type="number"
+              min="3"
+              max="297"
+              step="0.1"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.gapX') }}</span>
-            <input v-model.number="custom.gapX" type="number" min="0" max="50" step="0.1" />
+            <input
+              v-model.number="custom.gapX"
+              type="number"
+              min="0"
+              max="50"
+              step="0.1"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.gapY') }}</span>
-            <input v-model.number="custom.gapY" type="number" min="0" max="50" step="0.1" />
+            <input
+              v-model.number="custom.gapY"
+              type="number"
+              min="0"
+              max="50"
+              step="0.1"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.marginX') }}</span>
-            <input v-model.number="custom.marginX" type="number" min="0" max="50" step="0.1" />
+            <input
+              v-model.number="custom.marginX"
+              type="number"
+              min="0"
+              max="50"
+              step="0.1"
+              @blur="layoutGeaendert = true"
+            />
           </label>
           <label>
             <span>{{ t('view.barcode.serie.custom.marginY') }}</span>
-            <input v-model.number="custom.marginY" type="number" min="0" max="50" step="0.1" />
+            <input
+              v-model.number="custom.marginY"
+              type="number"
+              min="0"
+              max="50"
+              step="0.1"
+              @blur="layoutGeaendert = true"
+            />
           </label>
         </div>
 
@@ -555,6 +614,14 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
             @click="layoutZuruecksetzen()"
           >
             {{ t('view.barcode.serie.custom.zuruecksetzen') }}
+          </button>
+          <button
+            type="button"
+            class="btn primary"
+            :disabled="!layoutGeaendert || !etikettenBogenLayoutStore.geladen"
+            @click="layoutSpeichern"
+          >
+            {{ t('view.barcode.serie.custom.speichern') }}
           </button>
           <span v-if="!etikettenBogenLayoutStore.geladen" class="hint">
             {{ t('view.barcode.serie.custom.lade') }}
