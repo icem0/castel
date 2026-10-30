@@ -13,15 +13,7 @@
 // der Build darf nicht daran scheitern. Die Kamera-OCR meldet dann zur
 // Laufzeit einen klaren Fehler statt still zu sein.
 
-import {
-  _createReadStream,
-  createWriteStream,
-  existsSync,
-  mkdirSync,
-  copyFileSync,
-  statSync,
-} from 'node:fs'
-import { _createGzip } from 'node:zlib'
+import { createWriteStream, existsSync, mkdirSync, copyFileSync, statSync } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
