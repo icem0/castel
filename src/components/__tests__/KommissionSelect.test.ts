@@ -8,7 +8,7 @@
 //     in die globale Liste geschrieben und ausgewählt.
 //   - Der Link zur Kommissionen-Verwaltung erscheint nur für Admins.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -19,6 +19,18 @@ import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
 import { sessionSchreiben } from '../../auth/session'
 import { jetztIso } from '../../domain/ids'
 import { i18n } from '../../i18n'
+
+// Die Kamera-Komponente wird hier durch einen Stub ersetzt — sie hat
+// eigene Tests. Geprueft wird nur die Verdrahtung (Event-Weitergabe).
+vi.mock('../KommissionKameraScan.vue', () => ({
+  default: {
+    name: 'KommissionKameraScan',
+    props: ['modelValue', 'disabled'],
+    emits: ['update:modelValue'],
+    template:
+      '<button class="kamera-stub" @click="$emit(\'update:modelValue\', \'AA 4711\')">stub</button>',
+  },
+}))
 
 let pinia: Pinia
 
@@ -289,6 +301,29 @@ cf
 
     expect(w.text()).toContain('Keine Auftragsnummer erkannt')
     expect(w.find('.scan-uebernehmen').exists()).toBe(false)
+    settings.stop()
+  })
+
+  // --- Kamera-Scan --------------------------------------------------------
+
+  it('zeigt den Kamera-Scan-Block und gibt das Ergebnis weiter', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await warteAufStore()
+
+    const w = mount(KommissionSelect, {
+      props: { modelValue: '' },
+      global: { plugins: [pinia, i18n, routerMit()] },
+    })
+    await flushPromises()
+
+    expect(w.find('.kommission-kamera').exists()).toBe(true)
+
+    await w.find('.kamera-stub').trigger('click')
+    await flushPromises()
+
+    const emittiert = w.emitted('update:modelValue')
+    expect(emittiert?.[emittiert.length - 1]).toEqual(['AA 4711'])
     settings.stop()
   })
 })

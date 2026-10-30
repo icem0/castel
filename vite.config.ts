@@ -48,7 +48,10 @@ export default defineConfig({
         // config.js wird zur Laufzeit vom Container-Entrypoint generiert
         // (scripts/pwa-entrypoint.sh) und darf NICHT precached werden —
         // sonst liefert der SW eine stale URL aus.
-        globIgnores: ['config.js'],
+        // Die OCR-Assets (WASM-Core ~12 MB) werden bewusst NICHT
+        // precached — sie kommen erst beim ersten Kamera-Scan dran und
+        // werden dann runtime gecacht.
+        globIgnores: ['config.js', 'tesseract/**', 'tessdata/**'],
         // Bilder: CacheFirst mit Größenlimit (60 Einträge, 30 Tage).
         runtimeCaching: [
           {
@@ -60,6 +63,22 @@ export default defineConfig({
                 maxEntries: 60,
                 maxAgeSeconds: 60 * 60 * 24 * 30,
               },
+            },
+          },
+          {
+            // OCR-Assets: tesseract-Worker, WASM-Core, traineddata.
+            // Ohne Netz holt der SW sie aus dem Cache — der Kamera-Scan
+            // funktioniert damit offline.
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith('/tesseract/') || url.pathname.startsWith('/tessdata/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'castel-ocr',
+              expiration: {
+                maxEntries: 12,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

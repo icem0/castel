@@ -12,6 +12,9 @@ dist
 dist-ssr
 # Auto-generiert durch scripts/write-version.mjs
 src/version.ts
+# OCR-Assets (scripts/fetch-ocr-assets.mjs) — werden beim Build/Dev erzeugt
+public/tesseract/
+public/tessdata/
 # Husky interner Ordner (von `husky` zur Laufzeit angelegt)
 .husky/_
 *.local

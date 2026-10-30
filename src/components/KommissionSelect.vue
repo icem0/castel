@@ -27,6 +27,7 @@ import {
   type ScanErgebnis,
   type ScanKandidat,
 } from '../domain/kommission-scan'
+import KommissionKameraScan from '../components/KommissionKameraScan.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -376,6 +377,15 @@ async function scanUebernehmen(): Promise<void> {
       <p v-if="scanFehler" class="fehler" role="alert">{{ scanFehler }}</p>
     </details>
 
+    <details v-if="allowCreate" class="kommission-kamera">
+      <summary>{{ t('view.kommission.kameraScan.titel') }}</summary>
+      <KommissionKameraScan
+        :model-value="modelValue"
+        :disabled="disabled"
+        @update:model-value="emit('update:modelValue', $event)"
+      />
+    </details>
+
     <details v-if="allowCreate" class="kommission-neu">
       <summary>{{ t('view.kommission.neueAnlegen') }}</summary>
       <div class="row">
@@ -583,6 +593,19 @@ async function scanUebernehmen(): Promise<void> {
 .kommission-scan .fehler,
 .kommission-scan .hint {
   margin: 0.25rem 0 0;
+}
+
+.kommission-kamera {
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  margin-top: 0.2rem;
+}
+
+.kommission-kamera summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--accent);
 }
 
 .kommission-neu .row {
