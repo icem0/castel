@@ -553,25 +553,25 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
       </template>
     </div>
 
-    <h2>{{ t('view.development.geraete') }}</h2>
+    <h2>{{ t('view.development.geräte') }}</h2>
     <div class="card">
-      <p class="hint">{{ t('view.development.geraeteHint') }}</p>
+      <p class="hint">{{ t('view.development.geräteHint') }}</p>
       <div class="actions" style="margin-bottom: 0.8rem">
         <button type="button" :disabled="geraetePhase === 'laufend'" @click="ladeGeraete">
-          {{ geraetePhase === 'laufend' ? 'Lade…' : t('view.development.geraeteLaden') }}
+          {{ geraetePhase === 'laufend' ? 'Lade…' : t('view.development.geräteLaden') }}
         </button>
         <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
       </div>
       <table v-if="geraeteListe.length > 0" class="tabelle">
         <thead>
           <tr>
-            <th>{{ t('view.development.geraeteSpalteGerät') }}</th>
-            <th>{{ t('view.development.geraeteSpalteUser') }}</th>
-            <th>{{ t('view.development.geraeteSpalteFingerabdruck') }}</th>
-            <th>{{ t('view.development.geraeteSpalteRegistriert') }}</th>
-            <th>{{ t('view.development.geraeteSpalteZuletzt') }}</th>
-            <th>{{ t('view.development.geraeteSpalteReset') }}</th>
-            <th style="width: 11rem">{{ t('view.development.geraeteSpalteAktionen') }}</th>
+            <th>{{ t('view.development.geräteSpalteGerät') }}</th>
+            <th>{{ t('view.development.geräteSpalteUser') }}</th>
+            <th>{{ t('view.development.geräteSpalteFingerabdruck') }}</th>
+            <th>{{ t('view.development.geräteSpalteRegistriert') }}</th>
+            <th>{{ t('view.development.geräteSpalteZuletzt') }}</th>
+            <th>{{ t('view.development.geräteSpalteReset') }}</th>
+            <th style="width: 11rem">{{ t('view.development.geräteSpalteAktionen') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -604,8 +604,8 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
               >
                 {{
                   g.resetAm
-                    ? t('view.development.geraeteZurücksetzenAufheben')
-                    : t('view.development.geraeteZurücksetzenSetzen')
+                    ? t('view.development.geräteZurücksetzenAufheben')
+                    : t('view.development.geräteZurücksetzenSetzen')
                 }}
               </button>
             </td>
@@ -613,19 +613,19 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
         </tbody>
       </table>
       <p v-if="geraetePhase === 'idle' && geraeteListe.length === 0" class="hint">
-        {{ t('view.development.geraeteKeine') }}
+        {{ t('view.development.geräteKeine') }}
       </p>
     </div>
 
-    <h2>{{ t('view.development.geraeteAlle') }}</h2>
+    <h2>{{ t('view.development.geräteAlle') }}</h2>
     <div class="card">
-      <p class="hint">{{ t('view.development.geraeteAlleHint') }}</p>
+      <p class="hint">{{ t('view.development.geräteAlleHint') }}</p>
       <div class="actions" style="gap: 0.5rem; align-items: start">
         <select
           v-model="geraeteSelectedUser"
           :disabled="geraetePhase === 'laufend' || geraeteUserListe.length === 0"
         >
-          <option value="">{{ t('view.development.geraeteUserWaehlen') }}</option>
+          <option value="">{{ t('view.development.geräteUserWaehlen') }}</option>
           <option v-for="u in geraeteUserListe" :key="u.id" :value="u.id">
             {{ u.anzeigename || u.email }} ({{ u.email }})
           </option>
@@ -638,7 +638,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           "
           @click="setzeUserReset(geraeteSelectedUser, true)"
         >
-          {{ t('view.development.geraeteAlleSetzen') }}
+          {{ t('view.development.geräteAlleSetzen') }}
         </button>
         <button
           type="button"
@@ -648,7 +648,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           "
           @click="setzeUserReset(geraeteSelectedUser, false)"
         >
-          {{ t('view.development.geraeteAlleAufheben') }}
+          {{ t('view.development.geräteAlleAufheben') }}
         </button>
         <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
       </div>
