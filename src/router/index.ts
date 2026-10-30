@@ -40,6 +40,7 @@ import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
 import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
 import BackupView from '../views/BackupView.vue'
+import GeraetView from '../views/GeraetView.vue'
 import ApiKeysView from '../views/ApiKeysView.vue'
 import HerstellerView from '../views/HerstellerView.vue'
 
@@ -121,6 +122,13 @@ const routes: RouteRecordRaw[] = [
     name: 'einstellungen-backup',
     component: BackupView,
     meta: { requiresAdmin: true },
+  },
+  {
+    // Device-local storage: reachable for every role. The local IndexedDB is
+    // a disposable mirror — a user must always be able to rebuild it.
+    path: '/einstellungen/geraet',
+    name: 'einstellungen-geraet',
+    component: GeraetView,
   },
   {
     path: '/einstellungen/entwicklung',

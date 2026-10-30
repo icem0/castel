@@ -385,6 +385,7 @@ export default {
       akkutauschAktivHint:
         'When disabled, the battery replacement tool and its battery sizes are hidden from the navigation and settings. Only admins can change this setting.',
       daten: 'Data',
+      geraet: 'Local storage (device)',
       csvImport: 'CSV import',
       backup: 'Backup &amp; Restore',
       apiKeys: 'API keys',
@@ -991,6 +992,40 @@ export default {
       technikHinweis:
         'Note: the sound only plays while castel is open. With the device muted, nothing will be audible.',
     },
+    geraet: {
+      h1: 'Local storage (device)',
+      intro:
+        'castel keeps a complete working copy on this device. The server is the source — the local copy is rebuilt from it during sync.',
+      uebersicht: 'What is stored on this device',
+      spalteTabelle: 'Data',
+      spalteLokal: 'Local',
+      spalteServer: 'Server',
+      tippArtikel: 'Items',
+      tippStandorte: 'Locations',
+      tippKommissionen: 'Commissions',
+      tippBuchungen: 'Transactions',
+      ausstehend: '{anzahl} change(s) have not been pushed to the server yet.',
+      keineAusstehend: 'Every change is in sync with the server.',
+      quarantaene: '{anzahl} outbox entry/entries are disabled and need an explicit decision.',
+      syncJetzt: 'Sync now',
+      zuruecksetzen: 'Reset local database',
+      zuruecksetzenHint:
+        'Deletes the whole working copy on this device and pulls a fresh one from the server. Helps when the sync cannot converge — e.g. after bookings were deleted on the server (ghost transactions) or when the local database is corrupt.',
+      zuruecksetzenBtn: 'Reset',
+      laeuft: 'Resetting and reloading…',
+      fertig: 'Rebuilt',
+      frage: 'Really reset the local database?',
+      detail:
+        'All local data (items, locations, commissions, transactions, settings) is deleted and then loaded completely from the server. Your login is kept.',
+      warnungAusstehend:
+        'Warning: {anzahl} change(s) have not been pushed yet — resetting discards them. Sync first.',
+      warnung: 'Everything is pushed — no data will be lost.',
+      neustartHinweis: 'The local database is already gone. Reload the page — the sync refills it.',
+      jaZuruecksetzen: 'Yes, reset &amp; reload',
+      erfolg:
+        'Local database rebuilt: {artikel} items, {standorte} locations, {buchungen} transactions.',
+      neuladenIn: 'The page reloads automatically in {sek} seconds.',
+    },
     development: {
       h1: 'Development',
       intro:
@@ -1087,12 +1122,12 @@ export default {
       bulkLoeschDetail:
         'The selected transactions are permanently removed from the server database. Related minimum-stock events are deleted as well.',
       bulkLoeschWarnung:
-        'Transactions are append-only. Other clients keep the deleted rows locally as ghost transactions until their local database is pulled again. Stock levels can diverge permanently.',
+        'Transactions are append-only. After the delete the server bumps the restore epoch, so every client drops its local database and pulls a fresh one. A device that stays offline keeps a diverging stock level.',
       bulkLoeschBestaetigen: 'Yes, delete permanently',
       bulkLoescht: 'Deleting transactions…',
       bulkLoeschErgebnis: '{anzahl} transactions deleted.',
       bulkGeisterWarnung:
-        'On other devices, run "Delete local database" now so the deleted transactions disappear.',
+        'Every device rebuilds its local database automatically — the server bumps the restore epoch. A device that was offline can catch up under Settings → Data → Local storage (device) → Reset.',
       bulkSchliessen: 'Close',
       bulkSpalteDatum: 'Date',
       bulkSpalteArtikel: 'Item',

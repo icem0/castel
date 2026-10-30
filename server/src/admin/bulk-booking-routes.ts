@@ -5,14 +5,18 @@
 //   * POST /api/admin/buchungen/bulk-delete  - hard-delete selected bookings.
 //
 // WARNING: deleting bookings bypasses the append-only sync protocol. Clients
-// that still hold the deleted rows keep them locally (reconcileBookings never
-// removes server-missing rows). This tool is meant for cleaning up test data;
-// clients must reset their local database afterwards.
+// that still hold the deleted rows would keep them locally (reconcileBookings
+// never removes server-missing rows) and cry wolf about the divergence on
+// every sync. This tool is meant for cleaning up test data, so it bumps the
+// restore epoch after a successful delete: every client then wipes its
+// IndexedDB and pulls a fresh snapshot on its next sync tick (worker.ts,
+// `handleRestoreEpochMismatch`) — no login and no manual reset required.
 
 import type { FastifyInstance } from 'fastify'
 import { and, desc, eq, gte, inArray, isNotNull, lte, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { artikel, buchungen, mindestbestandEreignisse, standorte } from '../db/schema.js'
+import { schreibeRestoreEpoch } from './backup.js'
 
 const MAX_BULK_IDS = 5000
 
@@ -185,10 +189,28 @@ export async function bulkBookingRoutes(app: FastifyInstance): Promise<void> {
         }
       })
 
+      // Hard deletes are invisible to the incremental sync (it only upserts).
+      // Bumping the restore epoch is what tells every client to rebuild its
+      // local copy — same mechanism as a `pg_restore`. Only when something was
+      // actually removed, otherwise clients would wipe for no reason.
+      let restoreEpoch: string | null = null
+      if (result.deletedIds.length > 0 || result.mindestbestandEreignisseDeleted > 0) {
+        restoreEpoch = await schreibeRestoreEpoch()
+        app.log.info(
+          {
+            deletedCount: result.deletedIds.length,
+            mindestbestandEreignisseDeleted: result.mindestbestandEreignisseDeleted,
+            restoreEpoch,
+          },
+          '[admin] Buchungen hart geloescht — Restore-Epoche gesetzt, Clients bauen sich neu auf',
+        )
+      }
+
       return reply.send({
         deletedCount: result.deletedIds.length,
         deletedIds: result.deletedIds,
         mindestbestandEreignisseDeleted: result.mindestbestandEreignisseDeleted,
+        restoreEpoch,
       })
     },
   )

@@ -230,6 +230,7 @@ onBeforeUnmount(() => {
 
     <h2>{{ t('view.settings.daten') }}</h2>
     <div class="card quick-links">
+      <RouterLink to="/einstellungen/geraet">{{ t('view.settings.geraet') }}</RouterLink>
       <RouterLink to="/import">{{ t('view.settings.csvImport') }}</RouterLink>
       <RouterLink to="/einstellungen/backup">{{ t('view.settings.backup') }}</RouterLink>
       <RouterLink to="/einstellungen/api-keys">{{ t('view.settings.apiKeys') }}</RouterLink>

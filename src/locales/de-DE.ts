@@ -395,6 +395,7 @@ export default {
       akkutauschAktivHint:
         'Wenn deaktiviert, ist das Akkutausch-Tool samt Akku-Größen in Navigation und Einstellungen ausgeblendet. Nur Admins können diese Einstellung ändern.',
       daten: 'Daten',
+      geraet: 'Lokaler Speicher (Gerät)',
       csvImport: 'CSV-Import',
       backup: 'Backup &amp; Restore',
       apiKeys: 'API-Keys',
@@ -1013,6 +1014,42 @@ export default {
       technikHinweis:
         'Hinweis: Der Ton ertönt nur, solange castel geöffnet ist. Bei ausgeschaltetem Geräton wird nichts hörbar.',
     },
+    geraet: {
+      h1: 'Lokaler Speicher (Gerät)',
+      intro:
+        'castel hält auf diesem Gerät eine vollständige Arbeitskopie. Quelle ist der Server — die lokale Kopie wird beim Synchronisieren daraus neu aufgebaut.',
+      uebersicht: 'Was auf diesem Gerät liegt',
+      spalteTabelle: 'Daten',
+      spalteLokal: 'Lokal',
+      spalteServer: 'Server',
+      tippArtikel: 'Artikel',
+      tippStandorte: 'Standorte',
+      tippKommissionen: 'Kommissionen',
+      tippBuchungen: 'Buchungen',
+      ausstehend: '{anzahl} Änderung(en) sind noch nicht an den Server übertragen.',
+      keineAusstehend: 'Alle Änderungen sind mit dem Server abgeglichen.',
+      quarantaene:
+        '{anzahl} Outbox-Eintrag/Einträge sind stillgelegt und brauchen eine Entscheidung.',
+      syncJetzt: 'Jetzt synchronisieren',
+      zuruecksetzen: 'Lokale Datenbank zurücksetzen',
+      zuruecksetzenHint:
+        'Löscht die komplette Arbeitskopie auf diesem Gerät und lädt sie frisch vom Server. Hilft, wenn der Sync nicht konvergiert — z. B. nach dem Löschen von Buchungen auf dem Server (Geister-Buchungen) oder bei einer beschädigten lokalen Datenbank.',
+      zuruecksetzenBtn: 'Zurücksetzen',
+      laeuft: 'Zurücksetzen und neu laden…',
+      fertig: 'Neu aufgebaut',
+      frage: 'Lokale Datenbank wirklich zurücksetzen?',
+      detail:
+        'Alle lokalen Daten (Artikel, Standorte, Kommissionen, Buchungen, Einstellungen) werden gelöscht und danach vollständig vom Server geladen. Die Anmeldung bleibt erhalten.',
+      warnungAusstehend:
+        'Achtung: {anzahl} Änderung(en) sind noch nicht übertragen — sie gehen beim Zurücksetzen verloren. Vorher synchronisieren.',
+      warnung: 'Alle Änderungen sind übertragen — es gehen keine Daten verloren.',
+      neustartHinweis:
+        'Die lokale Datenbank ist bereits gelöscht. Lade die Seite neu — der Sync füllt sie wieder auf.',
+      jaZuruecksetzen: 'Ja, zurücksetzen &amp; neu laden',
+      erfolg:
+        'Lokale Datenbank neu aufgebaut: {artikel} Artikel, {standorte} Standorte, {buchungen} Buchungen.',
+      neuladenIn: 'Die Seite lädt automatisch in {sek} Sekunden.',
+    },
     development: {
       h1: 'Entwicklung',
       intro:
@@ -1112,12 +1149,12 @@ export default {
       bulkLoeschDetail:
         'Die ausgewählten Buchungen werden endgültig aus der Server-Datenbank entfernt. Zugehörige Mindestbestand-Ereignisse werden mitgelöscht.',
       bulkLoeschWarnung:
-        'Buchungen sind append-only. Andere Clients behalten die gelöschten Zeilen lokal als Geister-Buchungen, bis ihre lokale Datenbank neu gezogen wird. Der Bestand kann dauerhaft abweichen.',
+        'Buchungen sind append-only. Der Server setzt nach dem Löschen die Restore-Epoche — jeder Client verwirft daraufhin seine lokale Datenbank und zieht sie frisch. Ein Gerät, das dauerhaft offline bleibt, behält einen abweichenden Bestand.',
       bulkLoeschBestaetigen: 'Ja, endgültig löschen',
       bulkLoescht: 'Lösche Buchungen…',
       bulkLoeschErgebnis: '{anzahl} Buchungen gelöscht.',
       bulkGeisterWarnung:
-        'Auf anderen Geräten jetzt „Lokale Datenbank löschen“ ausführen, damit die gelöschten Buchungen verschwinden.',
+        'Alle Geräte bauen ihre lokale Datenbank automatisch neu auf — der Server setzt dafür die Restore-Epoche. Ein Gerät, das offline war, kann unter Einstellungen → Daten → Lokaler Speicher (Gerät) → Zurücksetzen nachziehen.',
       bulkSchliessen: 'Schließen',
       bulkSpalteDatum: 'Datum',
       bulkSpalteArtikel: 'Artikel',
