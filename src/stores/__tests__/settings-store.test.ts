@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import 'fake-indexeddb/auto'
-import { useSettingsStore } from '../settings'
+import { useSettingsStore, alarmDefaultFuerRolle } from '../settings'
 import { getDb, resetDbForTests, setDb } from '../../db/database'
 import { jetztIso } from '../../domain/ids'
 import { sessionSchreiben } from '../../auth/session'
@@ -379,5 +379,82 @@ describe('useSettingsStore — akkutauschAktiv (global)', () => {
     expect(await getDb().einstellungen.get(['akkutauschAktiv', 'user-x'])).toBeUndefined()
 
     store.stop()
+  })
+})
+
+// Der Mindestbestand-Alarm ist für jede Rolle gedacht, aber der Default ist
+// rollenabhängig: Admins starten mit Signal, normale User bleiben still und
+// schalten selbst an. Eine gespeicherte Zeile schlägt immer.
+describe('useSettingsStore — mindestbestandSoundAn (rollenabhängiger Default)', () => {
+  beforeEach(() => {
+    resetDbForTests()
+    setDb(getDb())
+    setActivePinia(createPinia())
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  function login(userId: string, rolle: 'admin' | 'user'): void {
+    sessionSchreiben({
+      userId,
+      email: `${userId}@example.com`,
+      rolle,
+      anzeigename: userId,
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+  }
+
+  it('alarmDefaultFuerRolle: Admin an, User aus', () => {
+    expect(alarmDefaultFuerRolle(true)).toBe(true)
+    expect(alarmDefaultFuerRolle(false)).toBe(false)
+  })
+
+  it('ist ohne gespeicherte Zeile für Admins an und für User aus', async () => {
+    login('user-alarm-a', 'user')
+    const userStore = useSettingsStore()
+    userStore.start()
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(userStore.settings.mindestbestandSoundAn).toBe(false)
+    userStore.stop()
+
+    login('user-alarm-b', 'admin')
+    const adminStore = useSettingsStore()
+    adminStore.start()
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(adminStore.settings.mindestbestandSoundAn).toBe(true)
+    adminStore.stop()
+  })
+
+  it('schlägt eine gespeicherte Zeile (Admin schaltet ab, User schaltet an)', async () => {
+    login('user-alarm-c', 'admin')
+    await getDb().einstellungen.put({
+      key: 'mindestbestandSoundAn',
+      userId: 'user-alarm-c',
+      value: 'false',
+      geaendertAm: jetztIso(),
+    })
+    const adminStore = useSettingsStore()
+    adminStore.start()
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(adminStore.settings.mindestbestandSoundAn).toBe(false)
+    adminStore.stop()
+
+    login('user-alarm-d', 'user')
+    await getDb().einstellungen.put({
+      key: 'mindestbestandSoundAn',
+      userId: 'user-alarm-d',
+      value: 'true',
+      geaendertAm: jetztIso(),
+    })
+    const userStore = useSettingsStore()
+    userStore.start()
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(userStore.settings.mindestbestandSoundAn).toBe(true)
+    userStore.stop()
   })
 })

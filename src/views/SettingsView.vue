@@ -204,8 +204,11 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <h2 v-if="auth.istAdmin">{{ t('view.settings.benachrichtigungen') }}</h2>
-    <div v-if="auth.istAdmin" class="card">
+    <!-- Notification tracking is not admin-only: every role may follow its
+         minimum-stock alarms and enable the signal itself (off by default
+         for non-admins, see `alarmDefaultFuerRolle`). -->
+    <h2>{{ t('view.settings.benachrichtigungen') }}</h2>
+    <div class="card">
       <MindestbestandBenachrichtigungen />
     </div>
 

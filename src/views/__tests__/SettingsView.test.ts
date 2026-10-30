@@ -126,11 +126,25 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     store.stop()
   })
 
-  it('zeigt die Benachrichtigungs-Kategorie nicht für normale User', () => {
+  it('zeigt normalen Usern die Benachrichtigungen — Alarm standardmäßig aus', () => {
     const { w } = mountSettings()
 
-    const ueberschriften = w.findAll('h2').map((h) => h.text())
-    expect(ueberschriften).not.toContain('Benachrichtigungen')
+    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Benachrichtigungen')
+    expect(ueberschrift).toBeDefined()
+
+    const karte = ueberschrift!.element.nextElementSibling as HTMLElement
+    expect(karte).not.toBeNull()
+    expect(karte.textContent).toContain('Alarm bei neuen Ereignissen')
+
+    const checkbox = karte.querySelector('input[type="checkbox"]') as HTMLInputElement | null
+    expect(checkbox).not.toBeNull()
+    // Rollenabhängiger Default: User starten still und schalten selbst an.
+    expect(checkbox!.checked).toBe(false)
+    // Lautstärke und Wiederholung hängen am Master-Switch.
+    expect(karte.querySelector('input[type="range"]')).toBeNull()
+
+    // Tracking bleibt offen: Link zur vollständigen Ereignisliste.
+    expect(karte.querySelector('a[href="/einstellungen/mindestbestand"]')).not.toBeNull()
   })
 
   it('zeigt den Akkutausch-Schalter nicht für normale User', () => {
@@ -221,8 +235,9 @@ describe('SettingsView — Benachrichtigungen (Admin)', () => {
 
     const karte = ueberschrift!.element.nextElementSibling as HTMLElement
     expect(karte).not.toBeNull()
-    expect(karte.textContent).toContain('Klingelton bei neuen Ereignissen')
+    expect(karte.textContent).toContain('Alarm bei neuen Ereignissen')
     expect(karte.querySelector('input[type="checkbox"]')).not.toBeNull()
+    // Admin-Default: Alarm an → Lautstärke-Steller sichtbar.
     expect(karte.querySelector('input[type="range"]')).not.toBeNull()
 
     const link = karte.querySelector('a[href="/einstellungen/mindestbestand"]')

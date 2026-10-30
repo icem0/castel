@@ -9,8 +9,13 @@
 // hier dauerhaft "3", während im Lager längst 15 liegen. Der Snapshot
 // bleibt als Tooltip erhalten ("Bestand damals").
 //
-// Admin-only. Beim Mount wird "alle gesehen" markiert, sodass der
-// Counter in der Glocke auf 0 springt.
+// Tracking für jede Rolle: User sehen, which alarm is open, which order
+// was placed (marker + initials) and which alarm is cleared again
+// ("erledigt"). Bestell-Link und "als bestellt markieren" bleiben Admins
+// vorbehalten — User lesen nur.
+//
+// Beim Mount wird "alle gesehen" markiert, sodass der Counter in der
+// Glocke auf 0 springt.
 
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -18,6 +23,7 @@ import { useI18n } from 'vue-i18n'
 import { useMindestbestandStore, type MindestbestandZeile } from '../stores/mindestbestand'
 import { useArtikelStore } from '../stores/artikel'
 import { useStandortStore } from '../stores/standort'
+import { useAuthStore } from '../stores/auth'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 import ArtikelLink from '../components/ArtikelLink.vue'
 import { sortiereNachName } from '../domain/sortierung'
@@ -28,6 +34,7 @@ const router = useRouter()
 const mindestbestand = useMindestbestandStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
+const auth = useAuthStore()
 const bestellung = useBestellung()
 
 const filterArtikel = ref<string>('')
@@ -151,7 +158,7 @@ function formatDatum(iso: string): string {
             <td>
               <div class="bestell-aktionen">
                 <a
-                  v-if="z.offen && ziel(z)"
+                  v-if="auth.istAdmin && z.offen && ziel(z)"
                   class="btn mini"
                   :href="ziel(z)!.href"
                   :target="ziel(z)!.mailto ? undefined : '_blank'"
@@ -161,7 +168,7 @@ function formatDatum(iso: string): string {
                   🛒 {{ t('view.mindestbestand.jetztBestellen') }}
                 </a>
                 <button
-                  v-if="z.offen"
+                  v-if="auth.istAdmin && z.offen"
                   type="button"
                   class="btn mini haken"
                   :class="{ aktiv: bestellung.istBestellt(z) }"

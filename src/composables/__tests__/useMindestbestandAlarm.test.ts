@@ -174,15 +174,9 @@ vi.mock('../../stores/settings', () => ({
   }),
 }))
 
-vi.mock('../../stores/auth', () => ({
-  useAuthStore: () => ({
-    get istAdmin() {
-      // `reactiveState` ist ein Plain-Object im hoisted-Scope; wir
-      // lesen beim Zugriff frisch, damit der beforeEach-Wert greift.
-      return storeMock.reactiveState?.istAdmin === true
-    },
-  }),
-}))
+// Der Alarm ist rollenoffen: das Composable fragt die Rolle nicht mehr ab
+// (`istAdmin` bleibt als Test-Störung gesetzt, darf aber nichts ändern).
+// `mindestbestandSoundAn` ist der Master-Switch des gesamten Signals.
 
 vi.mock('../../stores/artikel', () => ({
   useArtikelStore: () => ({
@@ -307,7 +301,7 @@ describe('useMindestbestandAlarm — Trigger', () => {
     await destroy()
   })
 
-  it('klingelt NICHT bei Nicht-Admins', async () => {
+  it('klingelt auch für Nicht-Admins (Alarm ist rollenoffen)', async () => {
     reactiveState.istAdmin = false
     steuerung.letztesSignalAm = new Date(Date.now() - 120_000).toISOString()
     const { destroy } = await mountAlarm()
@@ -315,20 +309,35 @@ describe('useMindestbestandAlarm — Trigger', () => {
     await nextTick()
     await nextTick()
     await nextTick()
-    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+    expect(storeMock.markiereSignalGesendet).toHaveBeenCalled()
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
     await destroy()
   })
 
-  it('klingelt NICHT, wenn der Sound-Switch aus ist (Haptik läuft trotzdem)', async () => {
+  it('klingelt NICHT, wenn der Master-Switch aus ist (auch keine Haptik)', async () => {
     reactiveState.soundAn = false
     steuerung.letztesSignalAm = new Date(Date.now() - 120_000).toISOString()
-    const { destroy } = await mountAlarm()
+    const { api, destroy } = await mountAlarm()
     steuerung.letzte50 = [evt('e1')]
     await nextTick()
     await nextTick()
     await nextTick()
     expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
-    expect(alarmMock.vibrateMuster).toHaveBeenCalledTimes(1)
+    expect(alarmMock.vibrateMuster).not.toHaveBeenCalled()
+    expect(api.blitzaktiv.value).toBe(false)
+    // Kein Signal → kein Cooldown-Anker, damit der Alarm beim Einschalten
+    // sofort nachholen kann.
+    expect(storeMock.markiereSignalGesendet).not.toHaveBeenCalled()
+    await destroy()
+  })
+
+  it('signalTesten bleibt stumm, wenn der Master-Switch aus ist', async () => {
+    reactiveState.soundAn = false
+    const { api, destroy } = await mountAlarm()
+    await api.signalTesten()
+    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+    expect(alarmMock.vibrateMuster).not.toHaveBeenCalled()
+    expect(api.blitzaktiv.value).toBe(false)
     await destroy()
   })
 
@@ -527,7 +536,7 @@ describe('useMindestbestandAlarm — Wiederholung bis die Glocke geöffnet wird'
     await destroy()
   })
 
-  it('wiederholt nicht für Nicht-Admins', async () => {
+  it('wiederholt auch für Nicht-Admins, wenn der Alarm eingeschaltet ist', async () => {
     vi.useFakeTimers()
     reactiveState.istAdmin = false
     steuerung.letzte50 = [evt('e1')]
@@ -535,8 +544,9 @@ describe('useMindestbestandAlarm — Wiederholung bis die Glocke geöffnet wird'
     await nextTick()
     await nextTick()
 
-    await vi.advanceTimersByTimeAsync(COOLDOWN_MS * 3)
-    expect(alarmMock.alarmKlingeln).not.toHaveBeenCalled()
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(COOLDOWN_MS)
+    expect(alarmMock.alarmKlingeln).toHaveBeenCalledTimes(2)
 
     await destroy()
   })

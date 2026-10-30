@@ -111,10 +111,12 @@ const routes: RouteRecordRaw[] = [
     component: ArtikelKatalogeView,
   },
   {
+    // The alarm log is tracking, not configuration: every role may follow
+    // which items are under minimum stock, ordered and replenished again.
+    // Writing (mindestbestand config) stays admin-only in the panel itself.
     path: '/einstellungen/mindestbestand',
     name: 'einstellungen-mindestbestand',
     component: MindestbestandPanelView,
-    meta: { requiresAdmin: true },
   },
   {
     path: '/einstellungen/hersteller',

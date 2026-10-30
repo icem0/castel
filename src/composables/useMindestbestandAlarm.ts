@@ -12,6 +12,12 @@
 // Die reine WebAudio-Logik liegt aus Gründen der Testbarkeit in
 // `services/audio/alarm.ts` — dieses Composable orchestriert nur
 // Store-Zustand, Settings, Cooldown und Notification.
+//
+// Rollen: der Alarm ist für JEDE Rolle möglich (User dürfen ihre
+// Mindestbestand-Meldungen verfolgen). `mindestbestandSoundAn` ist der
+// Master-Switch des gesamten Signals — Ton, Vibration, Blitz und
+// OS-Notification. Der Default ist rollenabhängig (Admin an, User aus,
+// siehe `stores/settings.ts`), User können ihn selbst einschalten.
 
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import type { Ref } from 'vue'
@@ -19,7 +25,6 @@ import { useRouter } from 'vue-router'
 import { useMindestbestandStore, type MindestbestandZeile } from '../stores/mindestbestand'
 import { useSettingsStore } from '../stores/settings'
 import { useArtikelStore } from '../stores/artikel'
-import { useAuthStore } from '../stores/auth'
 import { alarmKlingeln, audioContextBereit, vibrateMuster } from '../services/audio/alarm'
 
 /** Mindestabstand zwischen zwei Alarmen. */
@@ -80,7 +85,6 @@ export function useMindestbestandAlarm(
   const router = useRouter()
   const mindestbestand = useMindestbestandStore()
   const settings = useSettingsStore()
-  const auth = useAuthStore()
   const artikelStore = useArtikelStore()
 
   const blitzaktiv = ref(false)
@@ -158,7 +162,10 @@ export function useMindestbestandAlarm(
     const { ueberspringeCooldown = false, osNotification = true } = optionen
     if (!zeile) return false
     if (!zeile.offen) return false
-    if (!auth.istAdmin) return false
+    // Master-Switch für das gesamte Signal (Ton, Haptik, Blitz,
+    // OS-Notification). Kein Rollen-Gate: User dürfen den Alarm selbst
+    // einschalten; der Default ist rollenabhängig (User: aus).
+    if (!settings.settings.mindestbestandSoundAn) return false
     if (signalInFlight) return false
 
     if (!ueberspringeCooldown) {
@@ -172,15 +179,13 @@ export function useMindestbestandAlarm(
 
       const artikelTitel = artikelStore.byId(zeile.ereignis.artikelId)?.titel ?? 'Artikel'
 
-      // 1) Audio (nur wenn eingeschaltet)
-      if (settings.settings.mindestbestandSoundAn) {
-        alarmKlingeln(audioContextBereit(), {
-          lautstaerke: gainAusProzent(settings.settings.mindestbestandLautstaerke),
-        })
-      }
+      // 1) Audio — der Master-Switch (`mindestbestandSoundAn`) ist oben
+      //    bereits geprüft, hier geht es nur noch die Lautstärke.
+      alarmKlingeln(audioContextBereit(), {
+        lautstaerke: gainAusProzent(settings.settings.mindestbestandLautstaerke),
+      })
 
-      // 2) Haptik — unabhängig vom Sound-Switch, weil die Einstellung
-      //    semantisch "Klingelton" heißt, nicht "Benachrichtigung".
+      // 2) Haptik
       vibrateMuster()
 
       // 3) Visueller Blitz
@@ -223,7 +228,6 @@ export function useMindestbestandAlarm(
     () => mindestbestand.letzte50.map((e) => e.id).join(','),
     async (neu, alt) => {
       if (neu === alt) return
-      if (!auth.istAdmin) return
       if (alt === undefined) return // Store noch nicht geladen
       // Das NEUESTE Event (Index 0, weil `orderBy('erstelltAm').reverse()`),
       // live ausgewertet. `signalAusloesen` lässt erledigte Alarme durch.
@@ -258,7 +262,6 @@ export function useMindestbestandAlarm(
    */
   async function signalWiederholen(): Promise<boolean> {
     if (!optionen.wiederholung) return false
-    if (!auth.istAdmin) return false
     if (!settings.settings.mindestbestandWiederholen) return false
     if (!settings.settings.mindestbestandSoundAn) return false
     if (mindestbestand.ungesehenCount <= 0) return false
@@ -300,11 +303,10 @@ export function useMindestbestandAlarm(
         [
           settings.settings.mindestbestandWiederholen,
           settings.settings.mindestbestandSoundAn,
-          auth.istAdmin,
           mindestbestand.ungesehenCount,
         ] as const,
-      ([wiederholen, soundAn, istAdmin, anzahl]) => {
-        const aktiv = wiederholen && soundAn && istAdmin && anzahl > 0
+      ([wiederholen, soundAn, anzahl]) => {
+        const aktiv = wiederholen && soundAn && anzahl > 0
         if (!aktiv) {
           wiederholungStoppen()
           return
@@ -320,9 +322,12 @@ export function useMindestbestandAlarm(
 
   // Autoplay-Policy: nach einem Tab-Wechsel ist der AudioContext in
   // vielen Browsern `suspended`. Beim Zurückkommen vorab aktivieren,
-  // damit der nächste Alarm nicht stumm bleibt.
+  // damit der nächste Alarm nicht stumm bleibt. Beides nur, wenn der
+  // Alarm aktiviert ist — sonst würden User ohne Alarm unnötig nach der
+  // Notification-Permission gefragt.
   function onVisibilityChange(): void {
     if (document.visibilityState !== 'visible') return
+    if (!settings.settings.mindestbestandSoundAn) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       void Notification.requestPermission()
     }

@@ -80,12 +80,19 @@ export interface Settings {
    */
   firstLoginDone: boolean
   /**
-   * Pro User: Klingelton bei neuen Mindestbestand-Ereignissen?
+   * Pro User: Master-Switch des Mindestbestand-Alarms.
    *
-   * Der Ton ist eine WebAudio-Synthese (kein MP3-Asset) — siehe
-   * `src/services/audio/alarm.ts`. Cross-Device-synchronisiert
-   * (per-User-Key): Admin stellt den Ton auf Tablet A aus, dann ist
-   * er auch auf Tablet B aus.
+   * Der Schalter steuert das GESAMTE Signal — Klingelton (WebAudio-
+   * Synthese, kein MP3-Asset, siehe `src/services/audio/alarm.ts`),
+   * Vibration, Blinken der Glocke und OS-Notification. Aus = nichts
+   * davon.
+   *
+   * Default ist rollenabhängig: Admins starten mit Alarm (sie pflegen
+   * die Mindestbestände), normale User starten still und können ihn
+   * selbst einschalten. Eine gespeicherte Zeile schlägt immer.
+   *
+   * Cross-Device-synchronisiert (per-User-Key): Admin stellt den Ton
+   * auf Tablet A aus, dann ist er auch auf Tablet B aus.
    */
   mindestbestandSoundAn: boolean
   /**
@@ -117,7 +124,9 @@ const DEFAULTS: Settings = {
   barcodeTyp: 'CODE128',
   onboardingSeen: false,
   firstLoginDone: false,
-  mindestbestandSoundAn: true,
+  // Safe fallback: the effective default for a user without a stored row is
+  // role-dependent (see `alarmDefaultFuerRolle`), never this constant.
+  mindestbestandSoundAn: false,
   mindestbestandLautstaerke: 70,
   mindestbestandWiederholen: false,
 }
@@ -142,11 +151,21 @@ const PER_USER_KEYS = new Set<string>([
 ])
 const GLOBAL_INDEX = ''
 
+/**
+ * Role-dependent default for the minimum-stock alarm master switch, used
+ * only while no `mindestbestandSoundAn` row exists for the user. Admins
+ * start with the alarm on (they own the thresholds); everyone else starts
+ * silent and may enable it in the settings themselves.
+ */
+export function alarmDefaultFuerRolle(istAdmin: boolean): boolean {
+  return istAdmin
+}
+
 function scopeForKey(key: string): 'global' | 'user' {
   return GLOBAL_KEYS.has(key) ? 'global' : 'user'
 }
 
-function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
+function fromRows(rows: Einstellung[], currentUserId: string | null, istAdmin: boolean): Settings {
   // Domain-normalisierte Sicht: userId = '' wird wie null behandelt.
   const norm = (uid: string | null): string | null => (uid === '' ? null : uid)
   const byKey = new Map<string, Einstellung>()
@@ -237,7 +256,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
 
   const soundAnRow = byKey.get('mindestbestandSoundAn')
   const mindestbestandSoundAn =
-    soundAnRow !== undefined ? soundAnRow.value === 'true' : DEFAULTS.mindestbestandSoundAn
+    soundAnRow !== undefined ? soundAnRow.value === 'true' : alarmDefaultFuerRolle(istAdmin)
 
   // Lautstärke ist ein Integer 0..100. Wir klemmen defensiv, weil der
   // Wert aus der DB kommt (manuell geändert, oder uralter Stand).
@@ -275,6 +294,10 @@ function fromRows(rows: Einstellung[], currentUserId: string | null): Settings {
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<Settings>({
     ...DEFAULTS,
+    // The role-dependent alarm default must already apply before the first
+    // liveQuery emission — otherwise an admin would briefly see the switch
+    // off (and the bell would not arm) while the DB is still loading.
+    mindestbestandSoundAn: alarmDefaultFuerRolle(sessionLesen()?.rolle === 'admin'),
     artikelTypen: [...DEFAULTS.artikelTypen],
     akkuTypen: [...DEFAULTS.akkuTypen],
   })
@@ -293,8 +316,9 @@ export const useSettingsStore = defineStore('settings', () => {
     const observable = liveQuery(() => getDb().einstellungen.toArray())
     subscription = observable.subscribe({
       next: (rows) => {
-        const currentUserId = sessionLesen()?.userId ?? null
-        settings.value = fromRows(rows, currentUserId)
+        const session = sessionLesen()
+        const currentUserId = session?.userId ?? null
+        settings.value = fromRows(rows, currentUserId, session?.rolle === 'admin')
         geladen.value = true
         if (currentUserId !== null && !migratedLegacyThemeFor.has(currentUserId)) {
           migratedLegacyThemeFor.add(currentUserId)

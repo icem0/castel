@@ -982,7 +982,7 @@ export default {
     },
     mindestbestand: {
       title: 'Mindestbestand',
-      hint: 'Hier siehst du alle Buchungen, die einen Artikel unter seinen Mindestbestand gedrückt haben. Die Liste wird vom Server gefüllt (nur Admins sehen sie). Der Bestand wird live aus den Buchungen berechnet — ein Alarm gilt als erledigt, sobald der Bestand wieder über dem Mindestbestand liegt.',
+      hint: 'Hier siehst du alle Buchungen, die einen Artikel unter seinen Mindestbestand gedrückt haben. Die Liste wird vom Server gefüllt und ist für jede Rolle lesbar — bestellen und als bestellt markieren bleibt Admins vorbehalten. Der Bestand wird live aus den Buchungen berechnet — ein Alarm gilt als erledigt, sobald der Bestand wieder über dem Mindestbestand liegt.',
       back: 'Zurück',
       empty: 'Keine Ereignisse im gewählten Zeitraum.',
       openPanel: 'Alle anzeigen',
@@ -1012,8 +1012,9 @@ export default {
       bestellMailBetreff: 'Bestellung: {titel}',
       bestellMailText:
         'Guten Tag,\n\nbitte bestellen Sie folgenden Artikel:\n\nArtikel: {titel}\nBestellnummer: {bestellnummer}\nStandort: {standort}\nBestand unter Mindestbestand (Defizit: {defizit}, Mindestbestand: {mindest})\n\nVielen Dank',
-      soundAn: 'Klingelton bei neuen Ereignissen',
-      soundAnHint: 'Klingt einmal pro neuem Ereignis, höchstens alle 60 Sekunden.',
+      soundAn: 'Alarm bei neuen Ereignissen',
+      soundAnHint:
+        'Schaltet das gesamte Signal: Klingelton, Vibration, Blinken der Glocke und System-Benachrichtigung. Klingelt einmal pro neuem Ereignis, höchstens alle 60 Sekunden.',
       lautstaerke: 'Lautstärke',
       wiederholen: 'Wiederholen, bis die Glocke geöffnet wird',
       wiederholenHint:
@@ -1026,7 +1027,7 @@ export default {
       permAnfordern: 'Jetzt erlauben',
       permGranted: 'System-Benachrichtigungen sind aktiv.',
       technikHinweis:
-        'Hinweis: Der Ton ertönt nur, solange castel geöffnet ist. Bei ausgeschaltetem Geräton wird nichts hörbar.',
+        'Hinweis: Der Alarm ertönt nur, solange castel geöffnet ist. Bei ausgeschaltetem Alarm bleiben auch Vibration, Blinken und System-Benachrichtigung aus.',
     },
     geraet: {
       h1: 'Lokaler Speicher (Gerät)',

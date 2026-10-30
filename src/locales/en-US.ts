@@ -961,7 +961,7 @@ export default {
     },
     mindestbestand: {
       title: 'Minimum Stock',
-      hint: 'Here you see all bookings that dropped an article below its minimum stock. The list is filled by the server (admins only). The stock is computed live from the bookings — an alarm counts as resolved as soon as the stock is back above the minimum.',
+      hint: 'Here you see all bookings that dropped an article below its minimum stock. The list is filled by the server and readable for every role — ordering and marking as ordered stays with admins. The stock is computed live from the bookings — an alarm counts as resolved as soon as the stock is back above the minimum.',
       back: 'Back',
       empty: 'No events in the selected period.',
       openPanel: 'Show all',
@@ -991,8 +991,9 @@ export default {
       bestellMailBetreff: 'Order: {titel}',
       bestellMailText:
         'Hello,\n\nplease order the following article:\n\nArticle: {titel}\nOrder number: {bestellnummer}\nLocation: {standort}\nStock below minimum (deficit: {defizit}, minimum: {mindest})\n\nThank you',
-      soundAn: 'Sound on new events',
-      soundAnHint: 'Sounds once per new event, at most every 60 seconds.',
+      soundAn: 'Alarm on new events',
+      soundAnHint:
+        'Switches the whole signal: ringtone, vibration, flashing bell and system notification. Sounds once per new event, at most every 60 seconds.',
       lautstaerke: 'Volume',
       wiederholen: 'Repeat until the bell is opened',
       wiederholenHint:
@@ -1004,7 +1005,7 @@ export default {
       permAnfordern: 'Allow now',
       permGranted: 'System notifications are active.',
       technikHinweis:
-        'Note: the sound only plays while castel is open. With the device muted, nothing will be audible.',
+        'Note: the alarm only fires while castel is open. With the alarm switched off, vibration, flashing and the system notification stay off as well.',
     },
     geraet: {
       h1: 'Local storage (device)',

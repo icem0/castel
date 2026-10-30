@@ -5,18 +5,19 @@
 // betroffenen Artikel. Beim Öffnen des Drop-Downs werden alle
 // aktuellen Events als "gesehen" markiert (Counter → 0).
 //
-// Sichtbar nur für Admins — der Counter im Header ist uninteressant
-// für normale User (User dürfen nicht stornieren, sie sehen den
-// Bestand selbst in der Artikel-Detail-View). Die Route zum
-// Panel-View (`/einstellungen/mindestbestand`) bleibt admin-only.
+// Sichtbar für JEDE Rolle — User sollen verfolgen, was einen Alarm hat,
+// was bestellt ist und was wieder aufgefüllt wurde. Bestell-Link und
+// "als bestellt markieren" bleiben Admins vorbehalten; die Route zum
+// Panel (`/einstellungen/mindestbestand`) ist bewusst offen.
 
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useMindestbestandStore, type MindestbestandZeile } from '../../stores/mindestbestand'
 import { useArtikelStore } from '../../stores/artikel'
 import { useStandortStore } from '../../stores/standort'
 import { useAuthStore } from '../../stores/auth'
+import { useSettingsStore } from '../../stores/settings'
 import { useMindestbestandAlarm } from '../../composables/useMindestbestandAlarm'
 import { useBestellung } from '../../composables/useBestellung'
 
@@ -26,6 +27,7 @@ const mindestbestand = useMindestbestandStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
 const auth = useAuthStore()
+const settings = useSettingsStore()
 // The bell is the single owner of the repeat timer (the settings page
 // mounts the same composable for its test button and must not double-ring).
 const alarm = useMindestbestandAlarm({ wiederholung: true })
@@ -80,11 +82,18 @@ onMounted(() => {
   mindestbestand.startMarker()
   documentClickListener = onDocumentClick
   document.addEventListener('click', documentClickListener)
-  // Permission nur anfragen, wenn die Glocke überhaupt gemountet wird
-  // (= User ist Admin). Sonst würden wir den normalen User unnötig
-  // belästigen.
-  void requestNotificationPermission()
 })
+
+// Notification-Permission erst anfragen, wenn der Alarm tatsächlich
+// eingeschaltet ist (Master-Switch `mindestbestandSoundAn`). User starten
+// ohne Alarm und bekommen beim ersten Start keinen Permission-Dialog.
+watch(
+  () => [settings.geladen, settings.settings.mindestbestandSoundAn] as const,
+  ([geladen, soundAn]) => {
+    if (geladen && soundAn) void requestNotificationPermission()
+  },
+  { immediate: true },
+)
 
 onBeforeUnmount(() => {
   mindestbestand.stop()
@@ -140,7 +149,7 @@ function openPanel(): void {
 </script>
 
 <template>
-  <div v-if="isAdmin" class="mindestbestand-wrapper">
+  <div class="mindestbestand-wrapper">
     <button
       type="button"
       class="mindestbestand-indicator"
@@ -197,7 +206,7 @@ function openPanel(): void {
             </span>
             <span class="mindestbestand-item-zeit">{{ formatZeit(z.ereignis.erstelltAm) }}</span>
           </button>
-          <div v-if="z.offen" class="mindestbestand-aktionen">
+          <div v-if="isAdmin && z.offen" class="mindestbestand-aktionen">
             <a
               v-if="ziel(z)"
               class="mini-btn"
