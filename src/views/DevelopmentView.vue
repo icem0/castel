@@ -615,125 +615,6 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
       </template>
     </div>
 
-    <h2>{{ t('view.development.geräte') }}</h2>
-    <div class="card">
-      <p class="hint">{{ t('view.development.geräteHint') }}</p>
-      <div class="actions" style="margin-bottom: 0.8rem">
-        <button type="button" :disabled="geraetePhase === 'laufend'" @click="ladeGeraete">
-          {{ geraetePhase === 'laufend' ? 'Lade…' : t('view.development.geräteLaden') }}
-        </button>
-        <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
-      </div>
-      <table v-if="geraeteListe.length > 0" class="tabelle">
-        <thead>
-          <tr>
-            <th>{{ t('view.development.geräteSpalteGerät') }}</th>
-            <th>{{ t('view.development.geräteSpalteUser') }}</th>
-            <th>{{ t('view.development.geräteSpalteFingerabdruck') }}</th>
-            <th>{{ t('view.development.geräteSpalteRegistriert') }}</th>
-            <th>{{ t('view.development.geräteSpalteZuletzt') }}</th>
-            <th>{{ t('view.development.geräteSpalteReset') }}</th>
-            <th>{{ t('view.development.geräteSpalteSyncFehler') }}</th>
-            <th style="width: 11rem">{{ t('view.development.geräteSpalteAktionen') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="g in geraeteListe" :key="g.id">
-            <td>
-              <code style="font-size: 0.85rem">{{ g.id.slice(0, 8) }}…</code>
-            </td>
-            <td>{{ g.email ?? '—' }} ({{ g.rolle ?? '—' }})</td>
-            <td>
-              <span v-if="g.fingerprint.appVersion" class="hint"
-                >v{{ g.fingerprint.appVersion }}</span
-              >
-              <span v-if="g.fingerprint.userAgent" class="hint"
-                >{{ g.fingerprint.userAgent.slice(0, 30) }}…</span
-              >
-            </td>
-            <td>{{ g.registriertAm.slice(0, 16) }}</td>
-            <td>{{ g.zuletztGesehenAm.slice(0, 16) }}</td>
-            <td>
-              <span :class="g.resetAm ? 'wert-fehler' : 'hint-ok'">{{
-                g.resetAm ? 'gesetzt' : 'aus'
-              }}</span>
-            </td>
-            <td>
-              <button
-                v-if="g.lastSyncErrorAt"
-                type="button"
-                :disabled="geraetePhase === 'laufend'"
-                class="small"
-                :class="g.lastSyncErrorAt ? 'wert-fehler' : ''"
-                @click="ladeSyncErrorReports(g.id, g.email ?? g.id)"
-              >
-                {{
-                  t('view.development.geräteSyncFehlerAnzeigen', {
-                    code: g.lastSyncErrorCode ?? '—',
-                  })
-                }}
-              </button>
-              <span v-else class="hint">—</span>
-            </td>
-            <td>
-              <button
-                type="button"
-                :disabled="geraetePhase === 'laufend'"
-                class="danger small"
-                @click="setzeGeraetReset(g.id, !g.resetAm)"
-              >
-                {{
-                  g.resetAm
-                    ? t('view.development.geräteZurücksetzenAufheben')
-                    : t('view.development.geräteZurücksetzenSetzen')
-                }}
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="geraetePhase === 'idle' && geraeteListe.length === 0" class="hint">
-        {{ t('view.development.geräteKeine') }}
-      </p>
-    </div>
-
-    <h2>{{ t('view.development.geräteAlle') }}</h2>
-    <div class="card">
-      <p class="hint">{{ t('view.development.geräteAlleHint') }}</p>
-      <div class="actions" style="gap: 0.5rem; align-items: start">
-        <select
-          v-model="geraeteSelectedUser"
-          :disabled="geraetePhase === 'laufend' || geraeteUserListe.length === 0"
-        >
-          <option value="">{{ t('view.development.geräteUserWaehlen') }}</option>
-          <option v-for="u in geraeteUserListe" :key="u.id" :value="u.id">
-            {{ u.anzeigename || u.email }} ({{ u.email }})
-          </option>
-        </select>
-        <button
-          type="button"
-          class="danger small"
-          :disabled="
-            geraetePhase === 'laufend' || geraeteUserListe.length === 0 || !geraeteSelectedUser
-          "
-          @click="setzeUserReset(geraeteSelectedUser, true)"
-        >
-          {{ t('view.development.geräteAlleSetzen') }}
-        </button>
-        <button
-          type="button"
-          class="small"
-          :disabled="
-            geraetePhase === 'laufend' || geraeteUserListe.length === 0 || !geraeteSelectedUser
-          "
-          @click="setzeUserReset(geraeteSelectedUser, false)"
-        >
-          {{ t('view.development.geräteAlleAufheben') }}
-        </button>
-        <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
-      </div>
-    </div>
-
     <h2>{{ t('view.development.serverDB') }}</h2>
     <div class="card">
       <p class="hint">{{ t('view.development.serverDBHint') }}</p>
@@ -1072,6 +953,125 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
         >
           {{ t('view.common.schliessen') }}
         </button>
+      </div>
+    </div>
+
+    <h2>{{ t('view.development.geräte') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.geräteHint') }}</p>
+      <div class="actions" style="margin-bottom: 0.8rem">
+        <button type="button" :disabled="geraetePhase === 'laufend'" @click="ladeGeraete">
+          {{ geraetePhase === 'laufend' ? 'Lade…' : t('view.development.geräteLaden') }}
+        </button>
+        <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
+      </div>
+      <table v-if="geraeteListe.length > 0" class="tabelle">
+        <thead>
+          <tr>
+            <th>{{ t('view.development.geräteSpalteGerät') }}</th>
+            <th>{{ t('view.development.geräteSpalteUser') }}</th>
+            <th>{{ t('view.development.geräteSpalteFingerabdruck') }}</th>
+            <th>{{ t('view.development.geräteSpalteRegistriert') }}</th>
+            <th>{{ t('view.development.geräteSpalteZuletzt') }}</th>
+            <th>{{ t('view.development.geräteSpalteReset') }}</th>
+            <th>{{ t('view.development.geräteSpalteSyncFehler') }}</th>
+            <th style="width: 11rem">{{ t('view.development.geräteSpalteAktionen') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="g in geraeteListe" :key="g.id">
+            <td>
+              <code style="font-size: 0.85rem">{{ g.id.slice(0, 8) }}…</code>
+            </td>
+            <td>{{ g.email ?? '—' }} ({{ g.rolle ?? '—' }})</td>
+            <td>
+              <span v-if="g.fingerprint.appVersion" class="hint"
+                >v{{ g.fingerprint.appVersion }}</span
+              >
+              <span v-if="g.fingerprint.userAgent" class="hint"
+                >{{ g.fingerprint.userAgent.slice(0, 30) }}…</span
+              >
+            </td>
+            <td>{{ g.registriertAm.slice(0, 16) }}</td>
+            <td>{{ g.zuletztGesehenAm.slice(0, 16) }}</td>
+            <td>
+              <span :class="g.resetAm ? 'wert-fehler' : 'hint-ok'">{{
+                g.resetAm ? 'gesetzt' : 'aus'
+              }}</span>
+            </td>
+            <td>
+              <button
+                v-if="g.lastSyncErrorAt"
+                type="button"
+                :disabled="geraetePhase === 'laufend'"
+                class="small"
+                :class="g.lastSyncErrorAt ? 'wert-fehler' : ''"
+                @click="ladeSyncErrorReports(g.id, g.email ?? g.id)"
+              >
+                {{
+                  t('view.development.geräteSyncFehlerAnzeigen', {
+                    code: g.lastSyncErrorCode ?? '—',
+                  })
+                }}
+              </button>
+              <span v-else class="hint">—</span>
+            </td>
+            <td>
+              <button
+                type="button"
+                :disabled="geraetePhase === 'laufend'"
+                class="danger small"
+                @click="setzeGeraetReset(g.id, !g.resetAm)"
+              >
+                {{
+                  g.resetAm
+                    ? t('view.development.geräteZurücksetzenAufheben')
+                    : t('view.development.geräteZurücksetzenSetzen')
+                }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="geraetePhase === 'idle' && geraeteListe.length === 0" class="hint">
+        {{ t('view.development.geräteKeine') }}
+      </p>
+    </div>
+
+    <h2>{{ t('view.development.geräteAlle') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.geräteAlleHint') }}</p>
+      <div class="actions" style="gap: 0.5rem; align-items: start">
+        <select
+          v-model="geraeteSelectedUser"
+          :disabled="geraetePhase === 'laufend' || geraeteUserListe.length === 0"
+        >
+          <option value="">{{ t('view.development.geräteUserWaehlen') }}</option>
+          <option v-for="u in geraeteUserListe" :key="u.id" :value="u.id">
+            {{ u.anzeigename || u.email }} ({{ u.email }})
+          </option>
+        </select>
+        <button
+          type="button"
+          class="danger small"
+          :disabled="
+            geraetePhase === 'laufend' || geraeteUserListe.length === 0 || !geraeteSelectedUser
+          "
+          @click="setzeUserReset(geraeteSelectedUser, true)"
+        >
+          {{ t('view.development.geräteAlleSetzen') }}
+        </button>
+        <button
+          type="button"
+          class="small"
+          :disabled="
+            geraetePhase === 'laufend' || geraeteUserListe.length === 0 || !geraeteSelectedUser
+          "
+          @click="setzeUserReset(geraeteSelectedUser, false)"
+        >
+          {{ t('view.development.geräteAlleAufheben') }}
+        </button>
+        <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
       </div>
     </div>
   </section>
