@@ -1074,6 +1074,148 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
         <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
       </div>
     </div>
+
+    <!-- Sync-Fehler-Report ausklappbar (ganz unten, alle Details) -->
+    <div v-if="syncErrorExpandedDeviceId" class="card sync-error-card">
+      <div class="sync-error-header" @click="syncErrorExpandedDeviceId = ''">
+        <strong>{{
+          t('view.development.syncErrorModalTitel', { gerät: syncErrorExpandedDeviceLabel })
+        }}</strong>
+        <span class="hint">({{ syncErrorExpandedDeviceLabel }})</span>
+      </div>
+      <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
+
+      <div
+        v-if="syncErrorExpandedPhase === 'fehler' && syncErrorExpandedFehler"
+        class="wert-fehler"
+      >
+        {{ syncErrorExpandedFehler }}
+      </div>
+
+      <div v-if="syncErrorExpandedPhase === 'laufend'" class="hint">
+        {{ t('view.development.syncErrorLade') }}
+      </div>
+
+      <table
+        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
+        class="tabelle"
+        style="margin-top: 0.5rem"
+      >
+        <thead>
+          <tr>
+            <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteNachricht') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in syncErrorExpandedReports" :key="r.id">
+            <td class="hint">{{ (r.occurredAt ?? '').slice(0, 16) }}</td>
+            <td class="hint">{{ r.source }}</td>
+            <td class="wert-fehler">{{ r.code }}</td>
+            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
+            <td
+              class="hint"
+              style="
+                max-width: 35rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+              "
+            >
+              {{ r.message }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Stack Trace -->
+      <div
+        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
+        style="margin-top: 1rem"
+      >
+        <h3>{{ t('view.development.syncErrorStack') }}</h3>
+        <pre
+          v-for="r in syncErrorExpandedReports"
+          :key="r.id + '-stack'"
+          style="
+            background: var(--bg-input);
+            padding: 0.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+          "
+          >{{ r.stack ?? t('view.development.syncErrorKeinStack') }}</pre>
+      </div>
+
+      <!-- Payload -->
+      <div
+        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
+        style="margin-top: 1rem"
+      >
+        <h3>{{ t('view.development.syncErrorPayload') }}</h3>
+        <pre
+          v-for="r in syncErrorExpandedReports"
+          :key="r.id + '-payload'"
+          style="
+            background: var(--bg-input);
+            padding: 0.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+          "
+          >{{
+            r.payload !== null && r.payload !== undefined
+              ? JSON.stringify(r.payload, null, 2)
+              : t('view.development.syncErrorKeinPayload')
+          }}</pre>
+      </div>
+
+      <!-- Diagnostics -->
+      <div
+        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
+        style="margin-top: 1rem"
+      >
+        <h3>{{ t('view.development.syncErrorDiagnostics') }}</h3>
+        <pre
+          v-for="r in syncErrorExpandedReports"
+          :key="r.id + '-diag'"
+          style="
+            background: var(--bg-input);
+            padding: 0.5rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.75rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+          "
+          >{{
+            r.diagnostics !== null && r.diagnostics !== undefined
+              ? JSON.stringify(r.diagnostics, null, 2)
+              : t('view.development.syncErrorKeineDiagnostics')
+          }}</pre>
+      </div>
+
+      <div
+        v-if="syncErrorExpandedReports.length === 0 && syncErrorExpandedPhase === 'idle'"
+        class="hint"
+      >
+        {{ t('view.development.syncErrorKeine') }}
+      </div>
+
+      <div class="actions" style="margin-top: 0.75rem">
+        <button
+          type="button"
+          :disabled="syncErrorExpandedPhase === 'laufend'"
+          @click="syncErrorExpandedDeviceId = ''"
+        >
+          {{ t('view.common.schliessen') }}
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
