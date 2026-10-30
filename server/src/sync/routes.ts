@@ -462,6 +462,46 @@ export async function syncRoutes(
     },
   )
 
+  // ---------- DELETE /api/sync/sync-error-report ----------
+  // Loescht die Sync-Fehler-Reports eines Endgeraets. Der Client ruft das
+  // auf, wenn der Sync wieder erfolgreich laeuft — der Fehlerspeicher soll
+  // dann wieder leer sein und nicht alte Fehler anzeigen.
+  app.delete(
+    '/api/sync/sync-error-report',
+    { preHandler: app.requireAuth },
+    async (req, reply) => {
+      const deviceId = (req.query as { deviceId?: unknown } | undefined)?.deviceId
+      if (typeof deviceId !== 'string' || deviceId.length === 0) {
+        return reply.code(400).send({ code: 'VALIDATION', message: 'deviceId erforderlich' })
+      }
+      const userId = req.authUser!.sub
+      const db = getDb()
+
+      // Geraet muss dem angemeldeten User gehoeren.
+      const device = await db
+        .select({ id: geraete.id })
+        .from(geraete)
+        .where(eq(geraete.id, deviceId))
+        .limit(1)
+      if (!device[0]) {
+        return reply.code(404).send({ code: 'DEVICE_NOT_FOUND', message: 'Endgeraet nicht bekannt' })
+      }
+
+      // Nur Reports des angemeldeten Users loeschen.
+      const deleted = await db
+        .delete(syncErrorReports)
+        .where(
+          and(
+            eq(syncErrorReports.deviceId, deviceId),
+            eq(syncErrorReports.userId, userId),
+          ),
+        )
+        .returning({ id: syncErrorReports.id })
+
+      return reply.send({ deviceId, deleted: deleted.length })
+    },
+  )
+
   // ---------- POST /api/sync/reconcile ----------
   // Cheap existence check for local record IDs. The client uses it to
   // detect rows that exist locally but never reached the server (e.g. after

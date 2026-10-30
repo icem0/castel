@@ -2026,6 +2026,34 @@ export async function fetchDeviceHeartbeat(
 }
 
 /**
+ * Merker: auf diesem Geraet liegt mindestens ein Sync-Fehler-Report auf dem
+ * Server. Steht im localStorage (ausserhalb der IndexedDB), damit der
+ * Merker einen Page-Reload und einen IndexedDB-Reset ueberlebt.
+ * Nur wenn gesetzt, wird beim naechsten erfolgreichen Sync ein Loesch-Request
+ * an den Server geschickt — sonst gaebe es bei jedem Sync-Tick (30 s) einen
+ * nutzlosen Request.
+ */
+const LS_ERROR_REPORT_OFFEN = 'castel.sync.errorReportOffen'
+
+function fehlerReportOffen(): boolean {
+  try {
+    return localStorage.getItem(LS_ERROR_REPORT_OFFEN) === '1'
+  } catch {
+    return false
+  }
+}
+
+function setzeFehlerReportOffen(offen: boolean): void {
+  try {
+    if (offen) localStorage.setItem(LS_ERROR_REPORT_OFFEN, '1')
+    else localStorage.removeItem(LS_ERROR_REPORT_OFFEN)
+  } catch {
+    // localStorage nicht verfuegbar — dann wird beim naechsten Fehler
+    // erneut gemeldet. Unkritisch.
+  }
+}
+
+/**
  * Sendet einen Sync-Fehler-Report an den Server. Der Report wird per
  * POST /api/sync/sync-error-report uebermittelt und ist fuer Admins in
  * der Entwicklungs-Ansicht (Geräteverwaltung) einsehbar.
@@ -2074,10 +2102,52 @@ async function sendSyncErrorReport(
       }),
     },
     SNAPSHOT_TIMEOUT_MS,
-  ).catch((e) => {
-    // Report-Versand darf den Sync nicht blockieren.
-    console.warn('[sync] Fehler-Report konnte nicht gesendet werden:', e)
-  })
+  )
+    .then(() => {
+      // Der Server hat den Report gespeichert — er muss bei einem wieder
+      // erfolgreichen Sync wieder geloescht werden.
+      setzeFehlerReportOffen(true)
+    })
+    .catch((e) => {
+      // Report-Versand darf den Sync nicht blockieren.
+      console.warn('[sync] Fehler-Report konnte nicht gesendet werden:', e)
+    })
+}
+
+/**
+ * Loescht die Sync-Fehler-Reports dieses Geraets auf dem Server. Wird
+ * aufgerufen, wenn der Sync wieder erfolgreich war — der Fehlerspeicher
+ * soll dann wieder leer sein.
+ * Sendet nur einen Request, wenn ueberhaupt ein Report existiert
+ * (Merker im localStorage).
+ */
+async function clearSyncErrorReports(apiBase: string, token: string | null): Promise<void> {
+  if (!fehlerReportOffen()) return
+  let deviceId: string
+  try {
+    deviceId = leseGerateId()
+  } catch {
+    return
+  }
+  try {
+    await fetchWithTimeout(
+      `${apiBase}/api/sync/sync-error-report?deviceId=${encodeURIComponent(deviceId)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+      },
+      SNAPSHOT_TIMEOUT_MS,
+    )
+    setzeFehlerReportOffen(false)
+  } catch (e) {
+    // Der Merker bleibt gesetzt — beim naechsten erfolgreichen Sync wird
+    // erneut geloescht.
+    console.warn('[sync] Fehler-Reports konnten nicht geloescht werden:', e)
+  }
 }
 
 /**
@@ -2750,6 +2820,11 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     // Erfolgreicher Push beweist: Token ist wieder gültig (oder war es die
     // ganze Zeit, z. B. nach manuellem Re-Login). Latch lösen.
     _authRevokedNotified = false
+    // Sync läuft wieder — die Sync-Fehler-Reports auf dem Server loeschen,
+    // damit der Fehlerspeicher nicht alte Fehler anzeigt.
+    if (!keepPartial && !divergenceEscalated) {
+      void clearSyncErrorReports(apiBase, token)
+    }
   } catch (e) {
     if (_runToken !== runToken) return
     const msg = e instanceof Error ? e.message : String(e)
