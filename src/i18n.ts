@@ -21,6 +21,38 @@ export const i18n = createI18n({
   },
 })
 
+/**
+ * Die globale `t()`-Funktion gegen Message-Kompilierfehler härten.
+ *
+ * vue-i18n kompiliert Nachrichten lazy beim ersten Zugriff. Enthält eine
+ * Nachricht ein ungültiges Platzhalter-Token (z. B. durch vom Server oder
+ * aus IndexedDB stammende Daten mit einem fehlerhaften `{…}`), wirft
+ * `@intlify/message-compiler` eine `SyntaxError` (Code 2 =
+ * `INVALID_TOKEN_IN_PLACEHOLDER`). Das würde die rendernende Komponente
+ * und damit die gesamte App zum Absturz bringen.
+ *
+ * `useI18n()` ohne Scope liefert `i18n.global` (Scope `global`), daher
+ * decken ein einziger Wrapper hier alle Komponenten- und
+ * `i18n.global.t()`-Aufrufe ab (inkl. `src/auth/messages.ts`).
+ *
+ * Im Fehlerfall wird der Schlüssel als Fallback zurückgegeben und der
+ * Vorfall protokolliert, sodass der auslösende Schlüssel diagnostiziert
+ * werden kann.
+ */
+const gl = i18n.global
+const _t = gl.t as (...args: unknown[]) => unknown
+gl.t = ((key: unknown, ...rest: unknown[]): string => {
+  try {
+    return _t(key, ...rest) as string
+  } catch (e) {
+    if (e instanceof SyntaxError && (e as { code?: number }).code === 2) {
+      console.warn('[i18n] message compilation failed for key', key, '->', (e as Error).message)
+      return String(key)
+    }
+    throw e
+  }
+}) as typeof gl.t
+
 /** Map the short per-user language value onto an i18n locale. */
 export function spracheZuLocale(sprache: Sprache): AppLocale {
   return sprache === 'en' ? 'en-US' : 'de-DE'
