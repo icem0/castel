@@ -39,6 +39,8 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 
 ### Akkutausch: Planung und Bestell-Snapshots
 
+- **Projektakkus: Hinzufügen ist rollenoffen.** Jede angemeldete Rolle darf einen neuen Projektakku anlegen (`akku_projekt`, `op: 'create'`). Bearbeiten und Löschen (beides als `op: 'update'`/Soft-Delete gepusht) bleiben Admin-only — der Resolver wirft sonst `VALIDATION`, der Store (`projektSpeichern`/`projektLoeschen`) schreibt solche Ops gar nicht erst in die Outbox.
+
 - **Der Bedarf kommt aus der Netzteilliste** — Geräte, deren Fälligkeit (`einbaudatum` + `intervall_jahre`) ins gewählte Quartal fällt (× `anzahl`), gruppiert über die Kapazitätsbänder der `akkuTypen` — **plus** die Projektakkus des Quartals. Nichts anderes speist den Bedarf an.
 - **Die „zur freie Verfügung" (Puffer) ist eine reine Admin-Konfiguration**: der Mindestbestand des Akku-Artikels am **Hauptlager** (`artikel_standort_mindestbestaende`). Sie wird nur von Admins gepflegt (Plantabelle, Einstellungen → Akku-Größen) und dient **ausschließlich** der Bestellmenge:
   `bestellmenge = max(0, bedarf − max(0, bestand) + puffer)`.
@@ -49,6 +51,12 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Der Snapshot bleibt Historie.** Die Zeile wird nicht gelöscht; `storno`-Bestellungen zählen nicht mehr als „bestellt" für ihr Quartal (`bestellungFuerQuartal` filtert sie), das Quartal kann also erneut bestellt werden.
 - **Nebenwirkung wird zurückgenommen.** „Bestellt" setzt den Mindestbestand der Akku-Artikel mit Bedarf am Hauptlager auf **den Bedarf** (nicht auf `Bedarf − Bestand` — sonst zählt der Puffer in der Bestellmenge doppelt). Größen **ohne** Bedarf bleiben unangetastet — ihr Admin-Puffer wird nicht überschrieben. Der Snapshot merkt sich den alten Puffer in `zeilen[].reserve` (sowie `artikelId` und `standort_id`), das Rückgängig-Machen schreibt ihn zurück (0 entfernt die sparse Zeile).
 - **Der Snapshot-Filter zieht Stornos nach**: `bestellt_am > since OR storno_am > since` — sonst käme das Rückgängig-Machen auf anderen Geräten nie an.
+
+### Benutzerrechte: Admin-only-Bereiche
+
+- **Admin-only (Routing via `meta.requiresAdmin` + `auth.istAdmin`)**: Standorte, Benutzerverwaltung, Artikel-/Akku-Typen, Kommissionen (Verwaltung), Hersteller, Backup, Entwicklung, CSV-Import, **API-Keys** und Mindestbestand-Panel.
+- **Einstellungen-Menü (`SettingsView.vue`)**: die Links *CSV-Import*, *Backup* und *API-Keys* sowie der **gesamte Stammdaten-Block** (Standorte, Artikel-/Akku-Typen, Kommissionen, Hersteller) sind nur für Admins sichtbar. Bewusst offen für alle Rollen: *Lokaler Speicher (Gerät)*, *Artikel-Kataloge*, *Etiketten* und der Akkutausch-Zugriff (Toggle admin-only) — diese Routen tragen kein `requiresAdmin`.
+- **`standardStandortId` ist eine Admin-Einstellung.** Das Formularfeld in den Einstellungen zeigt nur Admins einen Select; `resolveEinstellung` (Server) lehnt jeden Push des Keys von Nicht-Admins ab — auch für die eigene User-ID (`ADMIN_ONLY_PER_USER_KEYS`). Die Speicherung bleibt pro User (`userId`-Zeile); das Pull-Filter bleibt unverändert. Bestehende Outbox-Einträge von Nicht-Admins laufen in die Quarantäne (`VALIDATION` pro Op, kein Batch-Abbruch).
 
 ### Preise, Rabatt und Lagerwert
 

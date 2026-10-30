@@ -48,8 +48,8 @@ async function speichern(): Promise<void> {
   if (laufend.value) return
   laufend.value = true
   try {
-    await settings.setStandardStandort(standardId.value || null)
     if (auth.istAdmin) {
+      await settings.setStandardStandort(standardId.value || null)
       await settings.setKey('companyName', firmaName.value)
       await settings.setBarcodeTyp(barcodeTyp.value)
       barcodeTypVomUser.value = false
@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
 
     <div class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label>
+        <label v-if="auth.istAdmin">
           <span>{{ t('view.settings.standardStandort') }}</span>
           <select v-model="standardId" :disabled="laufend">
             <option value="">— {{ t('view.settings.nichtGelegt') }} —</option>
@@ -231,14 +231,18 @@ onBeforeUnmount(() => {
     <h2>{{ t('view.settings.daten') }}</h2>
     <div class="card quick-links">
       <RouterLink to="/einstellungen/geraet">{{ t('view.settings.geraet') }}</RouterLink>
-      <RouterLink to="/import">{{ t('view.settings.csvImport') }}</RouterLink>
-      <RouterLink to="/einstellungen/backup">{{ t('view.settings.backup') }}</RouterLink>
-      <RouterLink to="/einstellungen/api-keys">{{ t('view.settings.apiKeys') }}</RouterLink>
+      <RouterLink v-if="auth.istAdmin" to="/import">{{ t('view.settings.csvImport') }}</RouterLink>
+      <RouterLink v-if="auth.istAdmin" to="/einstellungen/backup">{{
+        t('view.settings.backup')
+      }}</RouterLink>
+      <RouterLink v-if="auth.istAdmin" to="/einstellungen/api-keys">{{
+        t('view.settings.apiKeys')
+      }}</RouterLink>
     </div>
 
     <h2>{{ t('view.settings.stammdaten') }}</h2>
     <div class="card quick-links">
-      <RouterLink to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
+      <RouterLink v-if="auth.istAdmin" to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
       <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
         t('view.akkutausch.h1')
       }}</RouterLink>

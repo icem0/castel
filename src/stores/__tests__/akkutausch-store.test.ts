@@ -9,6 +9,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import 'fake-indexeddb/auto'
 import { getDb, setDb } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
+import { sessionSchreiben } from '../../auth/session'
 import { useAkkutauschStore } from '../akkutausch'
 import { useArtikelStandortMindestbestandStore } from '../artikelStandortMindestbestand'
 import { useSettingsStore } from '../settings'
@@ -78,9 +79,20 @@ describe('useAkkutauschStore', () => {
     await clearLocalDbForTests()
     setDb(getDb())
     setActivePinia(createPinia())
+    // Admin-Session: Bearbeiten/Loeschen von Projektakkus ist Admin-only.
+    sessionSchreiben({
+      userId: 'u-1',
+      email: 'admin@example.com',
+      rolle: 'admin',
+      anzeigename: 'Admin',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
   })
 
   afterEach(async () => {
+    sessionSchreiben(null)
     await clearLocalDbForTests()
   })
 
@@ -187,6 +199,43 @@ describe('useAkkutauschStore', () => {
     await store.projektLoeschen(rows[0]?.id ?? '')
     const nachher = await getDb().akkuProjekte.toArray()
     expect(nachher[0]?.geloescht).toBe(true)
+  })
+
+  it('lässt Mitarbeiter Projektakkus anlegen, aber nicht bearbeiten oder löschen', async () => {
+    sessionSchreiben({
+      userId: 'u-mw',
+      email: 'mitarbeiter@example.com',
+      rolle: 'user',
+      anzeigename: 'Mitarbeiter',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+    const store = useAkkutauschStore()
+    await store.projektSpeichern({
+      projekt: 'Bauvorhaben Nord',
+      menge: 2,
+      artAh: 100,
+      quartal: 1,
+      jahr: 2027,
+    })
+    const rows = await getDb().akkuProjekte.toArray()
+    expect(rows).toHaveLength(1)
+
+    await expect(
+      store.projektSpeichern({
+        id: rows[0]?.id ?? '',
+        projekt: 'Bauvorhaben Nord 2',
+        menge: 3,
+        artAh: 100,
+        quartal: 1,
+        jahr: 2027,
+      }),
+    ).rejects.toThrow()
+    await expect(store.projektLoeschen(rows[0]?.id ?? '')).rejects.toThrow()
+
+    const nachher = await getDb().akkuProjekte.toArray()
+    expect(nachher[0]).toMatchObject({ projekt: 'Bauvorhaben Nord', geloescht: false })
   })
 
   it('plant mit Bestand und Puffer (Mindestbestand am Hauptlager)', async () => {

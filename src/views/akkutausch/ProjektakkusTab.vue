@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Tab "Projektakkus" des Akkutausch-Tools.
 //
-// Projektbatterien, die fuer ein Quartal bestellt werden. Schreibaktionen
-// sind Admin-only — Mitarbeiter sehen die Liste nur lesend.
+// Projektbatterien, die fuer ein Quartal bestellt werden. Hinzufuegen darf
+// jede Rolle — Bearbeiten und Loeschen bleiben Admins vorbehalten.
 
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -63,7 +63,7 @@ async function loeschen(p: Projektakku): Promise<void> {
 
 <template>
   <div class="projekt-tab">
-    <div v-if="auth.istAdmin && !formOffen" class="card">
+    <div v-if="!formOffen" class="card">
       <button type="button" class="primary" @click="neuerProjektakku">
         {{ t('view.akkutausch.neuerProjektakku') }}
       </button>

@@ -32,6 +32,9 @@ const router = createRouter({
     { path: '/einstellungen/artikel-kataloge', component: { template: '<div />' } },
     { path: '/einstellungen/mindestbestand', component: { template: '<div />' } },
     { path: '/einstellungen/backup', component: { template: '<div />' } },
+    { path: '/einstellungen/api-keys', component: { template: '<div />' } },
+    { path: '/einstellungen/geraet', component: { template: '<div />' } },
+    { path: '/akkutausch', component: { template: '<div />' } },
     { path: '/passwort-aendern', component: { template: '<div />' } },
     { path: '/info', component: { template: '<div />' } },
     { path: '/import', component: { template: '<div />' } },
@@ -135,6 +138,32 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     expect(w.text()).not.toContain('Akkutausch-Tool aktivieren')
   })
 
+  it('zeigt normalen Usern kein Standard-Standort-Feld', () => {
+    const { w } = mountSettings()
+    const form = w.find('form')
+    expect(form.find('select').exists()).toBe(false)
+    expect(w.text()).not.toContain('Standard-Standort')
+  })
+
+  it('versteckt normalen Usern CSV-Import, Backup und API-Keys', () => {
+    const { w } = mountSettings()
+    const links = w.findAll('a').map((a) => a.attributes('href'))
+    expect(links).not.toContain('/import')
+    expect(links).not.toContain('/einstellungen/backup')
+    expect(links).not.toContain('/einstellungen/api-keys')
+    // Der Geräte-Reset bleibt für jede Rolle erreichbar.
+    expect(links).toContain('/einstellungen/geraet')
+  })
+
+  it('versteckt normalen Usern den Standort-Link im Stammdaten-Block', () => {
+    const { w } = mountSettings()
+    const links = w.findAll('a').map((a) => a.attributes('href'))
+    expect(links).not.toContain('/standorte')
+    // Nicht-Stammdaten-Punkte bleiben offen.
+    expect(links).toContain('/einstellungen/artikel-kataloge')
+    expect(links).toContain('/etiketten')
+  })
+
   it('wendet die neue Sprache sofort an (lokal + i18n-Locale, ohne "Speichern")', async () => {
     const { w, pinia } = mountSettings()
     const store = useSettingsStore(pinia)
@@ -213,5 +242,18 @@ describe('SettingsView — Benachrichtigungen (Admin)', () => {
     expect(karte.querySelector('input[type="checkbox"]')).not.toBeNull()
     // The tool is opt-in: the default checkbox state is unchecked.
     expect((karte.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('zeigt Admins das Standard-Standort-Feld und die Admin-Links', () => {
+    const { w } = mountSettings()
+
+    const form = w.find('form')
+    expect(form.find('select').exists()).toBe(true)
+
+    const links = w.findAll('a').map((a) => a.attributes('href'))
+    expect(links).toContain('/import')
+    expect(links).toContain('/einstellungen/backup')
+    expect(links).toContain('/einstellungen/api-keys')
+    expect(links).toContain('/standorte')
   })
 })

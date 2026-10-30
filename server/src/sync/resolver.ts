@@ -796,7 +796,14 @@ async function resolveAkkuProjekt(
   op: Extract<PushOp, { entity: 'akku_projekt' }>,
   benutzerRolle: 'admin' | 'user',
 ): Promise<void> {
-  pruefeAkkutauschRolle(benutzerRolle)
+  // Project batteries may be ADDED by every role — editing and soft-deleting
+  // (both arrive as `update`) stays reserved for admins.
+  if (benutzerRolle !== 'admin' && op.op !== 'create') {
+    throw new ValidationError(
+      'akku_projekt.op',
+      'Projektakkus duerfen nur von Admins bearbeitet oder geloescht werden',
+    )
+  }
   await resolveAkkuDatensatz(
     tx,
     akkuProjekte,
@@ -1290,7 +1297,7 @@ async function resolveUmlagerungPaar(
 
 // ---------- Einstellungs-Resolver ----------
 // Whitelist der erlaubten Keys. artikelTypen ist global und nur von
-// Admins pflegbar. sprache und standardStandortId sind pro User.
+// Admins pflegbar. sprache ist pro User.
 const ADMIN_ONLY_KEYS = new Set<string>([
   'artikelTypen',
   'akkuTypen',
@@ -1298,6 +1305,10 @@ const ADMIN_ONLY_KEYS = new Set<string>([
   'companyName',
   'barcodeTyp',
 ])
+
+// Per-User keys that only admins may write (the value is stored with the
+// user's id, but the setting itself is an admin privilege).
+const ADMIN_ONLY_PER_USER_KEYS = new Set<string>(['standardStandortId'])
 
 // Global keys that every user may ADD to (never remove). The server merges
 // the incoming value with the stored state (union) — see resolveEinstellung.
@@ -1331,6 +1342,15 @@ async function resolveEinstellung(
     throw new ValidationError(
       'einstellung.userId',
       `Key "${p.key}" ist global und darf nur von Admins geschrieben werden`,
+    )
+  }
+
+  // 1b) Per-User-Keys mit Admin-Recht (z. B. standardStandortId): nur Admins
+  //     dürfen schreiben — auch nicht für ihre eigene User-ID.
+  if (ADMIN_ONLY_PER_USER_KEYS.has(p.key) && benutzerRolle !== 'admin') {
+    throw new ValidationError(
+      'einstellung.userId',
+      `Key "${p.key}" darf nur von Admins geschrieben werden`,
     )
   }
 

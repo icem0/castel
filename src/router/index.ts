@@ -74,7 +74,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAdmin: true },
   },
   { path: '/einstellungen', name: 'einstellungen', component: SettingsView },
-  { path: '/einstellungen/api-keys', name: 'einstellungen-api-keys', component: ApiKeysView },
+  {
+    path: '/einstellungen/api-keys',
+    name: 'einstellungen-api-keys',
+    component: ApiKeysView,
+    meta: { requiresAdmin: true },
+  },
   { path: '/info', name: 'info', component: InfoView },
   {
     path: '/einstellungen/user',

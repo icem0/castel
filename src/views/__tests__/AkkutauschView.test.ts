@@ -288,6 +288,22 @@ describe('AkkutauschView', () => {
     expect(buttonMitText(w, 'Löschen')).toBeUndefined()
   })
 
+  it('zeigt Mitarbeitern den Button "Projektakku anlegen"', async () => {
+    const auth = useAuthStore(pinia)
+    auth.session = {
+      userId: 'u1',
+      email: 'mitarbeiter@example.com',
+      rolle: 'user',
+    } as never
+    const { w } = await setupView()
+    await buttonMitText(w, 'Projektakkus')?.trigger('click')
+    await flushPromises()
+
+    expect(buttonMitText(w, 'Projektakku anlegen')).toBeDefined()
+    expect(buttonMitText(w, 'Bearbeiten')).toBeUndefined()
+    expect(buttonMitText(w, 'Löschen')).toBeUndefined()
+  })
+
   it('zeigt die Bestellliste der Planung', async () => {
     // Akku-Artikel + Typ + Projektakku im aktuellen Quartal anlegen.
     const settings = useSettingsStore(pinia)

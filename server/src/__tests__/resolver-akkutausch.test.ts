@@ -2,7 +2,8 @@
 // (`akku_netzteil`, `akku_projekt`).
 //
 // Kernpunkte:
-//   * Schreibzugriffe sind Admin-only (Mitarbeiter dürfen nur lesen).
+//   * Netzteil-Schreibzugriffe sind Admin-only; Projektakkus duerfen von
+//     allen Rollen angelegt, aber nur von Admins bearbeitet/geloescht werden.
 //   * Last-Writer-Wins auf `geaendertAm`.
 //   * NUMERIC-Spalten (Kapazität) werden als String geschrieben.
 //   * Soft-Delete: `geloescht = true` wird als Update geschrieben.
@@ -214,6 +215,18 @@ describe('resolvePush — akku_netzteil', () => {
     expect(audit?.['entitaet']).toBe('akku_netzteil')
     expect(audit?.['entitaetId']).toBe('n-1')
   })
+
+  it('lehnt Anlegen durch Mitarbeiter ab (Netzteile bleiben Admin-only)', async () => {
+    const state = leererState()
+    const result = await resolvePush(
+      makeMockDb(state),
+      [{ op: 'create', entity: 'akku_netzteil', payload: netzteil }],
+      'u1',
+      'user',
+    )
+    expect(result.errors).toHaveLength(1)
+    expect(state.inserts).toHaveLength(0)
+  })
 })
 
 describe('resolvePush — akku_projekt', () => {
@@ -233,7 +246,7 @@ describe('resolvePush — akku_projekt', () => {
     expect(ins[0]?.['artAh']).toBe('100.00')
   })
 
-  it('lehnt Schreibzugriffe von Mitarbeitern ab', async () => {
+  it('legt einen Projektakku auch fuer Mitarbeiter an (Hinzufuegen ist offen)', async () => {
     const state = leererState()
     const result = await resolvePush(
       makeMockDb(state),
@@ -241,7 +254,37 @@ describe('resolvePush — akku_projekt', () => {
       'u1',
       'user',
     )
+    expect(result.errors).toHaveLength(0)
+    expect(result.accepted).toEqual(['p-1'])
+    const ins = state.inserts.filter((r) => r['__table'] === 'akku_projekte')
+    expect(ins).toHaveLength(1)
+    expect(ins[0]).toMatchObject({ projekt: 'Bauvorhaben', menge: 4 })
+  })
+
+  it('lehnt Bearbeiten durch Mitarbeiter ab (Update ist Admin-only)', async () => {
+    const state = leererState()
+    state.projekte = [{ ...projekt, geaendertAm: new Date('2026-10-14T10:00:00.000Z') }]
+    const result = await resolvePush(
+      makeMockDb(state),
+      [{ op: 'update', entity: 'akku_projekt', payload: projekt }],
+      'u1',
+      'user',
+    )
     expect(result.errors).toHaveLength(1)
-    expect(state.inserts).toHaveLength(0)
+    expect(state.updates.filter((r) => r['__table'] === 'akku_projekte')).toHaveLength(0)
+  })
+
+  it('lehnt Soft-Delete durch Mitarbeiter ab', async () => {
+    const state = leererState()
+    state.projekte = [{ ...projekt, geaendertAm: new Date('2026-10-14T10:00:00.000Z') }]
+    const geloescht = { ...projekt, geloescht: true }
+    const result = await resolvePush(
+      makeMockDb(state),
+      [{ op: 'update', entity: 'akku_projekt', payload: geloescht }],
+      'u1',
+      'user',
+    )
+    expect(result.errors).toHaveLength(1)
+    expect(state.updates.filter((r) => r['__table'] === 'akku_projekte')).toHaveLength(0)
   })
 })
