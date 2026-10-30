@@ -328,6 +328,21 @@ export default {
         neu: 'Wird als neue Kommission angelegt.',
         uebernehmen: 'Übernehmen',
       },
+      kameraScan: {
+        titel: 'Kamera-Scan',
+        kameraStarten: 'Kamera starten',
+        ausschnitt: 'Ausschnitt über der Projektnummer ziehen',
+        erkennen: 'Nummer erkennen',
+        ocrLaden: 'OCR wird geladen …',
+        erkannt: 'Erkannter Text: „{text}“',
+        kandidaten: 'Erkannte Nummern',
+        bestehend: 'Bestehende Kommission: {name}',
+        neu: 'Wird als neue Kommission angelegt.',
+        uebernehmen: 'Übernehmen',
+        keineNummer: 'Keine Kommissionsnummer erkannt. Bitte Ausschnitt neu positionieren.',
+        hinweis:
+          'Halte die Kamera über den Lieferschein/Auftrag und ziehe den Rahmen über die Projektnummer (z. B. „Projektnummer: AA 1234“).',
+      },
     },
     standort: {
       h1: 'Standorte',
@@ -917,6 +932,7 @@ export default {
     common: {
       neu: 'Neu',
       abbrechen: 'Abbrechen',
+      schliessen: 'Schließen',
       speichern: 'Speichern',
       ja: 'Ja',
       nein: 'Nein',
@@ -1193,7 +1209,7 @@ export default {
       geräteAlleSetzen: 'Reset für alle setzen',
       geräteAlleAufheben: 'Reset für alle aufheben',
       geräteSyncFehlerAnzeigen: 'Fehler {code} anzeigen',
-      syncErrorModalTitel: 'Sync-Fehler-Report — {gerät}',
+      syncErrorModalTitel: 'Sync-Fehler-Report — {geraet}',
       syncErrorModalHint:
         'Die letzten Sync-Fehler-Reports dieses Endgeräts. Admins können die Details einsehen, um Verbindungs- oder Push-Probleme zu diagnostizieren.',
       syncErrorKeine: 'Keine Sync-Fehler-Reports vorhanden.',

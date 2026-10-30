@@ -318,6 +318,21 @@ export default {
         neu: 'Will be created as a new commission.',
         uebernehmen: 'Apply',
       },
+      kameraScan: {
+        titel: 'Camera Scan',
+        kameraStarten: 'Start camera',
+        ausschnitt: 'Drag frame over the commission number',
+        erkennen: 'Recognize number',
+        ocrLaden: 'Loading OCR …',
+        erkannt: 'Recognized text: “{text}”',
+        kandidaten: 'Recognized numbers',
+        bestehend: 'Existing commission: {name}',
+        neu: 'Will be created as a new commission.',
+        uebernehmen: 'Apply',
+        keineNummer: 'No commission number recognized. Please reposition the frame.',
+        hinweis:
+          'Point the camera at the delivery note / work order and drag the frame over the commission number (e.g. “Commission no.: AA 1234”).',
+      },
     },
     standort: {
       h1: 'Locations',
@@ -898,6 +913,7 @@ export default {
     common: {
       neu: 'New',
       abbrechen: 'Cancel',
+      schliessen: 'Close',
       speichern: 'Save',
       ja: 'Yes',
       nein: 'No',
@@ -1166,7 +1182,7 @@ export default {
       geräteAlleSetzen: 'Set reset for all',
       geräteAlleAufheben: 'Clear reset for all',
       geräteSyncFehlerAnzeigen: 'Show error {code}',
-      syncErrorModalTitel: 'Sync error report — {gerät}',
+      syncErrorModalTitel: 'Sync error report — {geraet}',
       syncErrorModalHint:
         'The last sync error reports for this device. Admins can view the details to diagnose connection or push problems.',
       syncErrorKeine: 'No sync error reports available.',
