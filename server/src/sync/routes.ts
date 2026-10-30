@@ -134,16 +134,6 @@ export async function syncRoutes(
               notInArray(einstellungen.key, [...INTERN_EINSTELLUNGS_KEYS]),
             ),
           ),
-        // Benutzerdefiniertes Bogen-Layout (pro User).
-        db
-          .select()
-          .from(etikettenBogenLayout)
-          .where(
-            and(
-              sql`${etikettenBogenLayout.geaendertAm} > ${sinceIso}`,
-              eq(etikettenBogenLayout.userId, user.sub),
-            ),
-          ),
         // Mindestbestand-Ereignisse: nach `erstellt_am > mindestSince`.
         // Max500 — falls die Tabelle groß wird, paginiert der Client
         // über den Marker `mindestbestand.lastPullAt`.
@@ -184,6 +174,16 @@ export async function syncRoutes(
             or(
               sql`${akkuBestellungen.bestelltAm} > ${sinceIso}`,
               sql`${akkuBestellungen.stornoAm} > ${sinceIso}`,
+            ),
+          ),
+        // Benutzerdefiniertes Bogen-Layout (pro User).
+        db
+          .select()
+          .from(etikettenBogenLayout)
+          .where(
+            and(
+              sql`${etikettenBogenLayout.geaendertAm} > ${sinceIso}`,
+              eq(etikettenBogenLayout.userId, user.sub),
             ),
           ),
         // Restore-Epoche (null, wenn nie restauriert). Der Client vergleicht
