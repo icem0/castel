@@ -2074,8 +2074,9 @@ async function sendSyncErrorReport(
       }),
     },
     SNAPSHOT_TIMEOUT_MS,
-  ).catch(() => {
+  ).catch((e) => {
     // Report-Versand darf den Sync nicht blockieren.
+    console.warn('[sync] Fehler-Report konnte nicht gesendet werden:', e)
   })
 }
 
@@ -2232,6 +2233,18 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       lastErrorFingerprint: syncErrorFingerprint('network', 'SYNC_TIMEOUT', null, err.message),
       nextRetryAt,
     })
+    void sendSyncErrorReport(
+      apiBase,
+      token,
+      {
+        source: 'network',
+        code: 'SYNC_TIMEOUT',
+        message: err.message,
+        status: null,
+        sampleErrors: [],
+      },
+      null,
+    )
     void Promise.all([
       syncCountPatch().catch(() => ({
         pending: _status.pending,
@@ -2433,6 +2446,18 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
               lastErrorAt: at,
               lastErrorFingerprint: syncErrorFingerprint('push', 'PARTIAL_REJECTED', 200, msg),
             })
+            void sendSyncErrorReport(
+              apiBase,
+              token,
+              {
+                source: 'push',
+                code: 'PARTIAL_REJECTED',
+                message: msg,
+                status: 200,
+                sampleErrors: lastPushDiagnosis.sampleErrors,
+              },
+              null,
+            )
           }
         } catch (e) {
           if (_runToken !== runToken) return
