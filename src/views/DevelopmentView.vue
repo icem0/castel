@@ -1007,67 +1007,55 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
     </div>
 
     <!-- Sync-Fehler-Report Modal -->
-    <div
-      v-if="syncErrorModalOpen"
-      class="sync-error-modal"
-      role="alertdialog"
-      aria-modal="true"
-      @click.self="syncErrorModalOpen = false"
-    >
-      <div class="sync-error-modal-backdrop" />
-      <div class="sync-error-modal-content">
-        <p>
-          <strong>{{
-            t('view.development.syncErrorModalTitel', { gerät: syncErrorModalDeviceLabel })
-          }}</strong>
-        </p>
-        <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
+    <div v-if="syncErrorModalOpen" class="confirm" role="alertdialog" aria-modal="true">
+      <p>
+        <strong>{{
+          t('view.development.syncErrorModalTitel', { gerät: syncErrorModalDeviceLabel })
+        }}</strong>
+      </p>
+      <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
 
-        <div v-if="syncErrorModalPhase === 'fehler' && syncErrorModalFehler" class="wert-fehler">
-          {{ syncErrorModalFehler }}
-        </div>
+      <div v-if="syncErrorModalPhase === 'fehler' && syncErrorModalFehler" class="wert-fehler">
+        {{ syncErrorModalFehler }}
+      </div>
 
-        <div v-if="syncErrorModalPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
+      <div v-if="syncErrorModalPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
 
-        <table
-          v-if="syncErrorModalReports.length > 0 && syncErrorModalPhase === 'idle'"
-          class="tabelle"
-          style="margin-top: 0.5rem"
+      <table
+        v-if="syncErrorModalReports.length > 0 && syncErrorModalPhase === 'idle'"
+        class="tabelle"
+        style="margin-top: 0.5rem"
+      >
+        <thead>
+          <tr>
+            <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in syncErrorModalReports" :key="r.id">
+            <td class="hint">{{ r.occurredAt.slice(0, 16) }}</td>
+            <td class="hint">{{ r.source }}</td>
+            <td class="wert-fehler">{{ r.code }}</td>
+            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="syncErrorModalReports.length === 0 && syncErrorModalPhase === 'idle'" class="hint">
+        {{ t('view.development.syncErrorKeine') }}
+      </div>
+
+      <div class="actions" style="margin-top: 0.75rem">
+        <button
+          type="button"
+          :disabled="syncErrorModalPhase === 'laufend'"
+          @click="syncErrorModalOpen = false"
         >
-          <thead>
-            <tr>
-              <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
-              <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
-              <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
-              <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in syncErrorModalReports" :key="r.id">
-              <td class="hint">{{ r.occurredAt.slice(0, 16) }}</td>
-              <td class="hint">{{ r.source }}</td>
-              <td class="wert-fehler">{{ r.code }}</td>
-              <td class="hint">{{ r.httpStatus ?? '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div
-          v-if="syncErrorModalReports.length === 0 && syncErrorModalPhase === 'idle'"
-          class="hint"
-        >
-          {{ t('view.development.syncErrorKeine') }}
-        </div>
-
-        <div class="actions" style="margin-top: 0.75rem; justify-content: flex-end">
-          <button
-            type="button"
-            :disabled="syncErrorModalPhase === 'laufend'"
-            @click="syncErrorModalOpen = false"
-          >
-            {{ t('view.common.schliessen') }}
-          </button>
-        </div>
+          {{ t('view.common.schliessen') }}
+        </button>
       </div>
     </div>
   </section>
@@ -1115,38 +1103,5 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
 .bulk-tabelle {
   margin-top: 0.75rem;
   overflow-x: auto;
-}
-.sync-error-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.sync-error-modal-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.25);
-  z-index: 51;
-}
-.sync-error-modal-content {
-  position: relative;
-  z-index: 52;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  max-width: 900px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 </style>
