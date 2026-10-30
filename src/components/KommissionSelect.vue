@@ -10,7 +10,7 @@
 // offline (see domain/kommission-scan.ts): it matches an existing
 // commission or creates a new one named after the detected number.
 
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
@@ -22,6 +22,7 @@ import {
 import {
   erkenneKommission,
   matcheKommission,
+  normalisiereKommission,
   type AuftragsArt,
   type ScanErgebnis,
   type ScanKandidat,
@@ -64,8 +65,115 @@ const auswahlOptionen = computed<string[]>(() => {
   return liste
 })
 
-function onChange(e: Event): void {
-  emit('update:modelValue', (e.target as HTMLSelectElement).value)
+// --- Searchable dropdown (live filter while typing) ---
+
+const offen = ref(false)
+const suche = ref('')
+const highlightIndex = ref(0)
+const inputEl = ref<HTMLInputElement | null>(null)
+const listeEl = ref<HTMLUListElement | null>(null)
+const wurzelEl = ref<HTMLElement | null>(null)
+
+const gewaehlt = computed<string | null>(() => props.modelValue.trim() || null)
+
+const treffer = computed<string[]>(() => {
+  const q = normalisiereKommission(suche.value)
+  if (!q) return auswahlOptionen.value
+  return auswahlOptionen.value.filter((name) => normalisiereKommission(name).includes(q))
+})
+
+/**
+ * First entry clears the selection, then the live-filtered commissions.
+ * Keeping the clear entry in the same list preserves the old "" option.
+ */
+const eintraege = computed<Array<{ wert: string; text: string }>>(() => [
+  { wert: '', text: t('view.kommission.keineAuswahl') },
+  ...treffer.value.map((name) => ({ wert: name, text: name })),
+])
+
+function oeffnen(): void {
+  if (props.disabled) return
+  offen.value = true
+  suche.value = ''
+  highlightIndex.value = Math.max(
+    0,
+    eintraege.value.findIndex((e) => e.wert === props.modelValue),
+  )
+  void nextTick(() => inputEl.value?.focus())
+}
+
+function schliessen(): void {
+  offen.value = false
+  suche.value = ''
+}
+
+function auswaehlen(name: string): void {
+  emit('update:modelValue', name)
+  schliessen()
+}
+
+function leeren(): void {
+  emit('update:modelValue', '')
+  oeffnen()
+}
+
+watch(
+  () => props.modelValue,
+  () => {
+    if (!offen.value) suche.value = ''
+  },
+)
+
+function onInput(e: Event): void {
+  suche.value = (e.target as HTMLInputElement).value
+  offen.value = true
+  highlightIndex.value = 0
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    if (!offen.value) oeffnen()
+    highlightIndex.value = Math.min(highlightIndex.value + 1, eintraege.value.length - 1)
+    scrollHighlightIntoView()
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (!offen.value) oeffnen()
+    highlightIndex.value = Math.max(highlightIndex.value - 1, 0)
+    scrollHighlightIntoView()
+  } else if (e.key === 'Enter') {
+    if (!offen.value) {
+      oeffnen()
+      return
+    }
+    const eintrag = eintraege.value[highlightIndex.value]
+    if (eintrag) {
+      e.preventDefault()
+      auswaehlen(eintrag.wert)
+    }
+  } else if (e.key === 'Escape') {
+    if (offen.value) {
+      e.preventDefault()
+      schliessen()
+    }
+  } else if (e.key === 'Backspace' && !suche.value && gewaehlt.value) {
+    e.preventDefault()
+    leeren()
+  }
+}
+
+function scrollHighlightIntoView(): void {
+  void nextTick(() => {
+    const el = listeEl.value?.children.item(highlightIndex.value) as HTMLElement | null
+    el?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
+function onBlur(e: FocusEvent): void {
+  // A click on a list entry fires before blur, so check relatedTarget.
+  const next = e.relatedTarget as Node | null
+  if (next && wurzelEl.value?.contains(next)) return
+  schliessen()
 }
 
 function fehlerText(grund: KommissionFehler, name: string): string {
@@ -143,17 +251,76 @@ async function scanUebernehmen(): Promise<void> {
 <template>
   <div class="kommission-feld">
     <span v-if="label" class="kommission-label">{{ label }}</span>
-    <select
-      :id="id"
-      class="kommission-select"
-      :value="modelValue"
-      :disabled="disabled"
-      :required="required"
-      @change="onChange"
-    >
-      <option value="">{{ t('view.kommission.keineAuswahl') }}</option>
-      <option v-for="name in auswahlOptionen" :key="name" :value="name">{{ name }}</option>
-    </select>
+    <div ref="wurzelEl" class="kommission-suche" :class="{ offen, disabled }">
+      <button
+        v-if="gewaehlt && !offen"
+        :id="id"
+        type="button"
+        class="auswahl-tag"
+        :disabled="disabled"
+        aria-haspopup="listbox"
+        :aria-expanded="offen"
+        @click="oeffnen"
+      >
+        <span class="auswahl-titel">{{ gewaehlt }}</span>
+        <span
+          v-if="!disabled"
+          class="auswahl-clear"
+          role="button"
+          tabindex="0"
+          :aria-label="t('view.kommission.auswahlAufheben')"
+          @click.stop="leeren"
+          @keydown.enter.stop="leeren"
+          @keydown.space.stop.prevent="leeren"
+          >×</span
+        >
+      </button>
+      <input
+        v-else
+        :id="id"
+        ref="inputEl"
+        type="search"
+        autocomplete="off"
+        :value="suche"
+        :placeholder="t('view.kommission.suchePlatzhalter')"
+        :disabled="disabled"
+        :aria-required="required || undefined"
+        aria-autocomplete="list"
+        :aria-expanded="offen"
+        role="combobox"
+        @input="onInput"
+        @focus="oeffnen"
+        @blur="onBlur"
+        @keydown="onKeydown"
+      />
+
+      <ul
+        v-if="offen"
+        ref="listeEl"
+        class="treffer-liste"
+        role="listbox"
+        :aria-label="t('view.kommission.suchePlatzhalter')"
+      >
+        <li
+          v-for="(eintrag, idx) in eintraege"
+          :key="eintrag.wert || '__leer__'"
+          role="option"
+          :aria-selected="idx === highlightIndex"
+          :class="{
+            aktiv: idx === highlightIndex,
+            gewaehlt: eintrag.wert === modelValue,
+            'leer-option': eintrag.wert === '',
+          }"
+          @mousedown.prevent="auswaehlen(eintrag.wert)"
+          @mouseenter="highlightIndex = idx"
+        >
+          {{ eintrag.text }}
+        </li>
+        <li v-if="suche.trim() !== '' && treffer.length === 0" class="kein-treffer">
+          {{ t('view.kommission.keinTreffer') }}
+        </li>
+      </ul>
+    </div>
 
     <details v-if="allowCreate" class="kommission-scan">
       <summary>{{ t('view.kommission.scan.titel') }}</summary>
@@ -244,6 +411,113 @@ async function scanUebernehmen(): Promise<void> {
   color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 500;
+}
+
+.kommission-suche {
+  position: relative;
+}
+
+.kommission-suche.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.kommission-suche input[type='search'],
+.auswahl-tag {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+}
+
+.kommission-suche input[type='search']:focus,
+.auswahl-tag:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.auswahl-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.auswahl-titel {
+  flex: 1 1 auto;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auswahl-clear {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.auswahl-clear:hover,
+.auswahl-clear:focus-visible {
+  background: var(--accent-bg);
+  color: var(--text);
+  outline: none;
+}
+
+.treffer-liste {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  right: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.treffer-liste li {
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.treffer-liste li.aktiv {
+  background: var(--accent-bg);
+}
+
+.treffer-liste li.gewaehlt {
+  font-weight: 600;
+}
+
+.treffer-liste li.leer-option {
+  color: var(--text-muted);
+}
+
+.treffer-liste li.kein-treffer {
+  cursor: default;
+  color: var(--text-muted);
+  font-style: italic;
 }
 
 .kommission-neu {

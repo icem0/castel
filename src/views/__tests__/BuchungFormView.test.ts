@@ -131,11 +131,14 @@ describe('BuchungFormView — Kommission', () => {
 
     const { w, standortStore } = await setupView()
 
-    const select = w
-      .findAll('select')
-      .find((s) => s.findAll('option').some((o) => o.attributes('value') === 'Projekt Müller'))
-    expect(select).toBeDefined()
-    await select!.setValue('Projekt Müller')
+    const feld = w.find('.kommission-suche')
+    await feld.find('input[type="search"]').trigger('focus')
+    await flushPromises()
+    const eintrag = feld
+      .findAll('.treffer-liste li')
+      .find((li) => li.text() === 'Projekt Müller')
+    expect(eintrag).toBeDefined()
+    await eintrag!.trigger('mousedown')
 
     await w.find('form').trigger('submit')
     await flushPromises()
@@ -156,11 +159,8 @@ describe('BuchungFormView — Kommission', () => {
     kommissionMerken('user-1', 'Projekt Müller')
 
     const { w, standortStore } = await setupView()
-    const select = w
-      .findAll('select')
-      .find((s) => s.findAll('option').some((o) => o.attributes('value') === ''))
-    expect(select).toBeDefined()
-    expect((select!.element as HTMLSelectElement).value).toBe('Projekt Müller')
+    const feld = w.find('.kommission-suche')
+    expect(feld.find('.auswahl-tag .auswahl-titel').text()).toBe('Projekt Müller')
 
     standortStore.stop()
   })
@@ -169,11 +169,9 @@ describe('BuchungFormView — Kommission', () => {
     kommissionMerken('user-1', 'Projekt Müller', Date.now() - MERKDAUER_MS - 5000)
 
     const { w, standortStore } = await setupView()
-    const select = w
-      .findAll('select')
-      .find((s) => s.findAll('option').some((o) => o.attributes('value') === ''))
-    expect(select).toBeDefined()
-    expect((select!.element as HTMLSelectElement).value).toBe('')
+    const feld = w.find('.kommission-suche')
+    expect(feld.find('.auswahl-tag').exists()).toBe(false)
+    expect((feld.find('input[type="search"]').element as HTMLInputElement).value).toBe('')
 
     standortStore.stop()
   })
@@ -182,11 +180,9 @@ describe('BuchungFormView — Kommission', () => {
     kommissionMerken('user-2', 'Fremde Kommission')
 
     const { w, standortStore } = await setupView()
-    const select = w
-      .findAll('select')
-      .find((s) => s.findAll('option').some((o) => o.attributes('value') === ''))
-    expect(select).toBeDefined()
-    expect((select!.element as HTMLSelectElement).value).toBe('')
+    const feld = w.find('.kommission-suche')
+    expect(feld.find('.auswahl-tag').exists()).toBe(false)
+    expect((feld.find('input[type="search"]').element as HTMLInputElement).value).toBe('')
 
     standortStore.stop()
   })

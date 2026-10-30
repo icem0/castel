@@ -75,8 +75,11 @@ describe('KommissionSelect', () => {
     })
     await flushPromises()
 
-    const optionen = w.findAll('option').map((o) => o.attributes('value'))
-    expect(optionen).toEqual(['', 'Projekt Müller', 'Projekt Schmidt'])
+    await w.find('input[type="search"]').trigger('focus')
+    await flushPromises()
+
+    const optionen = w.findAll('.treffer-liste li').map((o) => o.text())
+    expect(optionen).toEqual(['— keine Kommission —', 'Projekt Müller', 'Projekt Schmidt'])
     settings.stop()
   })
 
@@ -92,9 +95,33 @@ describe('KommissionSelect', () => {
     })
     await flushPromises()
 
-    await w.find('select').setValue('Projekt Müller')
+    await w.find('input[type="search"]').trigger('focus')
+    await flushPromises()
+    await w.find('.treffer-liste li:nth-child(2)').trigger('mousedown')
     const emittiert = w.emitted('update:modelValue')
     expect(emittiert?.[emittiert.length - 1]).toEqual(['Projekt Müller'])
+    settings.stop()
+  })
+
+  it('filtert die Optionen live nach der Eingabe', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await settings.setKommissionen(['Projekt Müller', 'Projekt Schmidt', 'Baustelle Nord'])
+    await warteAufStore()
+
+    const w = mount(KommissionSelect, {
+      props: { modelValue: '' },
+      global: { plugins: [pinia, i18n, routerMit()] },
+    })
+    await flushPromises()
+
+    const input = w.find('input[type="search"]')
+    await input.trigger('focus')
+    await input.setValue('müll')
+    await flushPromises()
+
+    const optionen = w.findAll('.treffer-liste li').map((o) => o.text())
+    expect(optionen).toEqual(['— keine Kommission —', 'Projekt Müller'])
     settings.stop()
   })
 
