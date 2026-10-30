@@ -150,29 +150,34 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         .orderBy(desc(geraete.zuletztGesehenAm))
 
       // Letzten Sync-Fehler pro Geraet ermitteln (neuester Report).
-      const deviceIds = rows.map((r) => r.id)
       const reportsByDevice = new Map<string, { occurredAt: string; code: string; message: string }[]>()
-      if (deviceIds.length > 0) {
-        const allReports = await db
-          .select({
-            deviceId: syncErrorReports.deviceId,
-            occurredAt: syncErrorReports.occurredAt,
-            code: syncErrorReports.code,
-            message: syncErrorReports.message,
-            createdAt: syncErrorReports.createdAt,
-          })
-          .from(syncErrorReports)
-          .where(inArray(syncErrorReports.deviceId, deviceIds))
-          .orderBy(syncErrorReports.createdAt)
-        for (const r of allReports) {
-          const arr = reportsByDevice.get(r.deviceId) ?? []
-          arr.push({
-            occurredAt: r.occurredAt.toISOString(),
-            code: r.code,
-            message: r.message,
-          })
-          reportsByDevice.set(r.deviceId, arr)
+      try {
+        const deviceIds = rows.map((r) => r.id)
+        if (deviceIds.length > 0) {
+          const allReports = await db
+            .select({
+              deviceId: syncErrorReports.deviceId,
+              occurredAt: syncErrorReports.occurredAt,
+              code: syncErrorReports.code,
+              message: syncErrorReports.message,
+              createdAt: syncErrorReports.createdAt,
+            })
+            .from(syncErrorReports)
+            .where(inArray(syncErrorReports.deviceId, deviceIds))
+            .orderBy(syncErrorReports.createdAt)
+          for (const r of allReports) {
+            const arr = reportsByDevice.get(r.deviceId) ?? []
+            arr.push({
+              occurredAt: r.occurredAt.toISOString(),
+              code: r.code,
+              message: r.message,
+            })
+            reportsByDevice.set(r.deviceId, arr)
+          }
         }
+      } catch {
+        // sync_error_reports-Tabelle existiert noch (Migration nicht durchgelaufen).
+        // Einfach keine Reports anzeigen — die Geräteliste bleibt trotzdem funktionsfähig.
       }
 
       return reply.send({

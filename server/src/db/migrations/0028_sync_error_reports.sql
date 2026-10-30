@@ -9,6 +9,9 @@
 --
 -- Admin sieht die Reports in der Entwicklung-Ansicht (Geräteverwaltung).
 
+-- pgcrypto fuer gen_random_uuid() benoetigt.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE IF NOT EXISTS sync_error_reports (
     id text PRIMARY KEY DEFAULT gen_random_uuid(),
     device_id text NOT NULL REFERENCES geraete(id) ON DELETE CASCADE,
