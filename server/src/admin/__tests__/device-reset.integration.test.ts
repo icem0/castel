@@ -113,6 +113,11 @@ describe.skipIf(!HAT_DB)('Geraete-Reset (Integration, echte Postgres)', () => {
     const res2 = await herzschlag(DEVICE_ID_A, json.resetAm)
     const json2 = res2.json() as { needsReset: boolean }
     expect(json2.needsReset).toBe(false)
+
+    // Das Flag wurde vom Server aufgehoben, weil der Client den Reset bestaetigt hat.
+    const zeilenNachReset = await geraetenVon(USER_ID)
+    expect(zeilenNachReset).toHaveLength(1)
+    expect(zeilenNachReset[0]?.resetAm).toBeNull()
   })
 
   it('Flag loeschen unterbindet den Reset', async () => {

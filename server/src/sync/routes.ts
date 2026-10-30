@@ -370,7 +370,16 @@ export async function syncRoutes(
         .where(eq(geraete.id, deviceId))
         .limit(1)
       const resetAm = row[0]?.resetAm?.toISOString() ?? null
-      const needsReset = resetAm !== null && (!lastAppliedResetAt || resetAm > lastAppliedResetAt)
+      let needsReset = resetAm !== null && (!lastAppliedResetAt || resetAm > lastAppliedResetAt)
+      // Der Client bestaetigt mit lastAppliedResetAt, dass er den Reset fuer den
+      // gegebenen Zeitstempel bereits durchgefuehrt hat. Dann wird das
+      // Server-Flag wieder aufgehoben, damit im Entwicklermenue sichtbar
+      // bleibt, welche Geraete den Reset noch ausstehen haben und welche
+      // ihn erfolgreich durchlaufen haben.
+      if (resetAm !== null && lastAppliedResetAt !== undefined && resetAm <= lastAppliedResetAt) {
+        await db.update(geraete).set({ resetAm: null }).where(eq(geraete.id, deviceId))
+        needsReset = false
+      }
       return reply.send({ deviceId, needsReset, resetAm })
     },
   )
