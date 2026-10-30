@@ -697,6 +697,68 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
       </p>
     </div>
 
+    <!-- Sync-Fehler-Report ausklappbar unter der Geraetetabelle -->
+    <div v-if="syncErrorExpandedDeviceId" class="card sync-error-card">
+      <div class="sync-error-header" @click="syncErrorExpandedDeviceId = ''">
+        <strong>{{
+          t('view.development.syncErrorModalTitel', {
+            gerät: syncErrorExpandedDeviceLabel,
+          })
+        }}</strong>
+        <span class="hint">({{ syncErrorExpandedDeviceLabel }})</span>
+      </div>
+      <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
+
+      <div
+        v-if="syncErrorExpandedPhase === 'fehler' && syncErrorExpandedFehler"
+        class="wert-fehler"
+      >
+        {{ syncErrorExpandedFehler }}
+      </div>
+
+      <div v-if="syncErrorExpandedPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
+
+      <table
+        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
+        class="tabelle"
+        style="margin-top: 0.5rem"
+      >
+        <thead>
+          <tr>
+            <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in syncErrorExpandedReports" :key="r.id">
+            <td class="hint">{{ (r.occurredAt ?? '').slice(0, 16) }}</td>
+            <td class="hint">{{ r.source }}</td>
+            <td class="wert-fehler">{{ r.code }}</td>
+            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div
+        v-if="syncErrorExpandedReports.length === 0 && syncErrorExpandedPhase === 'idle'"
+        class="hint"
+      >
+        {{ t('view.development.syncErrorKeine') }}
+      </div>
+
+      <div class="actions" style="margin-top: 0.75rem">
+        <button
+          type="button"
+          :disabled="syncErrorExpandedPhase === 'laufend'"
+          @click="syncErrorExpandedDeviceId = ''"
+        >
+          {{ t('view.common.schliessen') }}
+        </button>
+      </div>
+    </div>
+
     <h2>{{ t('view.development.geräteAlle') }}</h2>
     <div class="card">
       <p class="hint">{{ t('view.development.geräteAlleHint') }}</p>
@@ -1011,68 +1073,6 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           </button>
         </div>
       </template>
-    </div>
-
-    <!-- Sync-Fehler-Report ausklappbar unter der Geraetetabelle -->
-    <div v-if="syncErrorExpandedDeviceId" class="card sync-error-card">
-      <div class="sync-error-header" @click="syncErrorExpandedDeviceId = ''">
-        <strong>{{
-          t('view.development.syncErrorModalTitel', {
-            gerät: syncErrorExpandedDeviceLabel,
-          })
-        }}</strong>
-        <span class="hint">({{ syncErrorExpandedDeviceLabel }})</span>
-      </div>
-      <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
-
-      <div
-        v-if="syncErrorExpandedPhase === 'fehler' && syncErrorExpandedFehler"
-        class="wert-fehler"
-      >
-        {{ syncErrorExpandedFehler }}
-      </div>
-
-      <div v-if="syncErrorExpandedPhase === 'laufend'" class="hint">Lade Sync-Fehler-Reports…</div>
-
-      <table
-        v-if="syncErrorExpandedReports.length > 0 && syncErrorExpandedPhase === 'idle'"
-        class="tabelle"
-        style="margin-top: 0.5rem"
-      >
-        <thead>
-          <tr>
-            <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
-            <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
-            <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
-            <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in syncErrorExpandedReports" :key="r.id">
-            <td class="hint">{{ (r.occurredAt ?? '').slice(0, 16) }}</td>
-            <td class="hint">{{ r.source }}</td>
-            <td class="wert-fehler">{{ r.code }}</td>
-            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div
-        v-if="syncErrorExpandedReports.length === 0 && syncErrorExpandedPhase === 'idle'"
-        class="hint"
-      >
-        {{ t('view.development.syncErrorKeine') }}
-      </div>
-
-      <div class="actions" style="margin-top: 0.75rem">
-        <button
-          type="button"
-          :disabled="syncErrorExpandedPhase === 'laufend'"
-          @click="syncErrorExpandedDeviceId = ''"
-        >
-          {{ t('view.common.schliessen') }}
-        </button>
-      </div>
     </div>
   </section>
 </template>
