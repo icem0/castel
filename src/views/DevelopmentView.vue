@@ -1119,7 +1119,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
             <td
               class="hint"
               style="
-                max-width: 35rem;
+                max-width: 40rem;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
