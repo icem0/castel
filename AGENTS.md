@@ -68,6 +68,13 @@ Klar trennen — beides kommt **nicht** zusammen in der DB ab:
 - **`kommissionen` ist add-only für Nicht-Admins.** Die globale Kommissionen-/Projektliste wird im Buchungsformular als Auswahl angeboten; jeder User darf dort eine neue Kommission anlegen. Der Server merged solche Beiträge mit dem gespeicherten Stand (Union, `server/src/domain/kommissionen.ts` + `ADD_ONLY_KEYS` in `server/src/sync/resolver.ts`) und speichert das Ergebnis mit einem Zeitstempel, der neuer als beide Stände ist — so holt der Client die gemergte Liste per Pull nach. Entfernen und Sortieren bleiben exklusiv beim Admin (`/einstellungen/kommissionen`); ein Admin-Schreibvorgang ersetzt die Liste (LWW) und kann dabei einen zwischenzeitlich ergänzten Eintrag eines Users verwerfen.
 - **Persistenz**: `einstellungen` läuft über das `pgdata`-Volume des API-Containers, nicht über ein eigenes Volume. Backups via `pg_dump`.
 
+### Outbox-Ops: Identität und Push-Vertrag
+
+- **`op` ist pro Entity ein eigener Vertrag, nicht global.** Erlaubte Ops stehen an **zwei** Stellen und müssen deckungsgleich sein: `pushPayloadSchema` in `server/src/domain/validierung.ts` (HTTP-Validierung) und `pushSchema` in `server/src/sync/resolver.ts` (Typen). Die PWA schreibt die Ops in den Stores (`queueOp(entity, op, payload)`).
+- **Ein Schema-Mismatch ist kein Einzelfehler, sondern ein Batch-Abbruch.** `POST /api/sync/push` validiert den Request-body komplett und antwortet mit **HTTP 400** — der Worker markiert daraufhin **alle** Ops im Batch als fehlgeschlagen und retryt sie für immer (bei Batch-Fehlern greift **keine** Quarantäne, `QUARANTINE_THRESHOLD` wirkt nur pro Op im `result.errors`-Pfad). Ein einziges unpassendes Op legt damit die **gesamte** Outbox still (buchungen inklusive).
+- **`etiketten_bogen_layout`** ist deshalb explizit dokumentiert: Identität ist der **User** (`unique Index auf user_id`, eine Zeile pro User), nicht die UUID. Die PWA kennt den Server-Stand nicht und queued immer **`upsert`** (analog `einstellung`); `delete` (Reset auf Defaults) trägt **den vollständigen Datensatz** — das Payload-Schema akzeptiert für `delete` zusätzlich nur (`id`, `userId`), damit ältere Clients nicht den ganzen Push brechen. LWW läuft auf `geaendert_am`.
+- **Regel für neue Entities**: Schema (Server) + Store-`queueOp` (PWA) + Test, der das exakte vom Client gesendete Op durch `pushPayloadSchema` jagt, immer zusammen ändern.
+
 ### Migrationen
 
 - **Der Runner entscheidet über den Hash, nicht über Zeitstempel.** `server/src/db/migrate.ts` liest `meta/_journal.json`, bildet den SHA-256 über jede `.sql`-Datei und vergleicht ihn mit `drizzle.__drizzle_migrations`. Angewandt wird alles **nach** der zuletzt angewandten Migration (Index im Journal).

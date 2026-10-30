@@ -261,7 +261,17 @@ export const etikettenBogenLayoutSchema = z.object({
   }),
   geaendertAm: iso,
   erstelltAm: iso,
-});
+})
+
+/**
+ * Delete payload for the sheet layout: identity is the user (unique index on
+ * `user_id`), so a reset only needs `id` + `userId`. Older PWAs sent exactly
+ * this — the resolver's delete branch reads nothing else.
+ */
+export const etikettenBogenLayoutLoeschenSchema = z.object({
+  id,
+  userId: z.string().min(1),
+})
 
 // ---------- Sync-Push ----------
 
@@ -325,9 +335,16 @@ export const pushPayloadSchema = z.object({
           payload: einstellungSchema,
         }),
         z.object({
-          op: z.enum(['create', 'update', 'delete']),
+          // Bogen-Layout: Identitaet ist der User (unique auf user_id), der
+          // Client kennt den Server-Stand nicht — er sendet immer 'upsert'
+          // (analog `einstellung`). 'delete' (Reset auf Defaults) braucht nur
+          // die Identitaet, daher das zweite Union-Arm im Payload.
+          // Ein Abbruch des ganzen Pushes (HTTP 400) wuerde die komplette
+          // Outbox stilllegen — deshalb validieren wir hier grosszuegig und
+          // lassen Unvoelligkeiten pro Op im Resolver scheitern.
+          op: z.enum(['create', 'update', 'delete', 'upsert']),
           entity: z.literal('etiketten_bogen_layout'),
-          payload: etikettenBogenLayoutSchema,
+          payload: z.union([etikettenBogenLayoutSchema, etikettenBogenLayoutLoeschenSchema]),
         }),
       ]),
     )

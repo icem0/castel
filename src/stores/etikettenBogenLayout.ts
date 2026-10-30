@@ -95,18 +95,20 @@ export const useEtikettenBogenLayoutStore = defineStore('etikettenBogenLayout', 
 
   /**
    * Löscht das benutzerdefinierte Layout (Reset auf Defaults).
+   *
+   * Das Outbox-`delete` trägt wie bei allen anderen Stammdaten den
+   * vollständigen Datensatz (der Server validiert das Payload-Schema).
    */
   async function deleteLayout(): Promise<void> {
     const userId = currentUserId()
     if (userId === null) return
 
+    const existing = await getDb().etikettenBogenLayout.get('benutzerdefiniert')
     await getDb().etikettenBogenLayout.delete('benutzerdefiniert')
     layout.value = null
+    if (!existing) return
 
-    await queueOp('etiketten_bogen_layout', 'delete', {
-      id: 'benutzerdefiniert',
-      userId,
-    })
+    await queueOp('etiketten_bogen_layout', 'delete', existing)
   }
 
   return {

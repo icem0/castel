@@ -113,7 +113,9 @@ const pushSchema = z.discriminatedUnion('entity', [
     payload: z.any(),
   }),
   z.object({
-    op: z.enum(['create', 'update', 'delete']),
+    // Insert-or-update on `user_id` (unique) — the PWA always sends 'upsert',
+    // because it cannot know whether the server already has a row for it.
+    op: z.enum(['create', 'update', 'delete', 'upsert']),
     entity: z.literal('etiketten_bogen_layout'),
     payload: z.any(),
   }),
@@ -1423,7 +1425,7 @@ async function resolveEtikettenBogenLayout(
   const p = op.payload as {
     id: string
     userId: string
-    layout: {
+    layout?: {
       id: string
       layout: 'raster' | 'liste'
       cols: number
@@ -1435,8 +1437,8 @@ async function resolveEtikettenBogenLayout(
       marginX: number | null
       marginY: number | null
     }
-    geaendertAm: string
-    erstelltAm: string
+    geaendertAm?: string
+    erstelltAm?: string
   }
 
   // User darf nur sein eigenes Layout schreiben.
@@ -1447,21 +1449,32 @@ async function resolveEtikettenBogenLayout(
     )
   }
 
+  // Delete carries only the identity (`user_id` is unique) — an older PWA sent
+  // exactly that. Nothing else is read, so it is checked first.
+  if (op.op === 'delete') {
+    await tx.delete(etikettenBogenLayout).where(eq(etikettenBogenLayout.userId, p.userId))
+    return
+  }
+
+  // Write ops need the full payload. The push schema is deliberately tolerant
+  // (a batch-wide HTTP 400 would wedge the whole client outbox), so an
+  // incomplete op fails here — per op, with a readable message.
+  if (!p.layout || !p.geaendertAm || !p.erstelltAm) {
+    throw new ValidationError(
+      'etiketten_bogen_layout.layout',
+      'Layout, geaendertAm und erstelltAm sind erforderlich',
+    )
+  }
+
   const incomingGeaendertAm = new Date(p.geaendertAm)
+  if (Number.isNaN(incomingGeaendertAm.getTime())) {
+    throw new ValidationError('etiketten_bogen_layout.geaendertAm', 'Ungueltiges Datum')
+  }
   const existing = await tx
     .select()
     .from(etikettenBogenLayout)
     .where(eq(etikettenBogenLayout.userId, p.userId))
     .limit(1)
-
-  if (op.op === 'delete') {
-    if (existing.length > 0) {
-      await tx
-        .delete(etikettenBogenLayout)
-        .where(eq(etikettenBogenLayout.userId, p.userId))
-    }
-    return
-  }
 
   if (existing.length === 0) {
     await tx.insert(etikettenBogenLayout).values({

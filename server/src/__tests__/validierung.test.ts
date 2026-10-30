@@ -207,6 +207,62 @@ describe('validierung.schemas', () => {
       const r = pushPayloadSchema.safeParse({ ops })
       expect(r.success).toBe(false)
     })
+
+    // Regression: the PWA layout store always queues `upsert` for the label
+    // sheet layout (identity is `user_id`, the client cannot know whether the
+    // server already has a row). Rejecting it failed the WHOLE push batch with
+    // HTTP 400 and wedged the entire outbox.
+    const bogenLayoutOp = (op: string) => ({
+      op,
+      entity: 'etiketten_bogen_layout',
+      payload: {
+        id: 'benutzerdefiniert',
+        userId: 'u1',
+        layout: {
+          id: 'benutzerdefiniert',
+          layout: 'raster',
+          cols: 3,
+          rows: 7,
+          labelW: 63.5,
+          labelH: 38.1,
+          gapX: 2.5,
+          gapY: 0,
+          marginX: null,
+          marginY: null,
+        },
+        geaendertAm: '2026-10-30T10:00:00.000Z',
+        erstelltAm: '2026-10-30T10:00:00.000Z',
+      },
+    })
+
+    it('akzeptiert etiketten_bogen_layout mit op upsert (PWA-Layout-Store)', () => {
+      const r = pushPayloadSchema.safeParse({ ops: [bogenLayoutOp('upsert')] })
+      expect(r.success).toBe(true)
+    })
+
+    it('akzeptiert etiketten_bogen_layout mit create/update/delete', () => {
+      for (const op of ['create', 'update', 'delete']) {
+        expect(pushPayloadSchema.safeParse({ ops: [bogenLayoutOp(op)] }).success).toBe(true)
+      }
+    })
+
+    it('akzeptiert etiketten_bogen_layout delete mit reinem Identitaets-Payload', () => {
+      const r = pushPayloadSchema.safeParse({
+        ops: [
+          {
+            op: 'delete',
+            entity: 'etiketten_bogen_layout',
+            payload: { id: 'benutzerdefiniert', userId: 'u1' },
+          },
+        ],
+      })
+      expect(r.success).toBe(true)
+    })
+
+    it('lehnt ein unbekanntes op fuer etiketten_bogen_layout ab', () => {
+      const r = pushPayloadSchema.safeParse({ ops: [bogenLayoutOp('insert')] })
+      expect(r.success).toBe(false)
+    })
   })
 
   describe('snapshotQuerySchema', () => {
