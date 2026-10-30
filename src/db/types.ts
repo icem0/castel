@@ -166,6 +166,7 @@ export interface AuditLogEintrag {
     | 'akku_netzteil'
     | 'akku_projekt'
     | 'akku_bestellung'
+    | 'etiketten_bogen_layout'
   entitaetId: string
   daten: string // JSON-serialisiert
   zeit: Iso
@@ -200,6 +201,29 @@ export interface ArtikelStandortMindestbestand {
   artikelId: string
   standortId: string
   mindestbestand: number
+  geaendertAm: Iso
+  erstelltAm: Iso
+}
+
+/**
+ * Benutzerdefiniertes Bogen-Layout fuer den Barcode-Druck.
+ * Gespeichert serverseitig pro User (userId); genau eine Zeile pro User.
+ */
+export interface EtikettenBogenLayout {
+  id: string
+  userId: string | null
+  layout: {
+    id: string
+    layout: 'raster' | 'liste'
+    cols: number
+    rows: number
+    labelW: number
+    labelH: number
+    gapX: number
+    gapY: number
+    marginX: number | null
+    marginY: number | null
+  }
   geaendertAm: Iso
   erstelltAm: Iso
 }
@@ -247,6 +271,7 @@ export type OutboxEntity =
   | 'akku_netzteil'
   | 'akku_projekt'
   | 'akku_bestellung'
+  | 'etiketten_bogen_layout'
 export type OutboxOp = 'create' | 'update' | 'delete' | 'upload' | 'upsert'
 
 export interface OutboxEintrag {

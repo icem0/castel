@@ -452,6 +452,23 @@ export const fotos = pgTable(
 
 // ---------- Audit ----------
 
+export const etikettenBogenLayout = pgTable(
+  'etiketten_bogen_layout',
+  {
+    id: text('id').primaryKey().default(sql`gen_random_uuid()`),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    layout: jsonb('layout').notNull(),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('etiketten_bogen_layout_user_idx').on(t.userId),
+    index('etiketten_bogen_layout_geaendert_am_idx').on(t.geaendertAm),
+  ],
+);
+
 export const auditLog = pgTable(
   'audit_log',
   {
@@ -474,6 +491,7 @@ export const auditLog = pgTable(
         'akku_netzteil',
         'akku_projekt',
         'akku_bestellung',
+        'etiketten_bogen_layout',
       ],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),

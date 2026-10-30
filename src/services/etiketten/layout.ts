@@ -13,6 +13,13 @@ import {
   type EtikettenPreset,
 } from './presets'
 
+/** Mindesthoehe eines Etiketts in mm, damit Barcode + Beschriftung darunter passen. */
+const ETIKETT_MIN_HOEHE_MM =
+  2 * 1.5 + // PAD_MM oben/unten
+  6 + // BARCODE_MIN_HOEHE_MM
+  0.45 * (2.54 + 2.54) + // textAbstandMm (Name + Wertzeile)
+  2.54 // wertZeile (6 pt * 1.2 * 25.4 / 72)
+
 export interface EtikettPosition {
   /** Seitenzahl (1-basiert). */
   seite: number
@@ -81,6 +88,10 @@ export function presetWarnungen(p: EtikettenPreset): string[] {
   if (!Number.isFinite(p.labelW) || p.labelW <= 0) probleme.push('labelW')
   if (!Number.isFinite(p.labelH) || p.labelH <= 0) probleme.push('labelH')
   if (probleme.length > 0) return probleme
+  // Mindesthoehe: Barcode + Beschriftung darunter muessen ins Etikett passen.
+  if (p.layout === 'raster' && p.labelH < ETIKETT_MIN_HOEHE_MM) {
+    probleme.push('labelHNiedrig')
+  }
   const { marginX, marginY } = randPreset(p)
   const belegtX = p.cols * p.labelW + (p.cols - 1) * p.gapX + 2 * marginX
   const belegtY = p.rows * p.labelH + (p.rows - 1) * p.gapY + 2 * marginY

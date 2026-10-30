@@ -10,6 +10,7 @@ import {
   akkuNetzteile,
   akkuProjekte,
   buchungen,
+  etikettenBogenLayout,
   einstellungen,
   hersteller,
   mindestbestandEreignisse,
@@ -33,8 +34,9 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   akkuNetzteile: number
   akkuProjekte: number
   akkuBestellungen: number
+  etikettenBogenLayout: number
 }> {
-  const [a, s, p, b, h, m, n, q, ab] = await Promise.all([
+  const [a, s, p, b, h, m, n, q, ab, ebl] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
@@ -44,6 +46,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     db.select({ c: sql<number>`count(*)::int` }).from(akkuNetzteile),
     db.select({ c: sql<number>`count(*)::int` }).from(akkuProjekte),
     db.select({ c: sql<number>`count(*)::int` }).from(akkuBestellungen),
+    db.select({ c: sql<number>`count(*)::int` }).from(etikettenBogenLayout),
   ])
   return {
     artikel: a[0]?.c ?? 0,
@@ -55,6 +58,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     akkuNetzteile: n[0]?.c ?? 0,
     akkuProjekte: q[0]?.c ?? 0,
     akkuBestellungen: ab[0]?.c ?? 0,
+    etikettenBogenLayout: ebl[0]?.c ?? 0,
   }
 }
 
@@ -96,6 +100,7 @@ export async function syncRoutes(
         akkuNetzteilRows,
         akkuProjektRows,
         akkuBestellungRows,
+        etikettenBogenLayoutRows,
         restoreEpoch,
       ] = await Promise.all([
         db
@@ -127,6 +132,16 @@ export async function syncRoutes(
               sql`${einstellungen.geaendertAm} > ${sinceIso}`,
               or(isNull(einstellungen.userId), eq(einstellungen.userId, user.sub)),
               notInArray(einstellungen.key, [...INTERN_EINSTELLUNGS_KEYS]),
+            ),
+          ),
+        // Benutzerdefiniertes Bogen-Layout (pro User).
+        db
+          .select()
+          .from(etikettenBogenLayout)
+          .where(
+            and(
+              sql`${etikettenBogenLayout.geaendertAm} > ${sinceIso}`,
+              eq(etikettenBogenLayout.userId, user.sub),
             ),
           ),
         // Mindestbestand-Ereignisse: nach `erstellt_am > mindestSince`.
@@ -250,6 +265,13 @@ export async function syncRoutes(
           stornoVon: r.stornoVon,
           stornoVonKuerzel: r.stornoVonKuerzel,
           zeilen: r.zeilen,
+        })),
+        etikettenBogenLayout: etikettenBogenLayoutRows.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          layout: r.layout,
+          geaendertAm: r.geaendertAm.toISOString(),
+          erstelltAm: r.erstelltAm.toISOString(),
         })),
         einstellungen: einstellungRows.map((r) => ({
           key: r.key,

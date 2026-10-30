@@ -21,6 +21,7 @@ import type {
   ArtikelStandortMindestbestand,
   Buchung,
   Einstellung,
+  EtikettenBogenLayout,
   Hersteller,
   MindestbestandEreignis,
   Netzteil,
@@ -297,6 +298,8 @@ export interface SyncSnapshot {
   akkuProjekte?: Projektakku[]
   /** Akkutausch: archivierte Bestellungen (immutable snapshots). Optional. */
   akkuBestellungen?: AkkuBestellung[]
+  /** Benutzerdefiniertes Bogen-Layout pro User (optional, aeltere Server-Versionen kennen es nicht). */
+  etikettenBogenLayout?: EtikettenBogenLayout[]
   /** Cross-Device-synchronisierte Einstellungen. Pro User gefiltert. */
   einstellungen: Einstellung[]
   /**
@@ -1722,6 +1725,7 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       db.akkuNetzteile,
       db.akkuProjekte,
       db.akkuBestellungen,
+      db.etikettenBogenLayout,
     ],
     async () => {
       // Artikel
@@ -1790,6 +1794,15 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
           continue
         }
         await db.akkuBestellungen.put(b)
+      }
+      // Benutzerdefiniertes Bogen-Layout — LWW auf geaendertAm, Identität = id.
+      for (const e of snap.etikettenBogenLayout ?? []) {
+        const existing = await db.etikettenBogenLayout.get(e.id)
+        if (!existing) {
+          await db.etikettenBogenLayout.add(e)
+        } else if ((e.geaendertAm ?? '') > (existing.geaendertAm ?? '')) {
+          await db.etikettenBogenLayout.put(e)
+        }
       }
       // Standorte
       for (const s of snap.standorte) {

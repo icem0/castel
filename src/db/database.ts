@@ -2,9 +2,7 @@
 // Schema-Versionierung explizit: jede Schema-Änderung legt eine neue .version() an.
 // Die Domänen-Schicht liest und schreibt über dieses Singleton.
 //
-// Aktuelles Schema: v18 (archivierte Akku-Bestellungen, siehe Kommentar bei
-// v18). Frühere Versionen (v1–v17) sind nur noch für Migration existierender
-// Browser-DBs. Wenn du eine frische DB anlegst, wird direkt v18 verwendet.
+// Aktuelles Schema: v19 (benutzerdefiniertes Bogen-Layout für Barcode-Druck).
 //
 // Hinweis: v5→v6 ist ein PK-Wechsel von `key` auf `[key+userId]` für die
 // `einstellungen`-Tabelle. Dexie kann das nicht in-place; siehe Kommentar
@@ -18,6 +16,7 @@ import type {
   AuditLogEintrag,
   Buchung,
   Einstellung,
+  EtikettenBogenLayout,
   Hersteller,
   MindestbestandEreignis,
   Netzteil,
@@ -63,6 +62,11 @@ export class CastelDb extends Dexie {
    * synced like the other Akkutausch data (`id` = UUID).
    */
   akkuBestellungen!: Table<AkkuBestellung, string>
+  /**
+   * Benutzerdefiniertes Bogen-Layout für den Barcode-Druck.
+   * Gespeichert serverseitig pro User; genau eine Zeile pro User.
+   */
+  etikettenBogenLayout!: Table<EtikettenBogenLayout, string>
 
   constructor(name = DB_NAME) {
     super(name)
@@ -474,6 +478,14 @@ export class CastelDb extends Dexie {
     //      by explicit "marked as ordered" actions.
     this.version(18).stores({
       akkuBestellungen: 'id, [jahr+quartal], bestelltAm',
+    })
+
+    // v19: Benutzerdefiniertes Bogen-Layout fuer den Barcode-Druck.
+    //      Pro User existiert maximal ein benutzerdefiniertes Layout;
+    //      es ersetzt die bisher nur clientseitig (Vue-Ref, ohne
+    //      Persistenz) gehaltenen Werte des "Benutzerdefiniert"-Presets.
+    this.version(19).stores({
+      etikettenBogenLayout: 'id, userId, geaendertAm',
     })
   }
 }

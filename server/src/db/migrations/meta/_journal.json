@@ -183,6 +183,13 @@
       "when": 1793300000000,
       "tag": "0025_akkutausch_bestellung_storno",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793400000000,
+      "tag": "0026_etiketten_bogen_layout",
+      "breakpoints": true
     }
   ]
 }

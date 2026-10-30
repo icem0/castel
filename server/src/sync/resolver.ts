@@ -28,6 +28,7 @@ import {
   akkuNetzteile,
   akkuProjekte,
   buchungen,
+  etikettenBogenLayout,
   einstellungen,
   hersteller,
   mindestbestandEreignisse,
@@ -109,6 +110,11 @@ const pushSchema = z.discriminatedUnion('entity', [
   z.object({
     op: z.literal('upsert'),
     entity: z.literal('einstellung'),
+    payload: z.any(),
+  }),
+  z.object({
+    op: z.enum(['create', 'update', 'delete']),
+    entity: z.literal('etiketten_bogen_layout'),
     payload: z.any(),
   }),
 ])
@@ -258,6 +264,10 @@ export async function resolvePush(
           case 'einstellung': {
             const applied = await resolveEinstellung(tx, op, benutzerId, benutzerRolle)
             if (!applied) skipReason = 'STALE_SETTING'
+            break
+          }
+          case 'etiketten_bogen_layout': {
+            await resolveEtikettenBogenLayout(tx, op, benutzerId)
             break
           }
         }
@@ -1398,4 +1408,80 @@ async function resolveEinstellung(
     .set({ value: p.value, geaendertAm: incomingGeaendertAm })
     .where(where)
   return true
+}
+
+/**
+ * Benutzerdefiniertes Bogen-Layout fuer den Barcode-Druck.
+ * Es existiert genau eine Zeile pro User (unique auf user_id).
+ * LWW auf `geaendert_am`; der User darf nur sein eigenes Layout schreiben.
+ */
+async function resolveEtikettenBogenLayout(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'etiketten_bogen_layout' }>,
+  benutzerId: string,
+): Promise<void> {
+  const p = op.payload as {
+    id: string
+    userId: string
+    layout: {
+      id: string
+      layout: 'raster' | 'liste'
+      cols: number
+      rows: number
+      labelW: number
+      labelH: number
+      gapX: number
+      gapY: number
+      marginX: number | null
+      marginY: number | null
+    }
+    geaendertAm: string
+    erstelltAm: string
+  }
+
+  // User darf nur sein eigenes Layout schreiben.
+  if (p.userId !== benutzerId) {
+    throw new ValidationError(
+      'etiketten_bogen_layout.userId',
+      'Eine fremde User-ID ist nicht erlaubt',
+    )
+  }
+
+  const incomingGeaendertAm = new Date(p.geaendertAm)
+  const existing = await tx
+    .select()
+    .from(etikettenBogenLayout)
+    .where(eq(etikettenBogenLayout.userId, p.userId))
+    .limit(1)
+
+  if (op.op === 'delete') {
+    if (existing.length > 0) {
+      await tx
+        .delete(etikettenBogenLayout)
+        .where(eq(etikettenBogenLayout.userId, p.userId))
+    }
+    return
+  }
+
+  if (existing.length === 0) {
+    await tx.insert(etikettenBogenLayout).values({
+      id: p.id,
+      userId: p.userId,
+      layout: p.layout,
+      geaendertAm: incomingGeaendertAm,
+      erstelltAm: new Date(p.erstelltAm),
+    })
+    return
+  }
+
+  const existingRow = existing[0]
+  if (!existingRow) return
+  const existingGeaendertAm = toDateOrThrow(existingRow.geaendertAm)
+  if (incomingGeaendertAm.getTime() <= existingGeaendertAm.getTime()) {
+    return
+  }
+  await tx
+    .update(etikettenBogenLayout)
+    .set({ layout: p.layout, geaendertAm: incomingGeaendertAm })
+    .where(eq(etikettenBogenLayout.userId, p.userId))
 }

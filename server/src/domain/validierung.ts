@@ -242,6 +242,27 @@ export const einstellungSchema = z.object({
   geaendertAm: iso,
 })
 
+// ---------- Benutzerdefiniertes Bogen-Layout (Barcode-Druck) ----------
+
+export const etikettenBogenLayoutSchema = z.object({
+  id,
+  userId: z.string().min(1),
+  layout: z.object({
+    id: z.string(),
+    layout: z.enum(['raster', 'liste']),
+    cols: z.number().int().min(1).max(20),
+    rows: z.number().int().min(1).max(100),
+    labelW: z.number().min(5).max(210),
+    labelH: z.number().min(3).max(297),
+    gapX: z.number().min(0).max(50),
+    gapY: z.number().min(0).max(50),
+    marginX: z.number().min(0).max(50).nullable(),
+    marginY: z.number().min(0).max(50).nullable(),
+  }),
+  geaendertAm: iso,
+  erstelltAm: iso,
+});
+
 // ---------- Sync-Push ----------
 
 export const pushPayloadSchema = z.object({
@@ -303,6 +324,11 @@ export const pushPayloadSchema = z.object({
           entity: z.literal('einstellung'),
           payload: einstellungSchema,
         }),
+        z.object({
+          op: z.enum(['create', 'update', 'delete']),
+          entity: z.literal('etiketten_bogen_layout'),
+          payload: etikettenBogenLayoutSchema,
+        }),
       ]),
     )
     .max(500, 'maximal 500 ops pro Push'),
@@ -327,6 +353,7 @@ export const reconcileSchema = z
         'kommission',
         'hersteller',
         'artikel_standort_mindestbestand',
+        'etiketten_bogen_layout',
       ])
       .default('buchung'),
     ids: z.array(id).min(1, 'mindestens eine ID').max(500, 'maximal 500 IDs pro Request'),

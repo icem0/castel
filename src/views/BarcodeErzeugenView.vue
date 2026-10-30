@@ -3,6 +3,7 @@ import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
+import { useEtikettenBogenLayoutStore } from '../stores/etikettenBogenLayout'
 import { useSettingsStore } from '../stores/settings'
 import { useStandortStore } from '../stores/standort'
 import { useArtikelTypen } from '../composables/useArtikelTypen'
@@ -32,6 +33,7 @@ import type { Artikel, ArtikelStatus } from '../db/types'
 const { t } = useI18n()
 const route = useRoute()
 const artikelStore = useArtikelStore()
+const etikettenBogenLayoutStore = useEtikettenBogenLayoutStore()
 const settings = useSettingsStore()
 const standortStore = useStandortStore()
 const { alleBenutzten } = useArtikelTypen()
@@ -133,6 +135,9 @@ function auswahlAufheben(): void {
 
 const presetId = ref<string>(ETIKETTEN_PRESETS[0]?.id ?? PRESET_ID_BENUTZERDEFINIERT)
 const custom = ref<EtikettenPreset>(benutzerdefiniertesPreset())
+
+// Gespeichertes benutzerdefiniertes Layout vom Server laden (falls vorhanden).
+// Wird beim Mount in `onMounted` nachgeladen, sobald der Store geladen ist.
 
 const preset = computed<EtikettenPreset>(() => {
   if (presetId.value === PRESET_ID_BENUTZERDEFINIERT) return custom.value
@@ -254,8 +259,37 @@ function deepLinkAnwenden(): void {
 onMounted(() => {
   settings.start()
   artikelStore.start()
+  etikettenBogenLayoutStore.start()
   deepLinkAnwenden()
 })
+
+// Gespeichertes benutzerdefiniertes Layout aus dem Store ins `custom`-Ref
+// übernehmen, sobald der Store geladen ist.
+watch(
+  () => etikettenBogenLayoutStore.layout,
+  (gespeichert) => {
+    if (gespeichert) {
+      custom.value = { ...gespeichert, nameKey: '' }
+    }
+  },
+  { immediate: true },
+)
+
+// Änderungen am benutzerdefinierten Layout serverseitig speichern.
+watch(
+  custom,
+  (neu) => {
+    if (!etikettenBogenLayoutStore.geladen) return
+    const { nameKey: _nameKey, ...layoutOhneNameKey } = neu
+    etikettenBogenLayoutStore.setLayout(layoutOhneNameKey)
+  },
+  { deep: true },
+)
+
+function layoutZuruecksetzen(): void {
+  custom.value = benutzerdefiniertesPreset()
+  void etikettenBogenLayoutStore.deleteLayout()
+}
 
 watch(() => route.query.artikelId, deepLinkAnwenden)
 watch(() => artikelStore.artikel, deepLinkAnwenden)
@@ -513,6 +547,20 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
           </label>
         </div>
 
+        <div class="custom-actions">
+          <button
+            type="button"
+            class="btn"
+            :disabled="!etikettenBogenLayoutStore.geladen"
+            @click="layoutZuruecksetzen()"
+          >
+            {{ t('view.barcode.serie.custom.zuruecksetzen') }}
+          </button>
+          <span v-if="!etikettenBogenLayoutStore.geladen" class="hint">
+            {{ t('view.barcode.serie.custom.lade') }}
+          </span>
+        </div>
+
         <p class="hint">
           {{
             t('view.barcode.serie.seitenInfo', {
@@ -523,7 +571,13 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
           }}
         </p>
         <p v-if="layoutWarnungen.length > 0" class="hint fehler">
-          {{ t('view.barcode.serie.layoutFehler', { grund: layoutWarnungen.join(', ') }) }}
+          {{
+            t('view.barcode.serie.layoutFehler', {
+              grund: layoutWarnungen
+                .map((w) => t(`view.barcode.serie.layoutWarnungen.${w}`))
+                .join(', '),
+            })
+          }}
         </p>
 
         <div class="form-actions">
@@ -692,6 +746,14 @@ tr.ohneBarcode td {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.custom-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
   font-size: 0.9rem;
 }
 
