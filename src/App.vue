@@ -563,15 +563,16 @@ const nichtGespeicherteBuchungen = computed(() =>
 const syncBannerSichtbar = computed(
   () =>
     online.value &&
-    (sync.status.status === 'error' ||
-      sync.status.status === 'offline' ||
-      sync.status.status === 'origin-unavailable' ||
-      sync.status.quarantined > 0 ||
-      nichtGespeicherteBuchungen.value.length > 0 ||
-      // Die Fehleranalyse meldet Fehler, die der Sync-Status allein nicht
-      // sieht (z. B. Datensätze, die nur lokal existieren). Auch die sollen
-      // sofort sichtbar sein — nicht erst nach drei Sync-Läufen.
-      (sync.status.diagnostics?.findings.some((f) => f.level === 'error') ?? false)),
+    (auth.istAdmin
+      ? sync.status.status === 'error' ||
+        sync.status.status === 'offline' ||
+        sync.status.status === 'origin-unavailable' ||
+        sync.status.quarantined > 0 ||
+        nichtGespeicherteBuchungen.value.length > 0 ||
+        (sync.status.diagnostics?.findings.some((f) => f.level === 'error') ?? false)
+      : sync.status.status === 'error' ||
+        sync.status.status === 'offline' ||
+        sync.status.status === 'origin-unavailable'),
 )
 
 /**
@@ -584,6 +585,10 @@ const syncFehlerDetail = computed((): string | null => {
   const f = st.lastFailure
   const message = st.lastError ?? f?.message ?? null
   const code = st.lastErrorCode ?? f?.code ?? null
+  // Nicht-Admins sehen nur eine kurze, dezente Meldung ohne technische Details.
+  if (!auth.istAdmin) {
+    return message ?? t('app.sync.fehlerUnbekannt')
+  }
   // Fallback: der konkrete Befund aus der Fehleranalyse.
   const befund = st.diagnostics?.findings.find((x) => x.level === 'error')
   if (!message && !code && !befund) return null
@@ -604,6 +609,14 @@ const syncFehlerDetail = computed((): string | null => {
 
 const syncBannerText = computed((): string => {
   const parts: string[] = []
+  if (!auth.istAdmin) {
+    if (syncFehlerDetail.value) {
+      parts.push(t('app.sync.fehler', { fehler: syncFehlerDetail.value }))
+    } else {
+      parts.push(t('app.sync.fehlerKurz'))
+    }
+    return parts.join(' · ')
+  }
   if (nichtGespeicherteBuchungen.value.length > 0) {
     parts.push(t('app.sync.nichtGespeichert', { anzahl: nichtGespeicherteBuchungen.value.length }))
   }
@@ -624,6 +637,7 @@ watch(
   () => sync.status.lastErrorFingerprint,
   (fingerprint) => {
     if (!fingerprint) return
+    if (!auth.istAdmin) return
     const now = Date.now()
     if (now - (lastSyncToastAt.get(fingerprint) ?? 0) < 5 * 60_000) return
     lastSyncToastAt.set(fingerprint, now)

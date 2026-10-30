@@ -2026,6 +2026,60 @@ export async function fetchDeviceHeartbeat(
 }
 
 /**
+ * Sendet einen Sync-Fehler-Report an den Server. Der Report wird per
+ * POST /api/sync/sync-error-report uebermittelt und ist fuer Admins in
+ * der Entwicklungs-Ansicht (Geräteverwaltung) einsehbar.
+ * Der Versand darf den Sync-Lauf nicht blockieren (Fehler werden still
+ * ignoriert).
+ */
+async function sendSyncErrorReport(
+  apiBase: string,
+  token: string | null,
+  failure: {
+    source: SyncFailureSource
+    code: string | null
+    message: string
+    status: number | null
+    sampleErrors?: SyncLastFailure['sampleErrors']
+  },
+  diagnostics: SyncDiagnostics | null,
+): Promise<void> {
+  let deviceId: string
+  try {
+    deviceId = leseGerateId()
+  } catch {
+    return
+  }
+  const sample = failure.sampleErrors?.[0]
+  await fetchWithTimeout(
+    `${apiBase}/api/sync/sync-error-report`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        deviceId,
+        occurredAt: jetztIso(),
+        source: failure.source ?? 'network',
+        code: failure.code ?? 'UNKNOWN',
+        message: failure.message,
+        httpStatus: failure.status ?? null,
+        stack: sample?.stack ?? null,
+        payload: sample?.payload ?? null,
+        diagnostics: diagnostics ?? null,
+      }),
+    },
+    SNAPSHOT_TIMEOUT_MS,
+  ).catch(() => {
+    // Report-Versand darf den Sync nicht blockieren.
+  })
+}
+
+/**
  * Pruft das Geraete-Reset-Flag und baut bei Bedarf die komplette lokale
  * IndexedDB neu auf. Analog `handleRestoreEpochMismatch`, aber pro
  * Endgeraet statt global: das Flag gilt nur fuer dieses eine Geraet.
@@ -2410,6 +2464,18 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
             lastErrorAt: at,
             lastErrorFingerprint: syncErrorFingerprint(source, code, http?.status ?? null, msg),
           })
+          void sendSyncErrorReport(
+            apiBase,
+            token,
+            {
+              source,
+              code,
+              message: msg,
+              status: http?.status ?? null,
+              sampleErrors: [],
+            },
+            null,
+          )
           throw e
         }
       }
@@ -2745,6 +2811,8 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
     } catch {
       // Analyse ist optional.
     }
+
+    void sendSyncErrorReport(apiBase, token, newFailure, failurePatch.diagnostics ?? null)
 
     if (isNetwork) {
       safeUpdate({

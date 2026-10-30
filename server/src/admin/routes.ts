@@ -25,9 +25,9 @@
 // auf demselben Marker aufsetzen.
 
 import type { FastifyInstance } from 'fastify'
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { einstellungen, geraete, users } from '../db/schema.js'
+import { einstellungen, geraete, syncErrorReports, users } from '../db/schema.js'
 import { bulkBookingRoutes } from './bulk-booking-routes.js'
 import { z } from 'zod'
 
@@ -128,6 +128,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   // Listet alle registrierten Endgeraete mit dem zugehortigen User und dem
   // Reset-Flag (reset_am). Grundlage fuer den serverseitig ausgeloesten
   // lokalen DB-Reset pro Endgeraet (siehe AGENTS.md "Geraete-Reset").
+  // Liefert pro Geraet zudem den letzten Sync-Fehler (falls vorhanden).
   app.get(
     '/api/admin/geraete',
     { preHandler: app.requireAdmin },
@@ -147,16 +148,95 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         .from(geraete)
         .leftJoin(users, eq(geraete.userId, users.id))
         .orderBy(desc(geraete.zuletztGesehenAm))
+
+      // Letzten Sync-Fehler pro Geraet ermitteln (neuester Report).
+      const deviceIds = rows.map((r) => r.id)
+      const reportsByDevice = new Map<string, { occurredAt: string; code: string; message: string }[]>()
+      if (deviceIds.length > 0) {
+        const allReports = await db
+          .select({
+            deviceId: syncErrorReports.deviceId,
+            occurredAt: syncErrorReports.occurredAt,
+            code: syncErrorReports.code,
+            message: syncErrorReports.message,
+            createdAt: syncErrorReports.createdAt,
+          })
+          .from(syncErrorReports)
+          .where(inArray(syncErrorReports.deviceId, deviceIds))
+          .orderBy(syncErrorReports.createdAt)
+        for (const r of allReports) {
+          const arr = reportsByDevice.get(r.deviceId) ?? []
+          arr.push({
+            occurredAt: r.occurredAt.toISOString(),
+            code: r.code,
+            message: r.message,
+          })
+          reportsByDevice.set(r.deviceId, arr)
+        }
+      }
+
       return reply.send({
-        geraete: rows.map((r) => ({
+        geraete: rows.map((r) => {
+          const reports = reportsByDevice.get(r.id) ?? []
+          const last = reports[reports.length - 1]
+          return {
+            id: r.id,
+            userId: r.userId,
+            email: r.email ?? null,
+            rolle: r.rolle ?? null,
+            fingerprint: r.fingerprint ? JSON.parse(r.fingerprint) : {},
+            resetAm: r.resetAm?.toISOString() ?? null,
+            registriertAm: r.registriertAm.toISOString(),
+            zuletztGesehenAm: r.zuletztGesehenAm.toISOString(),
+            lastSyncErrorAt: last?.occurredAt ?? null,
+            lastSyncErrorCode: last?.code ?? null,
+            lastSyncErrorMessage: last?.message ?? null,
+          }
+        }),
+      })
+    },
+  )
+
+  // ---------- GET /api/admin/geraete/:deviceId/sync-error-reports ----------
+  // Liefert die letzten 2 Sync-Fehler-Reports eines Endgeraets (mit vollen
+  // Diagnostics) fuer die Entwicklungs-Ansicht.
+  app.get(
+    '/api/admin/geraete/:deviceId/sync-error-reports',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const { deviceId } = req.params as { deviceId: string }
+      if (typeof deviceId !== 'string' || deviceId.length === 0) {
+        return reply.code(400).send({ code: 'VALIDATION', message: 'deviceId erforderlich' })
+      }
+      const db = getDb()
+      const reports = await db
+        .select({
+          id: syncErrorReports.id,
+          occurredAt: syncErrorReports.occurredAt,
+          source: syncErrorReports.source,
+          code: syncErrorReports.code,
+          message: syncErrorReports.message,
+          httpStatus: syncErrorReports.httpStatus,
+          stack: syncErrorReports.stack,
+          payload: syncErrorReports.payload,
+          diagnostics: syncErrorReports.diagnostics,
+          createdAt: syncErrorReports.createdAt,
+        })
+        .from(syncErrorReports)
+        .where(eq(syncErrorReports.deviceId, deviceId))
+        .orderBy(syncErrorReports.createdAt)
+      return reply.send({
+        reports: reports.map((r) => ({
           id: r.id,
-          userId: r.userId,
-          email: r.email ?? null,
-          rolle: r.rolle ?? null,
-          fingerprint: r.fingerprint ? JSON.parse(r.fingerprint) : {},
-          resetAm: r.resetAm?.toISOString() ?? null,
-          registriertAm: r.registriertAm.toISOString(),
-          zuletztGesehenAm: r.zuletztGesehenAm.toISOString(),
+          occurredAt: r.occurredAt.toISOString(),
+          source: r.source,
+          code: r.code,
+          message: r.message,
+          httpStatus: r.httpStatus ?? null,
+          stack: r.stack ?? null,
+          payload: r.payload ?? null,
+          diagnostics: r.diagnostics ?? null,
+          createdAt: r.createdAt.toISOString(),
         })),
       })
     },

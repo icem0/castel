@@ -793,3 +793,40 @@ export const geraete = pgTable(
     index('geraete_reset_am_idx').on(t.resetAm).where(sql`${t.resetAm} IS NOT NULL`),
   ],
 )
+
+/**
+ * Sync-Fehler-Report: Ein Client pusht bei einem Sync-Fehler einen
+ * strukturierten Report per POST /api/sync/sync-error-report. Der Server
+ * ordnet den Report dem angemeldeten User und seinem Endgeraet zu.
+ * Pro Endgeraet werden nur die letzten 2 Reports aufbewahrt (aelteste
+ * werden beim Insert geloescht).
+ */
+export const syncErrorReports = pgTable(
+  'sync_error_reports',
+  {
+    id: text('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    deviceId: text('device_id')
+      .notNull()
+      .references(() => geraete.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    source: text('source').notNull(),
+    code: text('code').notNull(),
+    message: text('message').notNull(),
+    httpStatus: integer('http_status'),
+    stack: text('stack'),
+    payload: jsonb('payload'),
+    diagnostics: jsonb('diagnostics'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index('sync_error_reports_device_idx').on(t.deviceId),
+    index('sync_error_reports_created_idx').on(t.createdAt),
+  ],
+)

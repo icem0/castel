@@ -17,6 +17,7 @@ import {
   mindestbestandEreignisse,
   projekte,
   standorte,
+  syncErrorReports,
 } from '../db/schema.js'
 import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { leseRestoreEpoch } from '../admin/backup.js'
@@ -381,6 +382,83 @@ export async function syncRoutes(
         needsReset = false
       }
       return reply.send({ deviceId, needsReset, resetAm })
+    },
+  )
+
+  // ---------- POST /api/sync/sync-error-report ----------
+  // Ein Client pusht bei einem Sync-Fehler einen strukturierten Report
+  // (code, message, diagnostics, ...). Der Server ordnet den Report dem
+  // angemeldeten User und seinem Endgeraet zu. Pro Endgeraet werden nur
+  // die letzten 2 Reports aufbewahrt (aelteste werden beim Insert geloescht).
+  const syncErrorReportSchema = z.object({
+    deviceId: z.string().min(1).max(128),
+    occurredAt: z.string().datetime(),
+    source: z.string().min(1),
+    code: z.string().min(1),
+    message: z.string().min(1),
+    httpStatus: z.number().int().optional(),
+    stack: z.string().optional(),
+    payload: z.record(z.string(), z.any()).optional().nullable(),
+    diagnostics: z.record(z.string(), z.any()).optional().nullable(),
+  })
+
+  app.post(
+    '/api/sync/sync-error-report',
+    { preHandler: app.requireAuth },
+    async (req, reply) => {
+      const parsed = syncErrorReportSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+      }
+      const { deviceId, occurredAt, source, code, message, httpStatus, stack, payload, diagnostics } =
+        parsed.data
+      const userId = req.authUser!.sub
+      const db = getDb()
+
+      // Geraet muss existieren und dem User gehoeren.
+      const device = await db
+        .select({ id: geraete.id })
+        .from(geraete)
+        .where(eq(geraete.id, deviceId))
+        .limit(1)
+      if (!device[0]) {
+        return reply.code(404).send({ code: 'DEVICE_NOT_FOUND', message: 'Endgeraet nicht bekannt' })
+      }
+
+      const inserted = await db
+        .insert(syncErrorReports)
+        .values({
+          deviceId,
+          userId,
+          occurredAt: new Date(occurredAt),
+          source,
+          code,
+          message,
+          httpStatus: httpStatus ?? null,
+          stack: stack ?? null,
+          payload: payload ?? null,
+          diagnostics: diagnostics ?? null,
+        })
+        .returning({ id: syncErrorReports.id, createdAt: syncErrorReports.createdAt })
+
+      const reportId = inserted[0]
+      if (!reportId) {
+        return reply.code(500).send({ code: 'INSERT_FAILED', message: 'Report konnte nicht gespeichert werden' })
+      }
+
+      // Retention: pro Endgeraet nur die letzten 2 Reports behalten (aelteste
+      // werden geloescht).
+      const all = await db
+        .select({ id: syncErrorReports.id })
+        .from(syncErrorReports)
+        .where(eq(syncErrorReports.deviceId, deviceId))
+        .orderBy(syncErrorReports.createdAt)
+      if (all.length > 2) {
+        const toDelete = all.slice(0, all.length - 2).map((r) => r.id)
+        await db.delete(syncErrorReports).where(inArray(syncErrorReports.id, toDelete))
+      }
+
+      return reply.send({ id: reportId.id, createdAt: reportId.createdAt.toISOString() })
     },
   )
 

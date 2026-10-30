@@ -46,6 +46,10 @@ type Geraet = {
   resetAm: string | null
   registriertAm: string
   zuletztGesehenAm: string
+  /** Letzter Sync-Fehler (falls vorhanden). */
+  lastSyncErrorAt: string | null
+  lastSyncErrorCode: string | null
+  lastSyncErrorMessage: string | null
 }
 
 const geraetePhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
@@ -53,6 +57,27 @@ const geraeteFehler = ref<string | null>(null)
 const geraeteListe = ref<Geraet[]>([])
 const geraeteUserListe = ref<UserDto[]>([])
 const geraeteSelectedUser = ref<string>('')
+
+// Sync-Fehler-Report Modal (Details fuer ein Geraet).
+const syncErrorModalOpen = ref(false)
+const syncErrorModalDeviceId = ref<string>('')
+const syncErrorModalDeviceLabel = ref<string>('')
+const syncErrorModalReports = ref<
+  {
+    id: string
+    occurredAt: string
+    source: string
+    code: string
+    message: string
+    httpStatus: number | null
+    stack: string | null
+    payload: unknown
+    diagnostics: unknown
+    createdAt: string
+  }[]
+>([])
+const syncErrorModalPhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
+const syncErrorModalFehler = ref<string | null>(null)
 
 type BulkBuchung = {
   id: string
@@ -302,6 +327,36 @@ async function ladeGeraete(): Promise<void> {
   } catch (e) {
     geraeteFehler.value = e instanceof Error ? e.message : String(e)
     geraetePhase.value = 'fehler'
+  }
+}
+
+async function ladeSyncErrorReports(deviceId: string, deviceLabel: string): Promise<void> {
+  syncErrorModalOpen.value = true
+  syncErrorModalDeviceId.value = deviceId
+  syncErrorModalDeviceLabel.value = deviceLabel
+  syncErrorModalReports.value = []
+  syncErrorModalPhase.value = 'laufend'
+  syncErrorModalFehler.value = null
+  try {
+    const data = await apiFetch<{ reports: unknown[] }>(
+      `/api/admin/geraete/${encodeURIComponent(deviceId)}/sync-error-reports`,
+    )
+    syncErrorModalReports.value = data.reports as {
+      id: string
+      occurredAt: string
+      source: string
+      code: string
+      message: string
+      httpStatus: number | null
+      stack: string | null
+      payload: unknown
+      diagnostics: unknown
+      createdAt: string
+    }[]
+    syncErrorModalPhase.value = 'idle'
+  } catch (e) {
+    syncErrorModalFehler.value = e instanceof Error ? e.message : String(e)
+    syncErrorModalPhase.value = 'fehler'
   }
 }
 
@@ -571,6 +626,7 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
             <th>{{ t('view.development.geräteSpalteRegistriert') }}</th>
             <th>{{ t('view.development.geräteSpalteZuletzt') }}</th>
             <th>{{ t('view.development.geräteSpalteReset') }}</th>
+            <th>{{ t('view.development.geräteSpalteSyncFehler') }}</th>
             <th style="width: 11rem">{{ t('view.development.geräteSpalteAktionen') }}</th>
           </tr>
         </thead>
@@ -594,6 +650,23 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
               <span :class="g.resetAm ? 'wert-fehler' : 'hint-ok'">{{
                 g.resetAm ? 'gesetzt' : 'aus'
               }}</span>
+            </td>
+            <td>
+              <button
+                v-if="g.lastSyncErrorAt"
+                type="button"
+                :disabled="geraetePhase === 'laufend'"
+                class="small"
+                :class="g.lastSyncErrorAt ? 'wert-fehler' : ''"
+                @click="ladeSyncErrorReports(g.id, g.email ?? g.id)"
+              >
+                {{
+                  t('view.development.geräteSyncFehlerAnzeigen', {
+                    code: g.lastSyncErrorCode ?? '—',
+                  })
+                }}
+              </button>
+              <span v-else class="hint">—</span>
             </td>
             <td>
               <button
@@ -931,6 +1004,53 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           </button>
         </div>
       </template>
+    </div>
+
+    <!-- Sync-Fehler-Report Modal -->
+    <div v-if="syncErrorModalOpen" class="confirm" role="alertdialog" aria-modal="true">
+      <p>
+        <strong>{{
+          t('view.development.syncErrorModalTitel', { gerät: syncErrorModalDeviceLabel })
+        }}</strong>
+      </p>
+      <p class="hint">{{ t('view.development.syncErrorModalHint') }}</p>
+
+      <div v-if="syncErrorModalPhase === 'fehler' && syncErrorModalFehler" class="wert-fehler">
+        {{ syncErrorModalFehler }}
+      </div>
+
+      <table v-if="syncErrorModalReports.length > 0" class="tabelle" style="margin-top: 0.5rem">
+        <thead>
+          <tr>
+            <th>{{ t('view.development.syncErrorSpalteZeit') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteQuelle') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteCode') }}</th>
+            <th>{{ t('view.development.syncErrorSpalteHTTP') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in syncErrorModalReports" :key="r.id">
+            <td class="hint">{{ r.occurredAt.slice(0, 16) }}</td>
+            <td class="hint">{{ r.source }}</td>
+            <td class="wert-fehler">{{ r.code }}</td>
+            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="syncErrorModalReports.length === 0 && syncErrorModalPhase === 'idle'" class="hint">
+        {{ t('view.development.syncErrorKeine') }}
+      </div>
+
+      <div class="actions" style="margin-top: 0.75rem">
+        <button
+          type="button"
+          :disabled="syncErrorModalPhase === 'laufend'"
+          @click="syncErrorModalOpen = false"
+        >
+          {{ t('view.common.schliessen') }}
+        </button>
+      </div>
     </div>
   </section>
 </template>
