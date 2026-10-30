@@ -765,3 +765,31 @@ export const datanormImporte = pgTable(
     index('datanorm_importe_status_idx').on(t.status),
   ],
 )
+
+/**
+ * Geraete-Registry: ein Endgeraet meldet sich per Heartbeat mit einer
+ * clientseitig erzeugten UUID. Der Server setzt `reset_am`, um das
+ * Endgeraet zur Selbst-Loescheung der lokalen IndexedDB und zum
+ * Neuaufbau vom Server zu zwingen (siehe AGENTS.md "Geräte-Reset").
+ */
+export const geraete = pgTable(
+  'geraete',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    fingerprint: text('fingerprint').notNull().default(''),
+    resetAm: timestamp('reset_am', { withTimezone: true }),
+    registriertAm: timestamp('registriert_am', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    zuletztGesehenAm: timestamp('zuletzt_gesehen_am', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index('geraete_user_idx').on(t.userId),
+    index('geraete_reset_am_idx').on(t.resetAm).where(sql`${t.resetAm} IS NOT NULL`),
+  ],
+)

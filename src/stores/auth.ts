@@ -10,7 +10,8 @@
 
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { ApiError, apiFetch, setGlobalToken, setOn401Handler } from '../auth/api'
+import { ApiError, apiFetch, getApiBaseUrl, setGlobalToken, setOn401Handler } from '../auth/api'
+import { checkDeviceReset } from '../services/sync/worker'
 import { AuthError } from '../auth/errors'
 import {
   credLesen,
@@ -157,6 +158,8 @@ export const useAuthStore = defineStore('auth', () => {
       }
       sessionSchreiben(s)
       session.value = s
+      // Geraete-Reset-Flag sofort pruefen, nicht erst beim naechsten Sync-Tick.
+      void checkDeviceReset(getApiBaseUrl(), serverAntwort.token)
       return
     }
 

@@ -12,6 +12,7 @@ import {
   buchungen,
   etikettenBogenLayout,
   einstellungen,
+  geraete,
   hersteller,
   mindestbestandEreignisse,
   projekte,
@@ -23,6 +24,7 @@ import { resolvePush } from './resolver.js'
 import { INTERN_EINSTELLUNGS_KEYS } from './einstellungen-intern.js'
 import { mappeHerstellerRabattsatz, stripEinkaufspreis } from './preise.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
+import { z } from 'zod'
 
 async function countRows(db: ReturnType<typeof getDb>): Promise<{
   artikel: number
@@ -316,6 +318,62 @@ export async function syncRoutes(
   app.get('/api/sync/restore-epoch', { preHandler: app.requireAuth }, async (_req, reply) => {
     return reply.send({ restoreEpoch: await leseRestoreEpoch() })
   })
+
+  // ---------- POST /api/sync/device-heartbeat ----------
+  // Ein Endgeraet meldet sich mit einer clientseitig erzeugten UUID. Der
+  // Server ordnet das Geraet dem angemeldeten User zu und speichert einen
+  // Fingerprint. Antwortet mit `needsReset`, wenn das Geraet einen
+  // serverseitig ausgeloesten lokalen DB-Reset ausfuehren soll
+  // (siehe AGENTS.md "Geraete-Reset"). Der Client merkt sich den zuletzt
+  // angewendeten Reset, damit der Befehl genau einmal pro Flag wirksam wird.
+  const deviceHeartbeatSchema = z.object({
+    deviceId: z.string().min(1).max(128),
+    appVersion: z.string().max(64).optional().default(''),
+    lastAppliedResetAt: z.string().datetime().optional(),
+  })
+
+  app.post(
+    '/api/sync/device-heartbeat',
+    { preHandler: app.requireAuth },
+    async (req, reply) => {
+      const parsed = deviceHeartbeatSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+      }
+      const { deviceId, appVersion, lastAppliedResetAt } = parsed.data
+      const userId = req.authUser!.sub
+      const db = getDb()
+      const fingerprint = JSON.stringify({
+        userAgent: req.headers['user-agent'],
+        appVersion,
+        ip: req.ip,
+      })
+      await db
+        .insert(geraete)
+        .values({
+          id: deviceId,
+          userId,
+          fingerprint,
+          zuletztGesehenAm: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: geraete.id,
+          set: {
+            userId,
+            fingerprint,
+            zuletztGesehenAm: new Date(),
+          },
+        })
+      const row = await db
+        .select({ resetAm: geraete.resetAm })
+        .from(geraete)
+        .where(eq(geraete.id, deviceId))
+        .limit(1)
+      const resetAm = row[0]?.resetAm?.toISOString() ?? null
+      const needsReset = resetAm !== null && (!lastAppliedResetAt || resetAm > lastAppliedResetAt)
+      return reply.send({ deviceId, needsReset, resetAm })
+    },
+  )
 
   // ---------- POST /api/sync/reconcile ----------
   // Cheap existence check for local record IDs. The client uses it to

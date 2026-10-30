@@ -35,7 +35,13 @@ import { jetztIso, neueUuid } from '../../domain/ids'
 import { normalisiereRabattsatz } from '../../domain/rabatt'
 import { setApiBaseUrl } from '../../auth/api'
 import { sessionLesen } from '../../auth/session'
+import {
+  leseGerateId,
+  leseZuletztAngewendeterReset,
+  schreibeZuletztAngewendeterReset,
+} from '../../auth/device'
 import { prepareRoleForSync } from './preise'
+import { version } from '../../version'
 
 // ---------- Konfiguration ----------
 
@@ -1974,6 +1980,121 @@ async function handleRestoreEpochMismatch(
   return true
 }
 
+// ---------- Geraete-Reset-Flag ----------
+
+/**
+ * Leichter Probe-Request fuer das Geraete-Reset-Flag. Der Sync-Worker ruft
+ * ihn pro Lauf auf; der Server antwortet mit `needsReset`, wenn das
+ * Endgeraet seine lokale IndexedDB loeschen und neu vom Server aufbauen
+ * soll (Flag `geraete.reset_am` neuer als der letzte lokal angewendete
+ * Reset). Analog zur Restore-Epoche, aber pro Endgeraet statt global.
+ */
+export async function fetchDeviceHeartbeat(
+  apiBase: string,
+  token: string | null,
+  deviceId: string,
+  signal: AbortSignal | null = null,
+): Promise<{ needsReset: boolean; resetAm: string | null }> {
+  const lastApplied = leseZuletztAngewendeterReset()
+  const res = await fetchWithTimeout(
+    `${apiBase}/api/sync/device-heartbeat`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        deviceId,
+        appVersion: version,
+        lastAppliedResetAt: lastApplied ?? undefined,
+      }),
+    },
+    SNAPSHOT_TIMEOUT_MS,
+    signal,
+  )
+  if (!res.ok) {
+    const body = await readErrorBody(res)
+    throw new SyncHttpError(res.status, `Device-Heartbeat HTTP ${res.status}: ${body}`, {
+      retryAfterMs: null,
+      category: categorizeStatus(res.status),
+    })
+  }
+  return (await res.json()) as { needsReset: boolean; resetAm: string | null }
+}
+
+/**
+ * Pruft das Geraete-Reset-Flag und baut bei Bedarf die komplette lokale
+ * IndexedDB neu auf. Analog `handleRestoreEpochMismatch`, aber pro
+ * Endgeraet statt global: das Flag gilt nur fuer dieses eine Geraet.
+ *
+ * Liefert true, wenn ein Reset durchgefuehrt wurde — der aufrufende
+ * Sync-Lauf darf dann nicht weiterarbeiten.
+ */
+async function handleDeviceReset(
+  apiBase: string,
+  token: string | null,
+  signal: AbortSignal | null,
+): Promise<boolean> {
+  let deviceId: string
+  try {
+    deviceId = leseGerateId()
+  } catch {
+    // localStorage nicht verfuegbar: Flag nicht prüfbar.
+    return false
+  }
+  let data: { needsReset: boolean; resetAm: string | null }
+  try {
+    data = await fetchDeviceHeartbeat(apiBase, token, deviceId, signal)
+  } catch (e) {
+    const http = e instanceof SyncHttpError ? e.status : null
+    if (http === null) console.warn('[sync] Device-Heartbeat fehlgeschlagen:', e)
+    return false
+  }
+  if (!data.needsReset) return false
+
+  console.warn(
+    '[sync] Geraete-Reset-Flag gesetzt — lokale IndexedDB wird geloescht und neu aufgebaut',
+  )
+  try {
+    suspendSyncWorker()
+
+    const oldDb = getDb()
+    oldDb.close()
+    await deleteDatabase(oldDb)
+    resetDbForTests()
+
+    const full = await fetchSnapshot(apiBase, token, '', '1970-01-01T00:00:00.000Z')
+    await applySnapshot(full)
+
+    // Merken, dass der Flag-Zeitstempel angewendet wurde. Das Merkmal
+    // ueberlebt den harten IndexedDB-Loesche nicht (der wird gerade
+    // durchgefuehrt) — deshalb im localStorage ausserhalb der DB.
+    schreibeZuletztAngewendeterReset(data.resetAm ?? null)
+  } finally {
+    if (!import.meta.env.TEST && typeof window !== 'undefined') {
+      window.location.reload()
+    }
+  }
+  return true
+}
+
+/**
+ * Einmaliger Geraete-Reset-Check ausserhalb des regulären Sync-Ticks
+ * (z. B. direkt nach dem Login). Fehler werden intern geloggt und nicht
+ * weitergereicht — der naechste Tick versucht es erneut.
+ */
+export async function checkDeviceReset(apiBase: string, token: string | null): Promise<void> {
+  if (!token) return
+  try {
+    await handleDeviceReset(apiBase, token, null)
+  } catch {
+    // Intern geloggt; der naechste Tick versucht es erneut.
+  }
+}
+
 // ---------- Sync-Hauptaufruf ----------
 
 /**
@@ -2103,6 +2224,14 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
   //    wir nicht in die restaurierte Server-DB schreiben — bei Mismatch
   //    wird die lokale IndexedDB geloescht und vollstaendig neu gezogen.
   if (await handleRestoreEpochMismatch(apiBase, token, _runAbort?.signal ?? null)) {
+    return
+  }
+
+  // 1) Geraete-Reset-Flag VOR dem Push pruefen: hat der Server fuer dieses
+  //    Endgeraet einen lokalen DB-Reset angeordnet, duerfte die Outbox der
+  //    Vor-Reset-Welt nicht mehr geschrieben werden — bei gesetztem Flag
+  //    wird die lokale IndexedDB geloescht und vollstaendig neu gezogen.
+  if (await handleDeviceReset(apiBase, token, _runAbort?.signal ?? null)) {
     return
   }
 

@@ -25,10 +25,11 @@
 // auf demselben Marker aufsetzen.
 
 import type { FastifyInstance } from 'fastify'
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { einstellungen } from '../db/schema.js'
+import { einstellungen, geraete, users } from '../db/schema.js'
 import { bulkBookingRoutes } from './bulk-booking-routes.js'
+import { z } from 'zod'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
 
@@ -120,6 +121,106 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
       )
 
       return reply.send({ cleared: true })
+    },
+  )
+
+  // ---------- GET /api/admin/geraete ----------
+  // Listet alle registrierten Endgeraete mit dem zugehortigen User und dem
+  // Reset-Flag (reset_am). Grundlage fuer den serverseitig ausgeloesten
+  // lokalen DB-Reset pro Endgeraet (siehe AGENTS.md "Geraete-Reset").
+  app.get(
+    '/api/admin/geraete',
+    { preHandler: app.requireAdmin },
+    async (_req, reply) => {
+      const db = getDb()
+      const rows = await db
+        .select({
+          id: geraete.id,
+          userId: geraete.userId,
+          email: users.email,
+          rolle: users.rolle,
+          fingerprint: geraete.fingerprint,
+          resetAm: geraete.resetAm,
+          registriertAm: geraete.registriertAm,
+          zuletztGesehenAm: geraete.zuletztGesehenAm,
+        })
+        .from(geraete)
+        .leftJoin(users, eq(geraete.userId, users.id))
+        .orderBy(desc(geraete.zuletztGesehenAm))
+      return reply.send({
+        geraete: rows.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          email: r.email ?? null,
+          rolle: r.rolle ?? null,
+          fingerprint: r.fingerprint ? JSON.parse(r.fingerprint) : {},
+          resetAm: r.resetAm?.toISOString() ?? null,
+          registriertAm: r.registriertAm.toISOString(),
+          zuletztGesehenAm: r.zuletztGesehenAm.toISOString(),
+        })),
+      })
+    },
+  )
+
+  // ---------- POST /api/admin/geraete/:deviceId/reset ----------
+  // Setzt (oder hebt) das Reset-Flag eines Endgeraets. Wenn gesetzt, loescht
+  // das Endgeraet beim nachsten Sync-Tick (oder Login) seine lokale IndexedDB
+  // und baut sie vom Server neu auf.
+  const gerateResetSchema = z.object({ reset: z.boolean().optional().default(true) })
+
+  app.post(
+    '/api/admin/geraete/:deviceId/reset',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const db = getDb()
+      const { deviceId } = req.params as { deviceId: string }
+      if (typeof deviceId !== 'string' || deviceId.length === 0) {
+        return reply.code(400).send({ code: 'VALIDATION', message: 'deviceId erforderlich' })
+      }
+      const parsed = gerateResetSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+      }
+      const resetAm = parsed.data.reset ? new Date() : null
+      const result = await db
+        .update(geraete)
+        .set({ resetAm })
+        .where(eq(geraete.id, deviceId))
+        .returning({ id: geraete.id })
+      return reply.send({
+        deviceId,
+        resetAm: resetAm?.toISOString() ?? null,
+        matched: result.length,
+      })
+    },
+  )
+
+  // ---------- POST /api/admin/geraete/user/:userId/reset ----------
+  // Setzt (oder hebt) das Reset-Flag fuer alle Endgeraete eines Users.
+  app.post(
+    '/api/admin/geraete/user/:userId/reset',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const db = getDb()
+      const { userId } = req.params as { userId: string }
+      if (typeof userId !== 'string' || userId.length === 0) {
+        return reply.code(400).send({ code: 'VALIDATION', message: 'userId erforderlich' })
+      }
+      const parsed = gerateResetSchema.safeParse(req.body)
+      if (!parsed.success) {
+        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
+      }
+      const resetAm = parsed.data.reset ? new Date() : null
+      const result = await db
+        .update(geraete)
+        .set({ resetAm })
+        .where(eq(geraete.userId, userId))
+        .returning({ id: geraete.id })
+      return reply.send({
+        userId,
+        resetAm: resetAm?.toISOString() ?? null,
+        matched: result.length,
+      })
     },
   )
 }

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
+import { holeAktiveUserliste, type UserDto } from '../auth/users'
 import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
 import {
   collectReseedPlan,
@@ -34,8 +35,24 @@ const reseedPhase = ref<ResetPhase>('idle')
 const reseedFehler = ref<string | null>(null)
 const reseedErfolg = ref<string | null>(null)
 const reseedPlan = ref<ReseedPlan | null>(null)
-/** Set after a ReseedGuardError — unlocks the explicit "force" button. */
 const reseedGuardFehler = ref(false)
+
+type Geraet = {
+  id: string
+  userId: string
+  email: string | null
+  rolle: string | null
+  fingerprint: { userAgent?: string; appVersion?: string; ip?: string }
+  resetAm: string | null
+  registriertAm: string
+  zuletztGesehenAm: string
+}
+
+const geraetePhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
+const geraeteFehler = ref<string | null>(null)
+const geraeteListe = ref<Geraet[]>([])
+const geraeteUserListe = ref<UserDto[]>([])
+const geraeteSelectedUser = ref<string>('')
 
 type BulkBuchung = {
   id: string
@@ -164,6 +181,8 @@ function formatBulkDatum(iso: string): string {
 
 onMounted(() => {
   void bulkLaden()
+  void ladeGeraete()
+  void ladeUserListe()
 })
 
 function cacheFrageStarten(): void {
@@ -270,6 +289,53 @@ async function serverDbBestaetigen(): Promise<void> {
   } catch (e) {
     serverDbFehler.value = e instanceof Error ? e.message : String(e)
     serverDbPhase.value = 'fehler'
+  }
+}
+
+async function ladeGeraete(): Promise<void> {
+  geraetePhase.value = 'laufend'
+  geraeteFehler.value = null
+  try {
+    const data = await apiFetch<{ geraete: Geraet[] }>('/api/admin/geraete')
+    geraeteListe.value = data.geraete
+    geraetePhase.value = 'idle'
+  } catch (e) {
+    geraeteFehler.value = e instanceof Error ? e.message : String(e)
+    geraetePhase.value = 'fehler'
+  }
+}
+
+async function ladeUserListe(): Promise<void> {
+  try {
+    geraeteUserListe.value = await holeAktiveUserliste()
+  } catch {
+    // User-Liste ist optional fuer die Massen-Aktion.
+  }
+}
+
+async function setzeGeraetReset(deviceId: string, setzen: boolean): Promise<void> {
+  try {
+    await apiFetch<{ matched: number }>(
+      `/api/admin/geraete/${encodeURIComponent(deviceId)}/reset`,
+      { method: 'POST', body: { reset: setzen } },
+    )
+    geraeteFehler.value = null
+    await ladeGeraete()
+  } catch (e) {
+    geraeteFehler.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function setzeUserReset(userId: string, setzen: boolean): Promise<void> {
+  try {
+    await apiFetch<{ matched: number }>(
+      `/api/admin/geraete/user/${encodeURIComponent(userId)}/reset`,
+      { method: 'POST', body: { reset: setzen } },
+    )
+    geraeteFehler.value = null
+    await ladeGeraete()
+  } catch (e) {
+    geraeteFehler.value = e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -485,6 +551,107 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
           </button>
         </div>
       </template>
+    </div>
+
+    <h2>{{ t('view.development.geraete') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.geraeteHint') }}</p>
+      <div class="actions" style="margin-bottom: 0.8rem">
+        <button type="button" :disabled="geraetePhase === 'laufend'" @click="ladeGeraete">
+          {{ geraetePhase === 'laufend' ? 'Lade…' : t('view.development.geraeteLaden') }}
+        </button>
+        <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
+      </div>
+      <table v-if="geraeteListe.length > 0" class="tabelle">
+        <thead>
+          <tr>
+            <th>{{ t('view.development.geraeteSpalteGerät') }}</th>
+            <th>{{ t('view.development.geraeteSpalteUser') }}</th>
+            <th>{{ t('view.development.geraeteSpalteFingerabdruck') }}</th>
+            <th>{{ t('view.development.geraeteSpalteRegistriert') }}</th>
+            <th>{{ t('view.development.geraeteSpalteZuletzt') }}</th>
+            <th>{{ t('view.development.geraeteSpalteReset') }}</th>
+            <th style="width: 11rem">{{ t('view.development.geraeteSpalteAktionen') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="g in geraeteListe" :key="g.id">
+            <td>
+              <code style="font-size: 0.85rem">{{ g.id.slice(0, 8) }}…</code>
+            </td>
+            <td>{{ g.email ?? '—' }} ({{ g.rolle ?? '—' }})</td>
+            <td>
+              <span v-if="g.fingerprint.appVersion" class="hint"
+                >v{{ g.fingerprint.appVersion }}</span
+              >
+              <span v-if="g.fingerprint.userAgent" class="hint"
+                >{{ g.fingerprint.userAgent.slice(0, 30) }}…</span
+              >
+            </td>
+            <td>{{ g.registriertAm.slice(0, 16) }}</td>
+            <td>{{ g.zuletztGesehenAm.slice(0, 16) }}</td>
+            <td>
+              <span :class="g.resetAm ? 'wert-fehler' : 'hint-ok'">{{
+                g.resetAm ? 'gesetzt' : 'aus'
+              }}</span>
+            </td>
+            <td>
+              <button
+                type="button"
+                :disabled="geraetePhase === 'laufend'"
+                class="danger small"
+                @click="setzeGeraetReset(g.id, !g.resetAm)"
+              >
+                {{
+                  g.resetAm
+                    ? t('view.development.geraeteZurücksetzenAufheben')
+                    : t('view.development.geraeteZurücksetzenSetzen')
+                }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="geraetePhase === 'idle' && geraeteListe.length === 0" class="hint">
+        {{ t('view.development.geraeteKeine') }}
+      </p>
+    </div>
+
+    <h2>{{ t('view.development.geraeteAlle') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.geraeteAlleHint') }}</p>
+      <div class="actions" style="gap: 0.5rem; align-items: start">
+        <select
+          v-model="geraeteSelectedUser"
+          :disabled="geraetePhase === 'laufend' || geraeteUserListe.length === 0"
+        >
+          <option value="">{{ t('view.development.geraeteUserWaehlen') }}</option>
+          <option v-for="u in geraeteUserListe" :key="u.id" :value="u.id">
+            {{ u.anzeigename || u.email }} ({{ u.email }})
+          </option>
+        </select>
+        <button
+          type="button"
+          class="danger small"
+          :disabled="
+            geraetePhase === 'laufend' || geraeteUserListe.length === 0 || !geraeteSelectedUser
+          "
+          @click="setzeUserReset(geraeteSelectedUser, true)"
+        >
+          {{ t('view.development.geraeteAlleSetzen') }}
+        </button>
+        <button
+          type="button"
+          class="small"
+          :disabled="
+            geraetePhase === 'laufend' || geraeteUserListe.length === 0 || !geraeteSelectedUser
+          "
+          @click="setzeUserReset(geraeteSelectedUser, false)"
+        >
+          {{ t('view.development.geraeteAlleAufheben') }}
+        </button>
+        <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
+      </div>
     </div>
 
     <h2>{{ t('view.development.serverDB') }}</h2>
