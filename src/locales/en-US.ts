@@ -1293,6 +1293,21 @@ export default {
       // offline login with cached credentials will be tried.
       serverUnreachableHint:
         'Server unreachable. You can sign in with cached data if you have previously signed in online here.',
+      // Runtime without HTTPS (no secure browser context): SubtleCrypto is
+      // missing, the login is refused until the operator enables the HTTP
+      // mode via ALLOW_INSECURE_HTTP.
+      insecureContext:
+        'This installation runs without HTTPS. Please set up HTTPS or set ALLOW_INSECURE_HTTP=true in the .env file.',
+      // Notice in HTTP mode: offline operation, service worker and app
+      // installation require a secure browser context.
+      insecureHint:
+        'Note: without HTTPS, offline operation, the service worker and app installation are not available.',
+      // The server rejected the request (it was reachable — "server
+      // unreachable" would be wrong here).
+      validation: 'The input is invalid. Please check display name, e-mail address and password.',
+      emailTaken: 'This e-mail address is already taken.',
+      rateLimit: 'Too many attempts. Please wait a moment and try again.',
+      apiFailed: 'The server rejected the request (HTTP {status}).',
     },
   },
 }

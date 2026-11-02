@@ -21,6 +21,7 @@ import { resetDbForTests } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
 import { sessionSchreiben } from '../../auth/session'
 import { jetztIso } from '../../domain/ids'
+import { MIN_OCR_HOEHE, berechneOcrSkalierung } from '../../domain/kommission-ocr'
 import { i18n } from '../../i18n'
 
 const mocks = vi.hoisted(() => ({
@@ -87,18 +88,27 @@ function kameraMock(): void {
     get: () => 4,
     configurable: true,
   })
-  Element.prototype.getBoundingClientRect = () =>
-    ({
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    // WICHTIG: Das Kamera-Fenster (.video-wrap) ist 640x360, der
+    // Komponenten-Root dagegen 640x600 (Aktionsleiste, Bildvorschau,
+    // Ergebnispanel). Der Scan-Rahmen ist relativ zum Kamera-Fenster
+    // positioniert — der Crop MUSS daher auch relativ zum Kamera-Fenster
+    // berechnet werden. Mit dem Root als Bezug landet der Ausschnitt an
+    // einer voellig anderen Stelle und die OCR liest ins Leere.
+    const istFenster = this.classList.contains('video-wrap')
+    const hoehe = istFenster ? 360 : 600
+    return {
       x: 0,
       y: 0,
       top: 0,
       left: 0,
       right: 640,
-      bottom: 360,
+      bottom: hoehe,
       width: 640,
-      height: 360,
+      height: hoehe,
       toJSON: () => ({}),
-    }) as DOMRect
+    } as DOMRect
+  }
   // Canvas wird fuer die Aufnahme gebraucht (jsdom hat kein 2D-Canvas).
   HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
     drawImage: vi.fn(),
@@ -251,9 +261,14 @@ describe('KommissionKameraScan', () => {
     const bild = mocks.scanBild.mock.calls[0]?.[0] as HTMLCanvasElement
     expect(bild).toBeInstanceOf(HTMLCanvasElement)
     // Container 640x360, Video 1280x720 (gleiches Seitenverhaeltnis) —
-    // der Streifen muss 1:1 auf die Video-Pixel abbilden.
-    expect(bild.width).toBe(Math.round(1280 * 0.92))
-    expect(bild.height).toBe(Math.round(720 * 0.14))
+    // der Streifen muss 1:1 auf die Video-Pixel abbilden …
+    const breite = Math.round(1280 * 0.92)
+    const hoehe = Math.round(720 * 0.14)
+    // … und wird anschliessend hochskaliert, damit tesseract ihn liest.
+    const skala = berechneOcrSkalierung(breite, hoehe)
+    expect(bild.width).toBe(Math.round(breite * skala))
+    expect(bild.height).toBe(Math.round(hoehe * skala))
+    expect(bild.height).toBeGreaterThanOrEqual(MIN_OCR_HOEHE)
     settings.stop()
   })
 

@@ -12,7 +12,7 @@
 // Scan auch offline (der Service-Worker cacht die Assets runtime).
 
 import { ref } from 'vue'
-import { createWorker, type Worker } from 'tesseract.js'
+import { createWorker, PSM, type Worker } from 'tesseract.js'
 import { extrahiereKommissionsNummer, type OcrKandidat } from '../domain/kommission-ocr'
 
 export type OcrStatus = 'idle' | 'loading' | 'ready' | 'scanning' | 'error'
@@ -74,11 +74,18 @@ export function useKommissionOcr(opts: UseKommissionOcrOptions = {}) {
 
     try {
       worker = await workerPromise
+      // Der Ausschnitt ist ein schmaler Streifen (eine Zeile). Ohne
+      // SINGLE_BLOCK sucht tesseract selbststaendig nach Blockgrenzen
+      // und liefert bei einem Streifen oft nichts.
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK })
       status.value = 'ready'
       return worker
     } catch (e) {
       status.value = 'error'
-      fehler.value = e instanceof Error ? e.message : String(e)
+      // Klarer Hinweis statt einer Browser-Meldung: fehlen die OCR-Assets
+      // (public/tesseract, public/tessdata), ist die App zu alt.
+      const grund = e instanceof Error ? e.message : String(e)
+      fehler.value = `OCR nicht verfügbar: ${grund}. Bitte die App aktualisieren.`
       worker = null
       workerPromise = null
       throw e

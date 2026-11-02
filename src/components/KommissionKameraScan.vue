@@ -22,7 +22,12 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MAX_KOMMISSION_LAENGE, useKommissionen } from '../composables/useKommissionen'
 import { useKommissionOcr, type OcrResult } from '../composables/useKommissionOcr'
-import { berechneVideoAusschnitt, type OcrKandidat, type Rechteck } from '../domain/kommission-ocr'
+import {
+  berechneOcrSkalierung,
+  berechneVideoAusschnitt,
+  type OcrKandidat,
+  type Rechteck,
+} from '../domain/kommission-ocr'
 import { matcheKommission } from '../domain/kommission-scan'
 
 const props = withDefaults(
@@ -43,7 +48,15 @@ const { optionen, hinzufuegen } = useKommissionen()
 const { fehler, scanBild, stop: ocrStop, ensureWorker } = useKommissionOcr()
 
 const videoEl = ref<HTMLVideoElement | null>(null)
-const containerEl = ref<HTMLElement | null>(null)
+/**
+ * Bezugs-Element fuer alle Koordinaten. Der Scan-Rahmen ist ABSOLUT
+ * positioniert innerhalb von `.video-wrap` — die Prozentangaben des
+ * Rahmens beziehen sich also auf dieses Element, NICHT auf den
+ * Komponenten-Root (der ist viel hoeher: Aktionsleiste, Bildvorschau,
+ * Ergebnispanel). Mit dem falschen Bezug landet der Ausschnitt an einer
+ * voellig anderen Stelle im Bild und die OCR liest ins Leere.
+ */
+const videoWrapEl = ref<HTMLElement | null>(null)
 
 const kameraAktiv = ref(false)
 const kameraLaeuft = ref(false)
@@ -172,7 +185,7 @@ function onPointerDown(e: PointerEvent, modus: 'move' | 'resize'): void {
 
 function onPointerMove(e: PointerEvent): void {
   if (dragModus.value === 'none') return
-  const r = containerEl.value?.getBoundingClientRect()
+  const r = videoWrapEl.value?.getBoundingClientRect()
   if (!r || r.width === 0 || r.height === 0) return
 
   // Pixel -> normalisiert
@@ -240,7 +253,7 @@ async function warteAufVideoBild(): Promise<void> {
  * an, als die OCR spaeter tatsaechlich liest.
  */
 function videoAusschnitt(): Rechteck {
-  const container = containerEl.value?.getBoundingClientRect()
+  const container = videoWrapEl.value?.getBoundingClientRect()
   const video = videoEl.value
   if (!container || !video || video.videoWidth === 0) {
     return { x: 0, y: 0, width: 1, height: 1 }
@@ -275,18 +288,26 @@ async function bildaAufnehmen(): Promise<void> {
 
     const video = videoEl.value
     const ausschnitt = videoAusschnitt()
+    const breite = Math.max(1, Math.round(video.videoWidth * ausschnitt.width))
+    const hoehe = Math.max(1, Math.round(video.videoHeight * ausschnitt.height))
+
+    // Hochskalieren: tesseract liest kleine Bilder unzuverlaessig — aus
+    // einem 67 px hohen Streifen einer 640x480-Kamera wird sonst nichts.
+    const skala = berechneOcrSkalierung(breite, hoehe)
     const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(video.videoWidth * ausschnitt.width))
-    canvas.height = Math.max(1, Math.round(video.videoHeight * ausschnitt.height))
+    canvas.width = Math.round(breite * skala)
+    canvas.height = Math.round(hoehe * skala)
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Canvas-Kontext nicht verfügbar')
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
 
     ctx.drawImage(
       video,
       Math.round(video.videoWidth * ausschnitt.x),
       Math.round(video.videoHeight * ausschnitt.y),
-      canvas.width,
-      canvas.height,
+      breite,
+      hoehe,
       0,
       0,
       canvas.width,
@@ -360,10 +381,10 @@ async function neueKommissionAnlegen(): Promise<void> {
 </script>
 
 <template>
-  <div ref="containerEl" class="kamera-scan" :class="{ disabled }">
+  <div class="kamera-scan" :class="{ disabled }">
     <p v-if="kameraFehler" class="fehler" role="alert">{{ kameraFehler }}</p>
 
-    <div class="video-wrap">
+    <div ref="videoWrapEl" class="video-wrap">
       <video ref="videoEl" class="video" playsinline autoplay muted></video>
 
       <div v-if="!kameraAktiv" class="kamera-start">

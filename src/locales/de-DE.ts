@@ -1323,6 +1323,21 @@ export default {
       // Offline-Login mit gecachten Daten wird versucht.
       serverUnreachableHint:
         'Server nicht erreichbar. Du kannst dich mit gecachten Daten anmelden, wenn du hier schon einmal online angemeldet warst.',
+      // Laufzeit ohne HTTPS (kein sicherer Browser-Kontext): SubtleCrypto
+      // fehlt, der Login wird abgelehnt, bis der Operator den HTTP-Betrieb
+      // per ALLOW_INSECURE_HTTP freigibt.
+      insecureContext:
+        'Diese Installation läuft ohne HTTPS. Bitte HTTPS einrichten oder ALLOW_INSECURE_HTTP=true in der .env setzen.',
+      // Hinweis im HTTP-Betrieb: Offline-Betrieb, Service Worker und die
+      // Installation als App brauchen einen sicheren Browser-Kontext.
+      insecureHint:
+        'Hinweis: Ohne HTTPS sind Offline-Betrieb, Service Worker und die Installation als App nicht verfügbar.',
+      // Der Server hat die Anfrage mit einem Fehler abgelehnt (der Server
+      // war also erreichbar — "Server nicht erreichbar" waere falsch).
+      validation: 'Die Eingaben sind ungültig. Bitte Anzeigename, E-Mail und Passwort prüfen.',
+      emailTaken: 'Diese E-Mail ist bereits vergeben.',
+      rateLimit: 'Zu viele Versuche. Bitte kurz warten und es erneut versuchen.',
+      apiFailed: 'Der Server hat die Anfrage abgelehnt (HTTP {status}).',
     },
   },
 }

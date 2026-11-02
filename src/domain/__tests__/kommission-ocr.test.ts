@@ -6,6 +6,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_OCR_SKALIERUNG,
+  MIN_OCR_HOEHE,
+  berechneOcrSkalierung,
   berechneVideoAusschnitt,
   extrahiereKommissionsNummer,
   istPlausibleNummer,
@@ -174,5 +177,61 @@ describe('berechneVideoAusschnitt — Crop auf die Video-Pixel abbilden', () => 
       { x: 0, y: 0, width: 640, height: 360 },
     )
     expect(ausschnitt).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+  })
+})
+
+describe('extrahiereKommissionsNummer — alleinstehende Nummer ohne Label', () => {
+  it('erkennt eine Nummer, die allein steht', () => {
+    const kandidaten = extrahiereKommissionsNummer('AA 1234')
+    expect(kandidaten).toHaveLength(1)
+    expect(kandidaten[0]?.wert).toBe('AA 1234')
+    expect(kandidaten[0]?.quelle).toBe('frei')
+  })
+
+  it('erkennt eine reine Ziffernfolge ohne Praefix', () => {
+    const kandidaten = extrahiereKommissionsNummer('908454')
+    expect(kandidaten).toHaveLength(1)
+    expect(kandidaten[0]?.wert).toBe('908454')
+    expect(kandidaten[0]?.quelle).toBe('frei')
+  })
+
+  it('behaelt das Buchstaben-Praefix bei der Nummer', () => {
+    // "AA 1234" ist eine andere Kommission als "1234" — das Praefix
+    // gehoert zur Nummer.
+    const kandidaten = extrahiereKommissionsNummer('K-22')
+    expect(kandidaten[0]?.wert).toBe('K-22')
+  })
+
+  it('nimmt das Label nicht in die Nummer auf', () => {
+    const kandidaten = extrahiereKommissionsNummer('Nr. 1234')
+    expect(kandidaten[0]?.wert).toBe('1234')
+  })
+
+  it('erkennt mehrere alleinstehende Nummern', () => {
+    const kandidaten = extrahiereKommissionsNummer('908454 und 00012775')
+    const werte = kandidaten.map((k) => k.wert)
+    expect(werte).toContain('908454')
+    expect(werte).toContain('00012775')
+  })
+})
+
+describe('berechneOcrSkalierung', () => {
+  it('skaliert einen kleinen Kamera-Streifen hoch', () => {
+    // 640x480-Kamera, 14 % Streifenhoehe = 67 px
+    const skala = berechneOcrSkalierung(589, 67)
+    expect(skala).toBeGreaterThan(1)
+    expect(67 * skala).toBeGreaterThanOrEqual(MIN_OCR_HOEHE)
+  })
+
+  it('laesst ein ausreichend grosses Bild unveraendert', () => {
+    expect(berechneOcrSkalierung(1400, 120)).toBe(1)
+  })
+
+  it('begrenzt die Skalierung', () => {
+    expect(berechneOcrSkalierung(50, 10)).toBe(MAX_OCR_SKALIERUNG)
+  })
+
+  it('liefert 1 bei ungueltigen Massen', () => {
+    expect(berechneOcrSkalierung(0, 0)).toBe(1)
   })
 })

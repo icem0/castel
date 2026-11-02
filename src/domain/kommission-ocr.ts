@@ -22,6 +22,30 @@ export interface Rechteck {
   height: number
 }
 
+/** Mindestbreite des OCR-Bildes — darunter liest tesseract unzuverlaessig. */
+export const MIN_OCR_BREITE = 640
+
+/** Mindesthoehe des OCR-Bildes (eine Zeile Text braucht Luft). */
+export const MIN_OCR_HOEHE = 120
+
+/** Mehr als 4x bringt bei einem Foto keine besseren Treffer, nur Rechenzeit. */
+export const MAX_OCR_SKALIERUNG = 4
+
+/**
+ * Berechnet, um wie viel der aufgenommene Ausschnitt hochskaliert
+ * werden muss, damit tesseract ihn zuverlaessig liest.
+ *
+ * Ein Kamera-Streifen ist oft nur wenige Pixel hoch (640x480-Kamera,
+ * 14 % Streifenhoehe = 67 px) — die Ziffern darin sind dann winzig und
+ * tesseract liefert nichts. Hochskalieren vergroessert die Glyphen auf
+ * eine lesbare Hoehe.
+ */
+export function berechneOcrSkalierung(breite: number, hoehe: number): number {
+  if (breite <= 0 || hoehe <= 0) return 1
+  const noetig = Math.max(MIN_OCR_BREITE / breite, MIN_OCR_HOEHE / hoehe, 1)
+  return Math.min(noetig, MAX_OCR_SKALIERUNG)
+}
+
 /**
  * Rechnet die Position des Scan-Streifens (Container-Koordinaten in px)
  * in das Quell-Rechteck des Videos um.
@@ -134,7 +158,20 @@ const ART_RANG: Record<AuftragsArt, number> = {
 
 const DATUM_RE = /^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/
 const ZEIT_RE = /^\d{1,2}[:.]\d{2}([:.]\d{2})?$/
-const TOKEN_RE = /[A-Za-z0-9][A-Za-z0-9./-]{1,40}/g
+
+/**
+ * Freie Nummer mit optionalem Buchstaben-Praefix: "AA 1234", "K-22",
+ * "1234". Das Praefix gehoert zur Nummer — "AA 1234" ist eine andere
+ * Kommission als "1234".
+ *
+ * Das Praefix muss GROSSBUCHSTABEN sein: Kommissions-Kuerzel sind Codes
+ * (AA, SA, KAN, KNR). Sonst wuerde der Satz "und 00012775" die Nummer
+ * "und 00012775" ergeben.
+ */
+const FREI_NUMMER_RE = /(?:^|[^A-Za-z0-9])((?:[A-Z]{1,4}[- ])?)(\d[\dA-Za-z./-]{1,29})/g
+
+/** Praefixe, die keine Kommission sind (Masseinheiten, Bezeichner). */
+const KEIN_PRAEFIX = new Set(['EUR', 'USD', 'CHF', 'GBP', 'TEL', 'FAX', 'PLZ', 'STR', 'NR', 'ID'])
 
 function anzahlZiffern(text: string): number {
   return (text.match(/\d/g) ?? []).length
@@ -214,11 +251,15 @@ function freieKandidaten(text: string): Array<OcrKandidat & { rang: number }> {
     // zwei Token ("14" und "30"), die wie Nummern aussehen.
     const ohneDatum = roh.replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, ' ')
     const ohneZeit = ohneDatum.replace(/\b\d{1,2}[:.]\d{2}([:.]\d{2})?\b/g, ' ')
-    for (const match of ohneZeit.matchAll(TOKEN_RE)) {
-      const token = match[0]
-      if (!istPlausibleNummer(token)) continue
+    for (const match of ohneZeit.matchAll(FREI_NUMMER_RE)) {
+      const praefixRoh = match[1] ?? ''
+      const nummer = match[2] ?? ''
+      // Ein Praefix wie "EUR" (Preis) gehoert nicht zur Nummer.
+      const praefix = KEIN_PRAEFIX.has(praefixRoh.trim().toUpperCase()) ? '' : praefixRoh
+      const wert = normalisiereOcrNummer(`${praefix}${nummer}`)
+      if (!istPlausibleNummer(wert)) continue
       treffer.push({
-        wert: normalisiereOcrNummer(token),
+        wert,
         keyword: '',
         kontext: roh,
         quelle: 'frei',
