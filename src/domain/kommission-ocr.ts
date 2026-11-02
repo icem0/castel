@@ -15,6 +15,64 @@
 
 import { erkenneKommission, normalisiereKommission, type AuftragsArt } from './kommission-scan'
 
+export interface Rechteck {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * Rechnet die Position des Scan-Streifens (Container-Koordinaten in px)
+ * in das Quell-Rechteck des Videos um.
+ *
+ * Das Video wird mit `object-fit` in den Container eingepasst — je nach
+ * Seitenverhältnis wird es beschnitten (cover) oder mit Rändern umgeben
+ * (contain). Ohne diese Umrechnung zeigt der Streifen auf dem Schirm
+ * etwas anderes an, als die OCR spaeter tatsaechlich liest: der
+ * Scan liefe dann ins Leere.
+ *
+ * Rueckgabe: normalisiertes Rechteck (0..1) bezogen auf die
+ * natuerliche Aufloesung des Videos.
+ */
+export function berechneVideoAusschnitt(
+  container: { width: number; height: number },
+  video: { width: number; height: number },
+  streifen: Rechteck,
+  fit: 'cover' | 'contain' = 'cover',
+): Rechteck {
+  if (container.width <= 0 || container.height <= 0) return { x: 0, y: 0, width: 1, height: 1 }
+  if (video.width <= 0 || video.height <= 0) return { x: 0, y: 0, width: 1, height: 1 }
+
+  const scaleX = container.width / video.width
+  const scaleY = container.height / video.height
+  const scale = fit === 'cover' ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY)
+
+  const angezeigtBreite = video.width * scale
+  const angezeigtHoehe = video.height * scale
+  const versatzX = (container.width - angezeigtBreite) / 2
+  const versatzY = (container.height - angezeigtHoehe) / 2
+
+  // Container-Pixel -> Video-Pixel
+  const sx = (streifen.x - versatzX) / scale
+  const sy = (streifen.y - versatzY) / scale
+  const sw = streifen.width / scale
+  const sh = streifen.height / scale
+
+  // Auf das Video beschneiden und normalisieren.
+  const x = Math.max(0, Math.min(sx, video.width))
+  const y = Math.max(0, Math.min(sy, video.height))
+  const rechts = Math.max(x, Math.min(sx + sw, video.width))
+  const unten = Math.max(y, Math.min(sy + sh, video.height))
+
+  return {
+    x: x / video.width,
+    y: y / video.height,
+    width: (rechts - x) / video.width,
+    height: (unten - y) / video.height,
+  }
+}
+
 export interface OcrKandidat {
   /** Die erkannte Nummer (bereits getrimmt, Leerzeichen normalisiert). */
   wert: string

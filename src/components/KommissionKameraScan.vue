@@ -1,19 +1,22 @@
 <script setup lang="ts">
 // KommissionKameraScan — Kamera-Scan der Kommissionsnummer.
 //
-// Öffnet die Kamera, lässt den User einen Ausschnitt über der
-// Projektnummer markieren und extrahiert per OCR die Nummer. Das Ergebnis
-// wird als bestehende Kommission angeboten oder (falls noch nicht vorhanden)
-// als neue angelegt. Die erkannte Nummer bleibt vor dem Übernehmen
-// korrigierbar.
+// Der User richtet die Kamera so aus, dass die Ziffern im markierten
+// Streifen liegen, bestaetigt, und die OCR liest genau dieses Feld aus.
+// Das Ergebnis wird gegen die bestehenden Kommissionen gematcht:
+//   - Treffer  -> bestehende Kommission uebernehmen
+//   - kein Treffer -> der User wird gefragt, ob eine neue Kommission
+//     mit der Nummer angelegt werden soll.
 //
-// Emits `update:modelValue` mit dem übernommenen Kommissionsnamen.
+// Das Scan-Feld ist bewusst ein breiter Streifen (eine Zeile mit gut
+// zehn Ziffern) — quadratische Ausschnitte liefern bei OCR deutlich
+// schlechtere Treffer.
 
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MAX_KOMMISSION_LAENGE, useKommissionen } from '../composables/useKommissionen'
 import { useKommissionOcr, type OcrResult } from '../composables/useKommissionOcr'
-import type { OcrKandidat } from '../domain/kommission-ocr'
+import { berechneVideoAusschnitt, type OcrKandidat, type Rechteck } from '../domain/kommission-ocr'
 import { matcheKommission } from '../domain/kommission-scan'
 
 const props = withDefaults(
@@ -31,7 +34,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const { optionen, hinzufuegen } = useKommissionen()
 
-const { status, fehler, scan: ocrScan, stop: ocrStop } = useKommissionOcr()
+const { fehler, scan: ocrScan, stop: ocrStop, ensureWorker } = useKommissionOcr()
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 const containerEl = ref<HTMLElement | null>(null)
@@ -39,6 +42,8 @@ const containerEl = ref<HTMLElement | null>(null)
 const kameraAktiv = ref(false)
 const kameraLaeuft = ref(false)
 const kameraFehler = ref<string | null>(null)
+const ocrBereit = ref(false)
+const ocrLaedt = ref(false)
 const scanLaeuft = ref(false)
 const scanErgebnis = ref<OcrResult | null>(null)
 const scanIndex = ref(0)
@@ -46,21 +51,30 @@ const scanIndex = ref(0)
 /** Die vom User korrigierbare Nummer (vorbelegt mit dem OCR-Treffer). */
 const nummer = ref('')
 
-/** Crop-Rect in normalisierten Koordinaten (0..1) relativ zum Videobild. */
-const cropRect = ref({ x: 0.2, y: 0.3, width: 0.6, height: 0.18 })
+/**
+ * Scan-Streifen in normalisierten Container-Koordinaten (0..1).
+ * Breiter Streifen: eine Zeile mit rund zehn Ziffern.
+ */
+const cropRect = ref<Rechteck>({ x: 0.04, y: 0.43, width: 0.92, height: 0.14 })
 
 const dragModus = ref<'none' | 'move' | 'resize'>('none')
 const dragStart = ref({ x: 0, y: 0 })
-const cropStart = ref({ x: 0, y: 0, width: 0, height: 0 })
+const cropStart = ref<Rechteck>({ x: 0, y: 0, width: 0, height: 0 })
 
 const scannedKandidat = computed<OcrKandidat | null>(
   () => scanErgebnis.value?.kandidaten[scanIndex.value] ?? null,
 )
 
-/** Match gegen die bestehenden Kommissionen — für die eingegebene Nummer. */
+/** Match gegen die bestehenden Kommissionen — fuer die eingegebene Nummer. */
 const scanTreffer = computed<string | null>(() =>
   nummer.value.trim() === '' ? null : matcheKommission(nummer.value.trim(), optionen.value),
 )
+
+/** True, wenn eine Nummer erkannt wurde, aber keiner bestehenden entspricht. */
+const neuAnlegenVorgeschlagen = computed<boolean>(
+  () => scanErgebnis.value !== null && nummer.value.trim() !== '' && scanTreffer.value === null,
+)
+
 async function starteKamera(): Promise<void> {
   if (kameraAktiv.value || kameraLaeuft.value) return
   kameraFehler.value = null
@@ -77,10 +91,26 @@ async function starteKamera(): Promise<void> {
     videoEl.value.srcObject = stream
     await videoEl.value.play()
     kameraAktiv.value = true
+    // OCR parallel vorladen, damit der erste Scan nicht ewig dauert
+    // und fehlende Assets sofort sichtbar werden.
+    void ladeOcr()
   } catch (e) {
     kameraFehler.value = e instanceof Error ? e.message : String(e)
   } finally {
     kameraLaeuft.value = false
+  }
+}
+
+async function ladeOcr(): Promise<void> {
+  if (ocrBereit.value || ocrLaedt.value) return
+  ocrLaedt.value = true
+  try {
+    await ensureWorker()
+    ocrBereit.value = true
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    ocrLaedt.value = false
   }
 }
 
@@ -98,12 +128,12 @@ function stoppeKamera(): void {
 
 onBeforeUnmount(stoppeKamera)
 
-function clampRect(r: { x: number; y: number; width: number; height: number }) {
-  const min = 0.05
-  const x = Math.min(Math.max(r.x, 0), 1 - min)
-  const y = Math.min(Math.max(r.y, 0), 1 - min)
-  const width = Math.min(Math.max(r.width, min), 1 - x)
-  const height = Math.min(Math.max(r.height, min), 1 - y)
+function clampRect(r: Rechteck): Rechteck {
+  const minHoehe = 0.06
+  const x = Math.min(Math.max(r.x, 0), 1)
+  const y = Math.min(Math.max(r.y, 0), 1 - minHoehe)
+  const width = Math.min(Math.max(r.width, 0.1), 1 - x)
+  const height = Math.min(Math.max(r.height, minHoehe), 1 - y)
   return { x, y, width, height }
 }
 
@@ -135,11 +165,12 @@ function onPointerMove(e: PointerEvent): void {
       height: cropStart.value.height,
     })
   } else {
+    // Hoehe anpassen (Anfasspunkt unten rechts) — die Breite bleibt.
     cropRect.value = clampRect({
       x: cropStart.value.x,
       y: cropStart.value.y,
-      width: Math.max(0.05, cropStart.value.width + nx),
-      height: Math.max(0.05, cropStart.value.height + ny),
+      width: cropStart.value.width,
+      height: cropStart.value.height + ny,
     })
   }
 }
@@ -148,15 +179,73 @@ function onPointerUp(): void {
   dragModus.value = 'none'
 }
 
-async function scanneFrame(): Promise<void> {
-  if (!videoEl.value || scanLaeuft.value) return
-  if (!kameraAktiv.value) await starteKamera()
-  if (!kameraAktiv.value || !videoEl.value) return
+/**
+ * Wartet, bis das Video ein Bild liefert. Ohne das ist videoWidth 0 und
+ * der OCR bekommt ein 1x1-Pixel-Bild — der Scan liefe ins Leere.
+ */
+async function warteAufVideoBild(): Promise<void> {
+  const video = videoEl.value
+  if (!video) throw new Error(t('view.kommission.kameraScan.keinVideo'))
+  if (video.videoWidth > 0 && video.readyState >= 2) return
 
-  scanLaeuft.value = true
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      aufraeumen()
+      reject(new Error(t('view.kommission.kameraScan.keinVideo')))
+    }, 10000)
+
+    const aufraeumen = (): void => {
+      window.clearTimeout(timeout)
+      video.removeEventListener('loadeddata', pruefe)
+      video.removeEventListener('canplay', pruefe)
+    }
+    const pruefe = (): void => {
+      if (video.videoWidth > 0) {
+        aufraeumen()
+        resolve()
+      }
+    }
+
+    video.addEventListener('loadeddata', pruefe)
+    video.addEventListener('canplay', pruefe)
+    pruefe()
+  })
+}
+
+/** Rechnet den Streifen (Container) in das Quell-Rechteck des Videos um. */
+function videoAusschnitt(): Rechteck {
+  const container = containerEl.value?.getBoundingClientRect()
+  const video = videoEl.value
+  if (!container || !video || video.videoWidth === 0) {
+    return { x: 0, y: 0, width: 1, height: 1 }
+  }
+  const streifenPx: Rechteck = {
+    x: cropRect.value.x * container.width,
+    y: cropRect.value.y * container.height,
+    width: cropRect.value.width * container.width,
+    height: cropRect.value.height * container.height,
+  }
+  return berechneVideoAusschnitt(
+    { width: container.width, height: container.height },
+    { width: video.videoWidth, height: video.videoHeight },
+    streifenPx,
+    'cover',
+  )
+}
+
+async function bestaetigeScan(): Promise<void> {
+  if (scanLaeuft.value) return
   fehler.value = ''
+  scanLaeuft.value = true
   try {
-    const result = await ocrScan(videoEl.value, cropRect.value)
+    if (!kameraAktiv.value) await starteKamera()
+    if (!videoEl.value) return
+
+    await warteAufVideoBild()
+    if (!ocrBereit.value) await ladeOcr()
+
+    const ausschnitt = videoAusschnitt()
+    const result = await ocrScan(videoEl.value, ausschnitt)
     scanErgebnis.value = result
     scanIndex.value = 0
     nummer.value = result.beste?.wert ?? ''
@@ -173,28 +262,31 @@ function kandidatWechseln(index: number): void {
   if (kandidat) nummer.value = kandidat.wert
 }
 
-async function uebernehmen(): Promise<void> {
+function trefferUebernehmen(): void {
+  const treffer = scanTreffer.value
+  if (!treffer) return
+  emit('update:modelValue', treffer)
+  stoppeKamera()
+}
+
+async function neueKommissionAnlegen(): Promise<void> {
   const wert = nummer.value.trim()
   fehler.value = ''
   if (wert === '') {
     fehler.value = t('view.kommissionen.fehlerLeer')
     return
   }
-  const treffer = scanTreffer.value
-  const name = treffer ?? wert
-  if (!treffer) {
-    const grund = await hinzufuegen(name)
-    if (grund !== null) {
-      fehler.value =
-        grund === 'leer'
-          ? t('view.kommissionen.fehlerLeer')
-          : grund === 'duplikat'
-            ? t('view.kommissionen.fehlerDuplikat', { name })
-            : t('view.kommission.fehlerZuLang', { max: MAX_KOMMISSION_LAENGE })
-      return
-    }
+  const grund = await hinzufuegen(wert)
+  if (grund !== null) {
+    fehler.value =
+      grund === 'leer'
+        ? t('view.kommissionen.fehlerLeer')
+        : grund === 'duplikat'
+          ? t('view.kommissionen.fehlerDuplikat', { name: wert })
+          : t('view.kommission.fehlerZuLang', { max: MAX_KOMMISSION_LAENGE })
+    return
   }
-  emit('update:modelValue', name)
+  emit('update:modelValue', wert)
   stoppeKamera()
 }
 </script>
@@ -203,7 +295,7 @@ async function uebernehmen(): Promise<void> {
   <div ref="containerEl" class="kamera-scan" :class="{ disabled }">
     <p v-if="kameraFehler" class="fehler" role="alert">{{ kameraFehler }}</p>
 
-    <div class="video-wrap" :class="{ aktiv: kameraAktiv }">
+    <div class="video-wrap">
       <video ref="videoEl" class="video" playsinline autoplay muted></video>
 
       <div v-if="!kameraAktiv" class="kamera-start">
@@ -246,18 +338,18 @@ async function uebernehmen(): Promise<void> {
           <button
             type="button"
             class="primary scan-btn"
-            :disabled="disabled || scanLaeuft"
-            @click="scanneFrame"
+            :disabled="disabled || scanLaeuft || ocrLaedt"
+            @click="bestaetigeScan"
           >
             {{
               scanLaeuft
                 ? t('view.kommission.kameraScan.erkennt')
-                : t('view.kommission.kameraScan.erkennen')
+                : t('view.kommission.kameraScan.bestaetigen')
             }}
           </button>
         </div>
 
-        <p v-if="status === 'loading'" class="hinweis-zeile">
+        <p v-if="ocrLaedt" class="hinweis-zeile">
           {{ t('view.kommission.kameraScan.ocrLaden') }}
         </p>
       </template>
@@ -291,22 +383,44 @@ async function uebernehmen(): Promise<void> {
         </small>
       </label>
 
-      <p class="treffer">
-        {{
-          scanTreffer
-            ? t('view.kommission.kameraScan.bestehend', { name: scanTreffer })
-            : t('view.kommission.kameraScan.neu')
-        }}
-      </p>
+      <!-- Treffer: bestehende Kommission uebernehmen -->
+      <div v-if="scanTreffer" class="ergebnis-karte">
+        <p class="treffer">
+          {{ t('view.kommission.kameraScan.bestehend', { name: scanTreffer }) }}
+        </p>
+        <div class="scan-aktionen">
+          <button type="button" class="primary" :disabled="disabled" @click="trefferUebernehmen">
+            {{ t('view.kommission.kameraScan.uebernehmen') }}
+          </button>
+        </div>
+      </div>
 
-      <div class="scan-aktionen">
-        <button type="button" class="primary" :disabled="disabled" @click="uebernehmen">
-          {{ t('view.kommission.kameraScan.uebernehmen') }}
-        </button>
+      <!-- Kein Treffer: nachfragen, ob eine neue Kommission angelegt wird -->
+      <div v-else-if="neuAnlegenVorgeschlagen" class="ergebnis-karte">
+        <p class="frage">
+          {{ t('view.kommission.kameraScan.neuFrage', { nummer: nummer.trim() }) }}
+        </p>
+        <div class="scan-aktionen">
+          <button type="button" class="primary" :disabled="disabled" @click="neueKommissionAnlegen">
+            {{ t('view.kommission.kameraScan.neuAnlegen') }}
+          </button>
+          <button type="button" class="btn" :disabled="disabled" @click="scanErgebnis = null">
+            {{ t('view.kommission.kameraScan.verwerfen') }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Gar nichts erkannt: Rohtext zeigen, Nummer von Hand korrigieren -->
+      <div v-else class="ergebnis-karte">
+        <p class="frage">{{ t('view.kommission.kameraScan.keineNummer') }}</p>
+        <p v-if="scanErgebnis.text" class="rohtext">„{{ scanErgebnis.text }}“</p>
+        <div class="scan-aktionen">
+          <button type="button" class="primary" :disabled="disabled" @click="bestaetigeScan">
+            {{ t('view.kommission.kameraScan.erneut') }}
+          </button>
+        </div>
       </div>
     </div>
-
-    <p v-else-if="scanLaeuft" class="hint">{{ t('view.kommission.kameraScan.erkennt') }}</p>
 
     <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
   </div>
@@ -324,10 +438,11 @@ async function uebernehmen(): Promise<void> {
   pointer-events: none;
 }
 
+/* Breites Fenster — der Scan-Streifen ist eine Zeile, kein Quadrat. */
 .video-wrap {
   position: relative;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 9;
   background: #000;
   border-radius: 8px;
   overflow: hidden;
@@ -337,7 +452,7 @@ async function uebernehmen(): Promise<void> {
 .video {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 
@@ -356,12 +471,12 @@ async function uebernehmen(): Promise<void> {
 
 .crop-overlay {
   position: absolute;
-  left: 20%;
-  top: 30%;
-  width: 60%;
-  height: 18%;
-  border: 2px dashed var(--accent);
-  background: rgba(255, 255, 255, 0.06);
+  left: 4%;
+  top: 43%;
+  width: 92%;
+  height: 14%;
+  border: 2px solid var(--accent);
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   cursor: move;
   z-index: 10;
@@ -374,7 +489,7 @@ async function uebernehmen(): Promise<void> {
   pointer-events: none;
   z-index: 20;
   color: var(--accent);
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -410,6 +525,11 @@ async function uebernehmen(): Promise<void> {
   border-radius: 8px;
   padding: 0.6rem;
   background: var(--bg-input);
+}
+
+.ergebnis-karte {
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
 }
 
 .kandidaten {
@@ -455,9 +575,22 @@ async function uebernehmen(): Promise<void> {
   font-size: 0.75rem;
 }
 
-.treffer {
+.treffer,
+.frage {
   margin: 0 0 0.4rem;
   font-size: 0.85rem;
+}
+
+.frage {
+  font-weight: 500;
+}
+
+.rohtext {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+  word-break: break-all;
 }
 
 .hinweis-zeile {
@@ -480,10 +613,10 @@ async function uebernehmen(): Promise<void> {
 
 @media (max-width: 540px) {
   .kamera-start {
-    padding: 1rem;
+    padding: 0.5rem;
   }
   .crop-label {
-    font-size: 0.6rem;
+    font-size: 0.55rem;
   }
 }
 </style>

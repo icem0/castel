@@ -94,10 +94,13 @@ export function useKommissionOcr(opts: UseKommissionOcrOptions = {}) {
     videoEl: HTMLVideoElement,
     cropRect: { x: number; y: number; width: number; height: number },
   ): Promise<OcrResult> {
-    const w = await ensureWorker()
+    const videoWidth = videoEl.videoWidth
+    const videoHeight = videoEl.videoHeight
+    if (!videoWidth || !videoHeight) {
+      throw new Error('Kein Kamerabild verfügbar — bitte erneut auf „Bestätigen“ tippen.')
+    }
 
-    const videoWidth = videoEl.videoWidth || videoEl.clientWidth
-    const videoHeight = videoEl.videoHeight || videoEl.clientHeight
+    const w = await ensureWorker()
 
     const canvas = document.createElement('canvas')
     canvas.width = Math.max(1, Math.round(videoWidth * cropRect.width))

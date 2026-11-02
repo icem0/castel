@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  berechneVideoAusschnitt,
   extrahiereKommissionsNummer,
   istPlausibleNummer,
   normalisiereOcrNummer,
@@ -109,5 +110,69 @@ describe('istPlausibleNummer', () => {
 describe('normalisiereOcrNummer', () => {
   it('trimmt und fasst Leerzeichen zusammen', () => {
     expect(normalisiereOcrNummer('  AA   1234 ')).toBe('AA 1234')
+  })
+})
+
+describe('berechneVideoAusschnitt — Crop auf die Video-Pixel abbilden', () => {
+  it('bildet 1:1 ab, wenn Container und Video dasselbe Seitenverhaeltnis haben', () => {
+    const ausschnitt = berechneVideoAusschnitt(
+      { width: 640, height: 360 },
+      { width: 1280, height: 720 },
+      { x: 25.6, y: 154.8, width: 588.8, height: 50.4 },
+      'cover',
+    )
+    expect(ausschnitt.x).toBeCloseTo(0.04, 3)
+    expect(ausschnitt.y).toBeCloseTo(0.43, 3)
+    expect(ausschnitt.width).toBeCloseTo(0.92, 3)
+    expect(ausschnitt.height).toBeCloseTo(0.14, 3)
+  })
+
+  it('beruecksichtigt den Beschnitt bei cover (Video schmaler als der Container)', () => {
+    // Container 640x360 (16:9), Video 320x240 (4:3) — cover schneidet oben
+    // und unten ab, der sichtbare Streifen beginnt bei 12,5 % Hoehe.
+    const ausschnitt = berechneVideoAusschnitt(
+      { width: 640, height: 360 },
+      { width: 320, height: 240 },
+      { x: 0, y: 0, width: 640, height: 360 },
+      'cover',
+    )
+    expect(ausschnitt.x).toBeCloseTo(0, 3)
+    expect(ausschnitt.y).toBeCloseTo(0.125, 3)
+    expect(ausschnitt.width).toBeCloseTo(1, 3)
+    expect(ausschnitt.height).toBeCloseTo(0.75, 3)
+  })
+
+  it('beruecksichtigt die Letterbox-Raender bei contain', () => {
+    const ausschnitt = berechneVideoAusschnitt(
+      { width: 640, height: 200 },
+      { width: 640, height: 480 },
+      { x: 200, y: 0, width: 100, height: 200 },
+      'contain',
+    )
+    expect(ausschnitt.x).toBeCloseTo(0.05, 2)
+    expect(ausschnitt.width).toBeCloseTo(0.375, 2)
+    expect(ausschnitt.height).toBeCloseTo(1, 2)
+  })
+
+  it('schneidet den Ausschnitt auf das Video zu', () => {
+    const ausschnitt = berechneVideoAusschnitt(
+      { width: 640, height: 360 },
+      { width: 1280, height: 720 },
+      { x: -100, y: -50, width: 5000, height: 5000 },
+      'cover',
+    )
+    expect(ausschnitt.x).toBe(0)
+    expect(ausschnitt.y).toBe(0)
+    expect(ausschnitt.width).toBe(1)
+    expect(ausschnitt.height).toBe(1)
+  })
+
+  it('liefert das ganze Bild, wenn noch kein Videobild vorliegt', () => {
+    const ausschnitt = berechneVideoAusschnitt(
+      { width: 640, height: 360 },
+      { width: 0, height: 0 },
+      { x: 0, y: 0, width: 640, height: 360 },
+    )
+    expect(ausschnitt).toEqual({ x: 0, y: 0, width: 1, height: 1 })
   })
 })
