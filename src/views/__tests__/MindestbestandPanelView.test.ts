@@ -17,6 +17,13 @@ const storeState = vi.hoisted(() => ({
     defizit: number
     offen: boolean
   }[],
+  neuesteZeilen: [] as {
+    ereignis: MindestbestandEreignis
+    aktuellerBestand: number
+    schwelle: number
+    defizit: number
+    offen: boolean
+  }[],
   artikel: [] as Record<string, unknown>[],
   markiereBestellt: vi.fn(),
 }))
@@ -44,9 +51,10 @@ vi.mock('../../stores/mindestbestand', () => ({
   useMindestbestandStore: () => ({
     ereignisse: storeState.zeilen.map((z) => z.ereignis),
     zeilen: storeState.zeilen,
+    neuesteZeilen: storeState.neuesteZeilen,
     geladen: true,
     letzteGesehenAm: null,
-    ungesehenCount: storeState.zeilen.filter((z) => z.offen).length,
+    ungesehenCount: storeState.neuesteZeilen.filter((z) => z.offen).length,
     letzte50: storeState.zeilen.map((z) => z.ereignis),
     letzte50Zeilen: storeState.zeilen,
     offeneZeilen: storeState.zeilen.filter((z) => z.offen),
@@ -103,6 +111,7 @@ function mountPanel(rolle: 'admin' | 'user') {
 describe('MindestbestandPanelView — Rollen', () => {
   beforeEach(() => {
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     storeState.artikel = [{ id: 'a-1', titel: 'Kabelkanal' }]
     storeState.markiereBestellt.mockClear()
   })
@@ -123,5 +132,14 @@ describe('MindestbestandPanelView — Rollen', () => {
     const w = mountPanel('admin')
     expect(w.text()).toContain('bestellt')
     expect(w.find('button.haken').exists()).toBe(true)
+  })
+
+  it('listet pro Artikel+Standort nur den letzten Alarm', () => {
+    // Store liefert das vollständige Log, für die Anzeige aber nur den
+    // neuesten Alarm je Paar (`neuesteZeilen`).
+    storeState.zeilen = [zeile('e-2'), zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-2')]
+    const w = mountPanel('user')
+    expect(w.findAll('tbody tr')).toHaveLength(1)
   })
 })

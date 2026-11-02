@@ -1,8 +1,11 @@
 <script setup lang="ts">
-// MindestbestandPanelView: vollständige Liste aller erfassten
-// Mindestbestand-Ereignisse, sortiert nach `erstelltAm` (neueste
-// zuerst). Filter nach Artikel, Standort und Status. Klick auf einen
-// Eintrag navigiert zur Artikel-Detail-View.
+// MindestbestandPanelView: Liste der offenen/erledigten Alarme,
+// sortiert nach `erstelltAm` (neueste zuerst). Pro (Artikel, Standort)
+// erscheint nur der NEUESTE Alarm — ältere Ereignisse desselben Paares
+// zeigen gegen den Live-Bestand denselben Zustand und werden im Log
+// (`zeilen`) belassen, aber nicht mehrfach gelistet. Filter nach
+// Artikel, Standort und Status. Klick auf einen Eintrag navigiert zur
+// Artikel-Detail-View.
 //
 // WICHTIG: Angezeigt wird der LIVE-Bestand, nicht der Snapshot
 // `bestandDanach` aus dem Moment der auslösenden Buchung. Sonst steht
@@ -54,7 +57,7 @@ function standortName(id: string): string {
 }
 
 const gefiltert = computed(() =>
-  mindestbestand.zeilen.filter((z) => {
+  mindestbestand.neuesteZeilen.filter((z) => {
     if (filterArtikel.value && z.ereignis.artikelId !== filterArtikel.value) return false
     if (filterStandort.value && z.ereignis.standortId !== filterStandort.value) return false
     if (filterStatus.value === 'offen' && !z.offen) return false

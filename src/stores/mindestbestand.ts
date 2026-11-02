@@ -13,6 +13,11 @@
 // sichtbar, ist aber als "erledigt" markiert und wird nicht mehr
 // gezählt und nicht mehr geklingelt.
 //
+// Für die Anzeige zählt nur der NEUESTE Alarm je (Artikel, Standort):
+// `neuesteZeilen` blendet ältere Ereignisse desselben Paares aus, weil
+// sie gegen den Live-Bestand denselben offenen Alarm darstellen. Das
+// vollständige Log bleibt in `zeilen` erhalten.
+//
 // "Neu" vs. "Gesehen": wir lesen den `letzteGesehenAm`-Marker aus
 // `einstellungen` (userId='', local-only). Der Counter im Panel zeigt
 // nur offene Events, die nach diesem Marker liegen. Beim Klick auf die Glocke
@@ -25,6 +30,7 @@ import { getDb } from '../db/database'
 import type { Artikel, MindestbestandEreignis } from '../db/types'
 import { jetztIso, neueUuid } from '../domain/ids'
 import { berechneDefizitAktuell, sollteWarnungAusloesen } from '../domain/mindestbestand'
+import { neuesteJePaar } from '../domain/mindestbestand-anzeige'
 import { useArtikelStore } from './artikel'
 import { useArtikelStandortMindestbestandStore } from './artikelStandortMindestbestand'
 import { useBuchungStore } from './buchung'
@@ -111,6 +117,17 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
   /** Nur die Zeilen, deren Unterschreitung heute noch gilt. */
   const offeneZeilen = computed(() => zeilen.value.filter((z) => z.offen))
 
+  /**
+   * Display list: only the newest event per (article, location).
+   *
+   * The append-only log keeps one event per triggering booking. While
+   * the stock stays below the threshold every one of them is "open"
+   * against the live stock, so without this de-duplication the same
+   * alarm would be listed again and again. The full log stays in
+   * `zeilen`/`letzte50Zeilen` for the alarm trigger.
+   */
+  const neuesteZeilen = computed(() => neuesteJePaar(zeilen.value))
+
   function start() {
     // Die Alarm-Schwelle kommt aus der Konfig-Tabelle, also muss deren
     // Spiegel ebenfalls live sein.
@@ -174,9 +191,10 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
   }
 
   /**
-   * Anzahl "neuer, noch offener" Alarme = Ereignisse, die UND
-   *   * nach dem letzten "Gesehen"-Marker liegen UND
-   *   * deren Unterschreitung heute noch gilt.
+   * Anzahl "neuer, noch offener" Alarme = nur der jeweils neueste
+   * Alarm je (Artikel, Standort), der UND
+   *   * nach dem letzten "Gesehen"-Marker liegt UND
+   *   * dessen Unterschreitung heute noch gilt.
    *
    * Der zweite Teil ist der Fix: wurde der Bestand nach dem Alarm wieder
    * aufgefüllt, zählt das Ereignis nicht mehr — die Glocke ist dann
@@ -185,7 +203,7 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
   const ungesehenCount = computed(() => {
     const marker = letzteGesehenAm.value
     const cutoff = marker ?? new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    return offeneZeilen.value.filter((z) => z.ereignis.erstelltAm > cutoff).length
+    return neuesteZeilen.value.filter((z) => z.offen && z.ereignis.erstelltAm > cutoff).length
   })
 
   /**
@@ -246,6 +264,7 @@ export const useMindestbestandStore = defineStore('mindestbestand', () => {
     ereignisse,
     zeilen,
     offeneZeilen,
+    neuesteZeilen,
     geladen,
     letzteGesehenAm,
     letztesSignalAm,

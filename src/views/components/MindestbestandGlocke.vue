@@ -114,7 +114,11 @@ const anzahl = alarm.anzahl
 // Status offen/erledigt. Der rohe Snapshot (`ev.bestandDanach`) wird
 // bewusst nicht angezeigt — er ist der Stand von damals und führt sonst
 // zu Meldungen wie „Bestand 3", obwohl im Lager 15 liegen.
-const liste = computed(() => mindestbestand.letzte50Zeilen)
+//
+// Pro (Artikel, Standort) nur der NEUESTE Alarm: ältere Ereignisse
+// desselben Paares zeigen denselben Live-Zustand und würden den
+// Alarm sonst mehrfach auflisten.
+const liste = computed(() => mindestbestand.neuesteZeilen.slice(0, 50))
 
 function artikelTitel(id: string): string {
   return artikelStore.byId(id)?.titel ?? '…'

@@ -18,6 +18,13 @@ const storeState = vi.hoisted(() => ({
     defizit: number
     offen: boolean
   }[],
+  neuesteZeilen: [] as {
+    ereignis: MindestbestandEreignis
+    aktuellerBestand: number
+    schwelle: number
+    defizit: number
+    offen: boolean
+  }[],
   artikel: { id: 'a-1', titel: 'Kabelkanal' } as Record<string, unknown>,
   hersteller: undefined as Record<string, unknown> | undefined,
   markiereBestellt: vi.fn(),
@@ -45,9 +52,10 @@ function zeile(id: string, offen = true) {
 vi.mock('../../../stores/mindestbestand', () => ({
   useMindestbestandStore: () => ({
     ereignisse: storeState.zeilen.map((z) => z.ereignis),
+    neuesteZeilen: storeState.neuesteZeilen as unknown as MindestbestandZeile[],
     geladen: true,
     letzteGesehenAm: null,
-    ungesehenCount: storeState.zeilen.filter((z) => z.offen).length,
+    ungesehenCount: storeState.neuesteZeilen.filter((z) => z.offen).length,
     letzte50: storeState.zeilen.map((z) => z.ereignis),
     letzte50Zeilen: storeState.zeilen as unknown as MindestbestandZeile[],
     offeneZeilen: storeState.zeilen.filter((z) => z.offen),
@@ -127,6 +135,7 @@ describe('MindestbestandGlocke — Rendering', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     storeState.zeilen = []
+    storeState.neuesteZeilen = []
     storeState.artikel = { id: 'a-1', titel: 'Kabelkanal' }
     storeState.hersteller = undefined
     storeState.markiereBestellt.mockClear()
@@ -152,6 +161,7 @@ describe('MindestbestandGlocke — Rendering', () => {
 
   it('zeigt die Glocke auch normalen Usern (Tracking ist rollenoffen)', () => {
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('user')
     expect(w.find('button.mindestbestand-indicator').exists()).toBe(true)
     // Der Zähler ist für jede Rolle sichtbar.
@@ -160,6 +170,7 @@ describe('MindestbestandGlocke — Rendering', () => {
 
   it('blendet normalen Usern Bestell-Link und Markier-Button', async () => {
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('user')
     await w.find('button.mindestbestand-indicator').trigger('click')
     expect(w.find('.mini-btn.haken').exists()).toBe(false)
@@ -169,6 +180,7 @@ describe('MindestbestandGlocke — Rendering', () => {
 
   it('zeigt Admins den manuellen Bestellt-Toggle', async () => {
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
     expect(w.text()).toContain('bestellt')
@@ -184,6 +196,7 @@ describe('MindestbestandGlocke — Rendering', () => {
     }
     storeState.hersteller = { id: 'h-1', bestellEmail: 'order@example.com' }
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
     const link = w.find('.mindestbestand-aktionen a')
@@ -197,6 +210,7 @@ describe('MindestbestandGlocke — Rendering', () => {
   it('setzt den Marker erst beim Klick auf den Toggle', async () => {
     storeState.artikel = { id: 'a-1', titel: 'Kabelkanal' }
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
     expect(storeState.markiereBestellt).not.toHaveBeenCalled()
@@ -218,10 +232,19 @@ describe('MindestbestandGlocke — Rendering', () => {
       bestelltVon: 'Sven Store',
     }
     storeState.zeilen = [zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('user')
     await w.find('button.mindestbestand-indicator').trigger('click')
     expect(w.find('.bestellt-marker').exists()).toBe(true)
     expect(w.text()).toContain('bestellt')
     expect(w.find('.mini-btn.haken').exists()).toBe(false)
+  })
+
+  it('listet pro Artikel+Standort nur den letzten Alarm', async () => {
+    storeState.zeilen = [zeile('e-2'), zeile('e-1')]
+    storeState.neuesteZeilen = [zeile('e-2')]
+    const w = mountGlocke('admin')
+    await w.find('button.mindestbestand-indicator').trigger('click')
+    expect(w.findAll('.mindestbestand-liste li')).toHaveLength(1)
   })
 })
