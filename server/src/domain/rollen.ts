@@ -1,47 +1,52 @@
-// Rollen und Berechtigungen — die einzige Quelle der Wahrheit.
+// Rollen und Berechtigungen — Datenbank-basiert.
 //
-// Eine Rolle ist eine benannte Sammlung von Berechtigungen ("Permissions").
-// Ein User kann MEHRERE Rollen haben; die Berechtigungen werden vereinigt
-// (Stacking). `admin` ist die Obergrenze: wer admin ist, hat alles.
+// Rollen und ihre Berechtigungen liegen in den Tabellen `rollen` und
+// `rollen_berechtigungen` (Migration 0030). Dieses Modul lädt die Matrix
+// aus der DB und stellt Prüf-Hilfen bereit.
 //
-// Diese Datei ist bewusst dependency-frei (keine Imports), damit der PWA-Client
-// sie im Drift-Test importieren kann (`src/domain/__tests__/rollen-drift.test.ts`).
-//
-// ---------- Rollen ----------
-//
-//   user      — Basiszugriff. Buchen, lesen, stornieren. Immer implizit.
-//   lagerist  — additive Lager-Rechte auf dem Basis-User.
-//   admin     — exklusiv; behauptet alle Berechtigungen.
-//
-// `user` wird beim Normalisieren immer ergänzt, `admin` immer exklusiv
-// gesetzt: entweder admin oder eben nicht.
+// `admin` ist exklusiv und hat immer alle Berechtigungen (Short-Circuit).
+// Die Rolle-IDs sind freie Strings (Slug, z. B. 'lagerist'); `user` ist die
+// implizite Basis und wird beim Normalisieren ergänzt.
 
-export const ROLLEN = ['user', 'lagerist', 'admin'] as const
-export type Rolle = (typeof ROLLEN)[number]
+import { eq } from 'drizzle-orm'
+import { getDb } from '../db/client.js'
+import { rollen, rollenBerechtigungen } from '../db/schema.js'
+import { ValidationError } from '../domain/errors.js'
+export type Rolle = string
+export type Permission = string
 
-/**
- * Berechtigungen. Die IDs sind stabil und werden als Strings in JWT, Session
- * und Sync-Payloads transportiert — sie dürfen daher nicht umbenannt, nur
- * ergänzt werden.
- */
-export const PERMISSIONS = [
-  // ---------- Lesen ----------
+export interface RolleMitBerechtigungen {
+  id: Rolle
+  name: string
+  beschreibung: string
+  aktiv: boolean
+  erstelltAm: Date
+  berechtigungen: Permission[]
+}
+
+// ---------- Bekannte Rollen / Berechtigungen (Seed-Standard, Migration 0030) ----------
+//
+// Diese Konstanten spiegeln den initialen Seed wider und dienen als
+// Referenz (z. B. für Drift-Tests). Zusätzliche, über das UI angelegte
+// Rollen leben nur in der DB und sind hier nicht aufgeführt.
+
+export const KNOWN_ROLLEN: readonly Rolle[] = ['user', 'lagerist', 'admin']
+
+export const KNOWN_PERMISSIONS: readonly Permission[] = [
   'artikel.lesen',
-  'standort.lesen',
-  'mindestbestand.lesen',
-  'katalog.lesen',
-  // ---------- Schreiben (Lager) ----------
   'artikel.schreiben',
   'artikel.loeschen',
+  'standort.lesen',
   'standort.schreiben',
   'standort.loeschen',
+  'mindestbestand.lesen',
   'mindestbestand.schreiben',
   'buchung.erstellen',
   'buchung.storno',
   'kommission.beitragen',
   'etikett.drucken',
   'geraet.lokal',
-  // ---------- Administration ----------
+  'katalog.lesen',
   'einkaufspreis',
   'stammdaten.verwalten',
   'akkutausch.verwalten',
@@ -51,91 +56,52 @@ export const PERMISSIONS = [
   'import.fuehren',
   'apiKey.verwalten',
   'entwicklung',
-] as const
-export type Permission = (typeof PERMISSIONS)[number]
-
-/** Basis-User: lesen, buchen, stornieren, Kommission beitragen. */
-const USER_BEREECHTIGUNGEN: readonly Permission[] = [
-  'artikel.lesen',
-  'standort.lesen',
-  'mindestbestand.lesen',
-  'katalog.lesen',
-  'buchung.erstellen',
-  'buchung.storno',
-  'kommission.beitragen',
-  'etikett.drucken',
-  'geraet.lokal',
 ]
-
-/** Lagerist: additive Lager-Rechte auf dem Basis-User. */
-const LAGERIST_BEREECHTIGUNGEN: readonly Permission[] = [
-  'artikel.schreiben',
-  'artikel.loeschen',
-  'standort.schreiben',
-  'mindestbestand.schreiben',
-]
-
-/** Admin: alles. */
-const ADMIN_BEREECHTIGUNGEN: readonly Permission[] = PERMISSIONS
 
 /**
- * Wer welche Berechtigungen hat. `admin` enthält ausdrücklich alle — die
- * Short-Circuit-Pruefung in `hatBerechtigung` deckt das zusaetzlich ab, damit
- * eine spaetere Rolle nicht versehentlich weniger als admin bekommt.
+ * Standard-Rollen-Matrix als Fallback, wenn die DB nicht verfugbar ist
+ * (z. B. in Tests mit Mock-DBs). Entspricht dem Seed in Migration 0030.
  */
-export const ROLLEN_BEREECHTIGUNGEN: Record<Rolle, readonly Permission[]> = {
-  user: USER_BEREECHTIGUNGEN,
-  lagerist: LAGERIST_BEREECHTIGUNGEN,
-  admin: ADMIN_BEREECHTIGUNGEN,
-}
-
-/** Anzeigename + Kurzbeschreibung einer Rolle (deutsch, UI-Text). */
-export interface RollenInfo {
-  /** Anzeigename, z.B. "Lagerist". */
-  titel: string
-  /** Ein Satz, der die Rolle erklaert. */
-  beschreibung: string
-  /** Aufzaehlung der Rechte — wird in der Rollen-Legende angezeigt. */
-  rechte: readonly string[]
-}
-
-export const ROLLEN_INFO: Record<Rolle, RollenInfo> = {
+export const DEFAULT_ROLLEN_MATRIX: Record<Rolle, RolleMitBerechtigungen> = {
   user: {
-    titel: 'User',
-    beschreibung:
-      'Basiszugriff: Artikel und Standorte lesen, Bestaende buchen, eigene Buchungen stornieren, Kommissionen beitragen.',
-    rechte: [
-      'Artikel, Standorte und Mindestbestand lesen',
-      'Buchungen anlegen und stornieren',
-      'Kommissionen beitragen',
-      'Etiketten drucken',
+    id: 'user',
+    name: 'User',
+    beschreibung: 'Basiszugriff: lesen, buchen, stornieren.',
+    aktiv: true,
+    erstelltAm: new Date('2026-01-01T00:00:00Z'),
+    berechtigungen: [
+      'artikel.lesen', 'standort.lesen', 'mindestbestand.lesen', 'katalog.lesen',
+      'buchung.erstellen', 'buchung.storno', 'kommission.beitragen',
+      'etikett.drucken', 'geraet.lokal',
     ],
   },
   lagerist: {
-    titel: 'Lagerist',
-    beschreibung:
-      'Zusaetzlich zu User: Artikelstammdaten und Standorte pflegen, Mindestbestand je Artikel und Standort konfigurieren.',
-    rechte: [
-      'Artikel anlegen und bearbeiten (ohne Einkaufspreis)',
-      'Artikel loeschen',
-      'Standorte anlegen, umbenennen und archivieren',
-      'Mindestbestand je Artikel und Standort setzen',
+    id: 'lagerist',
+    name: 'Lagerist',
+    beschreibung: 'Zusatzlich zu User: Artikel und Standorte pflegen, Mindestbestand setzen.',
+    aktiv: true,
+    erstelltAm: new Date('2026-01-01T00:00:00Z'),
+    berechtigungen: [
+      'artikel.lesen', 'standort.lesen', 'mindestbestand.lesen', 'katalog.lesen',
+      'buchung.erstellen', 'buchung.storno', 'kommission.beitragen',
+      'etikett.drucken', 'geraet.lokal',
+      'artikel.schreiben', 'artikel.loeschen', 'standort.schreiben', 'mindestbestand.schreiben',
     ],
   },
   admin: {
-    titel: 'Admin',
-    beschreibung:
-      'Voller Zugriff: alle Rechte der uebrigen Rollen plus Stammdaten, Preise, Akkutausch, Benutzerverwaltung, Backup und Import.',
-    rechte: [
-      'Alles, was User und Lagerist duerfen',
-      'Einkaufspreise und Lieferantenrabatte sehen und pflegen',
-      'Stammdaten, Akkutausch und globale Einstellungen verwalten',
-      'Benutzer verwalten, Backup/Restore, CSV-Import, API-Keys',
-    ],
+    id: 'admin',
+    name: 'Admin',
+    beschreibung: 'Voller Zugriff auf alle Berechtigungen.',
+    aktiv: true,
+    erstelltAm: new Date('2026-01-01T00:00:00Z'),
+    berechtigungen: [...KNOWN_PERMISSIONS],
   },
 }
 
-/** Anzeigename + Kurzbeschreibung einer Berechtigung (deutsch, UI-Text). */
+/**
+ * Beschreibungen der bekannten Berechtigungen (UI-Text, deutsch).
+ * Wird von /api/rollen ausgeliefert, damit die Client-Legende sie anzeigen kann.
+ */
 export interface BerechtigungInfo {
   titel: string
   beschreibung: string
@@ -178,7 +144,7 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   'katalog.lesen': { titel: 'Kataloge lesen', beschreibung: 'Artikel-Kataloge und Lieferantenlisten ansehen.' },
   'geraet.lokal': {
     titel: 'Lokaler Speicher',
-    beschreibung: 'Einstellungen und den lokalen Gerätespeicher verwalten.',
+    beschreibung: 'Einstellungen und den lokalen Geraetespeicher verwalten.',
   },
   'einkaufspreis': {
     titel: 'Einkaufspreis',
@@ -209,25 +175,70 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   },
 }
 
-/** Prueft, ob ein unbekannter String eine gueltige Rolle ist. */
-export function istRolle(value: unknown): value is Rolle {
-  return typeof value === 'string' && (ROLLEN as readonly string[]).includes(value)
+/**
+ * Lädt die vollständige Rollen-Berechtigungs-Matrix aus der DB.
+ * Gibt eine Map von Rolle → RolleMitBerechtigungen zurück.
+ */
+export async function ladeRollenMatrix(
+  db: ReturnType<typeof getDb>,
+): Promise<Record<Rolle, RolleMitBerechtigungen>> {
+  const rolleRows = await db
+    .select({
+      id: rollen.id,
+      name: rollen.name,
+      beschreibung: rollen.beschreibung,
+      aktiv: rollen.aktiv,
+      erstelltAm: rollen.erstelltAm,
+    })
+    .from(rollen)
+    .where(eq(rollen.aktiv, true))
+
+  const permRows = await db
+    .select({
+      rolleId: rollenBerechtigungen.rolleId,
+      berechtigung: rollenBerechtigungen.berechtigung,
+    })
+    .from(rollenBerechtigungen)
+
+  const matrix: Record<Rolle, RolleMitBerechtigungen> = {}
+  for (const r of rolleRows) {
+    matrix[r.id] = {
+      id: r.id,
+      name: r.name,
+      beschreibung: r.beschreibung,
+      aktiv: r.aktiv,
+      erstelltAm: r.erstelltAm,
+      berechtigungen: [],
+    }
+  }
+  for (const p of permRows) {
+    const rolle = matrix[p.rolleId]
+    if (rolle) rolle.berechtigungen.push(p.berechtigung)
+  }
+  return matrix
 }
 
-/** Prueft, ob ein unbekannter String eine gueltige Berechtigung ist. */
+/** Prüft, ob ein unbekannter String eine guültige Rolle ist (prüft nicht gegen DB). */
+export function istRolle(value: unknown): value is Rolle {
+  return typeof value === 'string' && value.length > 0
+}
+
+/** Prüft, ob ein unbekannter String eine guültige Berechtigung ist. */
 export function istBerechtigung(value: unknown): value is Permission {
-  return typeof value === 'string' && (PERMISSIONS as readonly string[]).includes(value)
+  return typeof value === 'string' && value.length > 0
 }
 
 /**
- * Normalisiert beliebige Eingaben zu einem gueltigen Rollen-Array.
+ * Normalisiert beliebige Eingaben zu einem guültigen Rollen-Array.
  *
- * - Unbekannte Eintraege werden verworfen.
  * - `admin` ist exklusiv: sobald admin dabei ist, ist das Ergebnis `['admin']`.
- * - `user` ist die Basis und wird immer ergaenzt (ausser bei admin).
- * - Ein leeres Ergebnis bedeutet `['user']` — niemand ist ohne Rechte.
+ * - `user` ist die Basis und wird immer ergänzt (ausser bei admin).
+ * - Ein leeres Ergebnis bedeutet `['user']`.
  *
  * Akzeptiert auch den Legacy-Einzelwert (`'admin'` / `'user'`).
+ *
+ * Hinweis: hier findet keine DB-Validierung statt (kein DB-Zugriff in dieser
+ * Funktion). Ob eine Rolle in der DB existiert, wird aufrufend geprüft.
  */
 export function normalisiereRollen(input: unknown): Rolle[] {
   const rohen: string[] = Array.isArray(input)
@@ -241,8 +252,7 @@ export function normalisiereRollen(input: unknown): Rolle[] {
 
   const set = new Set<Rolle>(bekannt)
   set.add('user')
-  // Feste Reihenfolge, damit der Wert stabil vergleichbar bleibt (JWT, Cache).
-  return ROLLEN.filter((r) => set.has(r))
+  return [...set]
 }
 
 /** true, wenn der User Admin-Rechte hat. */
@@ -251,32 +261,70 @@ export function istAdmin(rollen: readonly Rolle[] | undefined | null): boolean {
 }
 
 /**
- * Die vereinigten Berechtigungen aller uebergebenen Rollen.
- * `admin` liefert immer alle.
+ * Die vereinigten Berechtigungen aller übergebenen Rollen gemäß Matrix.
+ * `admin` liefert immer alle bekannten Berechtigungen.
  */
-export function berechtigungenFuer(rollen: readonly Rolle[] | undefined | null): Permission[] {
+export async function berechtigungenFuer(
+  rollen: readonly Rolle[] | undefined | null,
+): Promise<Permission[]> {
   if (!rollen || rollen.length === 0) return []
-  if (istAdmin(rollen)) return [...PERMISSIONS]
+  const matrix = await ladeRollenMatrix(getDb()).catch(() => DEFAULT_ROLLEN_MATRIX)
+  if (istAdmin(rollen)) {
+    const all = new Set<Permission>()
+    for (const r of Object.values(matrix)) for (const p of r.berechtigungen) all.add(p)
+    return [...all]
+  }
   const set = new Set<Permission>()
   for (const rolle of rollen) {
-    for (const p of ROLLEN_BEREECHTIGUNGEN[rolle] ?? []) set.add(p)
+    for (const p of matrix[rolle]?.berechtigungen ?? []) set.add(p)
   }
-  return PERMISSIONS.filter((p) => set.has(p))
+  return [...set]
 }
 
 /** true, wenn die Rolle (bzw. der Rollen-Stack) die Berechtigung hat. */
-export function hatBerechtigung(
+export async function hatBerechtigung(
   rollen: readonly Rolle[] | undefined | null,
   berechtigung: Permission,
-): boolean {
+  matrix?: Record<Rolle, RolleMitBerechtigungen>,
+): Promise<boolean> {
   if (istAdmin(rollen)) return true
   if (!rollen) return false
-  return rollen.some((rolle) => ROLLEN_BEREECHTIGUNGEN[rolle]?.includes(berechtigung) ?? false)
+  const m = matrix ?? (await ladeRollenMatrix(getDb()).catch(() => DEFAULT_ROLLEN_MATRIX))
+  return rollen.some((rolle) => m[rolle]?.berechtigungen.includes(berechtigung) ?? false)
 }
 
 /**
- * Der Legacy-Wert fuer die alte `users.rolle`-Spalte: `admin` oder `user`.
- * Wird dual geschrieben, damit aeltere Server-Container waehrend eines
+ * Wirft einen ValidationError, wenn die Berechtigung fehlt. Der Fehler
+ * wird pro Op gemeldet (der Batch lauft weiter).
+ */
+export async function pruefeBerechtigung(
+  rollen: readonly Rolle[] | undefined | null,
+  berechtigung: Permission,
+  kontext: string,
+  matrix?: Record<Rolle, RolleMitBerechtigungen>,
+): Promise<void> {
+  const erlaubt = await hatBerechtigung(rollen, berechtigung, matrix)
+  if (!erlaubt) {
+    throw new ValidationError(
+      'entity',
+      `${kontext} erfordert die Berechtigung "${berechtigung}"`,
+    )
+  }
+}
+
+/**
+ * Prueft, ob der User Akkutausch-Daten aendern darf (Admin-only).
+ */
+export async function pruefeAkkutauschRolle(
+  rollen: readonly Rolle[] | undefined | null,
+  matrix?: Record<Rolle, RolleMitBerechtigungen>,
+): Promise<void> {
+  await pruefeBerechtigung(rollen, 'akkutausch.verwalten', 'Akkutausch-Daten aendern', matrix)
+}
+
+/**
+ * Der Legacy-Wert für die alte `users.rolle`-Spalte: `admin` oder `user`.
+ * Wird dual geschrieben, damit ältere Server-Container während eines
  * Rollouts die Admin-Rolle weiterhin erkennen.
  */
 export function legacyRolle(rollen: readonly Rolle[]): 'admin' | 'user' {

@@ -47,6 +47,7 @@ import ImportView from '../views/ImportView.vue'
 import LoginView from '../views/LoginView.vue'
 import PasswortAendernView from '../views/PasswortAendernView.vue'
 import UserVerwaltungView from '../views/UserVerwaltungView.vue'
+import RollenView from '../views/RollenView.vue'
 import BarcodeScanView from '../views/BarcodeScanView.vue'
 import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
@@ -106,6 +107,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/user',
     name: 'einstellungen-user',
     component: UserVerwaltungView,
+    meta: { requiresPermission: ['benutzer.verwalten'] },
+  },
+  {
+    path: '/einstellungen/rollen',
+    name: 'einstellungen-rollen',
+    component: RollenView,
     meta: { requiresPermission: ['benutzer.verwalten'] },
   },
   {

@@ -56,33 +56,22 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 
 Die Rechte sind **stapelbar**: ein User kann mehrere Rollen haben, die Berechtigungen werden vereinigt. `admin` ist die Obergrenze (hat alles) und exklusiv.
 
-- **Rollen**: `user` (Basis — immer implizit), `lagerist` (Lager-Rechte auf dem Basis-User), `admin` (alles).
-- **Die Matrix lebt im Server** — `server/src/domain/rollen.ts` (dependency-frei, keine Imports). Der PWA-Client importiert sie direkt (`src/domain/rollen.ts`), es gibt also **keine doppelte Pflege** der Berechtigungs-IDs. Neue Rolle = eine Zeile in der Matrix, **keine DB-Migration**.
-- **Die Matrix:**
-
-  | Permission | user | lagerist | admin |
-  |---|:-:|:-:|:-:|
-  | `artikel.lesen`, `standort.lesen`, `mindestbestand.lesen`, `katalog.lesen` | ✓ | ✓ | ✓ |
-  | `buchung.erstellen`, `buchung.storno`, `kommission.beitragen`, `etikett.drucken`, `geraet.lokal` | ✓ | ✓ | ✓ |
-  | `artikel.schreiben`, `artikel.loeschen` | | ✓ | ✓ |
-  | `standort.schreiben` (anlegen/umbenennen/archivieren) | | ✓ | ✓ |
-  | `mindestbestand.schreiben` (je Artikel/Standort) | | ✓ | ✓ |
-  | `standort.loeschen` | | | ✓ |
-  | `einkaufspreis` (EK + Rabattsatz), `stammdaten.verwalten` (Lieferanten, Typen, Kommissionen-Liste) | | | ✓ |
-  | `akkutausch.verwalten`, `globalEinstellung`, `benutzer.verwalten`, `backup.verwalten`, `import.fuehren`, `apiKey.verwalten`, `entwicklung` | | | ✓ |
-
-- **Datenmodell**: `users.rollen TEXT[]` (Migration `0029`) — z.B. `{user}`, `{user,lagerist}`, `{admin}`. Die alte Spalte `users.rolle` (`'admin'|'user'`) **bleibt** und wird **dual geschrieben** (`legacyRolle()`), damit ältere Server-Container während eines Rollouts die Admin-Rolle erkennen. Ein späterer Cleanup kann die Spalte droppen.
+- **Rollen sind DB-basiert** (Migration `0030`): Tabelle `rollen` (`id` = interner Schlüssel/Slug, `name` = Anzeigename, `beschreibung`, `aktiv`, `erstellt_am`) und `rollen_berechtigungen` (`rolle_id` → `rollen.id`, `berechtigung` = Permission-String).
+- **Seed-Rollen**: `user` (Basis), `lagerist` (Lager-Rechte), `admin` (alles). `admin` ist geschützt: nicht löschbar, nicht umbenennbar, hat immer alle Berechtigungen.
+- **Neue Rollen** können über `/einstellungen/rollen` angelegt, umbenannt, deaktiviert und gelöscht werden (nur mit `benutzer.verwalten`). Eine Rolle kann nicht gelöscht werden, solange sie von mindestens einem User bekleidet wird (TODO: Prüfung gegen `users.rollen` noch ausstehend).
+- **Berechtigungen** werden pro Rolle per Checkbox zugewiesen. Bekannte Berechtigungen sind in `server/src/domain/rollen.ts` (`KNOWN_PERMISSIONS`) definiert; neue können über das UI hinzugefügt werden, solange sie ein bekannter String sind.
+- **Datenmodell User**: `users.rollen TEXT[]` (Migration `0029`) — z.B. `{user}`, `{user,lagerist}`, `{admin}`. Die alte Spalte `users.rolle` (`'admin'|'user'`) **bleibt** und wird **dual geschrieben** (`legacyRolle()`), damit ältere Server-Container während eines Rollouts die Admin-Rolle erkennen.
 - **Rollenänderung wirkt sofort**: `authenticate()` (Server) liest die Rollen bei **jedem** Request frisch aus der DB — der JWT ist nicht mehr die Wahrheit über die Rolle. Die PWA holt ihre Rechte aus der Login-Antwort bzw. `/api/auth/me` (`session.berechtigungen`) und aktualisiert die Session beim Start (`auth.aktualisiereSession()`).
-- **Server ist die Autoritaet**: der Sync-Resolver prüft **jede** Entity gegen die Matrix (`pruefeBerechtigung()` in `server/src/sync/resolver.ts`). Das schließt die bisherige Lücke, dass `standort`, `artikel` (Schreibzugriffe), `artikel_standort_mindestbestand` und `buchung` serverseitig für jeden angemeldeten User schreibbar waren, obwohl die UI sie admin-only zeigte.
+- **Server ist die Autoritaet**: der Sync-Resolver prüft **jede** Entity gegen die Matrix (`pruefeBerechtigung()` in `server/src/sync/resolver.ts`, Matrix wird pro Request aus der DB geladen).
   - Ein Berechtigungsfehler ist ein `ValidationError` (`VALIDATION`) **pro Op** — der Batch läuft weiter, der Client legt das Outbox-Item nach `QUARANTINE_THRESHOLD` still.
-- **Client-Gates**: `auth.hat('…')` (Auth-Store) statt `auth.istAdmin`. Der Router nutzt `meta.requiresPermission: Permission[]` (Route-Meta ist in `src/router/index.ts` typisiert). Ein Fallback rechnet die Rechte lokal aus der Matrix, falls eine alte Session keine `berechtigungen` mitbringt.
-- **Rollen-Legende** unter `/einstellungen/user`: die Beschreibungen kommen aus `GET /api/rollen` (Rolle, Rechte, Kurzbeschreibung) und werden im localStorage gecacht (`src/stores/rollen.ts`), damit die Legende offline geht.
+- **Client-Gates**: `auth.hat('…')` (Auth-Store) statt `auth.istAdmin`. Der Router nutzt `meta.requiresPermission: Permission[]` (Route-Meta ist in `src/router/index.ts` typisiert).
+- **Rollen-Verwaltung UI** unter `/einstellungen/rollen` (Route `einstellungen-rollen`, `requiresPermission: ['benutzer.verwalten']`): Liste aller Rollen mit Berechtigungen, Anlegen neuer Rollen, Bearbeiten (Name, Beschreibung, Aktiv), Löschen, Berechtigungen per Checkbox zuweisen/entfernen.
 - **`standardStandortId` bleibt Admin-only** (`globalEinstellung`). `resolveEinstellung` (Server) lehnt jeden Push des Keys von Nicht-Admins ab — auch für die eigene User-ID (`ADMIN_ONLY_PER_USER_KEYS`). Bestehende Outbox-Einträge von Nicht-Admins laufen in die Quarantäne (`VALIDATION` pro Op, kein Batch-Abbruch).
 - **Bewusst unverändert**: das **Storno-Verhalten** (heute darf jeder jeden Storno stoßen — serverseitig nicht eingeschränkt). Eine Permission `buchung.stornoFremd` ist in der Matrix vorbereitet, aber **nicht aktiviert**, damit kein Workflow bricht.
 
 ### Benutzerrechte: Admin-only-Bereiche
 
-- **Admin-only (Routing via `meta.requiresPermission` + `auth.hat(...)`)**: Benutzerverwaltung, Artikel-/Akku-Typen, Kommissionen (Verwaltung), Hersteller, Backup, Entwicklung, CSV-Import, **API-Keys**. **Mindestbestand-Panel** und **Mindestbestand-Alarm** sind für jede Rolle lesbar (Route `/einstellungen/mindestbestand` ohne Gate); der Bestell-Link, „als bestellt markieren" und die Mindestbestand-Konfiguration (Artikel-Detail-View) sind `akkutausch.verwalten` bzw. `mindestbestand.schreiben` vorbehalten.
+- **Admin-only (Routing via `meta.requiresPermission` + `auth.hat(...)`)**: Benutzerverwaltung, Rollen-Verwaltung, Artikel-/Akku-Typen, Kommissionen (Verwaltung), Hersteller, Backup, Entwicklung, CSV-Import, **API-Keys**. **Mindestbestand-Panel** und **Mindestbestand-Alarm** sind für jede Rolle lesbar (Route `/einstellungen/mindestbestand` ohne Gate); der Bestell-Link, „als bestellt markieren" und die Mindestbestand-Konfiguration (Artikel-Detail-View) sind `akkutausch.verwalten` bzw. `mindestbestand.schreiben` vorbehalten.
 - **Standorte** sind jetzt `standort.schreiben` — das darf auch der **Lagerist**; nur das Löschen (`standort.loeschen`) bleibt Admin-Sache. Das **Anlegen eines Artikels** ist `artikel.schreiben` (Lagerist + Admin) — ein normaler User darf Artikel nur lesen.
 - **Einstellungen-Menü (`SettingsView.vue`)**: die Links *CSV-Import*, *Backup* und *API-Keys* sowie der **gesamte Stammdaten-Block** (Standorte, Artikel-/Akku-Typen, Kommissionen, Hersteller) richten sich nach der jeweiligen Berechtigung. Bewusst offen für alle Rollen: *Lokaler Speicher (Gerät)*, *Artikel-Kataloge*, *Etiketten*, **Mindestbestand-Panel**, **Mindestbestand-Alarm** und der Akkutausch-Zugriff (Toggle `globalEinstellung`).
 

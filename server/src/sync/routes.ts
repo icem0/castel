@@ -219,7 +219,10 @@ export async function syncRoutes(
         restoreEpoch,
         // Einkaufspreise sind vertraulich und werden nur an Admins
         // ausgeliefert. Fuer alle anderen Rollen steht das Feld auf null.
-        artikel: stripEinkaufspreis(artikelRows, hatBerechtigung(user.rollen, 'einkaufspreis')),
+        artikel: stripEinkaufspreis(
+          artikelRows,
+          await hatBerechtigung(user.rollen, 'einkaufspreis'),
+        ),
         standorte: standortRows,
         commission: projektRows,
         buchungen: buchungRows,
@@ -227,7 +230,7 @@ export async function syncRoutes(
         // Einkaufspreis — nur Admins bekommen ihn (und dann als Zahl).
         hersteller: mappeHerstellerRabattsatz(
           herstellerRows,
-          hatBerechtigung(user.rollen, 'einkaufspreis'),
+          await hatBerechtigung(user.rollen, 'einkaufspreis'),
         ),
         artikelStandortMindestbestaende: mindestbestandRows.map((r) => ({
           artikelId: r.artikelId,

@@ -219,6 +219,9 @@ onBeforeUnmount(() => {
       <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/user">{{
         t('view.settings.benutzerVerwaltung')
       }}</RouterLink>
+      <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/rollen">{{
+        t('view.settings.rollenVerwaltung')
+      }}</RouterLink>
       <RouterLink v-if="auth.hat('entwicklung')" to="/einstellungen/entwicklung">{{
         t('view.settings.entwicklung')
       }}</RouterLink>

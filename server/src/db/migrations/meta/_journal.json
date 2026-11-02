@@ -211,6 +211,13 @@
       "when": 1793600000000,
       "tag": "0029_user_rollen",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1793700000000,
+      "tag": "0030_rollen_berechtigungen",
+      "breakpoints": true
     }
   ]
 }

@@ -76,20 +76,20 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     // Letzter Login speichern
     const db = getDb()
-    await db.update(users).set({ letzterLoginAm: new Date() }).where(eq(users.id, user.id))
+      await db.update(users).set({ letzterLoginAm: new Date() }).where(eq(users.id, user.id))
 
-    return reply.send({
-      token: tokens.jwt,
-      user: {
-        id: user.id,
-        email: user.email,
-        anzeigename: user.anzeigename,
-        rolle: user.rolle,
-        rollen,
-        berechtigungen: berechtigungenFuer(rollen),
-        mustChangePassword: user.mustChangePassword,
-      },
-    })
+      return reply.send({
+        token: tokens.jwt,
+        user: {
+          id: user.id,
+          email: user.email,
+          anzeigename: user.anzeigename,
+          rolle: user.rolle,
+          rollen,
+          berechtigungen: await berechtigungenFuer(rollen),
+          mustChangePassword: user.mustChangePassword,
+        },
+      })
   },
   )
 
@@ -163,7 +163,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         anzeigename: user.anzeigename,
         rolle: user.rolle,
         rollen,
-        berechtigungen: berechtigungenFuer(rollen),
+        berechtigungen: await berechtigungenFuer(rollen),
         mustChangePassword: user.mustChangePassword,
       })
     },
@@ -228,18 +228,18 @@ async function issueTokenPair(
   rollen: Rolle[],
   userAgent: string | undefined,
 ): Promise<TokenPair> {
+  const db = getDb()
   const payload: JwtPayload = {
     sub: userId,
     email,
     rolle: legacyRolle(rollen),
     rollen,
-    berechtigungen: berechtigungenFuer(rollen),
+    berechtigungen: await berechtigungenFuer(rollen),
   }
   const jwt = app.jwt.sign(payload)
   const refreshPlain = generateRefreshToken()
   const tokenHash = hashRefreshToken(refreshPlain)
 
-  const db = getDb()
   await db.insert(refreshTokens).values({
     id: crypto.randomUUID(),
     userId,

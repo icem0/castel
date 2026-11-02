@@ -7,7 +7,6 @@ import { users } from '../db/schema.js'
 import { NotFoundError } from '../domain/errors.js'
 import {
   berechtigungenFuer,
-  hatBerechtigung,
   istAdmin,
   legacyRolle,
   normalisiereRollen,
@@ -52,7 +51,7 @@ export async function authenticate(req: FastifyRequest, reply: FastifyReply): Pr
       ...payload,
       rolle: legacyRolle(rollen),
       rollen,
-      berechtigungen: berechtigungenFuer(rollen),
+      berechtigungen: await berechtigungenFuer(rollen),
     }
   } catch {
     void reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Token fehlt oder ungültig' })
@@ -74,9 +73,8 @@ export function requirePermission(...permissions: Permission[]) {
     await requireAuth(req, reply)
     if (reply.sent) return
     const user = req.authUser
-    const rollen = user?.rollen
     const erlaubt =
-      !!user && permissions.every((p) => hatBerechtigung(rollen, p))
+      !!user && permissions.every((p) => (user.berechtigungen ?? []).includes(p))
     if (!erlaubt) {
       void reply.code(403).send({
         code: 'FORBIDDEN',

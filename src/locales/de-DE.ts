@@ -403,6 +403,7 @@ export default {
       benachrichtigungen: 'Benachrichtigungen',
       administration: 'Administration',
       benutzerVerwaltung: 'Benutzer-Verwaltung',
+      rollenVerwaltung: 'Rollen & Berechtigungen',
       entwicklung: 'Entwicklung',
       werkzeuge: 'Werkzeuge',
       akkutauschAktiv: 'Akkutausch-Tool aktivieren',

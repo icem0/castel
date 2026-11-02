@@ -145,19 +145,28 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
     titel: 'Mindestbestand schreiben',
     beschreibung: 'Mindestbestand je Artikel und Standort setzen.',
   },
-  'buchung.erstellen': { titel: 'Buchen', beschreibung: 'Bestaende buchen (Ein-/Auslagerung, Umlagerung, Inventur).' },
+  'buchung.erstellen': {
+    titel: 'Buchen',
+    beschreibung: 'Bestaende buchen (Ein-/Auslagerung, Umlagerung, Inventur).',
+  },
   'buchung.storno': { titel: 'Stornieren', beschreibung: 'Buchungen stornieren.' },
   'kommission.beitragen': {
     titel: 'Kommissionen beitragen',
     beschreibung: 'Neue Kommissionen zur globalen Liste beitragen.',
   },
-  'etikett.drucken': { titel: 'Etiketten drucken', beschreibung: 'Etiketten und Barcodes erzeugen.' },
-  'katalog.lesen': { titel: 'Kataloge lesen', beschreibung: 'Artikel-Kataloge und Lieferantenlisten ansehen.' },
+  'etikett.drucken': {
+    titel: 'Etiketten drucken',
+    beschreibung: 'Etiketten und Barcodes erzeugen.',
+  },
+  'katalog.lesen': {
+    titel: 'Kataloge lesen',
+    beschreibung: 'Artikel-Kataloge und Lieferantenlisten ansehen.',
+  },
   'geraet.lokal': {
     titel: 'Lokaler Speicher',
     beschreibung: 'Einstellungen und den lokalen Gerätespeicher verwalten.',
   },
-  'einkaufspreis': {
+  einkaufspreis: {
     titel: 'Einkaufspreis',
     beschreibung: 'Vertrauliche Einkaufspreise und Lieferantenrabatte sehen und pflegen.',
   },
@@ -169,7 +178,7 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
     titel: 'Akkutausch verwalten',
     beschreibung: 'Netzteile, Projektakkus, Puffer und Bestellungen des Akkutausches pflegen.',
   },
-  'globalEinstellung': {
+  globalEinstellung: {
     titel: 'Globale Einstellungen',
     beschreibung: 'Standard-Standort, Firmenname, Barcode-Format und Typenlisten pflegen.',
   },
@@ -179,8 +188,11 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   },
   'backup.verwalten': { titel: 'Backup', beschreibung: 'Backups erstellen und wiederherstellen.' },
   'import.fuehren': { titel: 'CSV-Import', beschreibung: 'CSV-Import ausfuehren.' },
-  'apiKey.verwalten': { titel: 'API-Keys', beschreibung: 'API-Keys fuer die Agenten-API verwalten.' },
-  'entwicklung': {
+  'apiKey.verwalten': {
+    titel: 'API-Keys',
+    beschreibung: 'API-Keys fuer die Agenten-API verwalten.',
+  },
+  entwicklung: {
     titel: 'Entwicklung',
     beschreibung: 'Entwicklermenue, Geraete-Reset und Buchungs-Bulk-Delete.',
   },

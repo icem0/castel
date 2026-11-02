@@ -835,3 +835,28 @@ export const syncErrorReports = pgTable(
     index('sync_error_reports_created_idx').on(t.createdAt),
   ],
 )
+
+// ---------- Rollen (konfigurierbare Berechtigungs-Rollen) ----------
+
+export const rollen = pgTable(
+  'rollen',
+  {
+    id: text('id').primaryKey(), // interner Schlüssel (Slug), z. B. 'lagerist'
+    name: text('name').notNull(), // Anzeigename, änderbar
+    beschreibung: text('beschreibung').notNull().default(''),
+    aktiv: boolean('aktiv').notNull().default(true),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
+  },
+)
+
+export const rollenBerechtigungen = pgTable(
+  'rollen_berechtigungen',
+  {
+    rolleId: text('rolle_id')
+      .notNull()
+      .references(() => rollen.id, { onDelete: 'cascade' }),
+    berechtigung: text('berechtigung').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.rolleId, t.berechtigung] })],
+)
+
