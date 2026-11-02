@@ -24,7 +24,7 @@ import { Readable, Transform, Writable } from 'node:stream'
 import archiver from 'archiver'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getClient, getDb } from '../db/client.js'
-import { buchungen, einstellungen } from '../db/schema.js'
+import { buchungen, einstellungen, users } from '../db/schema.js'
 import { config } from '../config/config.js'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
@@ -603,6 +603,106 @@ export interface RestoreErgebnis {
   fotoDateien: number
   /** Anzahl der wiederhergestellten DATANORM-Dateien. */
   datanormDateien: number
+  /**
+   * true = das User-Konto des ausfuehrenden Admins musste wiederhergestellt
+   * werden, weil es im Backup nicht enthalten war (sonst waere er nach dem
+   * Restore ausgesperrt).
+   */
+  userWiederhergestellt: boolean
+}
+
+/**
+ * Die User-Zeile des Admin, der den Restore ausfuehrt. Wird VOR dem
+ * Restore gelesen und danach wiederhergestellt, falls sie im Backup fehlt.
+ */
+export interface BewahrterUser {
+  id: string
+  email: string
+  passwordHash: string
+  rolle: 'admin' | 'user'
+  aktiv: boolean
+  erstelltAm: Date
+  letzterLoginAm: Date | null
+  mustChangePassword: boolean
+  anzeigename: string
+}
+
+export interface RestoreOptionen {
+  /**
+   * Wird aufgerufen, SOBALD `pg_restore` erfolgreich war — also genau dann,
+   * wenn die Datenbank tatsaechlich ersetzt ist. Der Restore-Epoche-Marker
+   * gehoert dorthin: bricht der Restore danach beim Kopieren der Fotos ab,
+   * ist die DB bereits ersetzt, die Clients muessen die Ersetzung aber
+   * zwingend bemerken (sonst dauerhafte Divergenz, Geister-Buchungen).
+   */
+  onDumpEingespielt?: () => Promise<void>
+  /**
+   * User-Zeile, die den Restore nicht ueberleben darf (der handelnde
+   * Admin). Fehlt sie im Backup, wird sie wiederhergestellt.
+   */
+  bewahrterUser?: BewahrterUser | null
+  /**
+   * Major-Version des laufenden Postgres-Servers. Wird von aussen
+   * uebergeben, damit der Service nicht selbst die DB kontaktieren muss
+   * (und der Unit-Test ohne DB auskommt). null = unbekannt.
+   */
+  serverMajor?: number | null
+}
+
+/**
+ * Liest das Manifest direkt aus dem ZIP, ohne das ganze Archiv zu
+ * entpacken (`unzip -p`). Liefert null, wenn die Datei kein ZIP ist oder
+ * kein gueltiges Manifest mit dem erwarteten Schema enthaelt.
+ */
+export async function leseManifestAusZip(zipPath: string): Promise<BackupManifest | null> {
+  let stdout: string
+  try {
+    const r = await fuehreKommando('unzip', ['-p', zipPath, 'manifest.json'])
+    if (r.code !== 0) return null
+    stdout = r.stdout
+  } catch {
+    return null
+  }
+  try {
+    const manifest = JSON.parse(stdout) as BackupManifest
+    return manifest.schema === 'castel-backup-1' ? manifest : null
+  } catch {
+    return null
+  }
+}
+
+/** Magic-Bytes eines ZIP-Archivs (lokaler Datei-Header "PK\x03\x04"). */
+const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04])
+
+/**
+ * Prueft, dass die Datei ueberhaupt ein ZIP-Archiv ist. Ohne diese
+ * Vorpruefung wuerde der Admin bei einem falschen Dateityp erst nach
+ * dem Upload eine kryptische unzip-Fehlermeldung bekommen.
+ */
+export async function pruefeZipSignatur(pfad: string): Promise<void> {
+  const handle = await open(pfad, 'r')
+  try {
+    const buf = Buffer.alloc(4)
+    const { bytesRead } = await handle.read(buf, 0, 4, 0)
+    if (bytesRead < 4 || !buf.subarray(0, 4).equals(ZIP_MAGIC)) {
+      throw new Error(
+        'Die hochgeladene Datei ist kein ZIP-Archiv. Es wird eine .zip-Datei erwartet.',
+      )
+    }
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
+ * Dateiname-Stempel fuer eine Backup-Datei: "2026-11-02T10-00-00-000Z".
+ * Ohne Zeitstempel (z. B. altes Backup ohne Manifest) wird die aktuelle
+ * Zeit genommen. Die Liste liest daraus das Erstellungsdatum.
+ */
+export function backupStamp(createdAt: string | null): string {
+  const d = createdAt ? new Date(createdAt) : new Date()
+  const iso = Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString()
+  return iso.replace(/[:.]/g, '-')
 }
 
 /**
@@ -617,26 +717,37 @@ export interface RestoreErgebnis {
  * jeweilige Ersetzen — ein alter Dump alone macht die Ablage nicht leer.
  *
  * Wirft, wenn das ZIP kein 'castel-backup-1'-Manifest hat, wenn der
- * enthaltene DB-Dump leer/beschaedigt ist oder wenn `pg_restore`
- * fehlschlaegt. Jeder Exit-Code != 0 von pg_restore ist ein Fehler —
- * ein Restore, der "Erfolg" meldet, obwohl nichts eingespielt wurde,
- * ist schlimmer als ein klarer Fehler.
+ * enthaltene DB-Dump leer/beschaedigt ist, wenn die Postgres-Version nicht
+ * passt oder wenn `pg_restore` fehlschlaegt. Jeder Exit-Code != 0 von
+ * pg_restore ist ein Fehler — ein Restore, der "Erfolg" meldet, obwohl
+ * nichts eingespielt wurde, ist schlimmer als ein klarer Fehler.
  *
- * Vorbedingung: API-Server muss gestoppt sein (Admin-Disziplin). Wir
- * pruefen das hier nicht, weil die Bedingung von aussen gilt; ein
- * Stop-Hook waere der falsche Ort.
+ * Der Restore laeuft im laufenden API-Prozess (die DB wird unter laufender
+ * API ersetzt). Damit das kein Datenchaos erzeugt, sperrt der Aufrufer
+ * waehrenddessen die Sync-Endpunkte (siehe restore-lock.ts).
  */
 export async function restoreAusZip(
   zipPath: string,
   databaseUrl: string,
+  opts?: RestoreOptionen,
 ): Promise<RestoreErgebnis> {
   const tmp = await mkdtemp(join(tmpdir(), 'castel-restore-'))
   try {
     await entpackeZip(zipPath, tmp)
-    await leseManifest(tmp)
+    const manifest = await leseManifest(tmp)
+    await pruefeDumpVersion(manifest, opts?.serverMajor ?? null)
     const dumpPath = join(tmp, 'dump.pgdump')
     const dumpBytes = await pruefeDump(dumpPath)
     await spieleDumpEin(dumpPath, databaseUrl)
+    // Die DB ist jetzt ersetzt. Ab hier MUESSEN die Restore-Epoche und das
+    // Admin-Konto gesichert werden (ueber den Callback des Aufrufers bzw.
+    // die User-Wiederherstellung) — auch wenn der folgende Dateikopier-
+    // Schritt noch fehlschlaegt. Sonst wuerde der Admin ausgesperrt
+    // bleiben bzw. die Clients die Ersetzung nie bemerken.
+    if (opts?.onDumpEingespielt) await opts.onDumpEingespielt()
+    const userWiederhergestellt = opts?.bewahrterUser
+      ? await stelleUserWiederHer(opts.bewahrterUser)
+      : false
     const fotoDateien = await stelleOrdnerInWieder(tmp, 'fotos', config.FOTOS_DIR, 'cp-fotos')
     const datanormDateien = await stelleOrdnerInWieder(
       tmp,
@@ -644,13 +755,129 @@ export async function restoreAusZip(
       config.DATANORM_DIR,
       'cp-datanorm',
     )
-    return { dumpBytes, fotoDateien, datanormDateien }
+    return { dumpBytes, fotoDateien, datanormDateien, userWiederhergestellt }
   } finally {
     // Aufraeumen bei Erfolg UND bei Fehlern — sonst bleiben die
     // entpackten Daten (inkl. Fotos) im Temp-Verzeichnis liegen.
     await rm(tmp, { recursive: true, force: true }).catch(() => {})
   }
 }
+
+/**
+ * Prueft, ob der Dump zum laufenden Postgres-Server passt.
+ *
+ * pg_restore kann einen Dump einer aelteren Major-Version in einen neueren
+ * Server einspielen, aber NICHT umgekehrt: ein mit PG 17 erzeugter Dump
+ * bricht auf einem PG-16-Server mit "unsupported version" ab. Genau das
+ * ist der haeufigste Fall, wenn ein Backup von einem anderen Server
+ * eingespielt werden soll — ohne diese Pruefung sieht der Admin nur einen
+ * kryptischen pg_restore-Fehler.
+ */
+async function pruefeDumpVersion(
+  manifest: BackupManifest,
+  serverMajor: number | null,
+): Promise<void> {
+  const backupMajor = manifest.pgDumpMajor ?? null
+  if (backupMajor === null || serverMajor === null) return
+  if (backupMajor > serverMajor) {
+    throw new Error(
+      `Das Backup wurde mit Postgres ${backupMajor} erstellt, ` +
+        `der Server laeuft mit Postgres ${serverMajor}. ` +
+        `pg_restore kann einen neueren Dump nicht in einen aelteren Server einspielen. ` +
+        `Die Postgres-Version des Servers muss zur Backup-Version passen (PG_MAJOR im Dockerfile).`,
+    )
+  }
+}
+
+/**
+ * Stellt sicher, dass der ausfuehrende Admin nach dem Restore weiterhin
+ * existiert. Die `users`-Tabelle liegt im Dump — ist das Backup aelter als
+ * die Anlage des Admin-Kontos, fehlt er danach in der DB. `authenticate()`
+ * prueft den User bei jedem Request, der Admin waere also sofort
+ * ausgesperrt (kein Login moeglich, weil der Account fehlt).
+ *
+ * Faellt die Ziel-ID unter, wird die Zeile neu eingefuegt. Existiert die
+ * Mail-Adresse schon (Konto nach dem Backup geloescht und neu angelegt),
+ * wird die bestehende Zeile uebernommen — Passwort-Hash, Rolle und
+ * Aktiv-Flag. Die ID weicht dann ab, eine Neuanmeldung ist noetig.
+ *
+ * Gibt true zurueck, wenn etwas wiederhergestellt wurde.
+ */
+export async function stelleUserWiederHer(u: BewahrterUser): Promise<boolean> {
+  const db = getDb()
+  const vorhanden = await db.select().from(users).where(eq(users.id, u.id)).limit(1)
+  const row = vorhanden[0]
+  if (row) {
+    // Der User existiert — nur ein deaktivierter Stand wuerde ihn
+    // aussperren (der ausfuehrende Admin ist per Definition aktiv).
+    if (!row.aktiv) {
+      await db.update(users).set({ aktiv: true }).where(eq(users.id, u.id))
+      return true
+    }
+    return false
+  }
+  const gleicheMail = await db
+    .select()
+    .from(users)
+    .where(sql`lower(${users.email}) = lower(${u.email})`)
+    .limit(1)
+  const treffer = gleicheMail[0]
+  if (treffer) {
+    await db
+      .update(users)
+      .set({
+        passwordHash: u.passwordHash,
+        rolle: u.rolle,
+        aktiv: true,
+        mustChangePassword: u.mustChangePassword,
+        anzeigename: u.anzeigename,
+      })
+      .where(eq(users.id, treffer.id))
+    return true
+  }
+  await db
+    .insert(users)
+    .values({
+      id: u.id,
+      email: u.email,
+      passwordHash: u.passwordHash,
+      rolle: u.rolle,
+      aktiv: u.aktiv,
+      erstelltAm: u.erstelltAm,
+      letzterLoginAm: u.letzterLoginAm,
+      mustChangePassword: u.mustChangePassword,
+      anzeigename: u.anzeigename,
+    })
+    .onConflictDoNothing()
+  return true
+}
+
+/**
+ * Liest die User-Zeile fuer die Restore-Sicherung. null = User existiert
+ * nicht (oder die DB ist nicht erreichbar).
+ */
+export async function leseUserZeile(userId: string): Promise<BewahrterUser | null> {
+  try {
+    const db = getDb()
+    const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+    const u = rows[0]
+    if (!u) return null
+    return {
+      id: u.id,
+      email: u.email,
+      passwordHash: u.passwordHash,
+      rolle: u.rolle,
+      aktiv: u.aktiv,
+      erstelltAm: u.erstelltAm,
+      letzterLoginAm: u.letzterLoginAm ?? null,
+      mustChangePassword: u.mustChangePassword,
+      anzeigename: u.anzeigename,
+    }
+  } catch {
+    return null
+  }
+}
+
 
 /** Entpackt das ZIP nach `ziel`. Fehler -> Exception mit stderr-Auszug. */
 async function entpackeZip(zipPath: string, ziel: string): Promise<void> {

@@ -21,6 +21,7 @@ import {
 } from '../db/schema.js'
 import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { leseRestoreEpoch } from '../admin/backup.js'
+import { restoreGesperrt } from '../admin/restore-lock.js'
 import { resolvePush } from './resolver.js'
 import { INTERN_EINSTELLUNGS_KEYS } from './einstellungen-intern.js'
 import { mappeHerstellerRabattsatz, stripEinkaufspreis } from './preise.js'
@@ -74,6 +75,15 @@ export async function syncRoutes(
     '/api/sync/snapshot',
     { preHandler: app.requireAuth },
     async (req, reply) => {
+      // During a restore the database is a mixture of old and new state —
+      // a snapshot in that window would be neither. The client retries on
+      // its next tick (the restore epoch makes it rebuild afterwards).
+      if (restoreGesperrt()) {
+        return reply.code(503).send({
+          code: 'RESTORE_IN_PROGRESS',
+          message: 'Es läuft gerade ein Restore — bitte kurz warten.',
+        })
+      }
       const parsed = snapshotQuerySchema.safeParse(req.query)
       if (!parsed.success) {
         return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
@@ -602,6 +612,14 @@ export async function syncRoutes(
 
   // ---------- POST /api/sync/push ----------
   app.post('/api/sync/push', { preHandler: app.requireAuth }, async (req, reply) => {
+    // A push during a restore would write the pre-restore state back into
+    // the freshly restored tables. The client retries on its next tick.
+    if (restoreGesperrt()) {
+      return reply.code(503).send({
+        code: 'RESTORE_IN_PROGRESS',
+        message: 'Es läuft gerade ein Restore — bitte kurz warten.',
+      })
+    }
     const parsed = pushPayloadSchema.safeParse(req.body)
     if (!parsed.success) {
       return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })

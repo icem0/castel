@@ -27,6 +27,13 @@ const mocks = vi.hoisted(() => ({
     stderr: '',
     calls: [] as string[][],
   },
+  cp: {
+    // null = echtes cp verwenden. Ein gesetzter Code simuliert einen
+    // fehlschlagenden Dateikopier-Schritt (Restore: DB ersetzt, Fotos
+    // kopieren fehlgeschlagen).
+    code: null as number | null,
+    stderr: '',
+  },
 }))
 
 // pg_restore wird gemockt (im CI-Container gibt es evtl. kein pg_restore,
@@ -34,26 +41,34 @@ const mocks = vi.hoisted(() => ({
 // damit testen wir die ZIP-Erzeugung und das Entpacken realistisch.
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>()
+  const fakeChild = (code: number | null, stderr: string) => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: Readable
+      stderr: Readable
+    }
+    const stdout = new Readable({ read() {} })
+    const stderrStream = new Readable({ read() {} })
+    child.stdout = stdout
+    child.stderr = stderrStream
+    setTimeout(() => {
+      stdout.push(null)
+      stderrStream.push(Buffer.from(stderr))
+      stderrStream.push(null)
+      setImmediate(() => child.emit('close', code))
+    }, 0)
+    return child
+  }
   return {
     ...actual,
     spawn: (cmd: string, args: string[], opts?: unknown) => {
-      if (cmd !== 'pg_restore') return actual.spawn(cmd, args, opts as never)
-      mocks.pgRestore.calls.push(args)
-      const child = new EventEmitter() as EventEmitter & {
-        stdout: Readable
-        stderr: Readable
+      if (cmd === 'pg_restore') {
+        mocks.pgRestore.calls.push(args)
+        return fakeChild(mocks.pgRestore.code, mocks.pgRestore.stderr)
       }
-      const stdout = new Readable({ read() {} })
-      const stderr = new Readable({ read() {} })
-      child.stdout = stdout
-      child.stderr = stderr
-      setTimeout(() => {
-        stdout.push(null)
-        stderr.push(Buffer.from(mocks.pgRestore.stderr))
-        stderr.push(null)
-        setImmediate(() => child.emit('close', mocks.pgRestore.code))
-      }, 0)
-      return child
+      if (cmd === 'cp' && mocks.cp.code !== null) {
+        return fakeChild(mocks.cp.code, mocks.cp.stderr)
+      }
+      return actual.spawn(cmd, args, opts as never)
     },
   }
 })
@@ -72,7 +87,7 @@ await mkdir(datanormDir, { recursive: true })
 process.env['FOTOS_DIR'] = fotosDir
 process.env['DATANORM_DIR'] = datanormDir
 
-const { baueBackupZip, dumpGroesseImZip, listeBackups, restoreAusZip } = await import(
+const { baueBackupZip, backupStamp, dumpGroesseImZip, leseManifestAusZip, listeBackups, pruefeZipSignatur, restoreAusZip } = await import(
   '../backup.js'
 )
 type PgDumpHandle = import('../backup.js').PgDumpHandle
@@ -245,6 +260,8 @@ describe('restoreAusZip', () => {
     mocks.pgRestore.code = 0
     mocks.pgRestore.stderr = ''
     mocks.pgRestore.calls = []
+    mocks.cp.code = null
+    mocks.cp.stderr = ''
     // Zielverzeichnisse leeren — der Restore ersetzt ihren Inhalt, und die
     // Tests teilen sich FOTOS_DIR/DATANORM_DIR.
     await rm(fotosDir, { recursive: true, force: true })
@@ -357,6 +374,114 @@ describe('restoreAusZip', () => {
 
     expect(result.fotoDateien).toBe(0)
     expect(await readdir(fotosDir)).toEqual(['artikel-alt'])
+  })
+})
+
+describe('Restore-Härtung', () => {
+  beforeEach(async () => {
+    mocks.pgRestore.code = 0
+    mocks.pgRestore.stderr = ''
+    mocks.pgRestore.calls = []
+    mocks.cp.code = null
+    mocks.cp.stderr = ''
+    await rm(fotosDir, { recursive: true, force: true })
+    await rm(datanormDir, { recursive: true, force: true })
+    await mkdir(fotosDir, { recursive: true })
+    await mkdir(datanormDir, { recursive: true })
+  })
+
+  it('meldet die Restore-Epoche auch dann, wenn der Foto-Kopier-Schritt fehlschlägt', async () => {
+    // Regression: die DB ist nach pg_restore ersetzt. Bricht danach das
+    // Kopieren der Fotos ab, muss die Epoche trotzdem geschrieben werden —
+    // sonst bemerken die Clients die Ersetzung nie (Geister-Buchungen,
+    // dauerhafte Divergenz).
+    mocks.cp.code = 1
+    mocks.cp.stderr = 'cp: cannot create regular file'
+    const zip = await baueZip({
+      'manifest.json': MANIFEST,
+      'dump.pgdump': Buffer.from('PGDMP-testdump'),
+      'fotos/artikel-neu/bild.jpg': 'NEU',
+    })
+
+    let epocheGeschrieben = false
+    await expect(
+      restoreAusZip(zip, 'postgres://x/y', {
+        onDumpEingespielt: async () => {
+          epocheGeschrieben = true
+        },
+      }),
+    ).rejects.toThrow(/cp exit 1/)
+    expect(epocheGeschrieben).toBe(true)
+    expect(mocks.pgRestore.calls).toHaveLength(1)
+  })
+
+  it('lehnt ein Backup ab, das mit einer neueren Postgres-Version erstellt wurde', async () => {
+    // pg_restore kann einen Dump einer aelteren Major-Version in einen
+    // neueren Server einspielen, aber nicht umgekehrt. Ohne diese Pruefung
+    // sieht der Admin nur "unsupported version" von pg_restore.
+    const zip = await baueZip({
+      'manifest.json': JSON.stringify({
+        schema: 'castel-backup-1',
+        createdAt: '2026-10-22T14:07:04.258Z',
+        pgDumpMajor: 17,
+      }),
+      'dump.pgdump': Buffer.from('PGDMP-testdump'),
+    })
+    await expect(restoreAusZip(zip, 'postgres://x/y', { serverMajor: 16 })).rejects.toThrow(
+      /Postgres 17.*Postgres 16/s,
+    )
+    // pg_restore darf bei inkompatibler Version nie laufen.
+    expect(mocks.pgRestore.calls).toHaveLength(0)
+  })
+
+  it('spielt ein Backup einer aelteren Postgres-Version ein (vorwaerts kompatibel)', async () => {
+    const zip = await baueZip({
+      'manifest.json': JSON.stringify({
+        schema: 'castel-backup-1',
+        createdAt: '2026-10-22T14:07:04.258Z',
+        pgDumpMajor: 15,
+      }),
+      'dump.pgdump': Buffer.from('PGDMP-testdump'),
+    })
+    const result = await restoreAusZip(zip, 'postgres://x/y', { serverMajor: 16 })
+    expect(result.dumpBytes).toBe(Buffer.byteLength('PGDMP-testdump'))
+    expect(mocks.pgRestore.calls).toHaveLength(1)
+  })
+})
+
+describe('Upload-Hilfen', () => {
+  it('lehnt eine Datei ab, die kein ZIP ist', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'castel-testupload-'))
+    try {
+      const txt = join(dir, 'kein-zip.txt')
+      await writeFile(txt, 'nur text')
+      await expect(pruefeZipSignatur(txt)).rejects.toThrow(/kein ZIP-Archiv/)
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+
+  it('akzeptiert ein ZIP', async () => {
+    const zip = await baueZip({ 'manifest.json': MANIFEST })
+    await expect(pruefeZipSignatur(zip)).resolves.toBeUndefined()
+  })
+
+  it('liest das Manifest direkt aus dem ZIP', async () => {
+    const zip = await baueZip({ 'manifest.json': MANIFEST })
+    const manifest = await leseManifestAusZip(zip)
+    expect(manifest?.schema).toBe('castel-backup-1')
+    expect(manifest?.createdAt).toBe('2026-10-22T14:07:04.258Z')
+  })
+
+  it('liefert null fuer ein ZIP ohne gueltiges Manifest', async () => {
+    const zip = await baueZip({ 'irgendwas.txt': 'x' })
+    expect(await leseManifestAusZip(zip)).toBeNull()
+  })
+
+  it('erzeugt einen Dateinamen-Stempel aus dem Erstellungsdatum', () => {
+    expect(backupStamp('2026-10-22T14:07:04.258Z')).toBe('2026-10-22T14-07-04-258Z')
+    // Ohne Datum (altes Backup ohne Manifest) wird die aktuelle Zeit genutzt.
+    expect(backupStamp(null)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/)
   })
 })
 

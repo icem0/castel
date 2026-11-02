@@ -40,6 +40,11 @@ const schema = z.object({
   BACKUP_DIR: z.string().default('/var/lib/castel/backups'),
   BACKUP_SYNC_QUIET_MS: z.coerce.number().int().positive().default(8000),
   BACKUP_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  // Hartes Limit fuer ein hochgeladenes Backup-ZIP (Restore aus einer
+  // heruntergeladenen Datei). Das Limit muss KLEINER oder GLEICH dem
+  // nginx-Limit sein (client_max_body_size 512m in nginx-pwa.conf) —
+  // sonst blockt nginx mit 413, bevor die API die Datei sieht.
+  BACKUP_MAX_FILE_BYTES: z.coerce.number().int().positive().default(524288000),
 
   // Rate-Limit
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(5),

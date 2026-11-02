@@ -137,6 +137,15 @@ async function main() {
     await userRoutes(instance)
     await fotoRoutes(instance)
     await adminRoutes(instance)
+  })
+
+  // Backup-Routes in einem eigenen Block: sie brauchen ein eigenes
+  // Multipart-Limit (BACKUP_MAX_FILE_BYTES = 500 MB fuer den Restore aus
+  // einem hochgeladenen ZIP) und duerfen das Limit der Foto-Routen
+  // (512 kB) nicht veraendern. Die Multipart-Limits gelten pro Kontext —
+  // ein zweiter Block bekommt also sein eigenes.
+  await app.register(async (instance) => {
+    instance.addHook('preHandler', instance.requireAuth)
     await backupRoutes(instance)
   })
 

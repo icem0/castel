@@ -230,9 +230,15 @@ Der Server prüft Exit-Code **und** Byte-Größe des Dumps. Ein fehlgeschlagener
 
 ### Restore
 
-In der Backup-Liste auf den roten „Einspielen“-Button des gewünschten Backups klicken. **Vorher den API-Service stoppen** (`docker compose stop api`) — sonst überschreiben sich der laufende Sync und der Restore gegenseitig. Der Server bietet **keinen** automatischen Service-Stop, das ist Admin-Disziplin.
+In der Backup-Liste auf den roten „Einspielen“-Button des gewünschten Backups klicken. **Der API-Service muss nicht gestoppt werden** — der Restore läuft im laufenden API-Prozess, und währenddessen sind die Sync-Endpunkte (`/api/sync/push`, `/api/sync/snapshot`) gesperrt (HTTP 503). Ein gleichzeitiger Push würde sonst den Vor-Restore-Stand in die frisch eingespielten Tabellen zurückschreiben. Die Clients warten und pushern nach dem Restore erneut.
 
-Der Restore validiert den Dump vorab (Datei vorhanden, > 0 Bytes, Header `PGDMP`), entpackt das ZIP und ruft `pg_restore --clean --if-exists --single-transaction` auf. Jeder Exit-Code ≠ 0 ist ein Fehler. Nach dem Restore die API wieder starten (`docker compose start api`).
+Der Restore läuft **asynchron**: die Oberfläche zeigt den Fortschritt („Restore läuft …“), weil das Einspielen einige Minuten dauert. Danach baut sich der lokale Stand des Geräts automatisch neu auf (die Server-Datenbank ist Source of Truth) — auch alle anderen Geräte erkennen die neue Restore-Epoche beim nächsten Sync und aktualisieren sich selbst.
+
+Der Restore validiert den Dump vorab (Datei vorhanden, > 0 Bytes, Header `PGDMP`), prüft die Postgres-Version des Backups gegen die des Servers, entpackt das ZIP und ruft `pg_restore --clean --if-exists --single-transaction` auf. Jeder Exit-Code ≠ 0 ist ein Fehler.
+
+**Restore aus einem heruntergeladenen ZIP:** Unter *Backup aus Datei einspielen* lässt sich ein zuvor heruntergeladenes Backup-ZIP hochladen — der Notfall-Weg, wenn der Server neu aufgesetzt wurde und das `backups-data`-Volume leer ist. Die Datei wird gestreamt (Limit 500 MB), geprüft und im Backup-Ordner abgelegt; sie steht danach auch in der Liste und kann erneut eingespielt werden.
+
+> **Achtung:** Ein Restore ersetzt die komplette Datenbank — inklusive der Benutzerkonten. Das eigene Admin-Konto wird dabei automatisch wiederhergestellt, falls es im Backup noch nicht enthalten war. Die Deployment-Konfiguration (`.env`, `JWT_SECRET`, SMTP) ist **nicht** Teil des Backups; nach einem Restore auf einem frischen Server müssen diese Werte identisch gesetzt sein, sonst sind alle Sessions ungültig.
 
 ### Was passiert auf dem Host
 

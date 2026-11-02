@@ -228,9 +228,15 @@ The server checks both the dump’s exit code **and** its byte size. A failed or
 
 ### Restore
 
-In the backup list, click the red “Restore” button for the desired backup. **Stop the API service first** (`docker compose stop api`) — otherwise the running sync and the restore will overwrite each other. The server does **not** stop the service automatically; that is admin discipline.
+In the backup list, click the red “Restore” button for the desired backup. **The API service does not have to be stopped** — the restore runs inside the running API process, and while it runs the sync endpoints (`/api/sync/push`, `/api/sync/snapshot`) are blocked (HTTP 503). A concurrent push would otherwise write the pre-restore state back into the freshly restored tables. Clients wait and push again after the restore.
 
-The restore validates the dump first (file exists, > 0 bytes, `PGDMP` header), extracts the ZIP and runs `pg_restore --clean --if-exists --single-transaction`. Any exit code ≠ 0 is an error. Start the API again afterwards (`docker compose start api`).
+The restore runs **asynchronously**: the UI shows the progress (“Restoring …”) because restoring takes a few minutes. Afterwards the local state of the device rebuilds itself automatically (the server database is the source of truth) — all other devices recognise the new restore epoch on their next sync and refresh themselves.
+
+The restore validates the dump first (file exists, > 0 bytes, `PGDMP` header), checks the backup’s Postgres version against the server’s, extracts the ZIP and runs `pg_restore --clean --if-exists --single-transaction`. Any exit code ≠ 0 is an error.
+
+**Restore from a downloaded ZIP:** Under *Restore a backup from a file* you can upload a previously downloaded backup ZIP — the emergency path when the server has been set up from scratch and the `backups-data` volume is empty. The file is streamed (500 MB limit), validated and stored in the backup folder; it then also shows up in the list and can be restored again.
+
+> **Note:** A restore replaces the entire database — including the user accounts. Your own admin account is restored automatically if the backup did not contain it yet. The deployment configuration (`.env`, `JWT_SECRET`, SMTP) is **not** part of the backup; after a restore onto a fresh server these values must be set identically, otherwise all sessions are invalid.
 
 ### What happens on the host
 

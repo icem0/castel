@@ -974,8 +974,26 @@ export default {
       loeschenFrage: '{name} wirklich löschen?',
       restoreFrage:
         '{name} wirklich einspielen? Dies überschreibt alle aktuellen Daten unwiderruflich.',
-      restoreFrage2: 'Wirklich? Letzte Chance — der API-Service muss vorher gestoppt sein!',
-      restoreErfolg: 'Restore von {name} abgeschlossen. API kann wieder gestartet werden.',
+      restoreFrage2:
+        'Wirklich? Letzte Chance — beim Einspielen wird die komplette Datenbank ersetzt. Der Sync der Geräte pausiert währenddessen.',
+      restoreErfolg: 'Restore von {name} abgeschlossen.',
+      restoreFehlgeschlagen: 'Restore fehlgeschlagen.',
+      restoreTimeout: 'Restore dauert zu lange (Timeout). Bitte den Server-Status prüfen.',
+      restoreLaeuft: 'Restore läuft …',
+      restoreLaeuftHinweis:
+        '{name} wird eingespielt — der Server arbeitet. Das kann einige Minuten dauern.',
+      restoreErgebnis: 'Eingespielt: Dump {dump}, {fotos} Fotos, {datanorm} DATANORM-Dateien.',
+      adminWiederhergestellt:
+        'Dein eigenes Admin-Konto war im Backup nicht enthalten und wurde wiederhergestellt.',
+      uploadH2: 'Backup aus Datei einspielen',
+      uploadHinweis:
+        'Lade ein zuvor heruntergeladenes Backup-ZIP hoch (Notfall-Weg, z. B. wenn der Server neu aufgesetzt wurde). Die Datei bleibt im Backup-Ordner und kann später erneut eingespielt werden.',
+      uploadAktion: 'Hochladen und einspielen',
+      uploadGewaehlt: 'Ausgewählt: {name} ({size})',
+      uploadKeineDatei: 'Bitte zuerst eine .zip-Datei auswählen.',
+      uploadKeinZip: 'Es wird eine .zip-Datei erwartet.',
+      uploadFrage:
+        '{name} hochladen und einspielen? Der Server ersetzt dabei die komplette Datenbank, die Fotos und die DATANORM-Kataloge unwiderruflich.',
       dumpLeer: 'Dump leer',
       dumpLeerHint:
         'Dieses Backup enthält keinen Datenbank-Dump (0 Bytes) und kann nicht eingespielt werden. Ursache ist in der Regel ein fehlgeschlagener pg_dump.',

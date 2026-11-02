@@ -953,8 +953,26 @@ export default {
       aktionLoeschen: 'Delete',
       loeschenFrage: 'Really delete {name}?',
       restoreFrage: 'Really restore {name}? This will overwrite all current data irreversibly.',
-      restoreFrage2: 'Are you sure? Last chance — the API service must be stopped first!',
-      restoreErfolg: 'Restore of {name} complete. The API can be started again.',
+      restoreFrage2:
+        'Are you sure? Last chance — restoring replaces the entire database. Device sync pauses while it runs.',
+      restoreErfolg: 'Restore of {name} complete.',
+      restoreFehlgeschlagen: 'Restore failed.',
+      restoreTimeout: 'Restore takes too long (timeout). Please check the server status.',
+      restoreLaeuft: 'Restoring …',
+      restoreLaeuftHinweis:
+        '{name} is being restored — the server is working on it. This can take a few minutes.',
+      restoreErgebnis: 'Restored: dump {dump}, {fotos} photos, {datanorm} DATANORM files.',
+      adminWiederhergestellt:
+        'Your own admin account was not contained in the backup and has been restored.',
+      uploadH2: 'Restore a backup from a file',
+      uploadHinweis:
+        'Upload a previously downloaded backup ZIP (emergency path, e.g. after the server was set up from scratch). The file stays in the backup folder and can be restored again later.',
+      uploadAktion: 'Upload and restore',
+      uploadGewaehlt: 'Selected: {name} ({size})',
+      uploadKeineDatei: 'Please select a .zip file first.',
+      uploadKeinZip: 'A .zip file is required.',
+      uploadFrage:
+        'Upload and restore {name}? The server will irreversibly replace the entire database, the photos and the DATANORM catalogues.',
       dumpLeer: 'Empty dump',
       dumpLeerHint:
         'This backup contains no database dump (0 bytes) and cannot be restored. Usually caused by a failed pg_dump.',
