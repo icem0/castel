@@ -23,7 +23,8 @@ import {
   sessionSchreiben,
   type SessionInfo,
 } from '../auth/session'
-import { hasheText } from '../auth/crypto'
+import { hasheText, webCryptoVerfuegbar } from '../auth/crypto'
+import { insecureHttpErlaubt } from '../auth/runtime-config'
 import {
   aendereEigenesPasswortServer,
   aendereAnzeigenameServer,
@@ -103,6 +104,17 @@ export const useAuthStore = defineStore('auth', () => {
       throw new AuthError('auth.password.required', 'Passwort erforderlich')
     }
 
+    // HTTP mode without HTTPS: SubtleCrypto is missing in insecure browser
+    // contexts (http:// on an IP). The login itself would work, but without
+    // an explicit operator opt-in the app must not silently slip into a
+    // degraded mode — the user gets a clear, actionable message instead.
+    if (!webCryptoVerfuegbar() && !insecureHttpErlaubt()) {
+      throw new AuthError(
+        'auth.insecure_context',
+        'Diese Installation laeuft ohne HTTPS. Bitte HTTPS einrichten oder ALLOW_INSECURE_HTTP=true setzen.',
+      )
+    }
+
     let serverAntwort: LoginAntwort | null = null
     let netzwerkFehler: unknown = null
 
@@ -133,15 +145,22 @@ export const useAuthStore = defineStore('auth', () => {
       // Erfolgreicher Server-Login: Server hat definitiv einen User.
       serverHatUser.value = true
 
-      // Offline-Cache: PBKDF2-Hash der Credentials speichern
-      const hashed = await hasheText(passwort)
-      credSchreiben({
-        email: trimmedEmail,
-        passwordHash: hashed.hash,
-        salt: hashed.salt,
-        iterations: hashed.iterations,
-        cachedAt: new Date().toISOString(),
-      })
+      // Offline cache: store the PBKDF2 hash of the credentials.
+      // The cache is OPTIONAL (it enables offline login). If hashing fails —
+      // e.g. because SubtleCrypto is missing in an insecure context — the
+      // successful server login must NOT fail because of it.
+      try {
+        const hashed = await hasheText(passwort)
+        credSchreiben({
+          email: trimmedEmail,
+          passwordHash: hashed.hash,
+          salt: hashed.salt,
+          iterations: hashed.iterations,
+          cachedAt: new Date().toISOString(),
+        })
+      } catch {
+        // No offline cache — the login still succeeds.
+      }
 
       // JWT-Expiry aus dem Token dekodieren (Base64-URL, ohne Validierung)
       const jwtExpiresAt =

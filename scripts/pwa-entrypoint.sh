@@ -13,11 +13,17 @@
 #                 Sonst -> absolute URL, z. B. http://api.example.com:4242.
 #   VITE_DEV_MODE 'true' | 'false'. Steuert das "DEV MODE"-Badge in
 #                 Login-Screen und Header. Default 'false'.
+#   ALLOW_INSECURE_HTTP 'true' | 'false'. Allows running without HTTPS.
+#                 Default 'false': the PWA requires a secure browser context
+#                 because SubtleCrypto (PBKDF2) and the service worker are
+#                 missing there. 'true' = HTTP mode is deliberately allowed
+#                 (login without the offline cache).
 
 set -eu
 
 VITE_API_URL="${VITE_API_URL-}"
 VITE_DEV_MODE="${VITE_DEV_MODE-false}"
+ALLOW_INSECURE_HTTP="${ALLOW_INSECURE_HTTP-false}"
 
 # JS-String-Escapung: Backslashes und Anfuehrungszeichen.
 escaped_url=$(printf '%s' "$VITE_API_URL" | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -30,10 +36,18 @@ case "$(printf '%s' "$VITE_DEV_MODE" | tr '[:upper:]' '[:lower:]')" in
   *)            dev_mode="false" ;;
 esac
 
+# Normalise ALLOW_INSECURE_HTTP to canonical values.
+case "$(printf '%s' "$ALLOW_INSECURE_HTTP" | tr '[:upper:]' '[:lower:]')" in
+  true|1|yes|on) allow_insecure_http="true" ;;
+  *)            allow_insecure_http="false" ;;
+esac
+
 cat > /usr/share/nginx/html/config.js <<EOF
-// AUTO-GENERATED at container start from \$VITE_API_URL and \$VITE_DEV_MODE. Do not edit.
+// AUTO-GENERATED at container start from \$VITE_API_URL, \$VITE_DEV_MODE and
+// \$ALLOW_INSECURE_HTTP. Do not edit.
 window.__CASTEL_API_URL__ = "${escaped_url}";
 window.__CASTEL_DEV_MODE__ = "${dev_mode}";
+window.__CASTEL_ALLOW_INSECURE_HTTP__ = "${allow_insecure_http}";
 EOF
 
 # Hinweis: VITE_API_URL ist die Origin-Basis. Die App haengt '/api/...'

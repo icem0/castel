@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
@@ -8,6 +8,7 @@ import { version, commit, branch, buildDate } from '../version'
 import { fuehreSetupDurch } from '../auth/users'
 import { ApiError } from '../auth/api'
 import { authFehlerText } from '../auth/messages'
+import { istSecureContext } from '../auth/runtime-config'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -16,6 +17,11 @@ const { t } = useI18n()
 type Modus = 'laden' | 'setup' | 'login'
 
 const modus = ref<Modus>('laden')
+
+// true when the PWA does not run in a secure browser context (plain HTTP on
+// an IP). SubtleCrypto and the service worker are missing there — the login
+// only works with ALLOW_INSECURE_HTTP=true, offline mode not at all.
+const ohneHttps = computed(() => !istSecureContext())
 
 // --- Login-Felder ---
 const email = ref('')
@@ -81,15 +87,10 @@ async function anmelden(): Promise<void> {
       void router.push('/')
     }
   } catch (e) {
-    // AuthError wird via authFehlerText in die aktive Locale uebersetzt.
-    // Fuer den Sonderfall ApiError (nur direkt vom Server, z. B. wenn der
-    // Auth-Store noch nicht angepasst ist) greifen wir auf die Server-
-    // Message zurueck — sie ist i. d. R. bereits deutsch und lesbar.
-    if (e instanceof ApiError) {
-      fehler.value = e.message || t('auth.error.serverUnreachable')
-    } else {
-      fehler.value = authFehlerText(e)
-    }
+    // authFehlerText() tells the two apart: the server answered (ApiError →
+    // server message or a concrete code text) vs. a real network failure
+    // (generic "server not reachable" text).
+    fehler.value = authFehlerText(e)
   } finally {
     laufend.value = false
   }
@@ -313,6 +314,10 @@ async function copyVersion(): Promise<void> {
           <a href="javascript:void(0)" @click="zeigeInfo">Passwort vergessen?</a>
         </p>
       </template>
+
+      <p v-if="ohneHttps" class="hint">
+        {{ t('auth.error.insecureHint') }}
+      </p>
     </div>
 
     <button

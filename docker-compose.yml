@@ -175,6 +175,10 @@ services:
       # Leer = gleicher Origin (nginx im PWA-Container proxied /api/*).
       # Sonst = absolute URL (z. B. http://api.example.com:4242).
       VITE_API_URL: ${VITE_API_URL-}
+      # Erlaubt den Betrieb ohne HTTPS. Ohne sicheren Browser-Kontext
+      # fehlen SubtleCrypto (PBKDF2) und der Service Worker — der Login
+      # braucht dann diese Freigabe. Default: false (HTTPS ist Pflicht).
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
     ports:
       - "${PWA_PORT:-4280}:3000"
     networks: [internal]

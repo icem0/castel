@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { i18n } from '../../i18n'
 import { AuthError, isAuthError, type AuthErrorCode } from '../errors'
+import { ApiError } from '../api'
 import { authFehlerText, authFehlerTextFuerCode } from '../messages'
 
 const ALL_CODES: AuthErrorCode[] = [
@@ -23,6 +24,7 @@ const ALL_CODES: AuthErrorCode[] = [
   'auth.jwt.expired',
   'auth.network',
   'auth.password.change_failed',
+  'auth.insecure_context',
   'auth.unknown',
 ]
 
@@ -139,5 +141,47 @@ describe('authFehlerText (server-supplied messages)', () => {
     setLocale('de-DE')
     const text = authFehlerText(new AuthError('auth.unknown', 'E-Mail oder Passwort falsch'))
     expect(text).toBe('E-Mail oder Passwort falsch')
+  })
+})
+
+describe('authFehlerText (ApiError: der Server HAT geantwortet)', () => {
+  it('zeigt bei VALIDATION einen konkreten Text statt "Server nicht erreichbar"', () => {
+    setLocale('de-DE')
+    const e = new ApiError(400, 'VALIDATION', 'HTTP 400 (VALIDATION)', { issues: [] })
+    const text = authFehlerText(e)
+    expect(text.toLowerCase()).toContain('ungültig')
+    expect(text.toLowerCase()).not.toContain('nicht erreichbar')
+  })
+
+  it('zeigt bei EMAIL_TAKEN die konkrete Meldung', () => {
+    setLocale('de-DE')
+    const e = new ApiError(409, 'EMAIL_TAKEN', 'HTTP 409: E-Mail bereits vergeben', {
+      message: 'E-Mail bereits vergeben',
+    })
+    const text = authFehlerText(e)
+    expect(text.toLowerCase()).toContain('e-mail')
+    expect(text.toLowerCase()).not.toContain('nicht erreichbar')
+  })
+
+  it('zeigt die Server-Message, wenn der Server eine mitliefert', () => {
+    setLocale('de-DE')
+    const e = new ApiError(401, 'INVALID_CREDENTIALS', 'HTTP 401: E-Mail oder Passwort falsch', {
+      message: 'E-Mail oder Passwort falsch',
+    })
+    expect(authFehlerText(e)).toBe('E-Mail oder Passwort falsch')
+  })
+
+  it('fällt bei unbekanntem Code auf den HTTP-Status zurück', () => {
+    setLocale('de-DE')
+    const e = new ApiError(500, 'INTERNAL', 'HTTP 500 (INTERNAL)')
+    const text = authFehlerText(e)
+    expect(text).toContain('500')
+    expect(text.toLowerCase()).not.toContain('nicht erreichbar')
+  })
+
+  it('meldet ein RATE-Limit konkret', () => {
+    setLocale('de-DE')
+    const e = new ApiError(429, 'RATE_LIMIT', 'HTTP 429 (RATE_LIMIT)')
+    expect(authFehlerText(e).toLowerCase()).toContain('zu viele versuche')
   })
 })

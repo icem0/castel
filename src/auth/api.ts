@@ -85,6 +85,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The bare server message of an ApiError (without the "HTTP 400: " prefix).
+ * null when the server did not send a message along (e.g. VALIDATION, which
+ * only returns `issues`).
+ */
+export function serverMeldung(e: ApiError): string | null {
+  const roh = e.extra?.['message']
+  if (typeof roh !== 'string') return null
+  const getrimmt = roh.trim()
+  return getrimmt.length > 0 ? getrimmt : null
+}
+
 /** Setzt ein Token, das automatisch an alle Requests angehängt wird. */
 let _globalToken: string | null = null
 

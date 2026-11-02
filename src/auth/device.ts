@@ -10,6 +10,12 @@
 // Geraet selbst angewendete Reset, loescht es die lokale IndexedDB und
 // baut sie vom Server neu auf.
 
+// The per-device server reset flag (reset_am) is polled by the sync worker.
+// Without HTTPS (no secure context) randomUUID() is unavailable — hence the
+// UUID fallback via getRandomValues().
+
+import { neueUuid } from '../domain/ids'
+
 const LS_DEVICE_ID = 'castel.device.id'
 const LS_DEVICE_LAST_RESET = 'castel.device.lastAppliedResetAt'
 
@@ -20,7 +26,10 @@ export function leseGerateId(): string {
   if (deviceIdCache !== null) return deviceIdCache
   let id = localStorage.getItem(LS_DEVICE_ID)
   if (!id || id.length === 0) {
-    id = crypto.randomUUID()
+    // neueUuid() uses crypto.randomUUID() and falls back to
+    // crypto.getRandomValues() — randomUUID is only available in secure
+    // contexts, getRandomValues also works over plain HTTP.
+    id = neueUuid()
     localStorage.setItem(LS_DEVICE_ID, id)
   }
   deviceIdCache = id

@@ -263,6 +263,7 @@ The most important `.env` variables (full list in `.env.example`):
 | `PWA_PORT` | Host port for the PWA (default `4280`) |
 | `DB_PASSWORD`, `JWT_SECRET` | Required secrets |
 | `COOKIE_DOMAIN`, `CORS_ORIGIN`, `COOKIE_SECURE` | Auth cookies and CORS (`COOKIE_SECURE=true` with HTTPS) |
+| `ALLOW_INSECURE_HTTP` | Allow running without HTTPS (default `false` — see below) |
 | `FOTOS_MAX_BYTES`, `FOTOS_MAX_PER_ARTIKEL` | Photo limits |
 | `RATE_LIMIT_LOGIN_*`, `RATE_LIMIT_API_*` | Rate limits |
 | `API_KEYS_ENABLED`, `MCP_ENABLED`, `API_DOCS_ENABLED` | Agent API features |
@@ -272,6 +273,18 @@ The most important `.env` variables (full list in `.env.example`):
 ### Reverse proxy & TLS
 
 TLS and a custom domain are handled externally in front of the stack (nginx, Caddy, Traefik, Cloudflare Tunnel). The `pwa` service is the only publicly exposed port; `/api/*` and `/fotos/*` are proxied internally to the API. If you need direct API access on the host, enable the commented-out `ports:` block on the `api` service (`API_PORT`, default `4242`).
+
+### Running without HTTPS (LAN only)
+
+Browsers expose the Web Crypto API (`crypto.subtle`) only in secure contexts — HTTPS or `http://localhost`. On a plain HTTP IP address (`http://192.168.0.129`) it is missing, so the PWA cannot write the PBKDF2 credential cache for offline login and the service worker cannot register (no offline operation, no "install as app").
+
+By default the PWA refuses the login in that situation with an explicit hint instead of a misleading "server unreachable" message. To run a LAN-only installation over plain HTTP, set
+
+```bash
+ALLOW_INSECURE_HTTP=true
+```
+
+in the `.env` file and restart the stack (`docker compose up -d`). The login then works, but offline operation stays unavailable. Passwords and tokens travel unencrypted over the network — use this only on a trusted LAN, or put a TLS reverse proxy in front (recommended).
 
 ### Operational notes
 
