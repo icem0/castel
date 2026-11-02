@@ -19,6 +19,8 @@ const storeState = vi.hoisted(() => ({
     offen: boolean
   }[],
   artikel: { id: 'a-1', titel: 'Kabelkanal' } as Record<string, unknown>,
+  hersteller: undefined as Record<string, unknown> | undefined,
+  markiereBestellt: vi.fn(),
 }))
 
 function zeile(id: string, offen = true) {
@@ -59,7 +61,7 @@ vi.mock('../../../stores/mindestbestand', () => ({
 vi.mock('../../../stores/artikel', () => ({
   useArtikelStore: () => ({
     byId: (id: string) => (id === 'a-1' ? storeState.artikel : undefined),
-    markiereBestellt: vi.fn(),
+    markiereBestellt: storeState.markiereBestellt,
   }),
 }))
 vi.mock('../../../stores/standort', () => ({
@@ -69,7 +71,7 @@ vi.mock('../../../stores/standort', () => ({
 }))
 vi.mock('../../../stores/hersteller', () => ({
   useHerstellerStore: () => ({
-    byId: vi.fn().mockReturnValue(undefined),
+    byId: vi.fn().mockImplementation(() => storeState.hersteller),
   }),
 }))
 // Auth-Store: eigene Logik, daher echter Pinia-Store mit manueller Setzung.
@@ -90,7 +92,6 @@ const i18n = createI18n({
           statusOffen: 'offen',
           statusErledigt: 'erledigt',
           statusBestellt: 'bestellt',
-          alsBestelltMarkieren: 'Als bestellt markieren',
           jetztBestellen: 'Jetzt bestellen',
           bestellMailBetreff: 'Bestellung: {titel}',
           bestellMailText: 'Text {titel}',
@@ -127,6 +128,8 @@ describe('MindestbestandGlocke — Rendering', () => {
     setActivePinia(createPinia())
     storeState.zeilen = []
     storeState.artikel = { id: 'a-1', titel: 'Kabelkanal' }
+    storeState.hersteller = undefined
+    storeState.markiereBestellt.mockClear()
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -159,16 +162,51 @@ describe('MindestbestandGlocke — Rendering', () => {
     storeState.zeilen = [zeile('e-1')]
     const w = mountGlocke('user')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(w.text()).not.toContain('Als bestellt markieren')
+    expect(w.find('.mini-btn.haken').exists()).toBe(false)
     // Der Status selbst bleibt lesbar.
     expect(w.text()).toContain('offen')
   })
 
-  it('zeigt Adminn Bestell-Link und Markier-Button', async () => {
+  it('zeigt Admins den manuellen Bestellt-Toggle', async () => {
     storeState.zeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(w.text()).toContain('Als bestellt markieren')
+    expect(w.text()).toContain('bestellt')
+    expect(w.find('button.haken').exists()).toBe(true)
+  })
+
+  it('öffnet den Shop-Link ohne den Bestellt-Marker zu setzen', async () => {
+    storeState.artikel = {
+      id: 'a-1',
+      titel: 'Kabelkanal',
+      herstellerId: 'h-1',
+      bestellnummer: 'B-1',
+    }
+    storeState.hersteller = { id: 'h-1', bestellEmail: 'order@example.com' }
+    storeState.zeilen = [zeile('e-1')]
+    const w = mountGlocke('admin')
+    await w.find('button.mindestbestand-indicator').trigger('click')
+    const link = w.find('.mindestbestand-aktionen a')
+    expect(link.exists()).toBe(true)
+    // Prevent the real mailto navigation in jsdom.
+    link.element.addEventListener('click', (e) => e.preventDefault())
+    await link.trigger('click')
+    expect(storeState.markiereBestellt).not.toHaveBeenCalled()
+  })
+
+  it('setzt den Marker erst beim Klick auf den Toggle', async () => {
+    storeState.artikel = { id: 'a-1', titel: 'Kabelkanal' }
+    storeState.zeilen = [zeile('e-1')]
+    const w = mountGlocke('admin')
+    await w.find('button.mindestbestand-indicator').trigger('click')
+    expect(storeState.markiereBestellt).not.toHaveBeenCalled()
+    await w.find('button.haken').trigger('click')
+    expect(storeState.markiereBestellt).toHaveBeenCalledWith(
+      'a-1',
+      true,
+      expect.anything(),
+      expect.anything(),
+    )
   })
 
   it('zeigt normalen Usern den bestellt-Marker (lesen statt schreiben)', async () => {
@@ -184,6 +222,6 @@ describe('MindestbestandGlocke — Rendering', () => {
     await w.find('button.mindestbestand-indicator').trigger('click')
     expect(w.find('.bestellt-marker').exists()).toBe(true)
     expect(w.text()).toContain('bestellt')
-    expect(w.text()).not.toContain('Als bestellt markieren')
+    expect(w.find('.mini-btn.haken').exists()).toBe(false)
   })
 })

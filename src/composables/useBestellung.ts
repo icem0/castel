@@ -1,7 +1,9 @@
 // Composable: Bestellaktionen fuer eine Mindestbestand-Zeile.
 //
-// Kapselt den Hersteller-Lookup, den mailto:/Web-Link und das Setzen des
-// "bestellt"-Markers, damit Glocke und Panel dieselbe Logik teilen.
+// Kapselt den Hersteller-Lookup, den mailto:/Web-Link und den manuellen
+// "bestellt"-Schalter, damit Glocke und Panel dieselbe Logik teilen.
+// Der Shop-Link oeffnet nur das Bestellziel — er setzt den Marker NICHT
+// automatisch; bestellt wird ausschliesslich per Toggle markiert.
 
 import { useI18n } from 'vue-i18n'
 import { useArtikelStore } from '../stores/artikel'
@@ -51,17 +53,7 @@ export function useBestellung() {
     })
   }
 
-  /** Markiert die Zeile als bestellt (wird beim Klick auf den Link gerufen). */
-  async function bestellen(z: MindestbestandZeile): Promise<void> {
-    await artikelStore.markiereBestellt(
-      z.ereignis.artikelId,
-      true,
-      auth.erstelltVon,
-      z.ereignis.erstelltAm,
-    )
-  }
-
-  /** Haken umschalten (ohne Link zu oeffnen). */
+  /** Haken umschalten (manuell, ohne den Shop-Link zu oeffnen). */
   async function umschalten(z: MindestbestandZeile): Promise<void> {
     await artikelStore.markiereBestellt(
       z.ereignis.artikelId,
@@ -71,5 +63,5 @@ export function useBestellung() {
     )
   }
 
-  return { istBestellt, kuerzel, bestelltAm, zielFuer, bestellen, umschalten }
+  return { istBestellt, kuerzel, bestelltAm, zielFuer, umschalten }
 }

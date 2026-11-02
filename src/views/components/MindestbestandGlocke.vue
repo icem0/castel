@@ -6,9 +6,10 @@
 // aktuellen Events als "gesehen" markiert (Counter → 0).
 //
 // Sichtbar für JEDE Rolle — User sollen verfolgen, was einen Alarm hat,
-// was bestellt ist und was wieder aufgefüllt wurde. Bestell-Link und
-// "als bestellt markieren" bleiben Admins vorbehalten; die Route zum
-// Panel (`/einstellungen/mindestbestand`) ist bewusst offen.
+// was bestellt ist und was wieder aufgefüllt wurde. Bestell-Link und der
+// manuelle Bestellt-Toggle bleiben Admins vorbehalten; die Route zum
+// Panel (`/einstellungen/mindestbestand`) ist bewusst offen. Der Shop-Link
+// öffnet nur das Bestellziel und setzt den Marker NICHT automatisch.
 
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -213,7 +214,6 @@ function openPanel(): void {
               :href="ziel(z)!.href"
               :target="ziel(z)!.mailto ? undefined : '_blank'"
               rel="noopener noreferrer"
-              @click="bestellung.bestellen(z)"
             >
               🛒 {{ t('view.mindestbestand.jetztBestellen') }}
             </a>
@@ -228,7 +228,7 @@ function openPanel(): void {
               <template v-if="bestellung.istBestellt(z)">
                 {{ t('view.mindestbestand.statusBestellt') }} · {{ bestellung.kuerzel(z) }}
               </template>
-              <template v-else>{{ t('view.mindestbestand.alsBestelltMarkieren') }}</template>
+              <template v-else>{{ t('view.mindestbestand.statusBestellt') }}</template>
             </button>
           </div>
           <div v-else-if="bestellung.istBestellt(z)" class="mindestbestand-aktionen">
@@ -392,6 +392,9 @@ function openPanel(): void {
 .mini-btn:focus-visible {
   background: var(--accent-bg, rgba(99, 102, 241, 0.12));
   outline: none;
+}
+.mini-btn.haken {
+  color: var(--text-muted);
 }
 .mini-btn.haken.aktiv {
   border-color: var(--success, #16a34a);

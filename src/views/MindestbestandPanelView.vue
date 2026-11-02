@@ -11,8 +11,9 @@
 //
 // Tracking für jede Rolle: User sehen, which alarm is open, which order
 // was placed (marker + initials) and which alarm is cleared again
-// ("erledigt"). Bestell-Link und "als bestellt markieren" bleiben Admins
-// vorbehalten — User lesen nur.
+// ("erledigt"). Bestell-Link und der manuelle Bestellt-Toggle bleiben
+// Admins vorbehalten — User lesen nur. Der Shop-Link setzt den Marker
+// bewusst NICHT; bestellt wird ausschliesslich per Toggle.
 //
 // Beim Mount wird "alle gesehen" markiert, sodass der Counter in der
 // Glocke auf 0 springt.
@@ -163,7 +164,6 @@ function formatDatum(iso: string): string {
                   :href="ziel(z)!.href"
                   :target="ziel(z)!.mailto ? undefined : '_blank'"
                   rel="noopener noreferrer"
-                  @click="bestellung.bestellen(z)"
                 >
                   🛒 {{ t('view.mindestbestand.jetztBestellen') }}
                 </a>
@@ -179,7 +179,7 @@ function formatDatum(iso: string): string {
                     ✓ {{ t('view.mindestbestand.statusBestellt') }} ·
                     {{ bestellung.kuerzel(z) }}
                   </template>
-                  <template v-else>{{ t('view.mindestbestand.alsBestelltMarkieren') }}</template>
+                  <template v-else> ○ {{ t('view.mindestbestand.statusBestellt') }} </template>
                 </button>
                 <span v-else-if="bestellung.istBestellt(z)" class="bestellt-marker">
                   ✓ {{ t('view.mindestbestand.statusBestellt') }} ·
@@ -279,6 +279,9 @@ function formatDatum(iso: string): string {
   align-items: center;
   gap: 0.25rem;
   line-height: 1.2;
+}
+.btn.mini.haken {
+  color: var(--text-muted);
 }
 .btn.mini.haken.aktiv {
   border-color: var(--success, #16a34a);

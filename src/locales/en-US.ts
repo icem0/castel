@@ -980,7 +980,7 @@ export default {
     },
     mindestbestand: {
       title: 'Minimum Stock',
-      hint: 'Here you see all bookings that dropped an article below its minimum stock. The list is filled by the server and readable for every role — ordering and marking as ordered stays with admins. The stock is computed live from the bookings — an alarm counts as resolved as soon as the stock is back above the minimum.',
+      hint: 'Here you see all bookings that dropped an article below its minimum stock. The list is filled by the server and readable for every role — marking as ordered stays with admins. The stock is computed live from the bookings — an alarm counts as resolved as soon as the stock is back above the minimum.',
       back: 'Back',
       empty: 'No events in the selected period.',
       openPanel: 'Show all',
@@ -1006,7 +1006,6 @@ export default {
       colBestellung: 'Order',
       jetztBestellen: 'Order now',
       statusBestellt: 'ordered',
-      alsBestelltMarkieren: 'Mark as ordered',
       bestellMailBetreff: 'Order: {titel}',
       bestellMailText:
         'Hello,\n\nplease order the following article:\n\nArticle: {titel}\nOrder number: {bestellnummer}\nLocation: {standort}\nStock below minimum (deficit: {defizit}, minimum: {mindest})\n\nThank you',

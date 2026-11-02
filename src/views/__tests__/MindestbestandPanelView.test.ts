@@ -1,5 +1,5 @@
 // Das Mindestbestand-Panel ist Tracking, keine Konfiguration: jede Rolle
-// darf die Ereignisse lesen. Bestell-Link und "als bestellt markieren"
+// darf die Ereignisse lesen. Bestell-Link und der manuelle Bestellt-Toggle
 // bleiben Admins vorbehalten.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -18,6 +18,7 @@ const storeState = vi.hoisted(() => ({
     offen: boolean
   }[],
   artikel: [] as Record<string, unknown>[],
+  markiereBestellt: vi.fn(),
 }))
 
 function zeile(id: string, offen = true) {
@@ -60,7 +61,7 @@ vi.mock('../../stores/artikel', () => ({
   useArtikelStore: () => ({
     artikel: storeState.artikel,
     byId: (id: string) => storeState.artikel.find((a) => a.id === id),
-    markiereBestellt: vi.fn(),
+    markiereBestellt: storeState.markiereBestellt,
   }),
 }))
 vi.mock('../../stores/standort', () => ({
@@ -103,6 +104,7 @@ describe('MindestbestandPanelView — Rollen', () => {
   beforeEach(() => {
     storeState.zeilen = [zeile('e-1')]
     storeState.artikel = [{ id: 'a-1', titel: 'Kabelkanal' }]
+    storeState.markiereBestellt.mockClear()
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -113,13 +115,13 @@ describe('MindestbestandPanelView — Rollen', () => {
     expect(w.findAll('tbody tr')).toHaveLength(1)
     expect(w.text()).toContain('Hauptlager')
     expect(w.text()).toContain('Unter Mindestbestand')
-    expect(w.text()).not.toContain('Als bestellt markieren')
     expect(w.find('.bestell-aktionen button').exists()).toBe(false)
     expect(w.find('.bestell-aktionen a').exists()).toBe(false)
   })
 
-  it('zeigt Adminn die Bestell-Aktionen', () => {
+  it('zeigt Admins den manuellen Bestellt-Toggle', () => {
     const w = mountPanel('admin')
-    expect(w.text()).toContain('Als bestellt markieren')
+    expect(w.text()).toContain('bestellt')
+    expect(w.find('button.haken').exists()).toBe(true)
   })
 })

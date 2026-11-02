@@ -1001,7 +1001,7 @@ export default {
     },
     mindestbestand: {
       title: 'Mindestbestand',
-      hint: 'Hier siehst du alle Buchungen, die einen Artikel unter seinen Mindestbestand gedrückt haben. Die Liste wird vom Server gefüllt und ist für jede Rolle lesbar — bestellen und als bestellt markieren bleibt Admins vorbehalten. Der Bestand wird live aus den Buchungen berechnet — ein Alarm gilt als erledigt, sobald der Bestand wieder über dem Mindestbestand liegt.',
+      hint: 'Hier siehst du alle Buchungen, die einen Artikel unter seinen Mindestbestand gedrückt haben. Die Liste wird vom Server gefüllt und ist für jede Rolle lesbar — als bestellt markieren bleibt Admins vorbehalten. Der Bestand wird live aus den Buchungen berechnet — ein Alarm gilt als erledigt, sobald der Bestand wieder über dem Mindestbestand liegt.',
       back: 'Zurück',
       empty: 'Keine Ereignisse im gewählten Zeitraum.',
       openPanel: 'Alle anzeigen',
@@ -1027,7 +1027,6 @@ export default {
       colBestellung: 'Bestellung',
       jetztBestellen: 'Jetzt bestellen',
       statusBestellt: 'bestellt',
-      alsBestelltMarkieren: 'Als bestellt markieren',
       bestellMailBetreff: 'Bestellung: {titel}',
       bestellMailText:
         'Guten Tag,\n\nbitte bestellen Sie folgenden Artikel:\n\nArtikel: {titel}\nBestellnummer: {bestellnummer}\nStandort: {standort}\nBestand unter Mindestbestand (Defizit: {defizit}, Mindestbestand: {mindest})\n\nVielen Dank',
