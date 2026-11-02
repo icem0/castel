@@ -3,8 +3,9 @@
 // Die OCR-Engine wird gemockt (kein echtes tesseract.js im Test).
 // Erwartetes Verhalten:
 //   - Die Kamera startet auf Knopfdruck.
-//   - „Bestaetigen" liest genau das markierte Feld aus (Crop wird korrekt
-//     auf die Video-Pixel umgerechnet).
+//   - Der Ablauf ist zweistufig: erst "Bild aufnehmen", dann "Auswerten".
+//     Die OCR laeuft erst beim Auswerten — und genau auf dem aufgenommenen
+//     Bild.
 //   - Ein Treffer in der bestehenden Liste wird uebernommen, ohne eine
 //     neue Kommission anzulegen.
 //   - Bei einem Fehlschlag wird nachgefragt, ob eine neue Kommission
@@ -23,7 +24,7 @@ import { jetztIso } from '../../domain/ids'
 import { i18n } from '../../i18n'
 
 const mocks = vi.hoisted(() => ({
-  scan: vi.fn(),
+  scanBild: vi.fn(),
   stop: vi.fn(),
   ensureWorker: vi.fn(),
 }))
@@ -34,7 +35,7 @@ vi.mock('../../composables/useKommissionOcr', async () => {
     useKommissionOcr: () => ({
       status: ref('ready'),
       fehler: ref(null),
-      scan: mocks.scan,
+      scanBild: mocks.scanBild,
       stop: mocks.stop,
       ensureWorker: mocks.ensureWorker,
     }),
@@ -98,6 +99,11 @@ function kameraMock(): void {
       height: 360,
       toJSON: () => ({}),
     }) as DOMRect
+  // Canvas wird fuer die Aufnahme gebraucht (jsdom hat kein 2D-Canvas).
+  HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+    drawImage: vi.fn(),
+  }) as unknown as HTMLCanvasElement['getContext']
+  HTMLCanvasElement.prototype.toDataURL = vi.fn().mockReturnValue('data:image/png;base64,AAA')
 }
 
 function mountKamera() {
@@ -107,10 +113,15 @@ function mountKamera() {
   })
 }
 
-async function scanne(w: ReturnType<typeof mountKamera>): Promise<void> {
+async function nimmAuf(w: ReturnType<typeof mountKamera>): Promise<void> {
   await w.find('.kamera-start button').trigger('click')
   await flushPromises()
-  await w.find('.scan-btn').trigger('click')
+  await w.find('.scan-aktionen .btn').trigger('click')
+  await flushPromises()
+}
+
+async function werteAus(w: ReturnType<typeof mountKamera>): Promise<void> {
+  await w.find('.scan-aktionen .primary').trigger('click')
   await flushPromises()
 }
 
@@ -133,7 +144,7 @@ describe('KommissionKameraScan', () => {
     localStorage.removeItem('castel.auth.session')
     session('user')
     kameraMock()
-    mocks.scan.mockReset()
+    mocks.scanBild.mockReset()
     mocks.stop.mockReset()
     mocks.ensureWorker.mockReset()
     mocks.ensureWorker.mockResolvedValue(undefined)
@@ -186,30 +197,63 @@ describe('KommissionKameraScan', () => {
     settings.stop()
   })
 
-  it('liest genau das markierte Feld aus (Crop auf Video-Pixel umgerechnet)', async () => {
+  it('haelt die Aktionsleiste ausserhalb des Kamera-Fensters (sonst wird sie abgeschnitten)', async () => {
     const settings = useSettingsStore(pinia)
     settings.start()
     await warteAufStore()
 
-    mocks.scan.mockResolvedValue(ocrErgebnis('AA 1234'))
+    const w = mountKamera()
+    await flushPromises()
+    await w.find('.kamera-start button').trigger('click')
+    await flushPromises()
+
+    // Das Kamera-Fenster hat overflow:hidden — Buttons darin waeren
+    // unsichtbar. Die Leiste muss ausserhalb liegen.
+    expect(w.find('.video-wrap .scan-aktionen').exists()).toBe(false)
+    expect(w.find('.scan-aktionen .btn').exists()).toBe(true)
+    expect(w.find('.scan-aktionen .primary').exists()).toBe(true)
+    settings.stop()
+  })
+
+  it('fuehrt die OCR erst nach "Auswerten" aus — nicht schon beim Aufnehmen', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await warteAufStore()
+
+    mocks.scanBild.mockResolvedValue(ocrErgebnis('AA 1234'))
 
     const w = mountKamera()
     await flushPromises()
-    await scanne(w)
+    await nimmAuf(w)
 
-    expect(mocks.scan).toHaveBeenCalledTimes(1)
-    const ausschnitt = mocks.scan.mock.calls[0]?.[1] as {
-      x: number
-      y: number
-      width: number
-      height: number
-    }
+    // Aufgenommen, aber noch nicht ausgewertet.
+    expect(mocks.scanBild).not.toHaveBeenCalled()
+    expect(w.find('.aufnahme img').exists()).toBe(true)
+    expect(w.find('.scan-ergebnis').exists()).toBe(false)
+
+    await werteAus(w)
+    expect(mocks.scanBild).toHaveBeenCalledTimes(1)
+    settings.stop()
+  })
+
+  it('wertet genau das aufgenommene Bild aus', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await warteAufStore()
+
+    mocks.scanBild.mockResolvedValue(ocrErgebnis('AA 1234'))
+
+    const w = mountKamera()
+    await flushPromises()
+    await nimmAuf(w)
+    await werteAus(w)
+
+    const bild = mocks.scanBild.mock.calls[0]?.[0] as HTMLCanvasElement
+    expect(bild).toBeInstanceOf(HTMLCanvasElement)
     // Container 640x360, Video 1280x720 (gleiches Seitenverhaeltnis) —
     // der Streifen muss 1:1 auf die Video-Pixel abbilden.
-    expect(ausschnitt.x).toBeCloseTo(0.04, 2)
-    expect(ausschnitt.y).toBeCloseTo(0.43, 2)
-    expect(ausschnitt.width).toBeCloseTo(0.92, 2)
-    expect(ausschnitt.height).toBeCloseTo(0.14, 2)
+    expect(bild.width).toBe(Math.round(1280 * 0.92))
+    expect(bild.height).toBe(Math.round(720 * 0.14))
     settings.stop()
   })
 
@@ -219,11 +263,12 @@ describe('KommissionKameraScan', () => {
     await settings.setKommissionen(['AA 1234'])
     await warteAufStore()
 
-    mocks.scan.mockResolvedValue(ocrErgebnis('AA 1234'))
+    mocks.scanBild.mockResolvedValue(ocrErgebnis('AA 1234'))
 
     const w = mountKamera()
     await flushPromises()
-    await scanne(w)
+    await nimmAuf(w)
+    await werteAus(w)
 
     expect((w.find('.nummer-feld input').element as HTMLInputElement).value).toBe('AA 1234')
     expect(w.text()).toContain('Bestehende Kommission: AA 1234')
@@ -241,11 +286,12 @@ describe('KommissionKameraScan', () => {
     settings.start()
     await warteAufStore()
 
-    mocks.scan.mockResolvedValue(ocrErgebnis('AA 9876'))
+    mocks.scanBild.mockResolvedValue(ocrErgebnis('AA 9876'))
 
     const w = mountKamera()
     await flushPromises()
-    await scanne(w)
+    await nimmAuf(w)
+    await werteAus(w)
 
     // Es wird gefragt — es wird NICHT automatisch angelegt.
     expect(w.text()).toContain('Keine bestehende Kommission zu „AA 9876“ gefunden')
@@ -264,11 +310,12 @@ describe('KommissionKameraScan', () => {
     settings.start()
     await warteAufStore()
 
-    mocks.scan.mockResolvedValue(ocrErgebnis('AA 9876'))
+    mocks.scanBild.mockResolvedValue(ocrErgebnis('AA 9876'))
 
     const w = mountKamera()
     await flushPromises()
-    await scanne(w)
+    await nimmAuf(w)
+    await werteAus(w)
 
     await w.find('.ergebnis-karte .btn').trigger('click')
     await flushPromises()
@@ -284,11 +331,12 @@ describe('KommissionKameraScan', () => {
     settings.start()
     await warteAufStore()
 
-    mocks.scan.mockResolvedValue(ocrErgebnis('AA 98?6'))
+    mocks.scanBild.mockResolvedValue(ocrErgebnis('AA 98?6'))
 
     const w = mountKamera()
     await flushPromises()
-    await scanne(w)
+    await nimmAuf(w)
+    await werteAus(w)
 
     await w.find('.nummer-feld input').setValue('AA 9876')
     await w.find('.ergebnis-karte .primary').trigger('click')
@@ -304,11 +352,12 @@ describe('KommissionKameraScan', () => {
     settings.start()
     await warteAufStore()
 
-    mocks.scan.mockRejectedValue(new Error('OCR kaputt'))
+    mocks.scanBild.mockRejectedValue(new Error('OCR kaputt'))
 
     const w = mountKamera()
     await flushPromises()
-    await scanne(w)
+    await nimmAuf(w)
+    await werteAus(w)
 
     expect(w.find('.fehler').text()).toContain('OCR kaputt')
     settings.stop()

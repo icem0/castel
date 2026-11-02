@@ -26,6 +26,9 @@ export interface OcrResult {
   beste: OcrKandidat | null
 }
 
+/** Bilder, die die OCR lesen kann. */
+export type OcrBild = HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | string
+
 export interface UseKommissionOcrOptions {
   /** tesseract-Sprache (Default: 'eng' — für alphanumere Nummern ausreichend). */
   lang?: string
@@ -83,48 +86,20 @@ export function useKommissionOcr(opts: UseKommissionOcrOptions = {}) {
   }
 
   /**
-   * Nimmt einen Videoframe, schneidet den markierten Ausschnitt aus und
-   * führt OCR durch. Gibt die erkannten Kommissionsnummern zurück.
+   * Liest den Text aus einem bereits aufgenommenen Bild (Canvas, Image
+   * oder Data-URL) und extrahiert die Kommissionsnummern-Kandidaten.
    *
-   * @param videoEl Das <video>-Element mit dem Kamerabild.
-   * @param cropRect Ausschnitt in normalisierten Koordinaten (0..1)
-   *                 relativ zur Video-Darstellung: { x, y, width, height }.
+   * Das Aufnehmen selbst passiert in der Komponente: sie schneidet den
+   * markierten Streifen aus dem Videoframe und uebergibt das Canvas.
    */
-  async function scan(
-    videoEl: HTMLVideoElement,
-    cropRect: { x: number; y: number; width: number; height: number },
-  ): Promise<OcrResult> {
-    const videoWidth = videoEl.videoWidth
-    const videoHeight = videoEl.videoHeight
-    if (!videoWidth || !videoHeight) {
-      throw new Error('Kein Kamerabild verfügbar — bitte erneut auf „Bestätigen“ tippen.')
-    }
-
+  async function scanBild(bild: OcrBild): Promise<OcrResult> {
     const w = await ensureWorker()
-
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(videoWidth * cropRect.width))
-    canvas.height = Math.max(1, Math.round(videoHeight * cropRect.height))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('Canvas-Kontext nicht verfügbar')
-
-    ctx.drawImage(
-      videoEl,
-      Math.round(videoWidth * cropRect.x),
-      Math.round(videoHeight * cropRect.y),
-      canvas.width,
-      canvas.height,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    )
 
     status.value = 'scanning'
     fehler.value = null
 
     try {
-      const { data } = await w.recognize(canvas)
+      const { data } = await w.recognize(bild)
       const text = data.text ?? ''
       const kandidaten = extrahiereKommissionsNummer(text)
       const beste = kandidaten[0] ?? null
@@ -153,7 +128,7 @@ export function useKommissionOcr(opts: UseKommissionOcrOptions = {}) {
   return {
     status,
     fehler,
-    scan,
+    scanBild,
     stop,
     ensureWorker,
     extrahiereKommissionsNummer,

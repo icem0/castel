@@ -1,9 +1,15 @@
 <script setup lang="ts">
 // KommissionKameraScan — Kamera-Scan der Kommissionsnummer.
 //
-// Der User richtet die Kamera so aus, dass die Ziffern im markierten
-// Streifen liegen, bestaetigt, und die OCR liest genau dieses Feld aus.
-// Das Ergebnis wird gegen die bestehenden Kommissionen gematcht:
+// Ablauf (zwei getrennte Schritte, damit klar ist, wann die OCR laeuft):
+//
+//   1. "Bild aufnehmen" — der markierte Streifen wird als Bild
+//      festgehalten und dem User angezeigt. Erst jetzt ist klar, was
+//      spaeter ausgewertet wird.
+//   2. "Auswerten" — die OCR liest genau dieses aufgenommene Bild und
+//      sucht die Kommissionsnummer.
+//
+// Danach wird gegen die bestehenden Kommissionen gematcht:
 //   - Treffer  -> bestehende Kommission uebernehmen
 //   - kein Treffer -> der User wird gefragt, ob eine neue Kommission
 //     mit der Nummer angelegt werden soll.
@@ -34,7 +40,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const { optionen, hinzufuegen } = useKommissionen()
 
-const { fehler, scan: ocrScan, stop: ocrStop, ensureWorker } = useKommissionOcr()
+const { fehler, scanBild, stop: ocrStop, ensureWorker } = useKommissionOcr()
 
 const videoEl = ref<HTMLVideoElement | null>(null)
 const containerEl = ref<HTMLElement | null>(null)
@@ -42,11 +48,18 @@ const containerEl = ref<HTMLElement | null>(null)
 const kameraAktiv = ref(false)
 const kameraLaeuft = ref(false)
 const kameraFehler = ref<string | null>(null)
-const ocrBereit = ref(false)
 const ocrLaedt = ref(false)
-const scanLaeuft = ref(false)
+const aufnahmeLaeuft = ref(false)
+const auswertungLaeuft = ref(false)
 const scanErgebnis = ref<OcrResult | null>(null)
 const scanIndex = ref(0)
+
+/** Das aufgenommene Bild (Canvas) und seine Vorschau als Data-URL. */
+const aufnahme = ref<HTMLCanvasElement | null>(null)
+const aufnahmeVorschau = ref<string | null>(null)
+
+/** Ladevorgang der OCR-Engine — damit er nicht doppelt startet. */
+let ladeOcrPromise: Promise<void> | null = null
 
 /** Die vom User korrigierbare Nummer (vorbelegt mit dem OCR-Treffer). */
 const nummer = ref('')
@@ -91,7 +104,7 @@ async function starteKamera(): Promise<void> {
     videoEl.value.srcObject = stream
     await videoEl.value.play()
     kameraAktiv.value = true
-    // OCR parallel vorladen, damit der erste Scan nicht ewig dauert
+    // OCR parallel vorladen, damit die Auswertung nicht ewig dauert
     // und fehlende Assets sofort sichtbar werden.
     void ladeOcr()
   } catch (e) {
@@ -101,21 +114,30 @@ async function starteKamera(): Promise<void> {
   }
 }
 
-async function ladeOcr(): Promise<void> {
-  if (ocrBereit.value || ocrLaedt.value) return
+/**
+ * Laedt die OCR-Engine vor. Laeuft der Ladevorgang bereits, wird auf
+ * denselben Vorgang gewartet (nicht ein zweiter gestartet).
+ */
+function ladeOcr(): Promise<void> {
+  if (ladeOcrPromise) return ladeOcrPromise
   ocrLaedt.value = true
-  try {
-    await ensureWorker()
-    ocrBereit.value = true
-  } catch (e) {
-    fehler.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    ocrLaedt.value = false
-  }
+  const lauf: Promise<void> = ensureWorker()
+    .then(() => undefined)
+    .catch((e: unknown) => {
+      fehler.value = e instanceof Error ? e.message : String(e)
+    })
+    .finally(() => {
+      ocrLaedt.value = false
+      ladeOcrPromise = null
+    })
+  ladeOcrPromise = lauf
+  return lauf
 }
 
 function stoppeKamera(): void {
   kameraAktiv.value = false
+  aufnahme.value = null
+  aufnahmeVorschau.value = null
   if (videoEl.value) {
     const stream = videoEl.value.srcObject as MediaStream | null
     if (stream) {
@@ -181,7 +203,7 @@ function onPointerUp(): void {
 
 /**
  * Wartet, bis das Video ein Bild liefert. Ohne das ist videoWidth 0 und
- * der OCR bekommt ein 1x1-Pixel-Bild — der Scan liefe ins Leere.
+ * die Aufnahme waere ein 1x1-Pixel-Bild — der Scan liefe ins Leere.
  */
 async function warteAufVideoBild(): Promise<void> {
   const video = videoEl.value
@@ -212,7 +234,11 @@ async function warteAufVideoBild(): Promise<void> {
   })
 }
 
-/** Rechnet den Streifen (Container) in das Quell-Rechteck des Videos um. */
+/**
+ * Rechnet den Streifen (Container) in das Quell-Rechteck des Videos um.
+ * Ohne diese Umrechnung (object-fit!) zeigt der Streifen etwas anderes
+ * an, als die OCR spaeter tatsaechlich liest.
+ */
 function videoAusschnitt(): Rechteck {
   const container = containerEl.value?.getBoundingClientRect()
   const video = videoEl.value
@@ -233,26 +259,68 @@ function videoAusschnitt(): Rechteck {
   )
 }
 
-async function bestaetigeScan(): Promise<void> {
-  if (scanLaeuft.value) return
+/**
+ * Nimmt den markierten Streifen als Bild auf. Erst danach kann der
+ * User sehen, was spaeter ausgewertet wird.
+ */
+async function bildaAufnehmen(): Promise<void> {
+  if (aufnahmeLaeuft.value) return
+  aufnahmeLaeuft.value = true
   fehler.value = ''
-  scanLaeuft.value = true
   try {
     if (!kameraAktiv.value) await starteKamera()
     if (!videoEl.value) return
 
     await warteAufVideoBild()
-    if (!ocrBereit.value) await ladeOcr()
 
+    const video = videoEl.value
     const ausschnitt = videoAusschnitt()
-    const result = await ocrScan(videoEl.value, ausschnitt)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(video.videoWidth * ausschnitt.width))
+    canvas.height = Math.max(1, Math.round(video.videoHeight * ausschnitt.height))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas-Kontext nicht verfügbar')
+
+    ctx.drawImage(
+      video,
+      Math.round(video.videoWidth * ausschnitt.x),
+      Math.round(video.videoHeight * ausschnitt.y),
+      canvas.width,
+      canvas.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    )
+
+    aufnahme.value = canvas
+    aufnahmeVorschau.value = canvas.toDataURL('image/png')
+    // Eine neue Aufnahme macht das alte Ergebnis ungueltig.
+    scanErgebnis.value = null
+    nummer.value = ''
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    aufnahmeLaeuft.value = false
+  }
+}
+
+/** Wertet die Aufnahme per OCR aus und sucht die passende Kommission. */
+async function aufnahmeAuswerten(): Promise<void> {
+  const bild = aufnahme.value
+  if (!bild || auswertungLaeuft.value) return
+  auswertungLaeuft.value = true
+  fehler.value = ''
+  try {
+    await ladeOcr()
+    const result = await scanBild(bild)
     scanErgebnis.value = result
     scanIndex.value = 0
     nummer.value = result.beste?.wert ?? ''
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
   } finally {
-    scanLaeuft.value = false
+    auswertungLaeuft.value = false
   }
 }
 
@@ -333,27 +401,47 @@ async function neueKommissionAnlegen(): Promise<void> {
             @pointercancel="onPointerUp"
           ></span>
         </div>
-
-        <div class="scan-aktionen">
-          <button
-            type="button"
-            class="primary scan-btn"
-            :disabled="disabled || scanLaeuft || ocrLaedt"
-            @click="bestaetigeScan"
-          >
-            {{
-              scanLaeuft
-                ? t('view.kommission.kameraScan.erkennt')
-                : t('view.kommission.kameraScan.bestaetigen')
-            }}
-          </button>
-        </div>
-
-        <p v-if="ocrLaedt" class="hinweis-zeile">
-          {{ t('view.kommission.kameraScan.ocrLaden') }}
-        </p>
       </template>
     </div>
+
+    <!-- Aktionsleiste: liegt AUSSERHALB des Videos, sonst wird sie vom
+         overflow:hidden des Kamera-Fensters abgeschnitten. -->
+    <div v-if="kameraAktiv" class="scan-aktionen">
+      <button
+        type="button"
+        class="btn"
+        :disabled="disabled || aufnahmeLaeuft"
+        @click="bildaAufnehmen"
+      >
+        {{
+          aufnahmeLaeuft
+            ? t('view.kommission.kameraScan.nimmtAuf')
+            : aufnahmeVorschau
+              ? t('view.kommission.kameraScan.erneutAufnehmen')
+              : t('view.kommission.kameraScan.aufnehmen')
+        }}
+      </button>
+      <button
+        type="button"
+        class="primary scan-btn"
+        :disabled="disabled || !aufnahmeVorschau || auswertungLaeuft || ocrLaedt"
+        @click="aufnahmeAuswerten"
+      >
+        {{
+          auswertungLaeuft
+            ? t('view.kommission.kameraScan.wertetAus')
+            : t('view.kommission.kameraScan.auswerten')
+        }}
+      </button>
+    </div>
+
+    <p v-if="ocrLaedt" class="hinweis-zeile">{{ t('view.kommission.kameraScan.ocrLaden') }}</p>
+
+    <!-- Vorschau des aufgenommenen Bildes -->
+    <figure v-if="aufnahmeVorschau" class="aufnahme">
+      <img :src="aufnahmeVorschau" :alt="t('view.kommission.kameraScan.aufgenommen')" />
+      <figcaption>{{ t('view.kommission.kameraScan.aufgenommen') }}</figcaption>
+    </figure>
 
     <div v-if="scanErgebnis" class="scan-ergebnis">
       <p v-if="scanErgebnis.kandidaten.length > 1" class="kandidaten">
@@ -415,7 +503,7 @@ async function neueKommissionAnlegen(): Promise<void> {
         <p class="frage">{{ t('view.kommission.kameraScan.keineNummer') }}</p>
         <p v-if="scanErgebnis.text" class="rohtext">„{{ scanErgebnis.text }}“</p>
         <div class="scan-aktionen">
-          <button type="button" class="primary" :disabled="disabled" @click="bestaetigeScan">
+          <button type="button" class="primary" :disabled="disabled" @click="aufnahmeAuswerten">
             {{ t('view.kommission.kameraScan.erneut') }}
           </button>
         </div>
@@ -513,11 +601,29 @@ async function neueKommissionAnlegen(): Promise<void> {
 .scan-aktionen {
   display: flex;
   gap: 0.4rem;
-  margin-top: 0.4rem;
 }
 
 .scan-btn {
   flex: 1;
+}
+
+.aufnahme {
+  margin: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.aufnahme img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.aufnahme figcaption {
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .scan-ergebnis {
@@ -594,7 +700,7 @@ async function neueKommissionAnlegen(): Promise<void> {
 }
 
 .hinweis-zeile {
-  margin: 0.4rem 0 0;
+  margin: 0;
   font-size: 0.8rem;
   color: var(--text-muted);
 }

@@ -318,7 +318,12 @@ export default {
         titel: 'Kamera-Scan',
         kameraStarten: 'Kamera starten',
         ausschnitt: 'Rahmen über die Projektnummer ziehen',
-        bestaetigen: 'Bestätigen',
+        aufnehmen: 'Bild aufnehmen',
+        erneutAufnehmen: 'Neu aufnehmen',
+        nimmtAuf: 'Wird aufgenommen …',
+        aufgenommen: 'Aufgenommenes Bild',
+        auswerten: 'Auswerten',
+        wertetAus: 'Wird ausgewertet …',
         erkennt: 'Text wird erkannt …',
         ocrLaden: 'OCR wird geladen …',
         erkannt: 'Erkannter Text: „{text}“',
@@ -334,7 +339,7 @@ export default {
         keineNummer: 'Keine Nummer im Rahmen erkannt. Rahmen über die Ziffern legen.',
         keinVideo: 'Kein Kamerabild verfügbar. Bitte erneut versuchen.',
         hinweis:
-          'Richte die Kamera so aus, dass die Projektnummer im Rahmen liegt, und tippe auf „Bestätigen“.',
+          'Richte die Kamera so aus, dass die Projektnummer im Rahmen liegt, tippe auf „Bild aufnehmen“ und danach auf „Auswerten“.',
       },
     },
     standort: {

@@ -308,7 +308,12 @@ export default {
         titel: 'Camera Scan',
         kameraStarten: 'Start camera',
         ausschnitt: 'Drag frame over the commission number',
-        bestaetigen: 'Confirm',
+        aufnehmen: 'Take picture',
+        erneutAufnehmen: 'Take again',
+        nimmtAuf: 'Taking picture …',
+        aufgenommen: 'Captured image',
+        auswerten: 'Evaluate',
+        wertetAus: 'Evaluating …',
         erkennt: 'Recognizing text …',
         ocrLaden: 'Loading OCR …',
         erkannt: 'Recognized text: “{text}”',
@@ -324,7 +329,7 @@ export default {
         keineNummer: 'No number recognized in the frame. Move the frame over the digits.',
         keinVideo: 'No camera image available. Please try again.',
         hinweis:
-          'Point the camera so that the commission number lies inside the frame, then tap “Confirm”.',
+          'Point the camera so that the commission number lies inside the frame, then tap “Take picture” and afterwards “Evaluate”.',
       },
     },
     standort: {
