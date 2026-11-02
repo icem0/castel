@@ -8,6 +8,7 @@ export default {
       dashboard: 'Dashboard',
       artikel: 'Artikel',
       buchungen: 'Buchungen',
+      mindestbestand: 'Mindestbestand',
       akkutausch: 'Akkutausch',
       scan: 'Scan',
       standorte: 'Standorte',

@@ -832,6 +832,9 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/">{{ t('app.nav.dashboard') }}</RouterLink>
         <RouterLink to="/artikel">{{ t('app.nav.artikel') }}</RouterLink>
         <RouterLink to="/buchungen">{{ t('app.nav.buchungen') }}</RouterLink>
+        <RouterLink to="/einstellungen/mindestbestand">{{
+          t('app.nav.mindestbestand')
+        }}</RouterLink>
         <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
           t('app.nav.akkutausch')
         }}</RouterLink>

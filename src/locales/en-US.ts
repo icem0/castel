@@ -8,6 +8,7 @@ export default {
       dashboard: 'Dashboard',
       artikel: 'Items',
       buchungen: 'Transactions',
+      mindestbestand: 'Minimum Stock',
       akkutausch: 'Batteries',
       scan: 'Scan',
       standorte: 'Locations',
