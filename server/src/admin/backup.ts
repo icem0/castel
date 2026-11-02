@@ -17,7 +17,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createReadStream, createWriteStream, statSync } from 'node:fs'
-import { mkdir, mkdtemp, open, readFile, readdir, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, open, readFile, readdir, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable, Transform, Writable } from 'node:stream'
@@ -1028,6 +1028,35 @@ async function zaehleDateien(dir: string): Promise<number> {
     else n++
   }
   return n
+}
+
+/**
+ * Ist der Fehler ein "cross-device link"-Fehler? `rename` funktioniert nur
+ * innerhalb eines Dateisystems — ein Verschieben aus `/tmp` (tmpfs) in das
+ * Backup-Volume scheitert mit EXDEV.
+ */
+export function istExdev(e: unknown): boolean {
+  const code = (e as { code?: string } | null)?.code
+  return code === 'EXDEV'
+}
+
+/**
+ * Verschiebt eine Datei an einen neuen Ort.
+ *
+ * `rename` ist der schnelle Weg, funktioniert aber nur innerhalb eines
+ * Dateisystems. Der Upload landet in einem Temp-Verzeichnis, das auf einem
+ * anderen Dateisystem liegen kann als das Backup-Volume (im Container: /tmp
+ * ist ein tmpfs, /var/lib/castel/backups ist ein Volume) — dann scheitert
+ * `rename` mit EXDEV. In dem Fall wird kopiert statt verschoben.
+ */
+export async function verschiebeDatei(quelle: string, ziel: string): Promise<void> {
+  try {
+    await rename(quelle, ziel)
+  } catch (e) {
+    if (!istExdev(e)) throw e
+    await copyFile(quelle, ziel)
+    await rm(quelle, { force: true })
+  }
 }
 
 /**

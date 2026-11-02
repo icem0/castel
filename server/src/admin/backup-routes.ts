@@ -24,8 +24,8 @@ import type { FastifyInstance } from 'fastify'
 import fastifyMultipart from '@fastify/multipart'
 import { unlink as fsUnlink } from 'node:fs/promises'
 import { createWriteStream, existsSync } from 'node:fs'
-import { mkdtemp, rename, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { z } from 'zod'
@@ -48,6 +48,7 @@ import {
   schreibeRestoreEpoch,
   serverVersionMajor,
   triggerSyncForce,
+  verschiebeDatei,
   warteAufSyncIdle,
   type RestoreErgebnis,
   type SyncWaitOpts,
@@ -389,15 +390,19 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ code: 'NO_FILE', message: 'kein Backup-ZIP hochgeladen' })
       }
 
-      const tmpDir = await mkdtemp(join(tmpdir(), 'castel-upload-'))
-      const tmpPfad = join(tmpDir, 'upload.zip')
+      // Der Upload landet direkt im Backup-Ordner und NICHT in /tmp:
+      // im Container sind /tmp (tmpfs) und /var/lib/castel/backups
+      // (Volume) verschiedene Dateisysteme — ein rename dorthin
+      // scheitert mit "EXDEV: cross-device link not permitted".
+      await ensureBackupDir()
+      const tmpPfad = join(config.BACKUP_DIR, `.upload-${randomUUID()}.zip`)
       try {
         // Gestreamt auf die Platte — ein Backup kann Hunderte MB gross
         // sein und darf nicht komplett im RAM gepuffert werden.
         await pipeline(file.file, createWriteStream(tmpPfad))
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e)
-        await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        await rm(tmpPfad, { force: true }).catch(() => {})
         if (message.includes('too large') || message.includes('limit')) {
           return reply.code(413).send({
             code: 'PAYLOAD_TOO_LARGE',
@@ -427,12 +432,11 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
         // dann in der Liste, kann erneut eingespielt oder heruntergeladen
         // werden. Der Dateiname traegt den Zeitstempel aus dem Manifest —
         // ein altes Backup soll in der Liste auch als alt erscheinen.
-        await ensureBackupDir()
         const manifest = await leseManifestAusZip(tmpPfad)
         const stamp = backupStamp(manifest?.createdAt ?? null)
         const filename = `castel-backup-${stamp}.zip`
         const ziel = backupDateiPfad(filename)
-        await rename(tmpPfad, ziel)
+        await verschiebeDatei(tmpPfad, ziel)
 
         const jobId = neuerJobId()
         backupJobs.set(jobId, {
@@ -448,7 +452,9 @@ export async function backupRoutes(app: FastifyInstance): Promise<void> {
         app.log.error({ err: e }, '[backup] upload-Ablage fehlgeschlagen')
         return reply.code(500).send({ code: 'UPLOAD_FAILED', message })
       } finally {
-        await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+        // Reste der Temp-Datei entfernen (nach dem Verschieben existiert
+        // sie nicht mehr — der Aufruf ist dann ein No-Op).
+        await rm(tmpPfad, { force: true }).catch(() => {})
       }
     },
   )
