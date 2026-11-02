@@ -1,4 +1,4 @@
-// Tests fuer die Merk-Logik der letzten Kommission (1 h, pro User).
+// Tests fuer die Merk-Logik der letzten Kommission (2 h, pro User).
 
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -20,11 +20,20 @@ describe('kommissionMerken / letzteKommission', () => {
     expect(letzteKommission('user-1')).toBe('Projekt Mueller')
   })
 
-  it('verwaehrt nach Ablauf der Stunde', () => {
+  it('verwaehrt nach Ablauf der zwei Stunden', () => {
     const start = Date.now()
     kommissionMerken('user-1', 'Alt', start)
     expect(letzteKommission('user-1', start + MERKDAUER_MS - 1000)).toBe('Alt')
     expect(letzteKommission('user-1', start + MERKDAUER_MS + 1000)).toBeNull()
+  })
+
+  it('merkt die Kommission zwei Stunden lang (nicht nur eine)', () => {
+    const start = Date.now()
+    kommissionMerken('user-1', 'Lang', start)
+    // Nach einer Stunde noch vorhanden …
+    expect(letzteKommission('user-1', start + 60 * 60 * 1000)).toBe('Lang')
+    // … nach knapp zwei Stunden auch noch.
+    expect(letzteKommission('user-1', start + 2 * 60 * 60 * 1000 - 1000)).toBe('Lang')
   })
 
   it('verlaengert bei jeder Buchung (Sliding Window)', () => {

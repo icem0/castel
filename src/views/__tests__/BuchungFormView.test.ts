@@ -134,9 +134,7 @@ describe('BuchungFormView — Kommission', () => {
     const feld = w.find('.kommission-suche')
     await feld.find('input[type="search"]').trigger('focus')
     await flushPromises()
-    const eintrag = feld
-      .findAll('.treffer-liste li')
-      .find((li) => li.text() === 'Projekt Müller')
+    const eintrag = feld.findAll('.treffer-liste li').find((li) => li.text() === 'Projekt Müller')
     expect(eintrag).toBeDefined()
     await eintrag!.trigger('mousedown')
 
@@ -148,14 +146,14 @@ describe('BuchungFormView — Kommission', () => {
     const buchungen = await getDb().buchungen.toArray()
     expect(buchungen).toHaveLength(1)
     expect(buchungen[0]?.projekt).toBe('Projekt Müller')
-    // Die zuletzt gebuchte Kommission wird gemerkt (1 h, pro User).
+    // Die zuletzt gebuchte Kommission wird gemerkt (2 h, pro User).
     expect(letzteKommission('user-1')).toBe('Projekt Müller')
 
     standortStore.stop()
     settings.stop()
   })
 
-  it('füllt das Formular mit der gemerkten Kommission (unter einer Stunde)', async () => {
+  it('füllt das Formular mit der gemerkten Kommission (unter zwei Stunden)', async () => {
     kommissionMerken('user-1', 'Projekt Müller')
 
     const { w, standortStore } = await setupView()
@@ -165,7 +163,17 @@ describe('BuchungFormView — Kommission', () => {
     standortStore.stop()
   })
 
-  it('füllt NICHT mit einer Kommission, älter als eine Stunde', async () => {
+  it('füllt noch nach einer Stunde mit der gemerkten Kommission', async () => {
+    kommissionMerken('user-1', 'Projekt Müller', Date.now() - 60 * 60 * 1000)
+
+    const { w, standortStore } = await setupView()
+    const feld = w.find('.kommission-suche')
+    expect(feld.find('.auswahl-tag .auswahl-titel').text()).toBe('Projekt Müller')
+
+    standortStore.stop()
+  })
+
+  it('füllt NICHT mit einer Kommission, älter als zwei Stunden', async () => {
     kommissionMerken('user-1', 'Projekt Müller', Date.now() - MERKDAUER_MS - 5000)
 
     const { w, standortStore } = await setupView()
@@ -174,6 +182,34 @@ describe('BuchungFormView — Kommission', () => {
     expect((feld.find('input[type="search"]').element as HTMLInputElement).value).toBe('')
 
     standortStore.stop()
+  })
+
+  it('vergisst die gemerkte Kommission nach einer Buchung ohne Kommission', async () => {
+    const settings = useSettingsStore(pinia)
+    settings.start()
+    await new Promise<void>((resolve) => setTimeout(resolve, 60))
+
+    kommissionMerken('user-1', 'Projekt Müller')
+
+    const { w, standortStore } = await setupView()
+
+    // Das Feld ist mit der gemerkten Kommission vorbefuellt — der User
+    // leert es bewusst und bucht ohne Kommission.
+    const feld = w.find('.kommission-suche')
+    expect(feld.find('.auswahl-tag .auswahl-titel').text()).toBe('Projekt Müller')
+    await feld.find('.auswahl-clear').trigger('click')
+    await flushPromises()
+
+    await w.find('form').trigger('submit')
+    await flushPromises()
+    await new Promise<void>((resolve) => setTimeout(resolve, 50))
+    await flushPromises()
+
+    // Ohne Kommission gebucht — die alte darf nicht wieder auftauchen.
+    expect(letzteKommission('user-1')).toBeNull()
+
+    standortStore.stop()
+    settings.stop()
   })
 
   it('füllt nicht mit der Kommission eines anderen Users', async () => {

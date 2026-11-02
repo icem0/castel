@@ -1,9 +1,14 @@
-// Merkt sich die zuletzt verwendete Kommission (1 Stunde, pro User).
+// Merkt sich die zuletzt verwendete Kommission (2 Stunden, pro User).
 //
 // Wer mehrere Buchungen fuer dieselbe Kommission erfasst, soll das
 // Kommission-Feld nicht staendig neu auswaehlen muessen. Nach jeder Buchung
 // mit Kommission wird der Zeitstempel erneut gesetzt (Sliding Window); erst
-// wenn seit 60 Minuten keine Buchung mehr kam, bleibt das Feld wieder leer.
+// wenn seit 2 Stunden keine Buchung mit Kommission mehr kam, bleibt das
+// Feld wieder leer.
+//
+// Eine Buchung OHNE Kommission loescht die Merkung: der User hat bewusst
+// ohne Kommission gebucht — eine alte Kommission darf nicht wieder
+// auftauchen (das waere genau der Fehler, den das Merken vermeiden soll).
 //
 // Wie bei den Etiketten-Startfeldern (services/etiketten/startfeld.ts) ist
 // das reine Browser-Bequemlichkeit: localStorage, nicht gesynct, mit
@@ -13,7 +18,7 @@
 export const LS_KOMMISSION_ZULETZT = 'castel.kommission.zuletzt'
 
 /** Wie lange die Kommission gemerkt bleibt (Sliding Window ab letzter Buchung). */
-export const MERKDAUER_MS = 60 * 60 * 1000
+export const MERKDAUER_MS = 2 * 60 * 60 * 1000
 
 /** Obergrenze — alles darueber ist datenqualitaetsmaessig verdaechtig. */
 const MAX_LAENGE = 500

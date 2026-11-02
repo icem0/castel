@@ -9,7 +9,11 @@ import { useAuthStore } from '../stores/auth'
 import { useToastStore } from '../stores/toast'
 import { getApiBaseUrl } from '../auth/api'
 import { syncUndBestaetigeBuchungen } from '../services/sync/buchung-bestaetigung'
-import { kommissionMerken, letzteKommission } from '../services/kommission/merken'
+import {
+  kommissionMerken,
+  kommissionVergessen,
+  letzteKommission,
+} from '../services/kommission/merken'
 import type { BuchungsTyp } from '../db/types'
 import {
   NegativerBestandWarnung,
@@ -48,7 +52,7 @@ onMounted(() => {
   if (!standortId.value) {
     standortId.value = standortStore.standardlager?.id ?? ''
   }
-  // Convenience: keep the last commission for one hour (sliding window) so
+  // Convenience: keep the last commission for two hours (sliding window) so
   // successive bookings for the same commission need no re-selection.
   if (projekt.value === '') {
     const gemerkt = letzteKommission(auth.userId ?? '')
@@ -186,9 +190,15 @@ async function speichern(): Promise<void> {
     }
 
     // Remember the commission for the next booking (inventur posts none —
-    // it leaves the saved value untouched).
-    if (typ.value !== 'inventur' && projekt.value.trim() !== '') {
-      kommissionMerken(auth.userId ?? '', projekt.value.trim())
+    // it leaves the saved value untouched). A booking WITHOUT a commission
+    // clears the memory: the user deliberately booked without one, so no
+    // stale commission may reappear in the next booking form.
+    if (typ.value !== 'inventur') {
+      if (projekt.value.trim() !== '') {
+        kommissionMerken(auth.userId ?? '', projekt.value.trim())
+      } else {
+        kommissionVergessen()
+      }
     }
 
     const toastId = toast.show({
