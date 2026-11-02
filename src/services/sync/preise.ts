@@ -89,12 +89,15 @@ async function setzePayloadFeld(outboxId: string, feld: string, wert: unknown): 
 
 /**
  * Wird vor jedem Sync-Lauf aufgerufen. Haelt die lokale Preissicht mit
- * der aktuellen Rolle konsistent.
+ * den aktuellen Rechten konsistent.
+ *
+ * `hatEinkaufspreis` = der User darf den vertraulichen Einkaufspreis sehen
+ * (nur Admins). Ohne dieses Recht werden lokale Preise entfernt.
  */
-export async function prepareRoleForSync(istAdmin: boolean): Promise<void> {
+export async function prepareRoleForSync(hatEinkaufspreis: boolean): Promise<void> {
   const letzteRolle = leseLetzteRolle()
 
-  if (istAdmin) {
+  if (hatEinkaufspreis) {
     if (letzteRolle !== 'admin') {
       // Foerderung zum Admin (oder erster Lauf nach dem Update): voller
       // Pull, damit die zuvor gestrippten Preise ankommen.

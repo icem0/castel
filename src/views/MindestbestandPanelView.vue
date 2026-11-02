@@ -162,7 +162,7 @@ function formatDatum(iso: string): string {
             <td>
               <div class="bestell-aktionen">
                 <a
-                  v-if="auth.istAdmin && z.offen && ziel(z)"
+                  v-if="auth.hat('akkutausch.verwalten') && z.offen && ziel(z)"
                   class="btn mini"
                   :href="ziel(z)!.href"
                   :target="ziel(z)!.mailto ? undefined : '_blank'"
@@ -171,7 +171,7 @@ function formatDatum(iso: string): string {
                   🛒 {{ t('view.mindestbestand.jetztBestellen') }}
                 </a>
                 <button
-                  v-if="auth.istAdmin && z.offen"
+                  v-if="auth.hat('akkutausch.verwalten') && z.offen"
                   type="button"
                   class="btn mini haken"
                   :class="{ aktiv: bestellung.istBestellt(z) }"

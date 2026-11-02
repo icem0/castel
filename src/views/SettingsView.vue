@@ -48,7 +48,7 @@ async function speichern(): Promise<void> {
   if (laufend.value) return
   laufend.value = true
   try {
-    if (auth.istAdmin) {
+    if (auth.hat('globalEinstellung')) {
       await settings.setStandardStandort(standardId.value || null)
       await settings.setKey('companyName', firmaName.value)
       await settings.setBarcodeTyp(barcodeTyp.value)
@@ -124,14 +124,14 @@ onBeforeUnmount(() => {
 
     <div class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label v-if="auth.istAdmin">
+        <label v-if="auth.hat('globalEinstellung')">
           <span>{{ t('view.settings.standardStandort') }}</span>
           <select v-model="standardId" :disabled="laufend">
             <option value="">— {{ t('view.settings.nichtGelegt') }} —</option>
             <option v-for="s in standorte" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </label>
-        <label v-if="auth.istAdmin">
+        <label v-if="auth.hat('globalEinstellung')">
           <span>{{ t('view.settings.companyName') }}</span>
           <input
             v-model="firmaName"
@@ -141,7 +141,7 @@ onBeforeUnmount(() => {
             @input="firmaNameVomUser = true"
           />
         </label>
-        <label v-if="auth.istAdmin">
+        <label v-if="auth.hat('globalEinstellung')">
           <span>{{ t('view.settings.barcodeTyp') }}</span>
           <select v-model="barcodeTyp" :disabled="laufend" @input="barcodeTypVomUser = true">
             <option v-for="f in barcodeFormate" :key="f.wert" :value="f.wert">
@@ -212,14 +212,20 @@ onBeforeUnmount(() => {
       <MindestbestandBenachrichtigungen />
     </div>
 
-    <h2 v-if="auth.istAdmin">{{ t('view.settings.administration') }}</h2>
-    <div v-if="auth.istAdmin" class="card quick-links">
-      <RouterLink to="/einstellungen/user">{{ t('view.settings.benutzerVerwaltung') }}</RouterLink>
-      <RouterLink to="/einstellungen/entwicklung">{{ t('view.settings.entwicklung') }}</RouterLink>
+    <h2 v-if="auth.hat('benutzer.verwalten') || auth.hat('entwicklung')">
+      {{ t('view.settings.administration') }}
+    </h2>
+    <div v-if="auth.hat('benutzer.verwalten') || auth.hat('entwicklung')" class="card quick-links">
+      <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/user">{{
+        t('view.settings.benutzerVerwaltung')
+      }}</RouterLink>
+      <RouterLink v-if="auth.hat('entwicklung')" to="/einstellungen/entwicklung">{{
+        t('view.settings.entwicklung')
+      }}</RouterLink>
     </div>
 
-    <h2 v-if="auth.istAdmin">{{ t('view.settings.werkzeuge') }}</h2>
-    <div v-if="auth.istAdmin" class="card">
+    <h2 v-if="auth.hat('globalEinstellung')">{{ t('view.settings.werkzeuge') }}</h2>
+    <div v-if="auth.hat('globalEinstellung')" class="card">
       <label class="account-setting">
         <span class="label">{{ t('view.settings.akkutauschAktiv') }}</span>
         <input
@@ -234,33 +240,37 @@ onBeforeUnmount(() => {
     <h2>{{ t('view.settings.daten') }}</h2>
     <div class="card quick-links">
       <RouterLink to="/einstellungen/geraet">{{ t('view.settings.geraet') }}</RouterLink>
-      <RouterLink v-if="auth.istAdmin" to="/import">{{ t('view.settings.csvImport') }}</RouterLink>
-      <RouterLink v-if="auth.istAdmin" to="/einstellungen/backup">{{
+      <RouterLink v-if="auth.hat('import.fuehren')" to="/import">{{
+        t('view.settings.csvImport')
+      }}</RouterLink>
+      <RouterLink v-if="auth.hat('backup.verwalten')" to="/einstellungen/backup">{{
         t('view.settings.backup')
       }}</RouterLink>
-      <RouterLink v-if="auth.istAdmin" to="/einstellungen/api-keys">{{
+      <RouterLink v-if="auth.hat('apiKey.verwalten')" to="/einstellungen/api-keys">{{
         t('view.settings.apiKeys')
       }}</RouterLink>
     </div>
 
     <h2>{{ t('view.settings.stammdaten') }}</h2>
     <div class="card quick-links">
-      <RouterLink v-if="auth.istAdmin" to="/standorte">{{ t('view.standort.h1') }}</RouterLink>
+      <RouterLink v-if="auth.hat('standort.schreiben')" to="/standorte">{{
+        t('view.standort.h1')
+      }}</RouterLink>
       <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
         t('view.akkutausch.h1')
       }}</RouterLink>
-      <RouterLink v-if="auth.istAdmin" to="/einstellungen/artikel-typen">{{
+      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/artikel-typen">{{
         t('view.artikelTypen.h1')
       }}</RouterLink>
       <RouterLink
-        v-if="auth.istAdmin && settings.settings.akkutauschAktiv"
+        v-if="auth.hat('stammdaten.verwalten') && settings.settings.akkutauschAktiv"
         to="/einstellungen/akku-typen"
         >{{ t('view.akkuTypen.h1') }}</RouterLink
       >
-      <RouterLink v-if="auth.istAdmin" to="/einstellungen/kommissionen">{{
+      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/kommissionen">{{
         t('view.kommissionen.h1')
       }}</RouterLink>
-      <RouterLink v-if="auth.istAdmin" to="/einstellungen/hersteller">{{
+      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/hersteller">{{
         t('view.hersteller.h1')
       }}</RouterLink>
       <RouterLink to="/einstellungen/artikel-kataloge">{{

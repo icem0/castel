@@ -15,11 +15,13 @@ import {
   scopeErlaubt,
   type ApiKeyScope,
 } from './api-keys.js'
+import { istAdmin, normalisiereRollen, type Rolle } from '../domain/rollen.js'
 
 export interface ApiAuthContext {
   userId: string
   email: string
-  rolle: 'admin' | 'user'
+  /** Rollen-Stack des Key-Owners (z.B. ['user','lagerist']). */
+  rollen: Rolle[]
   scopes: ApiKeyScope[]
   apiKeyId: string
   keyPrefix: string
@@ -63,7 +65,7 @@ export async function authenticateApiKey(req: FastifyRequest): Promise<ApiAuthCo
       letzteNutzungAm: apiKeys.letzteNutzungAm,
       userId: users.id,
       email: users.email,
-      rolle: users.rolle,
+      rollen: users.rollen,
       aktiv: users.aktiv,
     })
     .from(apiKeys)
@@ -91,7 +93,7 @@ export async function authenticateApiKey(req: FastifyRequest): Promise<ApiAuthCo
   return {
     userId: row.userId,
     email: row.email,
-    rolle: row.rolle,
+    rollen: normalisiereRollen(row.rollen),
     scopes: (row.scopes ?? []) as ApiKeyScope[],
     apiKeyId: row.keyId,
     keyPrefix: row.keyPrefix,
@@ -134,7 +136,7 @@ export function requireApiScope(scope: ApiKeyScope) {
       })
       return
     }
-    if (scope === 'admin' && ctx.rolle !== 'admin') {
+    if (scope === 'admin' && !istAdmin(ctx.rollen)) {
       void reply.code(403).send({
         code: 'FORBIDDEN',
         message: 'Admin-Scope erfordert einen Admin-User',

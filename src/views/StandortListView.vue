@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { StandortHatBuchungenError, useStandortStore } from '../stores/standort'
+import { useAuthStore } from '../stores/auth'
 import type { StandortTyp } from '../db/types'
 
 const { t } = useI18n()
 const standortStore = useStandortStore()
+const auth = useAuthStore()
 
 onMounted(() => {
   // Der Store liest per liveQuery aus IndexedDB. `start()` ist idempotent —
@@ -249,21 +251,25 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
             >
               {{ t('view.standort.umbenennen') }}
             </button>
-            <button v-if="!s.archiviert && !s.standard" type="button" @click="setStandard(s.id)">
+            <button
+              v-if="!s.archiviert && !s.standard && auth.hat('globalEinstellung')"
+              type="button"
+              @click="setStandard(s.id)"
+            >
               {{ t('view.standort.spalten.standard') }}
             </button>
             <button v-if="!s.archiviert && !s.standard" type="button" @click="archivieren(s.id)">
               {{ t('view.artikel.detail.archivieren') }}
             </button>
             <button
-              v-if="!s.archiviert && !s.standard"
+              v-if="!s.archiviert && !s.standard && auth.hat('standort.loeschen')"
               type="button"
               class="danger"
               @click="loeschen(s.id)"
             >
               {{ t('view.standort.loeschen') }}
             </button>
-            <button v-else type="button" @click="wiederherstellen(s.id)">
+            <button v-else-if="s.archiviert" type="button" @click="wiederherstellen(s.id)">
               {{ t('view.standort.wiederherstellen') }}
             </button>
           </td>

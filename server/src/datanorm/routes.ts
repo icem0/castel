@@ -35,6 +35,7 @@ import {
   raeumeLeereVerzeichnisse,
 } from './cleanup.js'
 import type { DatanormEncoding, DatanormFormat } from './types.js'
+import { istAdmin as istAdminRolle } from '../domain/rollen.js'
 
 const MAX_PAGE = 100
 const DEFAULT_PAGE = 20
@@ -92,7 +93,7 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
     const db = getDb()
     const alle = (req.query as { alle?: string }).alle === 'true'
     const nurAktive = (req.query as { aktiv?: string }).aktiv !== 'false'
-    const istAdmin = req.authUser?.rolle === 'admin'
+    const istAdmin = istAdminRolle(req.authUser?.rollen)
     // Only admins ever see inactive suppliers.
     const filterAktiv = alle && istAdmin ? undefined : nurAktive ? eq(lieferanten.aktiv, true) : undefined
 

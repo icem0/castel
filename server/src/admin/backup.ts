@@ -25,6 +25,7 @@ import archiver from 'archiver'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getClient, getDb } from '../db/client.js'
 import { buchungen, einstellungen, users } from '../db/schema.js'
+import { normalisiereRollen, type Rolle } from '../domain/rollen.js'
 import { config } from '../config/config.js'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
@@ -620,6 +621,8 @@ export interface BewahrterUser {
   email: string
   passwordHash: string
   rolle: 'admin' | 'user'
+  /** Rollen-Stack — wird beim Wiederherstellen mitgeschrieben. */
+  rollen: Rolle[]
   aktiv: boolean
   erstelltAm: Date
   letzterLoginAm: Date | null
@@ -828,6 +831,7 @@ export async function stelleUserWiederHer(u: BewahrterUser): Promise<boolean> {
       .set({
         passwordHash: u.passwordHash,
         rolle: u.rolle,
+        rollen: u.rollen,
         aktiv: true,
         mustChangePassword: u.mustChangePassword,
         anzeigename: u.anzeigename,
@@ -842,6 +846,7 @@ export async function stelleUserWiederHer(u: BewahrterUser): Promise<boolean> {
       email: u.email,
       passwordHash: u.passwordHash,
       rolle: u.rolle,
+      rollen: u.rollen,
       aktiv: u.aktiv,
       erstelltAm: u.erstelltAm,
       letzterLoginAm: u.letzterLoginAm,
@@ -867,6 +872,7 @@ export async function leseUserZeile(userId: string): Promise<BewahrterUser | nul
       email: u.email,
       passwordHash: u.passwordHash,
       rolle: u.rolle,
+      rollen: normalisiereRollen(u.rollen),
       aktiv: u.aktiv,
       erstelltAm: u.erstelltAm,
       letzterLoginAm: u.letzterLoginAm ?? null,

@@ -42,7 +42,7 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Projektakkus: Hinzufügen ist rollenoffen.** Jede angemeldete Rolle darf einen neuen Projektakku anlegen (`akku_projekt`, `op: 'create'`). Bearbeiten und Löschen (beides als `op: 'update'`/Soft-Delete gepusht) bleiben Admin-only — der Resolver wirft sonst `VALIDATION`, der Store (`projektSpeichern`/`projektLoeschen`) schreibt solche Ops gar nicht erst in die Outbox.
 
 - **Der Bedarf kommt aus der Netzteilliste** — Geräte, deren Fälligkeit (`einbaudatum` + `intervall_jahre`) ins gewählte Quartal fällt (× `anzahl`), gruppiert über die Kapazitätsbänder der `akkuTypen` — **plus** die Projektakkus des Quartals. Nichts anderes speist den Bedarf an.
-- **Die „zur freie Verfügung" (Puffer) ist eine reine Admin-Konfiguration**: der Mindestbestand des Akku-Artikels am **Hauptlager** (`artikel_standort_mindestbestaende`). Sie wird nur von Admins gepflegt (Plantabelle, Einstellungen → Akku-Größen) und dient **ausschließlich** der Bestellmenge:
+- **Die „zur freie Verfügung" (Puffer) ist eine reine Konfiguration**: der Mindestbestand des Akku-Artikels am **Hauptlager** (`artikel_standort_mindestbestaende`). Sie wird von allen mit `mindestbestand.schreiben` gepflegt (Lagerist + Admin; Plantabelle, Einstellungen → Akku-Größen) und dient **ausschließlich** der Bestellmenge:
   `bestellmenge = max(0, bedarf − max(0, bestand) + puffer)`.
   Der Puffer wird **nie** aus dem Bestand oder dem Bedarf umgerechnet — kein `verfuegbar`-Zwischenwert, keine automatische Nachführung.
 - **„Bestellt" archiviert einen Snapshot** in `akku_bestellungen` (Migration `0024`): eingefrorene Plantabelle (`zeilen` als JSONB), Inventur-Stichtag und Kürzel der auslösenden Person. `bestellt_am` setzt der Server (Source of Truth), `create` ist per UUID idempotent.
@@ -52,11 +52,39 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Nebenwirkung wird zurückgenommen.** „Bestellt" setzt den Mindestbestand der Akku-Artikel mit Bedarf am Hauptlager auf **den Bedarf** (nicht auf `Bedarf − Bestand` — sonst zählt der Puffer in der Bestellmenge doppelt). Größen **ohne** Bedarf bleiben unangetastet — ihr Admin-Puffer wird nicht überschrieben. Der Snapshot merkt sich den alten Puffer in `zeilen[].reserve` (sowie `artikelId` und `standort_id`), das Rückgängig-Machen schreibt ihn zurück (0 entfernt die sparse Zeile).
 - **Der Snapshot-Filter zieht Stornos nach**: `bestellt_am > since OR storno_am > since` — sonst käme das Rückgängig-Machen auf anderen Geräten nie an.
 
+### Benutzerrechte: Rollen & Berechtigungen
+
+Die Rechte sind **stapelbar**: ein User kann mehrere Rollen haben, die Berechtigungen werden vereinigt. `admin` ist die Obergrenze (hat alles) und exklusiv.
+
+- **Rollen**: `user` (Basis — immer implizit), `lagerist` (Lager-Rechte auf dem Basis-User), `admin` (alles).
+- **Die Matrix lebt im Server** — `server/src/domain/rollen.ts` (dependency-frei, keine Imports). Der PWA-Client importiert sie direkt (`src/domain/rollen.ts`), es gibt also **keine doppelte Pflege** der Berechtigungs-IDs. Neue Rolle = eine Zeile in der Matrix, **keine DB-Migration**.
+- **Die Matrix:**
+
+  | Permission | user | lagerist | admin |
+  |---|:-:|:-:|:-:|
+  | `artikel.lesen`, `standort.lesen`, `mindestbestand.lesen`, `katalog.lesen` | ✓ | ✓ | ✓ |
+  | `buchung.erstellen`, `buchung.storno`, `kommission.beitragen`, `etikett.drucken`, `geraet.lokal` | ✓ | ✓ | ✓ |
+  | `artikel.schreiben`, `artikel.loeschen` | | ✓ | ✓ |
+  | `standort.schreiben` (anlegen/umbenennen/archivieren) | | ✓ | ✓ |
+  | `mindestbestand.schreiben` (je Artikel/Standort) | | ✓ | ✓ |
+  | `standort.loeschen` | | | ✓ |
+  | `einkaufspreis` (EK + Rabattsatz), `stammdaten.verwalten` (Lieferanten, Typen, Kommissionen-Liste) | | | ✓ |
+  | `akkutausch.verwalten`, `globalEinstellung`, `benutzer.verwalten`, `backup.verwalten`, `import.fuehren`, `apiKey.verwalten`, `entwicklung` | | | ✓ |
+
+- **Datenmodell**: `users.rollen TEXT[]` (Migration `0029`) — z.B. `{user}`, `{user,lagerist}`, `{admin}`. Die alte Spalte `users.rolle` (`'admin'|'user'`) **bleibt** und wird **dual geschrieben** (`legacyRolle()`), damit ältere Server-Container während eines Rollouts die Admin-Rolle erkennen. Ein späterer Cleanup kann die Spalte droppen.
+- **Rollenänderung wirkt sofort**: `authenticate()` (Server) liest die Rollen bei **jedem** Request frisch aus der DB — der JWT ist nicht mehr die Wahrheit über die Rolle. Die PWA holt ihre Rechte aus der Login-Antwort bzw. `/api/auth/me` (`session.berechtigungen`) und aktualisiert die Session beim Start (`auth.aktualisiereSession()`).
+- **Server ist die Autoritaet**: der Sync-Resolver prüft **jede** Entity gegen die Matrix (`pruefeBerechtigung()` in `server/src/sync/resolver.ts`). Das schließt die bisherige Lücke, dass `standort`, `artikel` (Schreibzugriffe), `artikel_standort_mindestbestand` und `buchung` serverseitig für jeden angemeldeten User schreibbar waren, obwohl die UI sie admin-only zeigte.
+  - Ein Berechtigungsfehler ist ein `ValidationError` (`VALIDATION`) **pro Op** — der Batch läuft weiter, der Client legt das Outbox-Item nach `QUARANTINE_THRESHOLD` still.
+- **Client-Gates**: `auth.hat('…')` (Auth-Store) statt `auth.istAdmin`. Der Router nutzt `meta.requiresPermission: Permission[]` (Route-Meta ist in `src/router/index.ts` typisiert). Ein Fallback rechnet die Rechte lokal aus der Matrix, falls eine alte Session keine `berechtigungen` mitbringt.
+- **Rollen-Legende** unter `/einstellungen/user`: die Beschreibungen kommen aus `GET /api/rollen` (Rolle, Rechte, Kurzbeschreibung) und werden im localStorage gecacht (`src/stores/rollen.ts`), damit die Legende offline geht.
+- **`standardStandortId` bleibt Admin-only** (`globalEinstellung`). `resolveEinstellung` (Server) lehnt jeden Push des Keys von Nicht-Admins ab — auch für die eigene User-ID (`ADMIN_ONLY_PER_USER_KEYS`). Bestehende Outbox-Einträge von Nicht-Admins laufen in die Quarantäne (`VALIDATION` pro Op, kein Batch-Abbruch).
+- **Bewusst unverändert**: das **Storno-Verhalten** (heute darf jeder jeden Storno stoßen — serverseitig nicht eingeschränkt). Eine Permission `buchung.stornoFremd` ist in der Matrix vorbereitet, aber **nicht aktiviert**, damit kein Workflow bricht.
+
 ### Benutzerrechte: Admin-only-Bereiche
 
-- **Admin-only (Routing via `meta.requiresAdmin` + `auth.istAdmin`)**: Standorte, Benutzerverwaltung, Artikel-/Akku-Typen, Kommissionen (Verwaltung), Hersteller, Backup, Entwicklung, CSV-Import, **API-Keys**. **Mindestbestand-Panel** und **Mindestbestand-Alarm** sind für jede Rolle lesbar (Route `/einstellungen/mindestbestand` ohne `requiresAdmin`); der Bestell-Link, „als bestellt markieren" und die Mindestbestand-Konfiguration (Artikel-Detail-View) bleiben Admin-only.
-- **Einstellungen-Menü (`SettingsView.vue`)**: die Links *CSV-Import*, *Backup* und *API-Keys* sowie der **gesamte Stammdaten-Block** (Standorte, Artikel-/Akku-Typen, Kommissionen, Hersteller) sind nur für Admins sichtbar. Bewusst offen für alle Rollen: *Lokaler Speicher (Gerät)*, *Artikel-Kataloge*, *Etiketten*, **Mindestbestand-Panel**, **Mindestbestand-Alarm** und der Akkutausch-Zugriff (Toggle admin-only) — diese Routen tragen kein `requiresAdmin`.
-- **`standardStandortId` ist eine Admin-Einstellung.** Das Formularfeld in den Einstellungen zeigt nur Admins einen Select; `resolveEinstellung` (Server) lehnt jeden Push des Keys von Nicht-Admins ab — auch für die eigene User-ID (`ADMIN_ONLY_PER_USER_KEYS`). Die Speicherung bleibt pro User (`userId`-Zeile); das Pull-Filter bleibt unverändert. Bestehende Outbox-Einträge von Nicht-Admins laufen in die Quarantäne (`VALIDATION` pro Op, kein Batch-Abbruch).
+- **Admin-only (Routing via `meta.requiresPermission` + `auth.hat(...)`)**: Benutzerverwaltung, Artikel-/Akku-Typen, Kommissionen (Verwaltung), Hersteller, Backup, Entwicklung, CSV-Import, **API-Keys**. **Mindestbestand-Panel** und **Mindestbestand-Alarm** sind für jede Rolle lesbar (Route `/einstellungen/mindestbestand` ohne Gate); der Bestell-Link, „als bestellt markieren" und die Mindestbestand-Konfiguration (Artikel-Detail-View) sind `akkutausch.verwalten` bzw. `mindestbestand.schreiben` vorbehalten.
+- **Standorte** sind jetzt `standort.schreiben` — das darf auch der **Lagerist**; nur das Löschen (`standort.loeschen`) bleibt Admin-Sache. Das **Anlegen eines Artikels** ist `artikel.schreiben` (Lagerist + Admin) — ein normaler User darf Artikel nur lesen.
+- **Einstellungen-Menü (`SettingsView.vue`)**: die Links *CSV-Import*, *Backup* und *API-Keys* sowie der **gesamte Stammdaten-Block** (Standorte, Artikel-/Akku-Typen, Kommissionen, Hersteller) richten sich nach der jeweiligen Berechtigung. Bewusst offen für alle Rollen: *Lokaler Speicher (Gerät)*, *Artikel-Kataloge*, *Etiketten*, **Mindestbestand-Panel**, **Mindestbestand-Alarm** und der Akkutausch-Zugriff (Toggle `globalEinstellung`).
 
 ### Preise, Rabatt und Lagerwert
 

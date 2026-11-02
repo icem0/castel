@@ -105,7 +105,9 @@ onBeforeUnmount(() => {
   }
 })
 
-const isAdmin = computed(() => auth.rolle === 'admin')
+// Bestellen ist Einkaufs-Sache: nur wer den Akkutausch verwalten darf,
+// sieht die Bestell-Aktionen.
+const darfBestellen = computed(() => auth.hat('akkutausch.verwalten'))
 
 // Anzahl kommt aus dem Alarm-Composable — dort ist der Trigger auch
 // angesetzt, damit Zähler und Signal nie auseinanderlaufen.
@@ -211,7 +213,7 @@ function openPanel(): void {
             </span>
             <span class="mindestbestand-item-zeit">{{ formatZeit(z.ereignis.erstelltAm) }}</span>
           </button>
-          <div v-if="isAdmin && z.offen" class="mindestbestand-aktionen">
+          <div v-if="darfBestellen && z.offen" class="mindestbestand-aktionen">
             <a
               v-if="ziel(z)"
               class="mini-btn"

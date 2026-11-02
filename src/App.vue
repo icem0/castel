@@ -563,7 +563,7 @@ const nichtGespeicherteBuchungen = computed(() =>
 const syncBannerSichtbar = computed(
   () =>
     online.value &&
-    (auth.istAdmin
+    (auth.hat('entwicklung')
       ? sync.status.status === 'error' ||
         sync.status.status === 'offline' ||
         sync.status.status === 'origin-unavailable' ||
@@ -586,7 +586,7 @@ const syncFehlerDetail = computed((): string | null => {
   const message = st.lastError ?? f?.message ?? null
   const code = st.lastErrorCode ?? f?.code ?? null
   // Nicht-Admins sehen nur eine kurze, dezente Meldung ohne technische Details.
-  if (!auth.istAdmin) {
+  if (!auth.hat('entwicklung')) {
     return message ?? t('app.sync.fehlerUnbekannt')
   }
   // Fallback: der konkrete Befund aus der Fehleranalyse.
@@ -609,7 +609,7 @@ const syncFehlerDetail = computed((): string | null => {
 
 const syncBannerText = computed((): string => {
   const parts: string[] = []
-  if (!auth.istAdmin) {
+  if (!auth.hat('entwicklung')) {
     if (syncFehlerDetail.value) {
       parts.push(t('app.sync.fehler', { fehler: syncFehlerDetail.value }))
     } else {
@@ -637,7 +637,7 @@ watch(
   () => sync.status.lastErrorFingerprint,
   (fingerprint) => {
     if (!fingerprint) return
-    if (!auth.istAdmin) return
+    if (!auth.hat('entwicklung')) return
     const now = Date.now()
     if (now - (lastSyncToastAt.get(fingerprint) ?? 0) < 5 * 60_000) return
     lastSyncToastAt.set(fingerprint, now)
@@ -865,7 +865,9 @@ function formatRelativ(iso: string | null): string {
           </svg>
         </RouterLink>
         <div v-if="auth.session" class="user-chip" :title="`Angemeldet als ${auth.session.email}`">
-          <span class="user-role">{{ auth.rolle ?? 'user' }}</span>
+          <span class="user-role">{{
+            auth.rollen.length > 0 ? auth.rollen.join(' + ') : 'user'
+          }}</span>
           <span class="user-email">{{ auth.session.email }}</span>
           <button type="button" class="logout-btn" title="Abmelden" @click="abmelden">⏻</button>
         </div>

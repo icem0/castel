@@ -266,7 +266,7 @@ watch(
 
 <template>
   <div class="netzteile-tab">
-    <div v-if="auth.istAdmin && !formOffen" class="card">
+    <div v-if="auth.hat('akkutausch.verwalten') && !formOffen" class="card">
       <button type="button" class="primary" @click="neuesNetzteil">
         {{ t('view.akkutausch.neuesNetzteil') }}
       </button>
@@ -491,7 +491,7 @@ watch(
           <th>{{ t('view.akkutausch.feldName') }}</th>
           <th>{{ t('view.akkutausch.feldKapazitaet') }}</th>
           <th>{{ t('view.akkutausch.faelligkeit') }}</th>
-          <th v-if="auth.istAdmin"></th>
+          <th v-if="auth.hat('akkutausch.verwalten')"></th>
         </tr>
       </thead>
       <tbody>
@@ -503,7 +503,7 @@ watch(
           <td>
             {{ store.faelligkeitVon(n) ? formatDatum(store.faelligkeitVon(n) ?? '', locale) : '—' }}
           </td>
-          <td v-if="auth.istAdmin">
+          <td v-if="auth.hat('akkutausch.verwalten')">
             <div class="actions-cell">
               <button type="button" @click="netzteilBearbeiten(n)">
                 {{ t('view.akkutausch.bearbeiten') }}

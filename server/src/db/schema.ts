@@ -32,7 +32,12 @@ export const users = pgTable(
     id: text('id').primaryKey(), // crypto.randomUUID() clientseitig
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
+    // Legacy-Spalte (nur 'admin'/'user'): wird dual geschrieben, damit
+    // aeltere Server-Container waehrend eines Rollouts die Admin-Rolle
+    // weiterhin erkennen. Neue Logik liest `rollen`.
     rolle: text('rolle', { enum: ['admin', 'user'] }).notNull(),
+    // Rollen-Stack: z.B. {user} | {user, lagerist} | {admin}.
+    rollen: text('rollen').array().notNull().default(sql`ARRAY['user']::text[]`),
     aktiv: boolean('aktiv').notNull().default(true),
     erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull(),
     letzterLoginAm: timestamp('letzter_login_am', { withTimezone: true }),

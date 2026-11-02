@@ -59,30 +59,18 @@ describe('resolvePush — Rabattsatz-Schutz', () => {
     expect(insert?.['rabattsatz']).toBe('20.00')
   })
 
-  it('setzt den Rabattsatz fuer Nicht-Admins auf 0 (create)', async () => {
+  it('lehnt Lieferanten-Schreibzugriffe von Nicht-Admins ab', async () => {
     const captured: Captured = { inserts: [], updates: [] }
-    await resolvePush(
+    const result = await resolvePush(
       makeMockDb(captured),
       [{ op: 'create', entity: 'hersteller', payload }],
       'u1',
-      'user',
+      'lagerist',
     )
-    const insert = captured.inserts.find((row) => row['id'] === 'h-1')
-    expect(insert?.['rabattsatz']).toBe(0)
-  })
-
-  it('entfernt den Rabattsatz fuer Nicht-Admins (update)', async () => {
-    const captured: Captured = { inserts: [], updates: [] }
-    await resolvePush(
-      makeMockDb(captured, [
-        { id: 'h-1', name: 'Alt', rabattsatz: '20.00', geaendertAm: '2026-10-14T10:00:00.000Z' },
-      ]),
-      [{ op: 'update', entity: 'hersteller', payload }],
-      'u1',
-      'user',
-    )
-    expect(captured.updates).toHaveLength(1)
-    expect(captured.updates[0]).not.toHaveProperty('rabattsatz')
+    // Lieferanten sind Stammdaten — dafuer fehlt dem Lageristen die
+    // Berechtigung 'stammdaten.verwalten'.
+    expect(result.errors[0]?.code).toBe('VALIDATION')
+    expect(captured.inserts).toHaveLength(0)
   })
 })
 

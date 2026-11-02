@@ -52,7 +52,7 @@ describe('resolvePush — Einkaufspreis-Schutz', () => {
       makeMockDb(captured),
       [{ op: 'create', entity: 'artikel', payload }],
       'u1',
-      'user',
+      'lagerist',
     )
     const artikelInsert = captured.inserts.find((row) => 'geaendertAm' in row)
     expect(artikelInsert?.['einkaufspreis']).toBeNull()
@@ -70,10 +70,22 @@ describe('resolvePush — Einkaufspreis-Schutz', () => {
       ]),
       [{ op: 'update', entity: 'artikel', payload }],
       'u1',
-      'user',
+      'lagerist',
     )
     expect(captured.updates).toHaveLength(1)
     expect(captured.updates[0]).not.toHaveProperty('einkaufspreis')
+  })
+
+  it('lehnt Artikel-Schreibzugriffe von normalen Usern ab', async () => {
+    const captured: Captured = { inserts: [], updates: [] }
+    const result = await resolvePush(
+      makeMockDb(captured),
+      [{ op: 'create', entity: 'artikel', payload }],
+      'u1',
+      'user',
+    )
+    expect(result.errors[0]?.code).toBe('VALIDATION')
+    expect(captured.inserts).toHaveLength(0)
   })
 
   it('keeps the field for admins', async () => {

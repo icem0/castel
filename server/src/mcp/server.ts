@@ -12,6 +12,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { ApiAuthContext } from '../auth/api-key-auth.js'
 import { scopeErlaubt, type ApiKeyScope } from '../auth/api-keys.js'
+import { istAdmin } from '../domain/rollen.js'
 import { ApiV1Error } from '../api/v1/service.js'
 import {
   artikelCreateSchema,
@@ -76,7 +77,7 @@ function assertScope(auth: ApiAuthContext, scope: ApiKeyScope): void {
   if (!scopeErlaubt(auth.scopes, scope)) {
     throw new ApiV1Error(403, 'FORBIDDEN', `API-Key hat den Scope "${scope}" nicht`)
   }
-  if (scope === 'admin' && auth.rolle !== 'admin') {
+  if (scope === 'admin' && !istAdmin(auth.rollen)) {
     throw new ApiV1Error(403, 'FORBIDDEN', 'Admin-Scope erfordert einen Admin-User')
   }
 }

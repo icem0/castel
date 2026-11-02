@@ -224,7 +224,7 @@ const leer = computed(
           <strong>{{ kpis.handlungsbedarfAnzahl }}</strong>
           <span>{{ t('view.dashboard.kpi.handlungsbedarf') }}</span>
         </RouterLink>
-        <div v-if="auth.istAdmin" class="card stat-card stat-static stat-value">
+        <div v-if="auth.hat('einkaufspreis')" class="card stat-card stat-static stat-value">
           <strong>{{ formatiereCent(kpis.lagerwertCent, locale) }}</strong>
           <span>{{ t('view.dashboard.kpi.lagerwert') }}</span>
         </div>
@@ -288,7 +288,7 @@ const leer = computed(
           <LetzteBuchungen :eintraege="letzte" />
         </section>
 
-        <section v-if="auth.istAdmin" class="card dashboard-span-2 admin-wert">
+        <section v-if="auth.hat('einkaufspreis')" class="card dashboard-span-2 admin-wert">
           <header class="card-head">
             <h2>{{ t('view.dashboard.wert.titel') }}</h2>
             <span class="card-sub">

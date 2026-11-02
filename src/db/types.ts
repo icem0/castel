@@ -241,7 +241,11 @@ export type {
   Projektakku,
 } from '../domain/akkutausch/types'
 
-/** Rolle des eingeloggten Users (Spiegel des Server-Users). */
+/**
+ * Legacy-Einzelrolle des eingeloggten Users (Spiegel des Server-Users).
+ * Die eigentlichen Rechte stehen als Rollen-Stack in der Session — siehe
+ * `src/domain/rollen.ts` und `useAuthStore().hat()`.
+ */
 export type UserRolle = 'admin' | 'user'
 
 /** Eingabe-Parameter für createEinlagerung / createEntnahme */

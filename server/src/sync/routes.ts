@@ -25,6 +25,7 @@ import { restoreGesperrt } from '../admin/restore-lock.js'
 import { resolvePush } from './resolver.js'
 import { INTERN_EINSTELLUNGS_KEYS } from './einstellungen-intern.js'
 import { mappeHerstellerRabattsatz, stripEinkaufspreis } from './preise.js'
+import { hatBerechtigung } from '../domain/rollen.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 import { z } from 'zod'
 
@@ -218,13 +219,16 @@ export async function syncRoutes(
         restoreEpoch,
         // Einkaufspreise sind vertraulich und werden nur an Admins
         // ausgeliefert. Fuer alle anderen Rollen steht das Feld auf null.
-        artikel: stripEinkaufspreis(artikelRows, user.rolle === 'admin'),
+        artikel: stripEinkaufspreis(artikelRows, hatBerechtigung(user.rollen, 'einkaufspreis')),
         standorte: standortRows,
         commission: projektRows,
         buchungen: buchungRows,
         // Der Rabattsatz des Lieferanten ist dieselbe Information wie der
         // Einkaufspreis — nur Admins bekommen ihn (und dann als Zahl).
-        hersteller: mappeHerstellerRabattsatz(herstellerRows, user.rolle === 'admin'),
+        hersteller: mappeHerstellerRabattsatz(
+          herstellerRows,
+          hatBerechtigung(user.rollen, 'einkaufspreis'),
+        ),
         artikelStandortMindestbestaende: mindestbestandRows.map((r) => ({
           artikelId: r.artikelId,
           standortId: r.standortId,
@@ -628,7 +632,7 @@ export async function syncRoutes(
     if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
     const db = getDb()
-    const result = await resolvePush(db, parsed.data.ops, user.sub, user.rolle, notificationGateway)
+    const result = await resolvePush(db, parsed.data.ops, user.sub, user.rollen, notificationGateway)
 
     return reply.send(result)
   })

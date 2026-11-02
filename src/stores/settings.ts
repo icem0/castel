@@ -161,6 +161,17 @@ export function alarmDefaultFuerRolle(istAdmin: boolean): boolean {
   return istAdmin
 }
 
+/**
+ * Admin-Eigenschaft der aktuellen Session. Aeltere Sessions kennen nur die
+ * Einzelrolle, neuere den Rollen-Stack.
+ */
+function sessionIstAdmin(): boolean {
+  const session = sessionLesen()
+  if (!session) return false
+  if (session.rollen && session.rollen.length > 0) return session.rollen.includes('admin')
+  return session.rolle === 'admin'
+}
+
 function scopeForKey(key: string): 'global' | 'user' {
   return GLOBAL_KEYS.has(key) ? 'global' : 'user'
 }
@@ -297,7 +308,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // The role-dependent alarm default must already apply before the first
     // liveQuery emission — otherwise an admin would briefly see the switch
     // off (and the bell would not arm) while the DB is still loading.
-    mindestbestandSoundAn: alarmDefaultFuerRolle(sessionLesen()?.rolle === 'admin'),
+    mindestbestandSoundAn: alarmDefaultFuerRolle(sessionIstAdmin()),
     artikelTypen: [...DEFAULTS.artikelTypen],
     akkuTypen: [...DEFAULTS.akkuTypen],
   })
@@ -318,7 +329,7 @@ export const useSettingsStore = defineStore('settings', () => {
       next: (rows) => {
         const session = sessionLesen()
         const currentUserId = session?.userId ?? null
-        settings.value = fromRows(rows, currentUserId, session?.rolle === 'admin')
+        settings.value = fromRows(rows, currentUserId, sessionIstAdmin())
         geladen.value = true
         if (currentUserId !== null && !migratedLegacyThemeFor.has(currentUserId)) {
           migratedLegacyThemeFor.add(currentUserId)

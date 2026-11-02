@@ -3,7 +3,9 @@
 // Auth-Guards:
 //   - /login ist IMMER erreichbar
 //   - alle anderen Routen erfordern eine aktive Session (JWT im localStorage)
-//   - Admin-Routen benötigen zusätzlich Rolle=admin
+//   - Admin-Routen benötigen zusätzlich die passende Berechtigung
+//     (`meta.requiresPermission`) — die Rollen-Matrix liegt im Server,
+//     der Client fragt die Rechte über den Auth-Store ab.
 //   - Wenn der Server nachweislich KEINEN User hat (auth.serverHatUser
 //     === false), wird jede Navigation auf /login gezwungen — die
 //     LoginView schaltet dann inline in den Setup-Modus. Wichtig: nur
@@ -15,6 +17,16 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
 import { istMobilLayout, sollMobilenScannerStarten } from '../services/layout'
+import type { Permission } from '../domain/rollen'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** Route ohne Login erreichbar. */
+    public?: boolean
+    /** Erforderliche Berechtigungen (alle müssen vorhanden sein). */
+    requiresPermission?: Permission[]
+  }
+}
 
 import DashboardView from '../views/DashboardView.vue'
 import ArtikelListView from '../views/ArtikelListView.vue'
@@ -52,7 +64,14 @@ const routes: RouteRecordRaw[] = [
   // Geschützte Routen
   { path: '/', name: 'dashboard', component: DashboardView },
   { path: '/artikel', name: 'artikel', component: ArtikelListView },
-  { path: '/artikel/neu', name: 'artikel-neu', component: ArtikelFormView },
+  {
+    // Neuen Artikel anlegen: Stammdaten-Pflege ist Lager-Sache
+    // ('artikel.schreiben') — der Basis-User darf nur lesen.
+    path: '/artikel/neu',
+    name: 'artikel-neu',
+    component: ArtikelFormView,
+    meta: { requiresPermission: ['artikel.schreiben'] },
+  },
   {
     path: '/artikel/:id',
     name: 'artikel-detail',
@@ -68,42 +87,44 @@ const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    // Standorte anlegen/umbenennen: das darf der Lagerist (Lager-Sache),
+    // das Loeschen bleibt Admin-Sache.
     path: '/standorte',
     name: 'standorte',
     component: StandortListView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['standort.schreiben'] },
   },
   { path: '/einstellungen', name: 'einstellungen', component: SettingsView },
   {
     path: '/einstellungen/api-keys',
     name: 'einstellungen-api-keys',
     component: ApiKeysView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['apiKey.verwalten'] },
   },
   { path: '/info', name: 'info', component: InfoView },
   {
     path: '/einstellungen/user',
     name: 'einstellungen-user',
     component: UserVerwaltungView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['benutzer.verwalten'] },
   },
   {
     path: '/einstellungen/artikel-typen',
     name: 'einstellungen-artikel-typen',
     component: ArtikelTypenView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['stammdaten.verwalten'] },
   },
   {
     path: '/einstellungen/akku-typen',
     name: 'einstellungen-akku-typen',
     component: AkkuTypenView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['stammdaten.verwalten'] },
   },
   {
     path: '/einstellungen/kommissionen',
     name: 'einstellungen-kommissionen',
     component: KommissionenView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['stammdaten.verwalten'] },
   },
   {
     path: '/einstellungen/artikel-kataloge',
@@ -122,13 +143,13 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/hersteller',
     name: 'einstellungen-hersteller',
     component: HerstellerView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['stammdaten.verwalten'] },
   },
   {
     path: '/einstellungen/backup',
     name: 'einstellungen-backup',
     component: BackupView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['backup.verwalten'] },
   },
   {
     // Device-local storage: reachable for every role. The local IndexedDB is
@@ -141,9 +162,14 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/entwicklung',
     name: 'einstellungen-entwicklung',
     component: DevelopmentView,
-    meta: { requiresAdmin: true },
+    meta: { requiresPermission: ['entwicklung'] },
   },
-  { path: '/import', name: 'import', component: ImportView, meta: { requiresAdmin: true } },
+  {
+    path: '/import',
+    name: 'import',
+    component: ImportView,
+    meta: { requiresPermission: ['import.fuehren'] },
+  },
   { path: '/scan', name: 'scan', component: BarcodeScanView },
   {
     path: '/etiketten',
@@ -175,7 +201,7 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
   const settings = useSettingsStore()
   const isPublic = to.meta.public === true
-  const requiresAdmin = to.meta.requiresAdmin === true
+  const requiredPermissions = to.meta.requiresPermission ?? []
 
   if (!auth.istAngemeldet) scannerStartErledigt = false
 
@@ -189,7 +215,8 @@ router.beforeEach((to) => {
   if (!auth.istAngemeldet) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
-  if (requiresAdmin && !auth.istAdmin) {
+  // Berechtigungs-Gate: die Route verlangt eine (oder mehrere) Berechtigungen.
+  if (requiredPermissions.length > 0 && !requiredPermissions.every((p) => auth.hat(p))) {
     return { name: 'dashboard' }
   }
 

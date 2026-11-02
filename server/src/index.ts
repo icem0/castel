@@ -22,6 +22,7 @@ import { mcpRoutes } from './mcp/routes.js'
 import { syncRoutes } from './sync/routes.js'
 import { fotoRoutes, fotoStaticRoutes } from './fotos/routes.js'
 import { userRoutes } from './users/routes.js'
+import { rollenRoutes } from './auth/rollen-routes.js'
 import { adminRoutes } from './admin/routes.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
@@ -135,6 +136,7 @@ async function main() {
     await syncRoutes(instance, notificationGateway)
     await apiKeyRoutes(instance)
     await userRoutes(instance)
+    await rollenRoutes(instance)
     await fotoRoutes(instance)
     await adminRoutes(instance)
   })

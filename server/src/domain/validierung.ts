@@ -400,13 +400,18 @@ export const loginSchema = z.object({
 export const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8, 'Passwort muss mindestens 8 Zeichen haben'),
-  rolle: z.enum(['admin', 'user']).default('user'),
+  // Rollen-Stack (neu): z.B. ['user', 'lagerist']. 'user' ist die Basis und
+  // wird serverseitig immer ergaenzt, 'admin' ist exklusiv.
+  rollen: z.array(z.enum(['user', 'lagerist', 'admin'])).min(1).optional(),
+  // Legacy-Einzelrolle — wird in `rollen` uebersetzt, falls `rollen` fehlt.
+  rolle: z.enum(['admin', 'user']).optional(),
   // Optional: ohne Anzeigename wird der lokale Teil der E-Mail verwendet,
   // damit Buchungen dieses Users nie als "unbekannt" erscheinen.
   anzeigename: z.string().trim().max(120).optional(),
 })
 
 export const patchUserSchema = z.object({
+  rollen: z.array(z.enum(['user', 'lagerist', 'admin'])).min(1).optional(),
   rolle: z.enum(['admin', 'user']).optional(),
   aktiv: z.boolean().optional(),
   password: z.string().min(8).optional(),

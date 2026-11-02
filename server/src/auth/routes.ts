@@ -19,6 +19,12 @@ import {
 import { refreshTokens } from '../db/schema.js'
 import { ladeAktivenUserByEmail } from './middleware.js'
 import { loginRateLimit } from './rate-limit.js'
+import {
+  berechtigungenFuer,
+  legacyRolle,
+  normalisiereRollen,
+  type Rolle,
+} from '../domain/rollen.js'
 
 interface RefreshTokenRow {
   id: string
@@ -64,7 +70,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
-    const tokens = await issueTokenPair(app, user.id, user.email, user.rolle, req.headers['user-agent'])
+    const rollen = normalisiereRollen(user.rollen)
+    const tokens = await issueTokenPair(app, user.id, user.email, rollen, req.headers['user-agent'])
     setRefreshCookie(reply, tokens.refreshPlain)
 
     // Letzter Login speichern
@@ -78,6 +85,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         email: user.email,
         anzeigename: user.anzeigename,
         rolle: user.rolle,
+        rollen,
+        berechtigungen: berechtigungenFuer(rollen),
         mustChangePassword: user.mustChangePassword,
       },
     })
@@ -115,7 +124,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ code: 'USER_INACTIVE', message: 'User ist deaktiviert' })
     }
 
-    const tokens = await issueTokenPair(app, user.id, user.email, user.rolle, req.headers['user-agent'])
+    const rollen = normalisiereRollen(user.rollen)
+    const tokens = await issueTokenPair(app, user.id, user.email, rollen, req.headers['user-agent'])
     setRefreshCookie(reply, tokens.refreshPlain)
     return reply.send({ token: tokens.jwt })
   })
@@ -146,11 +156,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const rows = await db.select().from(users).where(eq(users.id, u.sub)).limit(1)
       const user = rows[0]
       if (!user) return reply.code(404).send({ code: 'NOT_FOUND' })
+      const rollen = normalisiereRollen(user.rollen)
       return reply.send({
         id: user.id,
         email: user.email,
         anzeigename: user.anzeigename,
         rolle: user.rolle,
+        rollen,
+        berechtigungen: berechtigungenFuer(rollen),
         mustChangePassword: user.mustChangePassword,
       })
     },
@@ -212,10 +225,16 @@ async function issueTokenPair(
   app: FastifyInstance,
   userId: string,
   email: string,
-  rolle: 'admin' | 'user',
+  rollen: Rolle[],
   userAgent: string | undefined,
 ): Promise<TokenPair> {
-  const payload: JwtPayload = { sub: userId, email, rolle }
+  const payload: JwtPayload = {
+    sub: userId,
+    email,
+    rolle: legacyRolle(rollen),
+    rollen,
+    berechtigungen: berechtigungenFuer(rollen),
+  }
   const jwt = app.jwt.sign(payload)
   const refreshPlain = generateRefreshToken()
   const tokenHash = hashRefreshToken(refreshPlain)

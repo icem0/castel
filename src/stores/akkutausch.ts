@@ -446,7 +446,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
     const now = jetztIso()
     const db = getDb()
     if (eingabe.id) {
-      if (!auth.istAdmin) {
+      if (!auth.hat('akkutausch.verwalten')) {
         throw new Error('Projektakkus koennen nur von Admins bearbeitet werden')
       }
       const bestehend = await db.akkuProjekte.get(eingabe.id)
@@ -480,7 +480,7 @@ export const useAkkutauschStore = defineStore('akkutausch', () => {
   }
 
   async function projektLoeschen(id: string): Promise<void> {
-    if (!auth.istAdmin) {
+    if (!auth.hat('akkutausch.verwalten')) {
       throw new Error('Projektakkus koennen nur von Admins geloescht werden')
     }
     const db = getDb()

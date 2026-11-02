@@ -156,7 +156,7 @@ const hatBuchungen = computed<boolean>(() =>
   artikel.value ? buchungStore.byArtikel(artikel.value.id).length > 0 : false,
 )
 const kannLoeschen = computed<boolean>(
-  () => auth.istAdmin && !hatBuchungen.value && !loeschenLaufend.value,
+  () => auth.hat('artikel.loeschen') && !hatBuchungen.value && !loeschenLaufend.value,
 )
 
 async function loeschen(): Promise<void> {
@@ -249,7 +249,7 @@ const rabattsatzFormular = computed<number | null>(() => {
  */
 function berechneEinkaufspreis(): void {
   const f = formular.value
-  if (!f || !auth.istAdmin) return
+  if (!f || !auth.hat('einkaufspreis')) return
   const satz = rabattsatzFormular.value
   if (satz === null) return
   const listenpreis = typeof f.listenpreis === 'number' ? f.listenpreis : null
@@ -357,10 +357,14 @@ async function bearbeitenSpeichern(): Promise<void> {
       // Vertraulich: Nicht-Admins schicken das Feld gar nicht mit, damit
       // ein lokal vorhandener Alt-Wert nicht versehentlich ueberschrieben
       // wird. Der Server ignoriert es zusaetzlich fuer Nicht-Admins.
-      ...(auth.istAdmin ? { einkaufspreis: euroZuCent(f.einkaufspreis) } : {}),
+      ...(auth.hat('einkaufspreis') ? { einkaufspreis: euroZuCent(f.einkaufspreis) } : {}),
     })
-    for (const [standortId, wert] of Object.entries(f.mindestbestaende)) {
-      await mindestbestandStore.setzen(a.id, standortId, wert)
+    // Der Mindestbestand je Standort ist eine eigene Konfiguration und
+    // eine eigene Berechtigung — ohne sie werden die Werte nicht geschrieben.
+    if (auth.hat('mindestbestand.schreiben')) {
+      for (const [standortId, wert] of Object.entries(f.mindestbestaende)) {
+        await mindestbestandStore.setzen(a.id, standortId, wert)
+      }
     }
     bearbeitet.value = false
     formular.value = null
@@ -433,7 +437,7 @@ onMounted(() => {
             {{ archivLaufend ? '…' : t('view.artikel.detail.archivieren') }}
           </button>
           <button
-            v-if="auth.istAdmin"
+            v-if="auth.hat('artikel.loeschen')"
             type="button"
             class="danger"
             :disabled="!kannLoeschen"
@@ -543,7 +547,7 @@ onMounted(() => {
           <dt>{{ t('view.artikel.form.listenpreis') }}</dt>
           <dd>{{ formatiereCent(artikel.listenpreis, locale) }}</dd>
         </div>
-        <div v-if="auth.istAdmin && artikel.einkaufspreis != null">
+        <div v-if="auth.hat('einkaufspreis') && artikel.einkaufspreis != null">
           <dt>{{ t('view.artikel.form.einkaufspreis') }}</dt>
           <dd>{{ formatiereCent(artikel.einkaufspreis, locale) }}</dd>
         </div>
@@ -583,14 +587,14 @@ onMounted(() => {
           <span>{{ t('view.artikel.form.status') }}</span>
           <select
             v-model="formular.status"
-            :disabled="bearbeitLaufend || !auth.istAdmin"
+            :disabled="bearbeitLaufend || !auth.hat('artikel.schreiben')"
             data-testid="artikel-detail-status"
           >
             <option v-for="s in statusOptionen" :key="s" :value="s">
               {{ t(`view.artikel.status.${s}`) }}
             </option>
           </select>
-          <small v-if="!auth.istAdmin" class="hint muted">
+          <small v-if="!auth.hat('artikel.schreiben')" class="hint muted">
             {{ t('view.artikel.detail.statusAdminHint') }}
           </small>
         </label>
@@ -646,7 +650,7 @@ onMounted(() => {
             />
           </label>
         </div>
-        <fieldset class="mindestbestand-lager">
+        <fieldset v-if="auth.hat('mindestbestand.schreiben')" class="mindestbestand-lager">
           <legend>{{ t('view.artikel.form.mindestbestandProLager') }}</legend>
           <small class="hint">{{ t('view.artikel.form.mindestbestandProLagerHint') }}</small>
           <label v-for="s in standortStore.aktive" :key="s.id">
@@ -683,7 +687,7 @@ onMounted(() => {
             @input="berechneEinkaufspreis"
           />
         </label>
-        <label v-if="auth.istAdmin">
+        <label v-if="auth.hat('einkaufspreis')">
           <span>{{ t('view.artikel.form.einkaufspreis') }}</span>
           <input
             v-model.number="formular.einkaufspreis"

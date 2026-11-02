@@ -3,17 +3,20 @@ import { ref, onMounted, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useUserStore } from '../stores/users'
+import { useRollenStore } from '../stores/rollen'
 import { MIN_PASSWORT_LAENGE, generiereEinmalpasswort } from '../auth/policy'
-import type { UserRolle } from '../db/types'
+import { ROLLEN, type Rolle } from '../domain/rollen'
 
 const auth = useAuthStore()
 const userStore = useUserStore()
+const rollenStore = useRollenStore()
 
 const formularOffen = ref(false)
 const anzeigename = ref('')
 const email = ref('')
 const passwort = ref('')
-const rolle = ref<UserRolle>('user')
+/** Rollen des neuen Users. 'user' ist die Basis und immer dabei. */
+const neueRollen = ref<Rolle[]>(['user'])
 const fehler = ref('')
 const laufend = ref(false)
 
@@ -22,13 +25,39 @@ const resetAnzeige = ref<ResetAnzeige | null>(null)
 const kopiert = ref(false)
 let kopiertTimer: ReturnType<typeof setTimeout> | null = null
 
+/** Rollen, die zusaetzlich zu 'user' vergeben werden koennen. */
+const wahlRollen = computed(() => ROLLEN.filter((r) => r !== 'user'))
+
+/** Rollen-Editor fuer einen bestehenden User. */
+const rollenUserId = ref<string | null>(null)
+const rollenAuswahl = ref<Rolle[]>(['user'])
+const rollenLaufend = ref(false)
+
+function rollenVon(u: { rollen?: Rolle[]; rolle?: 'admin' | 'user' }): Rolle[] {
+  if (u.rollen && u.rollen.length > 0) return u.rollen
+  return u.rolle === 'admin' ? ['admin'] : ['user']
+}
+
 const aktiveAdminAnzahl = computed(
-  () => userStore.users.filter((u) => u.rolle === 'admin' && u.aktiv).length,
+  () => userStore.users.filter((u) => rollenVon(u).includes('admin') && u.aktiv).length,
 )
 
 onMounted(async () => {
-  await userStore.laden()
+  await Promise.all([userStore.laden(), rollenStore.laden()])
 })
+
+/**
+ * Schaltet eine Rolle um. 'admin' ist exklusiv — wer admin ist, hat alle
+ * Rechte und braucht keine weiteren Rollen.
+ */
+function toggleRolle(auswahl: Rolle[], rolle: Rolle): Rolle[] {
+  if (rolle === 'admin') {
+    return auswahl.includes('admin') ? ['user'] : ['admin']
+  }
+  const ohneLagerist = auswahl.filter((r) => r !== 'lagerist' && r !== 'admin')
+  if (auswahl.includes('lagerist')) return ohneLagerist
+  return [...ohneLagerist, 'lagerist']
+}
 
 async function anlegen(): Promise<void> {
   fehler.value = ''
@@ -45,13 +74,14 @@ async function anlegen(): Promise<void> {
     await auth.neuerUser({
       email: email.value,
       passwort: passwort.value,
-      rolle: rolle.value,
+      rollen: neueRollen.value,
       anzeigename: anzeigename.value,
     })
     formularOffen.value = false
     anzeigename.value = ''
     email.value = ''
     passwort.value = ''
+    neueRollen.value = ['user']
     await userStore.laden()
   } catch (e) {
     fehler.value = e instanceof Error ? e.message : String(e)
@@ -79,10 +109,10 @@ async function aktivieren(id: string): Promise<void> {
   }
 }
 
-async function loeschen(id: string, email: string): Promise<void> {
+async function loeschen(id: string, mail: string): Promise<void> {
   if (
     !confirm(
-      `Benutzer „${email}" endgültig löschen?\n\n` +
+      `Benutzer „${mail}" endgültig löschen?\n\n` +
         'Konto, API-Keys und Einstellungen werden entfernt. Buchungen und Audit-Log bleiben erhalten.',
     )
   ) {
@@ -112,12 +142,41 @@ async function anzeigenameAendern(id: string, aktuell: string): Promise<void> {
   }
 }
 
-async function rolleAendern(id: string, neueRolle: UserRolle): Promise<void> {
+function rollenEditorOeffnen(id: string): void {
+  const u = userStore.users.find((x) => x.id === id)
+  if (!u) return
+  rollenUserId.value = id
+  rollenAuswahl.value = [...rollenVon(u)]
+}
+
+async function rollenSpeichern(): Promise<void> {
+  const id = rollenUserId.value
+  if (!id) return
+  const u = userStore.users.find((x) => x.id === id)
+  if (!u) return
+  const vorher = rollenVon(u)
+  // Letzten aktiven Admin nicht degradieren.
+  if (
+    vorher.includes('admin') &&
+    !rollenAuswahl.value.includes('admin') &&
+    u.aktiv &&
+    aktiveAdminAnzahl.value <= 1
+  ) {
+    alert('Letzter aktiver Admin kann nicht degradiert werden.')
+    rollenAuswahl.value = [...vorher]
+    return
+  }
+  rollenLaufend.value = true
   try {
-    await auth.aendereRolle(id, neueRolle)
+    await auth.aendereRollen(id, rollenAuswahl.value)
+    rollenUserId.value = null
     await userStore.laden()
+    // Der Admin selbst sieht die neue Rolle sofort — Session aktualisieren.
+    if (id === auth.userId) await auth.aktualisiereSession()
   } catch (e) {
     alert(e instanceof Error ? e.message : String(e))
+  } finally {
+    rollenLaufend.value = false
   }
 }
 
@@ -180,6 +239,24 @@ function formatDatum(iso: string | null): string {
       <RouterLink to="/einstellungen">← zurück zu Einstellungen</RouterLink>
     </p>
 
+    <!-- Rollen-Legende: kommt vom Server (eine Quelle der Wahrheit) -->
+    <div class="card rollen-legend">
+      <h2>Rollen und Berechtigungen</h2>
+      <p class="hint">
+        Die Rechte sind stapelbar: ein Benutzer kann mehrere Rollen haben. <b>Admin</b> hat alle
+        Rechte und braucht keine weiteren Rollen.
+      </p>
+      <div class="rollen-legend-liste">
+        <div v-for="r in rollenStore.rollen" :key="r.id" class="rollen-legend-eintrag">
+          <h3>{{ rollenStore.titel(r.id) }}</h3>
+          <p class="rollen-legend-beschreibung">{{ rollenStore.beschreibung(r.id) }}</p>
+          <ul>
+            <li v-for="recht in rollenStore.rechte(r.id)" :key="recht">{{ recht }}</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
     <div v-if="formularOffen" class="card">
       <form class="form" :aria-busy="laufend || undefined" @submit.prevent="anlegen">
         <label>
@@ -200,13 +277,27 @@ function formatDatum(iso: string | null): string {
             :disabled="laufend"
           />
         </label>
-        <label>
-          <span>Rolle</span>
-          <select v-model="rolle" :disabled="laufend">
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-        </label>
+        <fieldset class="rollen-wahl">
+          <legend>Rollen</legend>
+          <label class="rollen-option">
+            <input type="checkbox" checked disabled />
+            <span>User (Basis)</span>
+          </label>
+          <label
+            v-for="r in wahlRollen"
+            :key="r"
+            class="rollen-option"
+            :title="rollenStore.beschreibung(r)"
+          >
+            <input
+              type="checkbox"
+              :checked="neueRollen.includes(r)"
+              :disabled="laufend"
+              @change="neueRollen = toggleRolle(neueRollen, r)"
+            />
+            <span>{{ rollenStore.titel(r) }}</span>
+          </label>
+        </fieldset>
         <p v-if="fehler" class="fehler" role="alert">{{ fehler }}</p>
         <div class="form-actions">
           <button type="submit" class="primary" :disabled="laufend">
@@ -221,7 +312,7 @@ function formatDatum(iso: string | null): string {
         <tr>
           <th>Anzeigename</th>
           <th>E-Mail</th>
-          <th>Rolle</th>
+          <th>Rollen</th>
           <th>Aktiv</th>
           <th>Erstellt</th>
           <th>Letzter Login</th>
@@ -233,8 +324,13 @@ function formatDatum(iso: string | null): string {
           <td>{{ u.anzeigename || '—' }}</td>
           <td>{{ u.email }}</td>
           <td>
-            <span class="badge" :class="{ accent: u.rolle === 'admin' }">
-              {{ u.rolle }}
+            <span
+              v-for="r in rollenVon(u)"
+              :key="r"
+              class="badge"
+              :class="{ accent: r === 'admin' }"
+            >
+              {{ rollenStore.titel(r) }}
             </span>
           </td>
           <td>
@@ -247,9 +343,9 @@ function formatDatum(iso: string | null): string {
           <td class="actions-cell">
             <button
               type="button"
-              :disabled="u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1"
+              :disabled="rollenVon(u).includes('admin') && u.aktiv && aktiveAdminAnzahl <= 1"
               :title="
-                u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1
+                rollenVon(u).includes('admin') && u.aktiv && aktiveAdminAnzahl <= 1
                   ? 'Letzter aktiver Admin – nicht deaktivierbar'
                   : u.aktiv
                     ? 'Deaktivieren'
@@ -259,19 +355,8 @@ function formatDatum(iso: string | null): string {
             >
               {{ u.aktiv ? 'Deaktivieren' : 'Aktivieren' }}
             </button>
-            <button
-              type="button"
-              :disabled="u.rolle === 'admin' && aktiveAdminAnzahl <= 1"
-              :title="
-                u.rolle === 'admin' && aktiveAdminAnzahl <= 1
-                  ? 'Letzter aktiver Admin – nicht zum User degradierbar'
-                  : u.rolle === 'admin'
-                    ? 'Zu User degradieren'
-                    : 'Zu Admin befördern'
-              "
-              @click="rolleAendern(u.id, u.rolle === 'admin' ? 'user' : 'admin')"
-            >
-              {{ u.rolle === 'admin' ? 'Zu User' : 'Zu Admin' }}
+            <button type="button" title="Rollen ändern" @click="rollenEditorOeffnen(u.id)">
+              Rollen
             </button>
             <button type="button" @click="anzeigenameAendern(u.id, u.anzeigename ?? '')">
               Name ändern
@@ -281,12 +366,13 @@ function formatDatum(iso: string | null): string {
               type="button"
               class="danger"
               :disabled="
-                u.id === auth.userId || (u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1)
+                u.id === auth.userId ||
+                (rollenVon(u).includes('admin') && u.aktiv && aktiveAdminAnzahl <= 1)
               "
               :title="
                 u.id === auth.userId
                   ? 'Eigenen Benutzer nicht löschbar'
-                  : u.rolle === 'admin' && u.aktiv && aktiveAdminAnzahl <= 1
+                  : rollenVon(u).includes('admin') && u.aktiv && aktiveAdminAnzahl <= 1
                     ? 'Letzter aktiver Admin – nicht löschbar'
                     : 'Endgültig löschen'
               "
@@ -299,6 +385,50 @@ function formatDatum(iso: string | null): string {
       </tbody>
     </table>
     <p v-else class="empty-state">Noch keine Benutzer angelegt oder Backend nicht erreichbar.</p>
+
+    <!-- Rollen-Editor -->
+    <div
+      v-if="rollenUserId"
+      class="reset-dialog"
+      role="dialog"
+      aria-modal="true"
+      @click.self="rollenUserId = null"
+    >
+      <div class="reset-dialog-card">
+        <h2>Rollen ändern</h2>
+        <p class="reset-hint">
+          Rechte sind stapelbar — mehrere Rollen sind moeglich. Admin hat alle Rechte und schliesst
+          die anderen Rollen aus.
+        </p>
+        <fieldset class="rollen-wahl">
+          <legend>Rollen</legend>
+          <label class="rollen-option">
+            <input type="checkbox" checked disabled />
+            <span>User (Basis)</span>
+          </label>
+          <label
+            v-for="r in wahlRollen"
+            :key="r"
+            class="rollen-option"
+            :title="rollenStore.beschreibung(r)"
+          >
+            <input
+              type="checkbox"
+              :checked="rollenAuswahl.includes(r)"
+              :disabled="rollenLaufend"
+              @change="rollenAuswahl = toggleRolle(rollenAuswahl, r)"
+            />
+            <span>{{ rollenStore.titel(r) }}</span>
+          </label>
+        </fieldset>
+        <div class="reset-actions">
+          <button type="button" class="text-btn" @click="rollenUserId = null">Abbrechen</button>
+          <button type="button" class="primary" :disabled="rollenLaufend" @click="rollenSpeichern">
+            {{ rollenLaufend ? 'Speichere …' : 'Speichern' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div
       v-if="resetAnzeige"
@@ -343,6 +473,44 @@ function formatDatum(iso: string | null): string {
 </template>
 
 <style scoped>
+.rollen-legend-liste {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.rollen-legend-eintrag h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+.rollen-legend-beschreibung {
+  margin: 0 0 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.rollen-legend-eintrag ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+.rollen-wahl {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem 1rem;
+}
+.rollen-wahl legend {
+  padding: 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.rollen-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.rollen-option input {
+  width: auto;
+}
 .reset-dialog {
   position: fixed;
   inset: 0;
@@ -369,10 +537,16 @@ function formatDatum(iso: string | null): string {
   font-size: 0.9rem;
   color: var(--text-muted);
 }
+.reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
 .reset-code-row {
   display: flex;
-  gap: 0.5rem;
   align-items: center;
+  gap: 0.5rem;
   margin-bottom: 1rem;
 }
 .reset-code {
@@ -385,7 +559,7 @@ function formatDatum(iso: string | null): string {
   padding: 0.5rem 0.75rem;
   flex: 1;
   overflow: hidden;
-  white-space: pre;
+  white-space: nowrap;
   text-overflow: ellipsis;
   user-select: all;
 }
@@ -410,12 +584,6 @@ function formatDatum(iso: string | null): string {
   width: 1.05rem;
   height: 1.05rem;
   display: block;
-}
-.reset-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
 }
 .text-btn {
   background: transparent;

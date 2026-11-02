@@ -89,7 +89,7 @@ const rabattsatzFormular = computed<number | null>(() =>
  * manuell pflegbar.
  */
 function berechneEinkaufspreis(): void {
-  if (!auth.istAdmin) return
+  if (!auth.hat('einkaufspreis')) return
   const satz = rabattsatzFormular.value
   if (satz === null) return
   const listenpreis = formular.value.listenpreis
@@ -304,7 +304,7 @@ async function speichern(): Promise<void> {
       listenpreis: euroZuCent(formular.value.listenpreis),
       // Vertrauliches Feld: nur Admins duerfen es setzen. Fuer alle
       // anderen wird es gar nicht erst in den Payload aufgenommen.
-      einkaufspreis: auth.istAdmin ? euroZuCent(formular.value.einkaufspreis) : null,
+      einkaufspreis: auth.hat('einkaufspreis') ? euroZuCent(formular.value.einkaufspreis) : null,
     })
     for (const [standortId, wert] of Object.entries(formular.value.mindestbestaende)) {
       await mindestbestandStore.setzen(neu.id, standortId, wert)
@@ -383,7 +383,7 @@ const statusOptionen: ArtikelStatus[] = [
             </option>
           </select>
         </label>
-        <details v-if="auth.istAdmin" class="hersteller-neu">
+        <details v-if="auth.hat('stammdaten.verwalten')" class="hersteller-neu">
           <summary>{{ t('view.artikel.form.herstellerNeu') }}</summary>
           <div class="row">
             <label>
@@ -476,7 +476,7 @@ const statusOptionen: ArtikelStatus[] = [
             @input="berechneEinkaufspreis"
           />
         </label>
-        <label v-if="auth.istAdmin">
+        <label v-if="auth.hat('einkaufspreis')">
           <span>{{ t('view.artikel.form.einkaufspreis') }}</span>
           <input
             v-model.number="formular.einkaufspreis"

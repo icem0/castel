@@ -16,6 +16,7 @@ import StandortListView from '../StandortListView.vue'
 import { i18n } from '../../i18n'
 import { getDb, resetDbForTests } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
+import { sessionSchreiben } from '../../auth/session'
 import type { Buchung, Standort } from '../../db/types'
 
 function standortAnlegen(over: Partial<Standort> = {}): Standort {
@@ -59,6 +60,17 @@ function buchungsAnlegen(id: string, standortId: string): Buchung {
 async function setupView() {
   const pinia = createPinia()
   setActivePinia(pinia)
+  // Admin-Session: nur sie darf einen Standort loeschen ('standort.loeschen').
+  sessionSchreiben({
+    userId: 'u1',
+    email: 'admin@example.com',
+    rolle: 'admin',
+    rollen: ['admin'],
+    anzeigename: 'Admin',
+    loginAm: '2026-10-29T12:00:00.000Z',
+    mustChangePassword: false,
+    jwtExpiresAt: '2026-10-30T12:00:00.000Z',
+  })
   const wrapper = mount(StandortListView, { global: { plugins: [pinia, i18n] } })
   await flushPromises()
   // Die Stores lesen per liveQuery aus IndexedDB — der erste Tick braucht
@@ -86,6 +98,7 @@ describe('StandortListView — Umbenennen / Loeschen', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
+    sessionSchreiben(null)
     await clearLocalDbForTests()
     resetDbForTests()
   })

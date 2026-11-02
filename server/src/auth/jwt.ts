@@ -4,11 +4,20 @@ import { createHash, randomBytes } from 'node:crypto'
 import jwt from '@fastify/jwt'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { config } from '../config/config.js'
+import type { Permission, Rolle } from '../domain/rollen.js'
 
 export interface JwtPayload {
   sub: string // user.id
   email: string
+  /** Legacy-Einzelrolle — bleibt, damit aeltere Clients den Admin erkennen. */
   rolle: 'admin' | 'user'
+  /** Rollen-Stack (neu): z.B. ['user', 'lagerist']. */
+  rollen: Rolle[]
+  /**
+   * Effektive Berechtigungen des Users. Der Client braucht sie fuer die
+   * UI-Gates (offline nutzbar, ohne die Matrix nachzuladen).
+   */
+  berechtigungen: Permission[]
   iat?: number
   exp?: number
 }

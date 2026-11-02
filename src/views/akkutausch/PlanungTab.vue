@@ -140,7 +140,7 @@ function pufferVorhanden(zeile: Planzeile): boolean {
 
 /** Der Puffer darf nur von Admins editiert werden. */
 function pufferEditierbar(zeile: Planzeile): boolean {
-  return auth.istAdmin && pufferVorhanden(zeile)
+  return auth.hat('akkutausch.verwalten') && pufferVorhanden(zeile)
 }
 
 /** Anzeigewert des Puffers (Entwurf, sonst der gespeicherte Wert). */
@@ -571,7 +571,7 @@ function csvExportieren(): void {
         <li v-for="(w, i) in store.planung.warnungen" :key="i">
           <span>{{ warnungText(w.code, w.bezug, w.wert, w.anlage) }}</span>
           <button
-            v-if="auth.istAdmin && w.netzteilId"
+            v-if="auth.hat('akkutausch.verwalten') && w.netzteilId"
             type="button"
             class="warn-link"
             @click="emit('netzteil-oeffnen', w.netzteilId)"
@@ -655,7 +655,7 @@ function csvExportieren(): void {
           }}
         </span>
         <button
-          v-if="auth.istAdmin && rueckgaengigMoeglich(bestellung)"
+          v-if="auth.hat('akkutausch.verwalten') && rueckgaengigMoeglich(bestellung)"
           type="button"
           class="btn-undueck"
           :disabled="rueckgaengigLaeuft"
@@ -718,7 +718,7 @@ function csvExportieren(): void {
           {{ t('view.akkutausch.bestellOptionen') }}
         </button>
         <button
-          v-if="auth.istAdmin && !bestellung"
+          v-if="auth.hat('akkutausch.verwalten') && !bestellung"
           type="button"
           :disabled="!inventur.gueltig || bestelltLaeuft"
           :title="!inventur.gueltig ? t('view.akkutausch.bestellenInventurFehlt') : undefined"
@@ -809,7 +809,11 @@ function csvExportieren(): void {
               <span class="option-grund">{{ ohneKontaktText(z.grund) }}</span>
             </li>
           </ul>
-          <RouterLink v-if="auth.istAdmin" to="/einstellungen/hersteller" class="option-link">
+          <RouterLink
+            v-if="auth.hat('akkutausch.verwalten')"
+            to="/einstellungen/hersteller"
+            class="option-link"
+          >
             {{ t('view.akkutausch.bestellOptionenHerstellerPflegen') }}
           </RouterLink>
         </div>
@@ -843,7 +847,10 @@ function csvExportieren(): void {
             t('view.akkutausch.bestellungStornoKurz')
           }}</span>
         </summary>
-        <div v-if="auth.istAdmin && rueckgaengigMoeglich(b)" class="archiv-aktionen">
+        <div
+          v-if="auth.hat('akkutausch.verwalten') && rueckgaengigMoeglich(b)"
+          class="archiv-aktionen"
+        >
           <button
             type="button"
             class="btn-undueck"

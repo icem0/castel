@@ -155,7 +155,7 @@ describe('Resolver — Stammdaten-Insert normalisiert ISO-Strings auf Date', () 
         },
       ],
       'u1',
-      'user',
+      'lagerist',
     )
 
     expect(captured.inserts).toHaveLength(2) // 1× artikel + 1× auditLog
@@ -204,7 +204,7 @@ describe('Resolver — Stammdaten-Insert normalisiert ISO-Strings auf Date', () 
         },
       ],
       'u1',
-      'user',
+      'lagerist',
     )
 
     expect(captured.inserts).toHaveLength(4) // 2× Stammdaten + 2× auditLog
@@ -269,7 +269,7 @@ describe('Resolver — Stammdaten-Insert normalisiert ISO-Strings auf Date', () 
         },
       ],
       'u1',
-      'user',
+      'lagerist',
     )
 
     expect(captured.updates).toHaveLength(1)

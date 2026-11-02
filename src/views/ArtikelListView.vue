@@ -11,11 +11,13 @@ import { useArtikelFilter } from '../composables/useArtikelFilter'
 import { useTableSort } from '../composables/useTableSort'
 import { useSyncStore } from '../stores/sync'
 import { sortiereNachName } from '../domain/sortierung'
+import { useAuthStore } from '../stores/auth'
 import { ladeFotoThumbnails, type FotoThumbnail } from '../services/fotos'
 import SortableTh from '../components/SortableTh.vue'
 import type { Artikel, ArtikelStatus } from '../db/types'
 
 const { t } = useI18n()
+const auth = useAuthStore()
 const artikelStore = useArtikelStore()
 const standortStore = useStandortStore()
 const mindestbestandStore = useArtikelStandortMindestbestandStore()
@@ -174,7 +176,9 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
       <h1>{{ t('view.artikel.h1') }}</h1>
       <div class="head-actions">
         <RouterLink to="/etiketten" class="btn">{{ t('view.barcode.h1') }}</RouterLink>
-        <RouterLink to="/artikel/neu" class="btn primary">{{ t('view.artikel.neu') }}</RouterLink>
+        <RouterLink v-if="auth.hat('artikel.schreiben')" to="/artikel/neu" class="btn primary">{{
+          t('view.artikel.neu')
+        }}</RouterLink>
       </div>
     </header>
 

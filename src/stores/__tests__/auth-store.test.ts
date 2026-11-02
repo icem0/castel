@@ -38,6 +38,8 @@ function jwtToken(): string {
       sub: 'u1',
       email: 'a@b.de',
       rolle: 'admin',
+      rollen: ['admin'],
+      berechtigungen: ['artikel.lesen', 'einkaufspreis', 'benutzer.verwalten'],
       exp: Math.floor(Date.now() / 1000) + 3600,
     }),
   )
@@ -54,6 +56,8 @@ const LOGIN_ANTWORT = {
     email: 'a@b.de',
     anzeigename: 'Test',
     rolle: 'admin' as const,
+    rollen: ['admin'],
+    berechtigungen: ['artikel.lesen', 'einkaufspreis', 'benutzer.verwalten'],
     mustChangePassword: false,
   },
 }

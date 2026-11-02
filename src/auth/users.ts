@@ -5,12 +5,16 @@
 // läuft jetzt server-side.
 
 import { apiFetch } from './api.js'
+import type { Permission, Rolle } from '../domain/rollen'
 
 export interface UserDto {
   id: string
   email: string
   anzeigename?: string
+  /** Legacy-Einzelrolle — bleibt fuer Alt-Builds erhalten. */
   rolle: 'admin' | 'user'
+  /** Rollen-Stack des Users. */
+  rollen: Rolle[]
   aktiv: boolean
   erstelltAm: string
   letzterLoginAm: string | null
@@ -23,8 +27,32 @@ export interface LoginAntwort {
     email: string
     anzeigename?: string
     rolle: 'admin' | 'user'
+    rollen: Rolle[]
+    berechtigungen: Permission[]
     mustChangePassword: boolean
   }
+}
+
+/** Rolle eines Benutzers aus der Rollen-Matrix des Servers. */
+export interface RolleDto {
+  id: Rolle
+  titel: string
+  beschreibung: string
+  rechte: string[]
+  berechtigungen: Permission[]
+}
+
+export interface BerechtigungDto {
+  id: Permission
+  titel: string
+  beschreibung: string
+}
+
+/** Antwort von GET /api/rollen — Matrix + Beschreibungen fuer die Legende. */
+export interface RollenMatrixDto {
+  version: number
+  rollen: RolleDto[]
+  berechtigungen: BerechtigungDto[]
 }
 
 export interface SetupStatus {
@@ -56,7 +84,7 @@ export async function holeAktiveUserliste(): Promise<UserDto[]> {
 export async function legeUserAnServer(input: {
   email: string
   password: string
-  rolle: 'admin' | 'user'
+  rollen: Rolle[]
   anzeigename?: string
 }): Promise<UserDto> {
   return apiFetch<UserDto>('/api/users', {
@@ -72,10 +100,10 @@ export async function aendereAnzeigenameServer(id: string, anzeigename: string):
   })
 }
 
-export async function aendereRolleServer(id: string, rolle: 'admin' | 'user'): Promise<void> {
+export async function aendereRollenServer(id: string, rollen: Rolle[]): Promise<void> {
   await apiFetch(`/api/users/${id}`, {
     method: 'PATCH',
-    body: { rolle },
+    body: { rollen },
   })
 }
 
@@ -107,4 +135,14 @@ export async function loescheUserServer(id: string): Promise<void> {
   await apiFetch(`/api/users/${id}`, {
     method: 'DELETE',
   })
+}
+
+/** Lädt die Rollen-Matrix (inkl. Beschreibungen) vom Server. */
+export async function holeRollenMatrix(): Promise<RollenMatrixDto> {
+  return apiFetch<RollenMatrixDto>('/api/rollen')
+}
+
+/** Aktuelle User-Daten vom Server (Rollen, Anzeigename, …). */
+export async function holeEigenesUser(): Promise<LoginAntwort['user']> {
+  return apiFetch<LoginAntwort['user']>('/api/auth/me')
 }

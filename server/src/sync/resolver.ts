@@ -48,6 +48,12 @@ import {
 import { berechneDefizit, sollteWarnungAusloesen } from '../domain/mindestbestand.js'
 import { parseAkkuTypenWert } from '../domain/akkutausch.js'
 import {
+  hatBerechtigung,
+  normalisiereRollen,
+  type Permission,
+  type Rolle,
+} from '../domain/rollen.js'
+import {
   mergeKommissionen,
   parseGespeicherteKommissionen,
   parseKommissionenWert,
@@ -151,7 +157,12 @@ export async function resolvePush(
   db: PostgresJsDatabase<typeof schema>,
   ops: ReadonlyArray<PushOp>,
   benutzerId: string,
-  benutzerRolle: 'admin' | 'user' = 'user',
+  /**
+   * Rollen-Stack des Users. Erlaubt sind ein Array (`['user','lagerist']`)
+   * oder — als Kompatibilitaetsform — der Legacy-Einzelwert
+   * (`'admin'` / `'user'`).
+   */
+  benutzerRollen: Rolle[] | 'admin' | 'user' = ['user'],
   /**
    * Optionaler Notification-Gateway. Wird am Ende des Resolver-Laufs
    * mit allen ausgelösten Mindestbestand-Ereignissen gefüttert.
@@ -160,6 +171,7 @@ export async function resolvePush(
    */
   gateway?: NotificationGateway,
 ): Promise<ResolverResult> {
+  const rollen = normalisiereRollen(benutzerRollen)
   const result: ResolverResult = { accepted: [], skipped: [], conflicts: [], errors: [] }
   /** Sammelt alle in diesem Resolver-Lauf erzeugten Mindestbestand-
    *  Events. Wird am Ende an `gateway.dispatchMindestbestandEvent`
@@ -230,28 +242,28 @@ export async function resolvePush(
       await db.transaction(async (tx) => {
         switch (op.entity) {
           case 'artikel':
-            await resolveArtikel(tx, op, benutzerRolle === 'admin')
+            await resolveArtikel(tx, op, rollen)
             break
           case 'hersteller':
-            await resolveHersteller(tx, op, benutzerRolle === 'admin')
+            await resolveHersteller(tx, op, rollen)
             break
           case 'standort':
-            await resolveStandort(tx, op)
+            await resolveStandort(tx, op, rollen)
             break
           case 'artikel_standort_mindestbestand':
-            await resolveArtikelStandortMindestbestand(tx, op)
+            await resolveArtikelStandortMindestbestand(tx, op, rollen)
             break
           case 'kommission':
-            await resolveProjekt(tx, op)
+            await resolveProjekt(tx, op, rollen)
             break
           case 'akku_netzteil':
-            await resolveAkkuNetzteil(tx, op, benutzerRolle)
+            await resolveAkkuNetzteil(tx, op, rollen)
             break
           case 'akku_projekt':
-            await resolveAkkuProjekt(tx, op, benutzerRolle)
+            await resolveAkkuProjekt(tx, op, rollen)
             break
           case 'akku_bestellung':
-            await resolveAkkuBestellung(tx, op, benutzerRolle)
+            await resolveAkkuBestellung(tx, op, rollen)
             break
           case 'buchung':
             // IMPORTANT: the bestand read inside must run on `tx`, not on the
@@ -259,12 +271,12 @@ export async function resolvePush(
             // and is invisible to any other pooled connection — reading via
             // `db` stored stale values (e.g. 0) in
             // `mindestbestand_ereignisse.bestand_danach`.
-            buchungsEvent = await resolveBuchung(tx, op, tx, (reason) => {
+            buchungsEvent = await resolveBuchung(tx, op, tx, rollen, (reason) => {
               skipReason = reason
             })
             break
           case 'einstellung': {
-            const applied = await resolveEinstellung(tx, op, benutzerId, benutzerRolle)
+            const applied = await resolveEinstellung(tx, op, benutzerId, rollen)
             if (!applied) skipReason = 'STALE_SETTING'
             break
           }
@@ -455,15 +467,22 @@ async function stelleHerstellerReferenzSicher(
 async function resolveArtikel(
   tx: Tx,
   op: Extract<PushOp, { entity: 'artikel' }>,
-  istAdmin: boolean,
+  rollen: Rolle[],
 ): Promise<void> {
+  // Schreibzugriff: anlegen/bearbeiten braucht 'artikel.schreiben'
+  // (user + lagerist + admin), loeschen zusaetzlich 'artikel.loeschen'.
+  if (op.op === 'delete') {
+    pruefeBerechtigung(rollen, 'artikel.loeschen', 'Artikel loeschen')
+  } else {
+    pruefeBerechtigung(rollen, 'artikel.schreiben', 'Artikel anlegen/bearbeiten')
+  }
   // Kopie, damit der urspruengliche Push-Payload fuer Diagnose/Tests
-  // unangetastet bleibt. Nicht-Admins duerfen den vertraulichen
-  // Einkaufspreis weder setzen noch ueberschreiben:
+  // unangetastet bleibt. Wer kein 'einkaufspreis' hat, darf den
+  // vertraulichen Einkaufspreis weder setzen noch ueberschreiben:
   //   * create: explizit null (neue Artikel starten ohne Preis)
   //   * update: Feld entfernen -> der bestehende Server-Wert bleibt stehen
   const payload: Record<string, unknown> = { ...op.payload }
-  if (!istAdmin) {
+  if (!hatBerechtigung(rollen, 'einkaufspreis')) {
     if (op.op === 'create') {
       payload['einkaufspreis'] = null
     } else {
@@ -512,15 +531,18 @@ async function resolveArtikel(
 async function resolveHersteller(
   tx: Tx,
   op: Extract<PushOp, { entity: 'hersteller' }>,
-  istAdmin: boolean,
+  rollen: Rolle[],
 ): Promise<void> {
+  // Lieferanten sind Stammdaten — die pflegt nur, wer auch die Preise
+  // (Rabattsatz) sehen darf.
+  pruefeBerechtigung(rollen, 'stammdaten.verwalten', 'Lieferanten pflegen')
   // Der Rabattsatz ist vertraulich (derselbe Inhalt wie der
-  // Einkaufspreis): Nicht-Admins duerfen ihn weder setzen noch
-  // ueberschreiben.
+  // Einkaufspreis): Wer kein 'einkaufspreis' hat, darf ihn weder setzen
+  // noch ueberschreiben.
   //   * create: explizit 0 (kein Rabatt bekannt)
   //   * update: Feld entfernen -> der bestehende Server-Wert bleibt stehen
   const payload: Record<string, unknown> = { ...op.payload }
-  if (!istAdmin) {
+  if (!hatBerechtigung(rollen, 'einkaufspreis')) {
     if (op.op === 'create') {
       payload['rabattsatz'] = 0
     } else {
@@ -565,7 +587,18 @@ async function resolveHersteller(
   }
 }
 
-async function resolveStandort(tx: Tx, op: Extract<PushOp, { entity: 'standort' }>): Promise<void> {
+async function resolveStandort(
+  tx: Tx,
+  op: Extract<PushOp, { entity: 'standort' }>,
+  rollen: Rolle[],
+): Promise<void> {
+  // Anlegen/umbenennen/archivieren: 'standort.schreiben' (user + lagerist +
+  // admin). Loeschen bleibt Admin-Sache ('standort.loeschen').
+  if (op.op === 'delete') {
+    pruefeBerechtigung(rollen, 'standort.loeschen', 'Standort loeschen')
+  } else {
+    pruefeBerechtigung(rollen, 'standort.schreiben', 'Standort anlegen/bearbeiten')
+  }
   if (op.op === 'create') {
     const existing = await tx
       .select()
@@ -633,7 +666,11 @@ async function resolveStandort(tx: Tx, op: Extract<PushOp, { entity: 'standort' 
 async function resolveArtikelStandortMindestbestand(
   tx: Tx,
   op: Extract<PushOp, { entity: 'artikel_standort_mindestbestand' }>,
+  rollen: Rolle[],
 ): Promise<void> {
+  // Die Mindestbestand-Konfiguration ist Lager-Sache: 'mindestbestand.
+  // schreiben' (user + lagerist + admin).
+  pruefeBerechtigung(rollen, 'mindestbestand.schreiben', 'Mindestbestand pflegen')
   const payload = op.payload as {
     artikelId: string
     standortId: string
@@ -709,7 +746,11 @@ async function resolveArtikelStandortMindestbestand(
 async function resolveProjekt(
   tx: Tx,
   op: Extract<PushOp, { entity: 'kommission' }>,
+  rollen: Rolle[],
 ): Promise<void> {
+  // Kommissionen duerfen von allen Rollen beigetragen werden — die globale
+  // Liste ist add-only fuer Non-Admins (siehe resolveEinstellung).
+  pruefeBerechtigung(rollen, 'kommission.beitragen', 'Kommission beitragen')
   if (op.op === 'create') {
     const existing = await tx.select().from(projekte).where(eq(projekte.id, op.payload.id)).limit(1)
     if (existing.length > 0) {
@@ -732,9 +773,25 @@ async function resolveProjekt(
  * Akkutausch-Daten (Netzteile, Projektakkus) sind Admin-only: Mitarbeiter
  * duerfen den Plan lesen, aber keine Geraete oder Projektbatterien anlegen.
  */
-function pruefeAkkutauschRolle(benutzerRolle: 'admin' | 'user'): void {
-  if (benutzerRolle !== 'admin') {
-    throw new ValidationError('entity', 'Akkutausch-Daten koennen nur von Admins geaendert werden')
+function pruefeAkkutauschRolle(rollen: Rolle[]): void {
+  pruefeBerechtigung(rollen, 'akkutausch.verwalten', 'Akkutausch-Daten aendern')
+}
+
+/**
+ * Wirft einen ValidationError, wenn die Berechtigung fehlt. Der Fehler
+ * wird pro Op gemeldet (der Batch laeuft weiter) — der Client legt das
+ * Outbox-Item nach `QUARANTINE_THRESHOLD` Versuchen still.
+ */
+function pruefeBerechtigung(
+  rollen: Rolle[],
+  berechtigung: Permission,
+  kontext: string,
+): void {
+  if (!hatBerechtigung(rollen, berechtigung)) {
+    throw new ValidationError(
+      'entity',
+      `${kontext} erfordert die Berechtigung "${berechtigung}"`,
+    )
   }
 }
 
@@ -780,9 +837,9 @@ async function resolveAkkuDatensatz(
 async function resolveAkkuNetzteil(
   tx: Tx,
   op: Extract<PushOp, { entity: 'akku_netzteil' }>,
-  benutzerRolle: 'admin' | 'user',
+  rollen: Rolle[],
 ): Promise<void> {
-  pruefeAkkutauschRolle(benutzerRolle)
+  pruefeAkkutauschRolle(rollen)
   await resolveAkkuDatensatz(
     tx,
     akkuNetzteile,
@@ -794,15 +851,12 @@ async function resolveAkkuNetzteil(
 async function resolveAkkuProjekt(
   tx: Tx,
   op: Extract<PushOp, { entity: 'akku_projekt' }>,
-  benutzerRolle: 'admin' | 'user',
+  rollen: Rolle[],
 ): Promise<void> {
   // Project batteries may be ADDED by every role — editing and soft-deleting
   // (both arrive as `update`) stays reserved for admins.
-  if (benutzerRolle !== 'admin' && op.op !== 'create') {
-    throw new ValidationError(
-      'akku_projekt.op',
-      'Projektakkus duerfen nur von Admins bearbeitet oder geloescht werden',
-    )
+  if (op.op !== 'create') {
+    pruefeAkkutauschRolle(rollen)
   }
   await resolveAkkuDatensatz(
     tx,
@@ -824,9 +878,9 @@ async function resolveAkkuProjekt(
 async function resolveAkkuBestellung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'akku_bestellung' }>,
-  benutzerRolle: 'admin' | 'user',
+  rollen: Rolle[],
 ): Promise<void> {
-  pruefeAkkutauschRolle(benutzerRolle)
+  pruefeAkkutauschRolle(rollen)
   const payload = op.payload as Record<string, unknown>
   const id = payload['id'] as string
 
@@ -1261,11 +1315,20 @@ async function resolveBuchung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'buchung' }>,
   bestandQuerier: BestandQuerier,
+  rollen: Rolle[],
   onSkip?: (reason: string) => void,
 ): Promise<MindestbestandEreignisRow | null> {
   if (op.op !== 'create') {
     throw new ValidationError('buchung.op', 'nur "create" erlaubt (append-only)')
   }
+  // Buchen und Stornieren sind Basisrechte — der Check haelt die
+  // Berechtigungslogik an einer Stelle, falls sich das Modell aendert.
+  const typ = (op.payload as { typ?: string }).typ
+  pruefeBerechtigung(
+    rollen,
+    typ === 'storno' ? 'buchung.storno' : 'buchung.erstellen',
+    typ === 'storno' ? 'Buchung stornieren' : 'Buchung anlegen',
+  )
   return resolveBuchungCreate(tx, op.payload as BuchungPayload, bestandQuerier, onSkip)
 }
 
@@ -1321,7 +1384,7 @@ async function resolveEinstellung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'einstellung' }>,
   benutzerId: string,
-  benutzerRolle: 'admin' | 'user',
+  rollen: Rolle[],
 ): Promise<boolean> {
   const p = op.payload as {
     key: string
@@ -1337,8 +1400,12 @@ async function resolveEinstellung(
   //    eigenen Sync.
   if (istInterneEinstellung(p.key)) return false
 
-  // 1) Rollen-Check: artikelTypen (global) nur durch Admins
-  if (p.userId === null && ADMIN_ONLY_KEYS.has(p.key) && benutzerRolle !== 'admin') {
+  // 1) Rollen-Check: artikelTypen (global) nur mit 'globalEinstellung'
+  if (
+    p.userId === null &&
+    ADMIN_ONLY_KEYS.has(p.key) &&
+    !hatBerechtigung(rollen, 'globalEinstellung')
+  ) {
     throw new ValidationError(
       'einstellung.userId',
       `Key "${p.key}" ist global und darf nur von Admins geschrieben werden`,
@@ -1347,7 +1414,10 @@ async function resolveEinstellung(
 
   // 1b) Per-User-Keys mit Admin-Recht (z. B. standardStandortId): nur Admins
   //     dürfen schreiben — auch nicht für ihre eigene User-ID.
-  if (ADMIN_ONLY_PER_USER_KEYS.has(p.key) && benutzerRolle !== 'admin') {
+  if (
+    ADMIN_ONLY_PER_USER_KEYS.has(p.key) &&
+    !hatBerechtigung(rollen, 'globalEinstellung')
+  ) {
     throw new ValidationError(
       'einstellung.userId',
       `Key "${p.key}" darf nur von Admins geschrieben werden`,
@@ -1406,7 +1476,7 @@ async function resolveEinstellung(
   //    with a timestamp that is newer than both versions — so the client
   //    picks up the merged list on the next pull. A stale client can thus
   //    never empty the list. Admins keep the plain replace semantics.
-  if (ADD_ONLY_KEYS.has(p.key) && benutzerRolle !== 'admin') {
+  if (ADD_ONLY_KEYS.has(p.key) && !hatBerechtigung(rollen, 'stammdaten.verwalten')) {
     const bestehend = parseGespeicherteKommissionen(existingRow.value)
     const eingehend = parseKommissionenWert(p.value).kommissionen
     const vereinigt = mergeKommissionen(bestehend, eingehend)

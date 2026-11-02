@@ -22,6 +22,7 @@ import {
   type ApiKeyScope,
 } from './api-keys.js'
 import { NotFoundError } from '../domain/errors.js'
+import { istAdmin, normalisiereRollen } from '../domain/rollen.js'
 
 const iso = z.string().refine((s) => !Number.isNaN(Date.parse(s)), {
   message: 'muss ISO-8601-Datum sein',
@@ -102,7 +103,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
         message: 'Mindestens ein gültiger Scope (read, write, admin) ist erforderlich',
       })
     }
-    if (scopes.includes('admin') && user.rolle !== 'admin') {
+    if (scopes.includes('admin') && !istAdmin(normalisiereRollen(user.rollen))) {
       return reply.code(403).send({
         code: 'FORBIDDEN',
         message: 'Der admin-Scope ist nur für Admin-User erlaubt',

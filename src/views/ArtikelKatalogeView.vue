@@ -433,7 +433,7 @@ async function ladeLieferantenListe(): Promise<void> {
   laedtLieferanten.value = true
   fehler.value = ''
   try {
-    lieferanten.value = await ladeLieferanten(auth.istAdmin)
+    lieferanten.value = await ladeLieferanten(auth.hat('stammdaten.verwalten'))
     if (lieferantId.value === '' && lieferanten.value.length > 0) {
       lieferantId.value = lieferanten.value[0]!.id
     }
@@ -453,7 +453,7 @@ watch(lieferantId, () => {
 
 onMounted(() => {
   void ladeLieferantenListe()
-  if (auth.istAdmin) void ladeImporteListe()
+  if (auth.hat('stammdaten.verwalten')) void ladeImporteListe()
 })
 
 onBeforeUnmount(schliesseEventSource)
@@ -550,7 +550,7 @@ onBeforeUnmount(schliesseEventSource)
       </template>
     </div>
 
-    <template v-if="auth.istAdmin">
+    <template v-if="auth.hat('stammdaten.verwalten')">
       <div class="card">
         <h2>{{ t('view.artikelKataloge.upload') }}</h2>
         <label class="feld">

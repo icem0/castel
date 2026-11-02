@@ -28,9 +28,10 @@ import { insecureHttpErlaubt } from '../auth/runtime-config'
 import {
   aendereEigenesPasswortServer,
   aendereAnzeigenameServer,
-  aendereRolleServer,
+  aendereRollenServer,
   loescheUserServer,
   holeAktiveUserliste,
+  holeEigenesUser,
   holeSetupStatus,
   legeUserAnServer,
   setzeAktivServer,
@@ -38,6 +39,12 @@ import {
   type LoginAntwort,
   type UserDto,
 } from '../auth/users'
+import {
+  berechtigungenFuer,
+  normalisiereRollen,
+  type Permission,
+  type Rolle,
+} from '../domain/rollen'
 
 export interface LoginOptions {
   /** Wenn true: bei Netzwerk-Fehler den lokalen PBKDF2-Cache verwenden. */
@@ -48,8 +55,40 @@ export const useAuthStore = defineStore('auth', () => {
   // ---------- State ----------
   const session = ref<SessionInfo | null>(sessionLesen())
   const istAngemeldet = computed(() => session.value !== null && jwtLesen() !== null)
-  const rolle = computed(() => session.value?.rolle ?? null)
-  const istAdmin = computed(() => session.value?.rolle === 'admin')
+  /**
+   * Rollen-Stack des eingeloggten Users. Aeltere Sessions kennen nur die
+   * Einzelrolle — daraus wird der Stack abgeleitet.
+   */
+  const rollen = computed<Rolle[]>(() => {
+    if (!session.value) return []
+    if (session.value.rollen && session.value.rollen.length > 0) {
+      return normalisiereRollen(session.value.rollen)
+    }
+    return normalisiereRollen(session.value.rolle)
+  })
+  const istAdmin = computed(() => rollen.value.includes('admin'))
+  /**
+   * Legacy-Einzelrolle ('admin' | 'user') — fuer Anzeigen, die nur eine
+   * Rolle kennen. Die echte Berechtigungsfrage stellt `hat()`.
+   */
+  const rolle = computed<'admin' | 'user' | null>(() => {
+    if (!session.value) return null
+    return istAdmin.value ? 'admin' : 'user'
+  })
+  /**
+   * Effektive Berechtigungen. Normalerweise liefert der Server die fertige
+   * Liste (Login / `/api/auth/me`); fehlt sie (Session aus einer aelteren
+   * Version), wird sie lokal aus der Matrix berechnet.
+   */
+  const berechtigungen = computed<Permission[]>(() => {
+    const serverListe = session.value?.berechtigungen
+    if (serverListe && serverListe.length > 0) return serverListe
+    return berechtigungenFuer(rollen.value)
+  })
+  /** true, wenn der User die Berechtigung hat. */
+  function hat(berechtigung: Permission): boolean {
+    return berechtigungen.value.includes(berechtigung)
+  }
   const userId = computed(() => session.value?.userId ?? null)
   const email = computed(() => session.value?.email ?? null)
   const anzeigename = computed(() => session.value?.anzeigename ?? '')
@@ -170,6 +209,8 @@ export const useAuthStore = defineStore('auth', () => {
         userId: serverAntwort.user.id,
         email: serverAntwort.user.email,
         rolle: serverAntwort.user.rolle,
+        rollen: serverAntwort.user.rollen,
+        berechtigungen: serverAntwort.user.berechtigungen,
         anzeigename: serverAntwort.user.anzeigename,
         loginAm: new Date().toISOString(),
         mustChangePassword: serverAntwort.user.mustChangePassword,
@@ -225,6 +266,8 @@ export const useAuthStore = defineStore('auth', () => {
       userId: sub,
       email: trimmedEmail,
       rolle: role,
+      rollen: jwtRollen(jwt) ?? [role],
+      berechtigungen: jwtBerechtigungen(jwt),
       anzeigename: session.value?.anzeigename,
       loginAm: new Date().toISOString(),
       mustChangePassword: false,
@@ -305,19 +348,19 @@ export const useAuthStore = defineStore('auth', () => {
   async function neuerUser(input: {
     email: string
     passwort: string
-    rolle: 'admin' | 'user'
+    rollen: Rolle[]
     anzeigename?: string
   }): Promise<void> {
     await legeUserAnServer({
       email: input.email,
       password: input.passwort,
-      rolle: input.rolle,
+      rollen: input.rollen,
       anzeigename: input.anzeigename,
     })
   }
 
-  async function aendereRolle(userId: string, neueRolle: 'admin' | 'user'): Promise<void> {
-    await aendereRolleServer(userId, neueRolle)
+  async function aendereRollen(userId: string, neueRollen: Rolle[]): Promise<void> {
+    await aendereRollenServer(userId, neueRollen)
   }
 
   async function aendereAnzeigename(userId: string, anzeigename: string): Promise<void> {
@@ -338,14 +381,41 @@ export const useAuthStore = defineStore('auth', () => {
 
   // ---------- Initialisierung: gespeichertes JWT beim Start setzen ----------
 
+  /**
+   * Aktualisiert die Session vom Server (Rollen, Berechtigungen, Anzeigename).
+   * Wird beim Start und nach einer Rollenaenderung aufgerufen — so wirkt eine
+   * Rollenaenderung sofort, ohne dass der User sich neu anmelden muss.
+   */
+  async function aktualisiereSession(): Promise<void> {
+    if (!session.value) return
+    try {
+      const user = await holeEigenesUser()
+      const s: SessionInfo = {
+        ...session.value,
+        rolle: user.rolle,
+        rollen: user.rollen,
+        berechtigungen: user.berechtigungen,
+        anzeigename: user.anzeigename ?? session.value.anzeigename,
+        mustChangePassword: user.mustChangePassword,
+      }
+      sessionSchreiben(s)
+      session.value = s
+    } catch {
+      // Offline oder Server nicht erreichbar — die lokale Session bleibt.
+    }
+  }
+
   function init(): void {
     const jwt = jwtLesen()
     if (jwt) setGlobalToken(jwt)
+    // Rollen/Berechtigungen frisch vom Server holen (z.B. nach einer
+    // Rollenaenderung durch einen Admin).
+    if (jwt) void aktualisiereSession()
     // 401 von beliebigen API-Calls: Server-User-State neu pruefen.
     // Damit reagiert die PWA auch dann auf "Server hat keinen User
     // mehr", wenn das mitten in einer aktiven Session passiert
     // (DB wurde extern geleert). Der eigentliche Redirect wird dann
-    // von der naechsten Router-Navigation bzw. dem naechsten
+    // von der naechsten Router-Navigation bzw. der naechsten
     // LoginView-Mount uebernommen.
     setOn401Handler(() => {
       void pruefeServerUserState()
@@ -356,7 +426,10 @@ export const useAuthStore = defineStore('auth', () => {
     session,
     istAngemeldet,
     rolle,
+    rollen,
     istAdmin,
+    berechtigungen,
+    hat,
     userId,
     email,
     anzeigename,
@@ -366,10 +439,11 @@ export const useAuthStore = defineStore('auth', () => {
     pruefeServerUserState,
     anmelden,
     abmelden,
+    aktualisiereSession,
     aendereEigenesPasswortMit,
     aktiveUserliste,
     neuerUser,
-    aendereRolle,
+    aendereRollen,
     aendereAnzeigename,
     setzeAktiv,
     setzePasswortFuer,
@@ -384,6 +458,8 @@ interface JwtPayload {
   sub: string
   email?: string
   rolle?: 'admin' | 'user'
+  rollen?: Rolle[]
+  berechtigungen?: Permission[]
   exp?: number
   iat?: number
 }
@@ -412,6 +488,18 @@ export function parseJwtExpiry(token: string): Date | null {
 
 function jwtRolle(token: string): 'admin' | 'user' | null {
   return parseJwt(token)?.rolle ?? null
+}
+
+function jwtRollen(token: string): Rolle[] | undefined {
+  const rollen = parseJwt(token)?.rollen
+  if (!rollen || !Array.isArray(rollen)) return undefined
+  return normalisiereRollen(rollen)
+}
+
+function jwtBerechtigungen(token: string): Permission[] | undefined {
+  const berechtigungen = parseJwt(token)?.berechtigungen
+  if (!berechtigungen || !Array.isArray(berechtigungen)) return undefined
+  return berechtigungen
 }
 
 function jwtSub(token: string): string | null {

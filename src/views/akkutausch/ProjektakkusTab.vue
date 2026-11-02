@@ -94,7 +94,7 @@ async function loeschen(p: Projektakku): Promise<void> {
           <th>{{ t('view.akkutausch.feldMenge') }}</th>
           <th>{{ t('view.akkutausch.feldQuartal') }}</th>
           <th>{{ t('view.akkutausch.feldJahr') }}</th>
-          <th v-if="auth.istAdmin"></th>
+          <th v-if="auth.hat('akkutausch.verwalten')"></th>
         </tr>
       </thead>
       <tbody>
@@ -104,7 +104,7 @@ async function loeschen(p: Projektakku): Promise<void> {
           <td>{{ p.menge }}</td>
           <td>{{ p.quartal }}</td>
           <td>{{ p.jahr }}</td>
-          <td v-if="auth.istAdmin">
+          <td v-if="auth.hat('akkutausch.verwalten')">
             <div class="actions-cell">
               <button type="button" @click="projektakkuBearbeiten(p)">
                 {{ t('view.akkutausch.bearbeiten') }}

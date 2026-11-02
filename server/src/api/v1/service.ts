@@ -158,7 +158,7 @@ async function fuehreOpsAus(
   auth: ApiAuthContext,
   gateway?: NotificationGateway,
 ): Promise<void> {
-  const result = await resolvePush(getDb(), ops, auth.userId, auth.rolle, gateway)
+  const result = await resolvePush(getDb(), ops, auth.userId, auth.rollen, gateway)
   checkResolverResult(result)
 }
 

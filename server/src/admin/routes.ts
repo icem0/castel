@@ -29,6 +29,7 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen, geraete, syncErrorReports, users } from '../db/schema.js'
 import { bulkBookingRoutes } from './bulk-booking-routes.js'
+import { normalisiereRollen } from '../domain/rollen.js'
 import { z } from 'zod'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
@@ -140,6 +141,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
           userId: geraete.userId,
           email: users.email,
           rolle: users.rolle,
+          rollen: users.rollen,
           fingerprint: geraete.fingerprint,
           resetAm: geraete.resetAm,
           registriertAm: geraete.registriertAm,
@@ -189,6 +191,7 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
             userId: r.userId,
             email: r.email ?? null,
             rolle: r.rolle ?? null,
+            rollen: normalisiereRollen(r.rollen),
             fingerprint: r.fingerprint ? JSON.parse(r.fingerprint) : {},
             resetAm: r.resetAm?.toISOString() ?? null,
             registriertAm: r.registriertAm.toISOString(),

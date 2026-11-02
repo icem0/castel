@@ -44,7 +44,7 @@ async function ladenAktuell(): Promise<void> {
   laden.value = true
   fehler.value = ''
   try {
-    if (modus.value === 'alle' && auth.istAdmin) {
+    if (modus.value === 'alle' && auth.hat('apiKey.verwalten')) {
       alleKeys.value = await listeAlleApiKeys()
     } else {
       eigeneKeys.value = await listeEigeneApiKeys()
@@ -88,7 +88,7 @@ async function widerrufen(id: string): Promise<void> {
   if (!window.confirm(t('view.apiKeys.widerrufenBestaetigen'))) return
   fehler.value = ''
   try {
-    if (modus.value === 'alle' && auth.istAdmin) {
+    if (modus.value === 'alle' && auth.hat('apiKey.verwalten')) {
       await widerrufeApiKeyAlsAdmin(id)
     } else {
       await widerrufeApiKey(id)
@@ -169,7 +169,7 @@ onMounted(() => {
           <input v-model="scopes" type="checkbox" value="write" />
           <span>{{ t('view.apiKeys.scopes.write') }}</span>
         </label>
-        <label v-if="auth.istAdmin">
+        <label v-if="auth.hat('apiKey.verwalten')">
           <input v-model="scopes" type="checkbox" value="admin" />
           <span>{{ t('view.apiKeys.scopes.admin') }}</span>
         </label>
@@ -190,7 +190,7 @@ onMounted(() => {
 
     <div class="liste-head">
       <h2>{{ modus === 'alle' ? t('view.apiKeys.alleKeys') : t('view.apiKeys.eigeneKeys') }}</h2>
-      <div v-if="auth.istAdmin" class="modus">
+      <div v-if="auth.hat('apiKey.verwalten')" class="modus">
         <button
           type="button"
           :class="{ active: modus === 'eigene' }"

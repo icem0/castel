@@ -8,6 +8,7 @@
 // bekannte Schwäche von Offline-Auth. Mitigation: kurze PW-Zyklen, Geräte-PIN.
 
 import { verifiziereText } from './crypto.js'
+import type { Permission, Rolle } from '../domain/rollen'
 
 const LS_JWT = 'castel.auth.jwt'
 const LS_SESSION = 'castel.auth.session'
@@ -16,7 +17,18 @@ const LS_CRED_PREFIX = 'castel.auth.cred.'
 export interface SessionInfo {
   userId: string
   email: string
+  /** Legacy-Einzelrolle — bleibt fuer Alt-Builds erhalten. */
   rolle: 'admin' | 'user'
+  /**
+   * Rollen-Stack (z.B. ['user','lagerist']). Optional, weil Sessions aus
+   * aelteren Versionen nur die Einzelrolle kennen.
+   */
+  rollen?: Rolle[]
+  /**
+   * Effektive Berechtigungen des Users — vom Server geliefert. Optional aus
+   * demselben Grund; der Client faellt sonst auf die lokale Matrix zurueck.
+   */
+  berechtigungen?: Permission[]
   /** Anzeigename des Users; wird in Buchungen als `erstelltVon` geschrieben. */
   anzeigename?: string
   loginAm: string // ISO

@@ -2348,10 +2348,19 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
   const session = sessionLesen()
   const currentUserId = session?.userId ?? null
 
-  // Must run before `lastPull` is read: an admin promotion clears the
-  // marker so this run fetches a full snapshot (including prices).
+  // Must run before `lastPull` is read: a promotion to a role with price
+  // rights clears the marker so this run fetches a full snapshot
+  // (including prices). Sessions aus aelteren Versionen kennen die
+  // Berechtigungsliste noch nicht — dann zaehlt die Admin-Rolle.
   try {
-    await prepareRoleForSync(session?.rolle === 'admin')
+    const hatEinkaufspreis = session
+      ? session.berechtigungen
+        ? session.berechtigungen.includes('einkaufspreis')
+        : session.rollen
+          ? session.rollen.includes('admin')
+          : session.rolle === 'admin'
+      : false
+    await prepareRoleForSync(hatEinkaufspreis)
   } catch (e) {
     console.warn('[sync] role preparation failed:', e)
   }

@@ -79,6 +79,7 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
         email: normalizedEmail,
         passwordHash,
         rolle: 'admin',
+        rollen: ['admin'],
         aktiv: true,
         erstelltAm: new Date(),
         letzterLoginAm: null,
@@ -128,6 +129,7 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
       email: normalizedEmail,
       anzeigename: anzeigename.trim(),
       rolle: 'admin' as const,
+      rollen: ['admin'] as const,
       aktiv: true,
       sprache,
       bootstrap: {

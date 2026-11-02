@@ -2,11 +2,12 @@
 
 import type { FastifyInstance } from 'fastify'
 import argon2 from 'argon2'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { users } from '../db/schema.js'
 import { createUserSchema, patchUserSchema } from '../domain/validierung.js'
 import { NotFoundError, ValidationError } from '../domain/errors.js'
+import { legacyRolle, normalisiereRollen, type Rolle } from '../domain/rollen.js'
 
 export async function userRoutes(app: FastifyInstance): Promise<void> {
   // ---------- GET /api/users ----------
@@ -21,12 +22,18 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
           email: users.email,
           anzeigename: users.anzeigename,
           rolle: users.rolle,
+          rollen: users.rollen,
           aktiv: users.aktiv,
           erstelltAm: users.erstelltAm,
           letzterLoginAm: users.letzterLoginAm,
         })
         .from(users)
-      return reply.send(rows)
+      return reply.send(
+        rows.map((r) => ({
+          ...r,
+          rollen: normalisiereRollen(r.rollen),
+        })),
+      )
     },
   )
 
@@ -39,7 +46,9 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       if (!parsed.success) {
         return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
       }
-      const { email, password, rolle } = parsed.data
+      const { email, password } = parsed.data
+      // `rollen` (Stack) hat Vorrang vor dem Legacy-Feld `rolle`.
+      const rollen: Rolle[] = normalisiereRollen(parsed.data.rollen ?? parsed.data.rolle)
       const normalizedEmail = email.toLowerCase()
       const anzeigename =
         parsed.data.anzeigename?.trim() || normalizedEmail.split('@')[0] || normalizedEmail
@@ -54,16 +63,22 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         id,
         email: normalizedEmail,
         passwordHash,
-        rolle,
+        rolle: legacyRolle(rollen),
+        rollen,
         aktiv: true,
         erstelltAm: new Date(),
         letzterLoginAm: null,
         mustChangePassword: true,
         anzeigename,
       })
-      return reply
-        .code(201)
-        .send({ id, email: normalizedEmail, anzeigename, rolle, aktiv: true })
+      return reply.code(201).send({
+        id,
+        email: normalizedEmail,
+        anzeigename,
+        rolle: legacyRolle(rollen),
+        rollen,
+        aktiv: true,
+      })
     },
   )
 
@@ -82,7 +97,12 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       if (!user) throw new NotFoundError('User', req.params.id)
 
       const patch: Partial<typeof users.$inferInsert> = {}
-      if (parsed.data.rolle !== undefined) patch.rolle = parsed.data.rolle
+      const rollenInput = parsed.data.rollen ?? parsed.data.rolle
+      if (rollenInput !== undefined) {
+        const rollen = normalisiereRollen(rollenInput)
+        patch.rolle = legacyRolle(rollen)
+        patch.rollen = rollen
+      }
       if (parsed.data.aktiv !== undefined) patch.aktiv = parsed.data.aktiv
       if (parsed.data.anzeigename !== undefined) patch.anzeigename = parsed.data.anzeigename
       if (parsed.data.password !== undefined) {
@@ -111,12 +131,14 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ code: 'SELF_DELETE', message: 'Eigenen User nicht löschbar' })
       }
       // Den letzten aktiven Admin nicht löschen
-      if (user.rolle === 'admin' && user.aktiv) {
-        const aktiveAdmins = await db
-          .select({ id: users.id })
+      if (normalisiereRollen(user.rollen).includes('admin') && user.aktiv) {
+        const aktive = await db
+          .select({ id: users.id, rollen: users.rollen })
           .from(users)
-          .where(and(eq(users.rolle, 'admin'), eq(users.aktiv, true)))
-        if (aktiveAdmins.length <= 1) {
+          .where(eq(users.aktiv, true))
+        const anzahlAdmins = aktive.filter((u) => normalisiereRollen(u.rollen).includes('admin'))
+          .length
+        if (anzahlAdmins <= 1) {
           return reply
             .code(400)
             .send({ code: 'LAST_ADMIN', message: 'Letzter aktiver Admin nicht löschbar' })
