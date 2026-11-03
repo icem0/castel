@@ -1224,34 +1224,21 @@ export default {
         health: 'Health check',
         purge: 'Removing old images',
       },
-      updateAnleitungTitel: 'Guide: setting up the update runner',
+      updateAnleitungTitel: 'How is the update run?',
       updateAnleitungIntro:
-        'The update deliberately runs on the host and not inside a container: only there are the git checkout, the git credentials, the docker CLI and the real compose project name. A small systemd timer is set up for this — it checks every 15 seconds whether an update was requested above and then runs it.',
-      updateAnleitungSchritt1Titel: '1. Requirements',
-      updateAnleitungSchritt1Text:
-        'The host needs git, docker and docker compose (v2) installed. The repository has to be present as a git checkout (here /srv/castel) and the stack must have been started from exactly that checkout. The runner detects the path automatically via the compose labels of the running containers.',
-      updateAnleitungSchritt2Titel: '2. Install the timer',
-      updateAnleitungSchritt2Text:
-        'Run this once on the host (adjust the path). The timer then runs as a systemd service in the background and checks every 15 seconds for a request.',
-      updateAnleitungSchritt3Titel: '3. Check that the timer runs',
-      updateAnleitungSchritt3Text: 'Show the timer status and the log of the last runs:',
-      updateAnleitungSchritt4Titel: '4. Alternative without systemd',
-      updateAnleitungSchritt4Text:
-        'On hosts without systemd (e.g. Alpine/OpenRC) add a cron entry instead — use "crontab -e". Cron only runs once per minute, so the update starts a little later.',
-      updateAnleitungSchritt5Titel: '5. Start the update manually',
-      updateAnleitungSchritt5Text:
-        'The runner can always be started by hand as well — independently of the PWA. This is the way to go when no timer is set up:',
-      updateAnleitungFehlerTitel: 'If something does not work',
+        'The update runs on the host, not inside the container — only there are the git checkout, the git credentials and the docker CLI. After clicking "Request update", run once on the host:',
+      updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
+      updateAnleitungHinweis:
+        'The runner checks the database for a pending request and only acts then. Without a systemd timer, nothing happens automatically — that is intentional, so nothing runs in the background.',
+      updateAnleitungFehlerTitel: 'If nothing happens',
       updateAnleitungFehler1:
-        'It stays at "Requested": the timer is not running (step 2) or the host runner was never installed.',
+        'The "update requested" marker is in the database, but ./scripts/update.sh has not been executed on the host yet.',
       updateAnleitungFehler2:
         '"Checkout cannot be detected": the stack runs from a different directory. In that case set CASTEL_REPO_DIR to the path.',
       updateAnleitungFehler3:
-        '"Local changes in the checkout": there are uncommitted changes. Commit them or start the update with --allow-dirty.',
+        '"Local changes in the checkout": uncommitted changes block the update. Commit them or start with --allow-dirty.',
       updateAnleitungFehler4:
-        '"Docker daemon not reachable": the user the timer runs as has no access to the docker socket.',
-      updateAnleitungFehler5:
-        '"api container is unhealthy": the new version failed. The log above shows the container log lines.',
+        '"Docker daemon not reachable": the user running the script has no access to the docker socket.',
       geräteAlle: 'All devices of a user',
       geräteAlleHint:
         'Sets (or clears) the reset flag for all devices of the selected user at once.',

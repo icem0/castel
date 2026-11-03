@@ -114,21 +114,16 @@ check and remove old images.
 The update runs **on the host**, not inside a container — only there are the
 git checkout, the git credentials, the docker CLI and the real compose project
 name. An update inside the container would replace itself and die in the middle
-of the run. The host runner is set up with a systemd timer:
+of the run. There is therefore no background timer.
+
+After clicking "Request update", run once on the host:
 
 ```bash
-cd /srv/castel && sudo ./scripts/install-update-timer.sh
+cd /srv/castel && ./scripts/update.sh --if-requested
 ```
 
-The timer checks every 15 seconds whether the PWA requested an update and then
-runs it. Progress and log end up in the database, the PWA displays them live.
-Without systemd the same path works via a cron entry:
-
-```bash
-* * * * * /srv/castel/scripts/update.sh --if-requested >> /var/log/castel-update.log 2>&1
-```
-
-The runner can also be started manually at any time: `./scripts/update.sh`
+The runner checks the database for a pending request and only acts then.
+Progress and log end up in the database, the PWA displays them live.
 
 > **Important:** `docker compose down -v` or a reset `pgdata` volume deletes the database. Afterwards the user table is empty, the PWA falls back to first-time setup and a previously created admin no longer exists.
 

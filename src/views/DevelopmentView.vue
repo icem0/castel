@@ -1147,35 +1147,12 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Anleitung: Einrichtung des Update-Runners auf dem Host -->
+    <!-- Anleitung: Update auf dem Host ausführen -->
     <div v-if="updateAnleitungOffen" class="card update-anleitung">
       <h3>{{ t('view.development.updateAnleitungTitel') }}</h3>
       <p class="hint">{{ t('view.development.updateAnleitungIntro') }}</p>
-
-      <h4>{{ t('view.development.updateAnleitungSchritt1Titel') }}</h4>
-      <p class="hint">{{ t('view.development.updateAnleitungSchritt1Text') }}</p>
-
-      <h4>{{ t('view.development.updateAnleitungSchritt2Titel') }}</h4>
-      <p class="hint">{{ t('view.development.updateAnleitungSchritt2Text') }}</p>
-      <pre>
-cd /srv/castel
-sudo ./scripts/install-update-timer.sh</pre>
-
-      <h4>{{ t('view.development.updateAnleitungSchritt3Titel') }}</h4>
-      <p class="hint">{{ t('view.development.updateAnleitungSchritt3Text') }}</p>
-      <pre>
-systemctl status castel-update.timer
-journalctl -u castel-update.service -n 50</pre>
-
-      <h4>{{ t('view.development.updateAnleitungSchritt4Titel') }}</h4>
-      <p class="hint">{{ t('view.development.updateAnleitungSchritt4Text') }}</p>
-      <pre>
-* * * * * /srv/castel/scripts/update.sh --if-requested &gt;&gt; /var/log/castel-update.log 2&gt;&amp;1</pre>
-
-      <h4>{{ t('view.development.updateAnleitungSchritt5Titel') }}</h4>
-      <p class="hint">{{ t('view.development.updateAnleitungSchritt5Text') }}</p>
-      <pre>cd /srv/castel &amp;&amp; ./scripts/update.sh</pre>
-
+      <pre>{{ t('view.development.updateAnleitungBefehl') }}</pre>
+      <p class="hint">{{ t('view.development.updateAnleitungHinweis') }}</p>
       <h4>{{ t('view.development.updateAnleitungFehlerTitel') }}</h4>
       <ul class="hint update-anleitung-liste">
         <li>{{ t('view.development.updateAnleitungFehler1') }}</li>

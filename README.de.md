@@ -114,21 +114,17 @@ Health-Check und alte Images entfernen.
 Das Update läuft dabei **auf dem Host**, nicht im Container — nur dort liegen
 der Git-Checkout, die Git-Zugangsdaten, der Docker-CLI und der echte
 Compose-Projektname. Ein Update im Container würde sich selbst ersetzen und
-mitten im Lauf sterben. Der Host-Runner wird per systemd-Timer eingerichtet:
+mitten im Lauf sterben. Deshalb gibt es auch keinen laufenden Timer.
+
+Nach dem Klicken auf „Update anfordern" führen Sie auf dem Host einmalig aus:
 
 ```bash
-cd /srv/castel && sudo ./scripts/install-update-timer.sh
+cd /srv/castel && ./scripts/update.sh --if-requested
 ```
 
-Der Timer prüft alle 15 Sekunden, ob die PWA ein Update angefordert hat, und
-führt es dann aus. Fortschritt und Protokoll landen in der Datenbank, die PWA
-zeigt sie live an. Ohne systemd geht der gleiche Weg über einen Cron-Eintrag:
-
-```bash
-* * * * * /srv/castel/scripts/update.sh --if-requested >> /var/log/castel-update.log 2>&1
-```
-
-Der Runner kann auch jederzeit manuell laufen: `./scripts/update.sh`
+Das Skript prüft die Datenbank auf eine offene Anforderung und führt nur dann
+etwas aus. Fortschritt und Protokoll landen in der Datenbank, die PWA zeigt sie
+live an.
 
 > **Wichtig:** `docker compose down -v` oder ein zurückgesetztes `pgdata`-Volume löscht die Datenbank. Danach ist die User-Tabelle leer, die PWA springt auf das Erst-Setup und ein zuvor erstellter Admin existiert nicht mehr.
 
