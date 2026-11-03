@@ -143,10 +143,9 @@ services:
       - datanorm-data:/var/lib/castel/datanorm
       # Für den Update-Endpunkt (/api/admin/update): Host-Scripts-Verzeichnis
       # und Docker-Socket. Ohne diese Mounts liefert der Endpunkt einen klaren
-      # Fehler, dass git/docker nicht verfügbar sind. Nur entkommentieren, wenn
-      # der Update-Endpunkt genutzt werden soll.
-      # - ./scripts:/app/scripts:ro
-      # - /var/run/docker.sock:/var/run/docker.sock
+      # Fehler, dass git/docker nicht verfügbar sind.
+      - ./scripts:/app/scripts:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test:
         [
