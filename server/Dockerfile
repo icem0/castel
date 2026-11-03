@@ -44,6 +44,10 @@ RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
     apt-get install -y --no-install-recommends ca-certificates curl dumb-init unzip; \
+    # Für den Update-Endpunkt (/api/admin/update) optional benötigt:
+    # git (git pull) und docker-cli (docker compose, image prune).
+    # Ohne diese Pakete liefert der Endpunkt einen klaren Fehler.
+    # apt-get install -y --no-install-recommends git docker.io; \
     install -d /usr/share/postgresql-common/pgdg; \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \

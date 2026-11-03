@@ -1219,6 +1219,22 @@ export default {
       geräteZurücksetzenSetzen: 'Reset setzen',
       geräteZurücksetzenAufheben: 'Reset aufheben',
       geräteKeine: 'Noch keine Geräte registriert.',
+      update: 'Update',
+      updateHint:
+        'Führt auf dem Host ein git pull, ein docker compose pull, ein docker compose up -d und ein docker image prune aus. Erfordert, dass der API-Container auf das Host-Verzeichnis ./scripts und den Docker-Socket zugreifen kann (siehe docker-compose.yml).',
+      updateFrage: 'Update wirklich durchführen?',
+      updateDetail:
+        'Es werden git pull, docker compose pull, docker compose up -d und docker image prune auf dem Host ausgeführt. Der Stack wird neu gestartet.',
+      updateWarnung:
+        'Während des Updates ist der Dienst kurz nicht erreichbar. Die lokalen Daten der Clients bleiben erhalten; nach dem Neustart zieht jeder Client seinen Snapshot erneut.',
+      updateBtn: 'Update ausführen',
+      updateLaeuft: 'Update läuft…',
+      updateFertig: 'Update durchgeführt',
+      updateBestaetigen: 'Ja, Update ausführen',
+      updateErfolg: 'Update erfolgreich (Exit-Code {code}).',
+      updateFehler: 'Update fehlgeschlagen (Exit-Code {code}). Siehe Ausgabe unten.',
+      updateNachHinweis:
+        'Der Stack wurde neu gestartet. Die PWA lädt nach einem Moment die neuen Images.',
       geräteAlle: 'Alle Geräte eines Nutzers',
       geräteAlleHint:
         'Setzt (oder hebt) das Reset-Flag für alle Endgeräte des ausgewählten Nutzers gleichzeitig.',

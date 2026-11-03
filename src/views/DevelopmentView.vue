@@ -37,6 +37,11 @@ const reseedErfolg = ref<string | null>(null)
 const reseedPlan = ref<ReseedPlan | null>(null)
 const reseedGuardFehler = ref(false)
 
+const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
+const updateFehler = ref<string | null>(null)
+const updateErfolg = ref<string | null>(null)
+const updateAusgabe = ref<string | null>(null)
+
 type Geraet = {
   id: string
   userId: string
@@ -454,6 +459,47 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
     }
     reseedFehler.value = e instanceof Error ? e.message : String(e)
     reseedPhase.value = 'fehler'
+  }
+}
+
+async function updateFrageStarten(): Promise<void> {
+  updatePhase.value = 'bestaetigen'
+  updateFehler.value = null
+  updateErfolg.value = null
+  updateAusgabe.value = null
+}
+function updateAbbrechen(): void {
+  updatePhase.value = 'idle'
+  updateFehler.value = null
+  updateErfolg.value = null
+  updateAusgabe.value = null
+}
+async function updateBestaetigen(): Promise<void> {
+  updatePhase.value = 'laufend'
+  updateFehler.value = null
+  updateErfolg.value = null
+  updateAusgabe.value = null
+  try {
+    const ergebnis = await apiFetch<{
+      ok: boolean
+      exitCode: number | null
+      stdout: string
+      stderr: string
+    }>('/api/admin/update', { method: 'POST', body: { bestaetigt: true } })
+    updateAusgabe.value = ergebnis.stdout
+    if (ergebnis.stderr) {
+      updateAusgabe.value += (updateAusgabe.value ? '\n' : '') + ergebnis.stderr
+    }
+    if (ergebnis.ok) {
+      updateErfolg.value = t('view.development.updateErfolg', { code: ergebnis.exitCode })
+      updatePhase.value = 'fertig'
+    } else {
+      updateFehler.value = t('view.development.updateFehler', { code: ergebnis.exitCode })
+      updatePhase.value = 'fehler'
+    }
+  } catch (e) {
+    updateFehler.value = e instanceof Error ? e.message : String(e)
+    updatePhase.value = 'fehler'
   }
 }
 </script>
@@ -1011,6 +1057,80 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
         </button>
         <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
       </div>
+    </div>
+
+    <h2>{{ t('view.development.update') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.updateHint') }}</p>
+      <div class="actions">
+        <button
+          type="button"
+          class="danger"
+          :disabled="updatePhase === 'laufend' || updatePhase === 'fertig'"
+          @click="updateFrageStarten"
+        >
+          {{
+            updatePhase === 'laufend'
+              ? t('view.development.updateLaeuft')
+              : updatePhase === 'fertig'
+                ? t('view.development.updateFertig')
+                : t('view.development.updateBtn')
+          }}
+        </button>
+      </div>
+      <p v-if="updateFehler" class="wert-fehler">{{ updateFehler }}</p>
+      <p v-if="updateErfolg" class="hint hint-ok">{{ updateErfolg }}</p>
+      <pre
+        v-if="updateAusgabe"
+        class="hint"
+        style="
+          margin-top: 0.5rem;
+          white-space: pre-wrap;
+          font-size: 0.78rem;
+          background: var(--bg-input);
+          padding: 0.5rem;
+          border-radius: var(--radius-sm);
+        "
+        >{{ updateAusgabe }}</pre>
+    </div>
+
+    <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
+      <template v-if="updatePhase === 'fertig'">
+        <p class="hint hint-ok">{{ updateErfolg }}</p>
+        <p class="hint">{{ t('view.development.updateNachHinweis') }}</p>
+        <div class="actions">
+          <button type="button" @click="updateAbbrechen">
+            {{ t('view.common.schliessen') }}
+          </button>
+        </div>
+      </template>
+      <template v-else>
+        <p>
+          <strong>{{ t('view.development.updateFrage') }}</strong>
+        </p>
+        <p class="hint">{{ t('view.development.updateDetail') }}</p>
+        <p class="hint hint-danger">{{ t('view.development.updateWarnung') }}</p>
+        <p v-if="updatePhase === 'fehler' && updateFehler" class="wert-fehler">
+          {{ updateFehler }}
+        </p>
+        <div class="actions">
+          <button
+            type="button"
+            class="danger"
+            :disabled="updatePhase === 'laufend'"
+            @click="updateBestaetigen"
+          >
+            {{
+              updatePhase === 'laufend'
+                ? t('view.development.updateLaeuft')
+                : t('view.development.updateBestaetigen')
+            }}
+          </button>
+          <button type="button" :disabled="updatePhase === 'laufend'" @click="updateAbbrechen">
+            {{ t('view.common.abbrechen') }}
+          </button>
+        </div>
+      </template>
     </div>
 
     <!-- Sync-Fehler-Report ausklappbar (ganz unten, alle Details) -->

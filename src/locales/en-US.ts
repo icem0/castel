@@ -1191,6 +1191,22 @@ export default {
       geräteZurücksetzenSetzen: 'Set reset',
       geräteZurücksetzenAufheben: 'Clear reset',
       geräteKeine: 'No devices registered yet.',
+      update: 'Update',
+      updateHint:
+        'Runs git pull, docker compose pull, docker compose up -d and docker image prune on the host. Requires the API container to access the host ./scripts directory and the Docker socket (see docker-compose.yml).',
+      updateFrage: 'Really perform update?',
+      updateDetail:
+        'git pull, docker compose pull, docker compose up -d and docker image prune will be executed on the host. The stack will be restarted.',
+      updateWarnung:
+        'The service is briefly unavailable during the update. Client-local data is kept; each client re-pulls its snapshot after the restart.',
+      updateBtn: 'Run update',
+      updateLaeuft: 'Update running…',
+      updateFertig: 'Update performed',
+      updateBestaetigen: 'Yes, run update',
+      updateErfolg: 'Update successful (exit code {code}).',
+      updateFehler: 'Update failed (exit code {code}). See output below.',
+      updateNachHinweis:
+        'The stack has been restarted. The PWA reloads the new images shortly after.',
       geräteAlle: 'All devices of a user',
       geräteAlleHint:
         'Sets (or clears) the reset flag for all devices of the selected user at once.',
