@@ -232,7 +232,12 @@ function handleKatalogPrefill(): void {
   const katPreis = Number.parseFloat(String(route.query.katPreis ?? ''))
 
   formular.value.titel = katTitel
-  if (katEan !== '') formular.value.barcode = katEan
+  // Barcode: the EAN, otherwise the order number. Many supplier catalogues
+  // carry no EAN while the shelf label is a Code128 of the order number —
+  // without this fallback the next scan would not find the article. An EAN
+  // always wins when it exists.
+  const katBarcode = katEan !== '' ? katEan : katMatchcode
+  if (katBarcode !== '') formular.value.barcode = katBarcode
   if (katMatchcode !== '') formular.value.bestellnummer = katMatchcode
   if (katLieferant !== '') {
     formular.value.lieferant = katLieferant
@@ -243,10 +248,10 @@ function handleKatalogPrefill(): void {
   // Katalogpreis ist ein Listenpreis — daraus den EK erzeugen.
   berechneEinkaufspreis()
 
-  // Duplikat-Check: Der Katalog liefert bei jedem Upload dieselben EANs —
+  // Duplikat-Check: Der Katalog liefert bei jedem Upload dieselben Codes —
   // ohne diesen Hinweis legt der User beim zweiten Durchlauf DoppeltArtikel an.
-  if (katEan !== '') {
-    const doppelt = artikelStore.artikel.find((a) => a.barcode === katEan)
+  if (katBarcode !== '') {
+    const doppelt = artikelStore.artikel.find((a) => a.barcode === katBarcode)
     if (doppelt) {
       duplikatArtikel.value = { id: doppelt.id, titel: doppelt.titel }
     }

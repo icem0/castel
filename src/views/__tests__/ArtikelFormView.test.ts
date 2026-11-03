@@ -102,6 +102,32 @@ describe('ArtikelFormView — Katalog-Prefill', () => {
     expect(werte.some((i) => i.type === 'number' && i.value === '2.49')).toBe(true)
   })
 
+  it('lässt die EAN im Barcode-Feld, wenn der Katalog eine EAN liefert', async () => {
+    route.query = { katTitel: 'Bleistift HB', katEan: '4006381333931', katMatchcode: 'ART-1001' }
+    const { wrapper } = setup()
+    await flushPromises()
+
+    const barcode = wrapper.get('[data-testid="artikel-form-barcode"]').element as HTMLInputElement
+    expect(barcode.value).toBe('4006381333931')
+  })
+
+  it('füllt den Barcode mit der Bestellnummer, wenn der Katalog keine EAN liefert', async () => {
+    route.query = { katTitel: 'Bleistift HB', katMatchcode: 'ART-1001' }
+    const { wrapper } = setup()
+    await flushPromises()
+
+    const barcode = wrapper.get('[data-testid="artikel-form-barcode"]').element as HTMLInputElement
+    expect(barcode.value).toBe('ART-1001')
+  })
+
+  it('warnt auch bei einer übernommenen Bestellnummer vor dem Duplikat', async () => {
+    route.query = { katTitel: 'Bleistift HB', katMatchcode: 'ART-1001' }
+    const { wrapper } = setup([artikel('a1', 'Bleistift HB (bereits erfasst)', 'ART-1001')])
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Zum vorhandenen Artikel')
+  })
+
   it('warnt, wenn der Barcode schon zu einem Artikel gehört', async () => {
     route.query = { katTitel: 'Bleistift HB', katEan: '4006381333931' }
     const { wrapper } = setup([artikel('a1', 'Bleistift HB (bereits erfasst)', '4006381333931')])

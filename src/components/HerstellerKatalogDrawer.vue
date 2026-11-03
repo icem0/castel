@@ -151,6 +151,20 @@ function findeLieferantZuName(name: string): Lieferant | null {
 }
 
 /**
+ * Barcode value offered by a catalogue entry: the EAN, otherwise the order
+ * number (matchcode).
+ *
+ * A lot of supplier catalogues carry no EAN at all, while the shelf label is
+ * a Code128 of the order number. Filling the barcode with the matchcode keeps
+ * the scanner flow working for those articles — `BarcodeScanView` matches on
+ * `barcode` first. The EAN always wins when it exists, so nothing that used
+ * to work changes.
+ */
+function barcodeAusKatalog(k: HerstellerArtikel): string {
+  return k.ean?.trim() || k.matchcode.trim()
+}
+
+/**
  * Fields that would change the form, with the current and catalogue values.
  * Drives the yellow (overwrite) / grey (fill empty) colouring.
  */
@@ -165,6 +179,7 @@ const diff = computed(() => {
         ? k.preisBruttoCent / 100
         : null
   const preisIst = a.listenpreis
+  const barcodeKatalog = barcodeAusKatalog(k)
 
   const zeilen = [
     {
@@ -178,8 +193,8 @@ const diff = computed(() => {
       feld: 'barcode',
       label: t('view.artikel.form.barcode'),
       aktuellerWert: a.barcode,
-      katalogWert: k.ean ?? '',
-      gleich: a.barcode.trim() === (k.ean ?? '').trim(),
+      katalogWert: barcodeKatalog,
+      gleich: a.barcode.trim() === barcodeKatalog,
     },
     {
       feld: 'bestellnummer',
@@ -268,7 +283,7 @@ function waehle(artikel: HerstellerArtikel): void {
   // they want to keep. Fields with no catalogue value are not offered.
   const felder = new Set<string>()
   if (artikel.titel) felder.add('titel')
-  if (artikel.ean) felder.add('barcode')
+  if (barcodeAusKatalog(artikel) !== '') felder.add('barcode')
   if (artikel.matchcode) felder.add('bestellnummer')
   if (artikel.preisNettoCent !== null || artikel.preisBruttoCent !== null) felder.add('listenpreis')
   felder.add('lieferant')
@@ -288,7 +303,8 @@ function felderAusTreffer(): Partial<UebernahmeFelder> {
   const raus: Partial<UebernahmeFelder> = {}
   const gewaehltSet = gewaehlteFelder.value
   if (gewaehltSet.has('titel')) raus.titel = k.titel
-  if (gewaehltSet.has('barcode') && k.ean) raus.barcode = k.ean
+  const barcode = barcodeAusKatalog(k)
+  if (gewaehltSet.has('barcode') && barcode !== '') raus.barcode = barcode
   if (gewaehltSet.has('bestellnummer')) raus.bestellnummer = k.matchcode
   if (gewaehltSet.has('listenpreis')) {
     const cent = k.preisNettoCent ?? k.preisBruttoCent

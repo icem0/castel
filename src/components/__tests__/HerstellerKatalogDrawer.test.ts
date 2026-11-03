@@ -260,6 +260,39 @@ describe('HerstellerKatalogDrawer', () => {
     expect(w.wrapper.emitted('schliessen')).toBeTruthy()
   })
 
+  it('übernimmt die Bestellnummer als Barcode, wenn der Katalog keine EAN liefert', async () => {
+    vi.mocked(lookup.sucheHerstellerArtikel).mockResolvedValue({
+      lieferant: { id: 'l1', name: 'Mueller GmbH' },
+      suchstrategie: 'matchcode',
+      treffer: [{ ...TREFFER, ean: null }],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+      hasMore: false,
+    })
+
+    const w = start()
+    await flushPromises()
+    await w.waehleUndSuche('l1', 'ART-1001')
+    w.knopf('Suchen')?.click()
+    await flushPromises()
+
+    // Das Barcode-Feld muss in der Diff-Liste stehen und den Matchcode zeigen.
+    const zeilen = Array.from(w.body.querySelectorAll('.diff-zeile'))
+    const barcodeZeile = zeilen.find(
+      (z) => z.querySelector('.diff-label')?.textContent === 'Barcode',
+    )
+    expect(barcodeZeile).toBeDefined()
+    expect(barcodeZeile?.querySelector('.diff-katalog')?.textContent?.trim()).toBe('ART-1001')
+
+    w.knopf('Übernehmen')?.click()
+    await flushPromises()
+
+    const payload = w.wrapper.emitted('uebernehmen')?.[0]?.[0] as Record<string, unknown>
+    expect(payload.barcode).toBe('ART-1001')
+    expect(payload.bestellnummer).toBe('ART-1001')
+  })
+
   it('übernimmt nur das einzelne Feld, wenn auf den Feld-Link geklickt wird', async () => {
     const w = start({ aktuell: { ...AKTUELL, titel: 'Eigener Titel' } })
     await flushPromises()
