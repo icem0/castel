@@ -1,0 +1,23 @@
+[Unit]
+Description=castel Update-Runner (prueft auf eine Update-Anforderung aus der PWA)
+Documentation=https://github.com/icem0/castel
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Der Pfad wird beim Installieren (scripts/install-update-timer.sh) ersetzt.
+ExecStart=/srv/castel/scripts/update.sh --if-requested
+WorkingDirectory=/srv/castel
+# Der Runner darf nur lesen und den Docker-Socket benutzen. Das Update selbst
+# (git pull, compose up, image prune) braucht Schreibrechte auf dem Checkout -
+# deshalb laeuft der Service mit dem Benutzer, der den Checkout besitzt.
+User=root
+# Das Skript ist idempotent und beendet sich schnell, wenn keine Anforderung
+# offen ist. Das harte Timeout ist nur ein Sicherheitsnetz.
+TimeoutStartSec=900
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

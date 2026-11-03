@@ -15,6 +15,7 @@ export const INTERN_EINSTELLUNGS_KEYS: readonly string[] = [
   'sync.forceAt',
   'backup.lastSlot',
   'server.restoreEpoch',
+  'server.updateState',
 ]
 
 export function istInterneEinstellung(key: string): boolean {

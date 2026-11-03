@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
 import { holeAktiveUserliste, type UserDto } from '../auth/users'
 import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
+import { fetchUpdateState, requestUpdate, type UpdateState } from '../services/admin/update'
 import {
   collectReseedPlan,
   reseedServer,
@@ -39,8 +40,20 @@ const reseedGuardFehler = ref(false)
 
 const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
 const updateFehler = ref<string | null>(null)
-const updateErfolg = ref<string | null>(null)
-const updateAusgabe = ref<string | null>(null)
+const updateState = ref<UpdateState | null>(null)
+/** Der Server ist während des Stack-Neustarts kurz nicht erreichbar. */
+const updateServerAus = ref(false)
+const updateAnleitungOffen = ref(false)
+let updateTimer: ReturnType<typeof setInterval> | null = null
+
+/** Anzeigename des aktuellen Schritts - unbekannte Schritte bleiben leer. */
+const updateStepLabel = computed(() => {
+  const step = updateState.value?.step
+  if (!step) return null
+  const key = `view.development.updateStep.${step}`
+  const translated = t(key)
+  return translated === key ? null : translated
+})
 
 type Geraet = {
   id: string
@@ -465,43 +478,68 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
 async function updateFrageStarten(): Promise<void> {
   updatePhase.value = 'bestaetigen'
   updateFehler.value = null
-  updateErfolg.value = null
-  updateAusgabe.value = null
+  updateServerAus.value = false
 }
 function updateAbbrechen(): void {
   updatePhase.value = 'idle'
   updateFehler.value = null
-  updateErfolg.value = null
-  updateAusgabe.value = null
+  updateServerAus.value = false
+  updatePollingStoppen()
+}
+function updatePollingStoppen(): void {
+  if (updateTimer !== null) {
+    clearInterval(updateTimer)
+    updateTimer = null
+  }
 }
 async function updateBestaetigen(): Promise<void> {
   updatePhase.value = 'laufend'
   updateFehler.value = null
-  updateErfolg.value = null
-  updateAusgabe.value = null
+  updateServerAus.value = false
   try {
-    const ergebnis = await apiFetch<{
-      ok: boolean
-      exitCode: number | null
-      stdout: string
-      stderr: string
-    }>('/api/admin/update', { method: 'POST', body: { bestaetigt: true } })
-    updateAusgabe.value = ergebnis.stdout
-    if (ergebnis.stderr) {
-      updateAusgabe.value += (updateAusgabe.value ? '\n' : '') + ergebnis.stderr
-    }
-    if (ergebnis.ok) {
-      updateErfolg.value = t('view.development.updateErfolg', { code: ergebnis.exitCode })
+    await requestUpdate()
+  } catch (e) {
+    updateFehler.value = e instanceof Error ? e.message : String(e)
+    updatePhase.value = 'fehler'
+    return
+  }
+  await updateStatusLaden()
+  updatePollingStarten()
+}
+function updatePollingStarten(): void {
+  updatePollingStoppen()
+  updateTimer = setInterval(() => {
+    void updateStatusLaden()
+  }, 3000)
+}
+async function updateStatusLaden(): Promise<void> {
+  try {
+    const state = await fetchUpdateState()
+    updateState.value = state
+    updateServerAus.value = false
+    if (state.phase === 'done') {
       updatePhase.value = 'fertig'
-    } else {
-      updateFehler.value = t('view.development.updateFehler', { code: ergebnis.exitCode })
+      updatePollingStoppen()
+    } else if (state.phase === 'failed') {
       updatePhase.value = 'fehler'
+      updateFehler.value = state.message
+      updatePollingStoppen()
+    } else {
+      updatePhase.value = 'laufend'
     }
   } catch (e) {
+    // Waehrend des Neustarts ist der API-Container kurz weg. Das ist kein
+    // Fehler - der Poller wartet einfach weiter.
+    updateServerAus.value = true
+    if (updatePhase.value === 'laufend') return
     updateFehler.value = e instanceof Error ? e.message : String(e)
     updatePhase.value = 'fehler'
   }
 }
+
+onBeforeUnmount(() => {
+  updatePollingStoppen()
+})
 </script>
 
 <template>
@@ -1066,7 +1104,7 @@ async function updateBestaetigen(): Promise<void> {
         <button
           type="button"
           class="danger"
-          :disabled="updatePhase === 'laufend' || updatePhase === 'fertig'"
+          :disabled="updatePhase === 'laufend'"
           @click="updateFrageStarten"
         >
           {{
@@ -1077,26 +1115,79 @@ async function updateBestaetigen(): Promise<void> {
                 : t('view.development.updateBtn')
           }}
         </button>
+        <button type="button" class="small" @click="updateAnleitungOffen = !updateAnleitungOffen">
+          {{ t('view.development.updateAnleitungTitel') }}
+        </button>
       </div>
-      <p v-if="updateFehler" class="wert-fehler">{{ updateFehler }}</p>
-      <p v-if="updateErfolg" class="hint hint-ok">{{ updateErfolg }}</p>
-      <pre
-        v-if="updateAusgabe"
-        class="hint"
-        style="
-          margin-top: 0.5rem;
-          white-space: pre-wrap;
-          font-size: 0.78rem;
-          background: var(--bg-input);
-          padding: 0.5rem;
-          border-radius: var(--radius-sm);
-        "
-        >{{ updateAusgabe }}</pre>
+
+      <!-- Status -->
+      <div v-if="updateState" class="update-status">
+        <p>
+          <strong>{{ t(`view.development.updatePhase.${updateState.phase}`) }}</strong>
+          <span v-if="updateStepLabel" class="hint">— {{ updateStepLabel }}</span>
+        </p>
+        <p v-if="updateState.host" class="hint">
+          {{ t('view.development.updateHost', { host: updateState.host }) }}
+        </p>
+        <p v-if="updateState.versionBefore && updateState.versionAfter" class="hint">
+          {{
+            t('view.development.updateVersion', {
+              before: updateState.versionBefore,
+              after: updateState.versionAfter,
+            })
+          }}
+        </p>
+        <p v-if="updateState.message" class="hint">{{ updateState.message }}</p>
+        <p v-if="updateServerAus" class="hint">{{ t('view.development.updateServerAus') }}</p>
+        <p v-if="updateFehler" class="wert-fehler">{{ updateFehler }}</p>
+        <details v-if="updateState.log" class="update-log">
+          <summary>{{ t('view.development.updateLog') }}</summary>
+          <pre>{{ updateState.log }}</pre>
+        </details>
+      </div>
+    </div>
+
+    <!-- Anleitung: Einrichtung des Update-Runners auf dem Host -->
+    <div v-if="updateAnleitungOffen" class="card update-anleitung">
+      <h3>{{ t('view.development.updateAnleitungTitel') }}</h3>
+      <p class="hint">{{ t('view.development.updateAnleitungIntro') }}</p>
+
+      <h4>{{ t('view.development.updateAnleitungSchritt1Titel') }}</h4>
+      <p class="hint">{{ t('view.development.updateAnleitungSchritt1Text') }}</p>
+
+      <h4>{{ t('view.development.updateAnleitungSchritt2Titel') }}</h4>
+      <p class="hint">{{ t('view.development.updateAnleitungSchritt2Text') }}</p>
+      <pre>
+cd /srv/castel
+sudo ./scripts/install-update-timer.sh</pre>
+
+      <h4>{{ t('view.development.updateAnleitungSchritt3Titel') }}</h4>
+      <p class="hint">{{ t('view.development.updateAnleitungSchritt3Text') }}</p>
+      <pre>
+systemctl status castel-update.timer
+journalctl -u castel-update.service -n 50</pre>
+
+      <h4>{{ t('view.development.updateAnleitungSchritt4Titel') }}</h4>
+      <p class="hint">{{ t('view.development.updateAnleitungSchritt4Text') }}</p>
+      <pre>
+* * * * * /srv/castel/scripts/update.sh --if-requested &gt;&gt; /var/log/castel-update.log 2&gt;&amp;1</pre>
+
+      <h4>{{ t('view.development.updateAnleitungSchritt5Titel') }}</h4>
+      <p class="hint">{{ t('view.development.updateAnleitungSchritt5Text') }}</p>
+      <pre>cd /srv/castel &amp;&amp; ./scripts/update.sh</pre>
+
+      <h4>{{ t('view.development.updateAnleitungFehlerTitel') }}</h4>
+      <ul class="hint update-anleitung-liste">
+        <li>{{ t('view.development.updateAnleitungFehler1') }}</li>
+        <li>{{ t('view.development.updateAnleitungFehler2') }}</li>
+        <li>{{ t('view.development.updateAnleitungFehler3') }}</li>
+        <li>{{ t('view.development.updateAnleitungFehler4') }}</li>
+      </ul>
     </div>
 
     <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
       <template v-if="updatePhase === 'fertig'">
-        <p class="hint hint-ok">{{ updateErfolg }}</p>
+        <p class="hint hint-ok">{{ t('view.development.updateFertigText') }}</p>
         <p class="hint">{{ t('view.development.updateNachHinweis') }}</p>
         <div class="actions">
           <button type="button" @click="updateAbbrechen">
@@ -1336,5 +1427,53 @@ async function updateBestaetigen(): Promise<void> {
 }
 .sync-error-header:hover {
   text-decoration: underline;
+}
+.update-status {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.update-status p {
+  margin: 0 0 0.35rem;
+}
+.update-log {
+  margin-top: 0.5rem;
+}
+.update-log summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.update-log pre {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.update-anleitung h3 {
+  margin-top: 0;
+}
+.update-anleitung h4 {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.9rem;
+}
+.update-anleitung pre {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+.update-anleitung-liste {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+}
+.update-anleitung-liste li {
+  margin-bottom: 0.35rem;
 }
 </style>

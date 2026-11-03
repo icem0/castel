@@ -1221,20 +1221,66 @@ export default {
       geräteKeine: 'Noch keine Geräte registriert.',
       update: 'Update',
       updateHint:
-        'Führt auf dem Host ein git pull, ein docker compose pull, ein docker compose up -d und ein docker image prune aus. Erfordert, dass der API-Container auf das Host-Verzeichnis ./scripts und den Docker-Socket zugreifen kann (siehe docker-compose.yml).',
-      updateFrage: 'Update wirklich durchführen?',
+        'Fordert ein Update des Stacks an: git pull, neue Images ziehen, Container neu starten und alte Images entfernen. Die Ausführung läuft auf dem Host — dafür muss dort der Update-Runner eingerichtet sein (siehe Anleitung unten).',
+      updateFrage: 'Update wirklich anfordern?',
       updateDetail:
-        'Es werden git pull, docker compose pull, docker compose up -d und docker image prune auf dem Host ausgeführt. Der Stack wird neu gestartet.',
+        'Der Host zieht die neuesten Änderungen, holt die neuen Images aus der Registry, startet den Stack neu und entfernt anschließend alte, ungenutzte Images. Die Datenbank bleibt unangetastet.',
       updateWarnung:
         'Während des Updates ist der Dienst kurz nicht erreichbar. Die lokalen Daten der Clients bleiben erhalten; nach dem Neustart zieht jeder Client seinen Snapshot erneut.',
-      updateBtn: 'Update ausführen',
+      updateBtn: 'Update anfordern',
       updateLaeuft: 'Update läuft…',
-      updateFertig: 'Update durchgeführt',
-      updateBestaetigen: 'Ja, Update ausführen',
-      updateErfolg: 'Update erfolgreich (Exit-Code {code}).',
-      updateFehler: 'Update fehlgeschlagen (Exit-Code {code}). Siehe Ausgabe unten.',
+      updateFertig: 'Update abgeschlossen',
+      updateFertigText: 'Das Update wurde erfolgreich durchgeführt.',
+      updateBestaetigen: 'Ja, Update anfordern',
       updateNachHinweis:
-        'Der Stack wurde neu gestartet. Die PWA lädt nach einem Moment die neuen Images.',
+        'Der Stack wurde neu gestartet. Bitte die Seite neu laden, damit die neue PWA-Version geladen wird.',
+      updateServerAus:
+        'Der Server antwortet gerade nicht — das ist normal, während der Stack neu gestartet wird. Die Anzeige aktualisiert sich automatisch.',
+      updateHost: 'Host: {host}',
+      updateVersion: 'Version: {before} → {after}',
+      updateLog: 'Protokoll anzeigen',
+      updatePhase: {
+        requested: 'Angefordert — wartet auf den Host-Runner',
+        running: 'Update läuft',
+        done: 'Update abgeschlossen',
+        failed: 'Update fehlgeschlagen',
+      },
+      updateStep: {
+        'git-pull': 'Git-Pull',
+        'compose-pull': 'Images ziehen',
+        'compose-up': 'Stack neu starten',
+        health: 'Health-Check',
+        purge: 'Alte Images entfernen',
+      },
+      updateAnleitungTitel: 'Anleitung: Update-Runner einrichten',
+      updateAnleitungIntro:
+        'Das Update läuft absichtlich auf dem Host und nicht im Container: nur dort liegen der Git-Checkout, die Git-Zugangsdaten, der Docker-CLI und der echte Compose-Projektname. Dafür wird ein kleiner systemd-Timer eingerichtet, der alle 15 Sekunden prüft, ob oben ein Update angefordert wurde, und es dann ausführt.',
+      updateAnleitungSchritt1Titel: '1. Voraussetzungen',
+      updateAnleitungSchritt1Text:
+        'Auf dem Host müssen git, docker und docker compose (v2) installiert sein. Das Repository muss als Git-Checkout vorliegen (im Beispiel unter /srv/castel), und der Stack muss aus genau diesem Checkout gestartet worden sein. Der Runner findet den Pfad automatisch über die Compose-Labels der laufenden Container.',
+      updateAnleitungSchritt2Titel: '2. Timer installieren',
+      updateAnleitungSchritt2Text:
+        'Einmalig auf dem Host ausführen (Pfad anpassen). Der Timer läuft danach als systemd-Dienst im Hintergrund und prüft alle 15 Sekunden auf eine Anforderung.',
+      updateAnleitungSchritt3Titel: '3. Prüfen, ob der Timer läuft',
+      updateAnleitungSchritt3Text:
+        'Status des Timers ansehen und das Protokoll der letzten Läufe einsehen:',
+      updateAnleitungSchritt4Titel: '4. Alternative ohne systemd',
+      updateAnleitungSchritt4Text:
+        'Auf Hosts ohne systemd (z. B. Alpine/OpenRC) stattdessen einen Cron-Eintrag anlegen — mit "crontab -e". Der Cron läuft nur einmal pro Minute, das Update startet dann etwas verzögert.',
+      updateAnleitungSchritt5Titel: '5. Update manuell starten',
+      updateAnleitungSchritt5Text:
+        'Der Runner kann jederzeit auch von Hand laufen — unabhängig von der PWA. Das ist der Weg, wenn kein Timer eingerichtet ist:',
+      updateAnleitungFehlerTitel: 'Wenn etwas nicht funktioniert',
+      updateAnleitungFehler1:
+        'Es bleibt „Angefordert" stehen: der Timer läuft nicht (Schritt 2) oder der Host-Runner wurde nicht installiert.',
+      updateAnleitungFehler2:
+        '„Checkout nicht ermittelbar": der Stack läuft aus einem anderen Verzeichnis. In dem Fall CASTEL_REPO_DIR auf den Pfad setzen.',
+      updateAnleitungFehler3:
+        '„Lokale Änderungen im Checkout": es gibt nicht committete Änderungen. Diese committen oder das Update mit --allow-dirty starten.',
+      updateAnleitungFehler4:
+        '„Docker-Daemon nicht erreichbar": der Benutzer, unter dem der Timer läuft, hat keine Rechte am Docker-Socket.',
+      updateAnleitungFehler5:
+        '„api-Container ist unhealthy": die neue Version ist fehlgeschlagen. Das Protokoll oben zeigt die Logzeilen des Containers.',
       geräteAlle: 'Alle Geräte eines Nutzers',
       geräteAlleHint:
         'Setzt (oder hebt) das Reset-Flag für alle Endgeräte des ausgewählten Nutzers gleichzeitig.',

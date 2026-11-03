@@ -141,11 +141,6 @@ services:
       - fotos-data:/var/lib/castel/fotos
       - backups-data:/var/lib/castel/backups
       - datanorm-data:/var/lib/castel/datanorm
-      # Für den Update-Endpunkt (/api/admin/update): Host-Scripts-Verzeichnis
-      # und Docker-Socket. Ohne diese Mounts liefert der Endpunkt einen klaren
-      # Fehler, dass git/docker nicht verfügbar sind.
-      - ./scripts:/app/scripts:ro
-      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test:
         [

@@ -26,39 +26,14 @@
 
 import type { FastifyInstance } from 'fastify'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { spawn } from 'node:child_process'
 import { getDb } from '../db/client.js'
 import { einstellungen, geraete, syncErrorReports, users } from '../db/schema.js'
 import { bulkBookingRoutes } from './bulk-booking-routes.js'
+import { updateRoutes } from './update-routes.js'
 import { normalisiereRollen } from '../domain/rollen.js'
 import { z } from 'zod'
 
 const FORCE_SYNC_KEY = 'sync.forceAt'
-
-/**
- * Fuehrt ein Kommando aus und liefert Exit-Code, stdout und stderr.
- * Wird fuer den Update-Endpunkt genutzt (git pull, docker compose, …).
- */
-async function fuehreKommando(
-  cmd: string,
-  args: string[],
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    child.stderr.on('data', (chunk: string) => {
-      stderr += chunk
-    })
-    child.on('error', reject)
-    child.on('close', (code) => resolve({ code, stdout, stderr }))
-  })
-}
 
 const CLEARED_DOMAIN_TABLES = [
   'datanorm_importe',
@@ -81,6 +56,7 @@ const CLEARED_DOMAIN_TABLES = [
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   await bulkBookingRoutes(app)
+  await updateRoutes(app)
 
   // POST /api/admin/sync/all
   // Admin-only. Setzt den globalen `sync.forceAt`-Marker auf die aktuelle
@@ -334,51 +310,6 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
         userId,
         resetAm: resetAm?.toISOString() ?? null,
         matched: result.length,
-      })
-    },
-  )
-
-  // ---------- POST /api/admin/update ----------
-  // Fuehrt auf dem Host ein Update aus: git pull, docker compose pull,
-  // docker compose up -d, docker image prune -f.
-  //
-  // Voraussetzungen (muss der Deployer bereitstellen):
-  //   * Das Host-Verzeichnis ./scripts ist in den API-Container gemountet
-  //     (z. B. `- ./scripts:/app/scripts:ro` in docker-compose.yml).
-  //   * Der Docker-Socket ist gemountet (`- /var/run/docker.sock:/var/run/docker.sock`).
-  //   * Das API-Image enthaelt `git` und den `docker` CLI (server/Dockerfile).
-  // Ohne diese Voraussetzungen liefert der Endpunkt einen klaren Fehler.
-  const updateSchema = z.object({ bestaetigt: z.boolean() })
-
-  app.post(
-    '/api/admin/update',
-    { preHandler: app.requireAdmin },
-    async (req, reply) => {
-      const parsed = updateSchema.safeParse(req.body)
-      if (!parsed.success) {
-        return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
-      }
-      if (!parsed.data.bestaetigt) {
-        return reply.code(400).send({ code: 'VALIDATION', message: 'bestaetigt muss true sein' })
-      }
-
-      const script = '/app/scripts/update.sh'
-      let ergebnis: { code: number | null; stdout: string; stderr: string }
-      try {
-        ergebnis = await fuehreKommando('bash', [script])
-      } catch (e) {
-        return reply.code(500).send({
-          code: 'UPDATE_FAILED',
-          message: e instanceof Error ? e.message : String(e),
-        })
-      }
-
-      const ok = ergebnis.code === 0
-      return reply.send({
-        ok,
-        exitCode: ergebnis.code,
-        stdout: ergebnis.stdout,
-        stderr: ergebnis.stderr,
       })
     },
   )

@@ -105,6 +105,31 @@ git pull origin main
 docker compose pull && docker compose up -d
 ```
 
+### Update aus der PWA heraus (optional)
+
+Unter **Einstellungen → Entwicklung → Update** kann ein Admin ein vollständiges
+Stack-Update anfordern: `git pull`, neue Images ziehen, Container neu starten,
+Health-Check und alte Images entfernen.
+
+Das Update läuft dabei **auf dem Host**, nicht im Container — nur dort liegen
+der Git-Checkout, die Git-Zugangsdaten, der Docker-CLI und der echte
+Compose-Projektname. Ein Update im Container würde sich selbst ersetzen und
+mitten im Lauf sterben. Der Host-Runner wird per systemd-Timer eingerichtet:
+
+```bash
+cd /srv/castel && sudo ./scripts/install-update-timer.sh
+```
+
+Der Timer prüft alle 15 Sekunden, ob die PWA ein Update angefordert hat, und
+führt es dann aus. Fortschritt und Protokoll landen in der Datenbank, die PWA
+zeigt sie live an. Ohne systemd geht der gleiche Weg über einen Cron-Eintrag:
+
+```bash
+* * * * * /srv/castel/scripts/update.sh --if-requested >> /var/log/castel-update.log 2>&1
+```
+
+Der Runner kann auch jederzeit manuell laufen: `./scripts/update.sh`
+
 > **Wichtig:** `docker compose down -v` oder ein zurückgesetztes `pgdata`-Volume löscht die Datenbank. Danach ist die User-Tabelle leer, die PWA springt auf das Erst-Setup und ein zuvor erstellter Admin existiert nicht mehr.
 
 ---
