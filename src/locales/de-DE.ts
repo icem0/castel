@@ -242,6 +242,7 @@ export default {
         abbrechen: 'Abbrechen',
         duplikatHinweis: 'Ein Artikel mit diesem Barcode existiert bereits: „{titel}".',
         duplikatZumArtikel: 'Zum vorhandenen Artikel',
+        barcodeDuplikat: 'Barcode {barcode} gehört bereits zu Artikel „{titel}".',
         pflicht: 'Pflichtfeld',
         ungespeichertVerlassen: 'Du hast ungespeicherte Änderungen. Wirklich verlassen?',
       },

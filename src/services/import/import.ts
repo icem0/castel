@@ -79,6 +79,15 @@ export async function importArtikelAusCsv(e: ArtikelImportEingabe): Promise<Impo
           bericht.konflikte.push(`Artikel "${a.titel}" existiert bereits (Zeile ${i + 2}).`)
           continue
         }
+        if (a.barcode) {
+          const barcodeTreffer = await db.artikel.where('barcode').equals(a.barcode).first()
+          if (barcodeTreffer) {
+            bericht.konflikte.push(
+              `Barcode "${a.barcode}" gehört bereits zu Artikel "${barcodeTreffer.titel}" (Zeile ${i + 2}).`,
+            )
+            continue
+          }
+        }
         await db.artikel.add(a)
         bericht.artikelAngelegt += 1
         await queueOp('artikel', 'create', a)
@@ -132,7 +141,7 @@ function mappeArtikelZeile(row: string[], headers: string[], mapping: ArtikelMap
     mindestbestand: parseIntOrNull(feld('mindestbestand')),
     nachbestellHinweis: normalizeNachbestellHinweis(feld('nachbestellHinweis')),
     bestellnummer: feld('bestellnummer') || null,
-    barcode: feld('barcode') || null,
+    barcode: feld('barcode').trim() || null,
     // Importierte Artikel starten als "neu" (Etiketten-Druck) — sie haben
     // noch kein Etikett bekommen.
     etikettenNeu: true,

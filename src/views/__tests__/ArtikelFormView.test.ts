@@ -13,7 +13,7 @@ import { createI18n } from 'vue-i18n'
 import type { Artikel } from '../../db/types'
 import ArtikelFormView from '../ArtikelFormView.vue'
 import de from '../../locales/de-DE'
-import { useArtikelStore } from '../../stores/artikel'
+import { BarcodeDuplikatError, useArtikelStore } from '../../stores/artikel'
 
 const route = { query: {} as Record<string, string>, name: 'artikel-neu' as const }
 const push = vi.fn()
@@ -68,7 +68,7 @@ function setup(vorhandeneArtikel: Artikel[] = []) {
 
   const i18n = createI18n({ legacy: false, locale: 'de', messages: { de } })
   const wrapper = mount(ArtikelFormView, { global: { plugins: [i18n] } })
-  return { wrapper }
+  return { wrapper, artikelStore }
 }
 
 beforeEach(() => {
@@ -143,6 +143,20 @@ describe('ArtikelFormView — Katalog-Prefill', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('Zum vorhandenen Artikel')
+  })
+
+  it('shows the localized duplicate error when saving a duplicated barcode', async () => {
+    const { wrapper, artikelStore } = setup([artikel('a1', 'Vorhanden', '4006381333931')])
+    await wrapper.find('input').setValue('Neu')
+    vi.spyOn(artikelStore, 'anlegen').mockRejectedValue(
+      new BarcodeDuplikatError('4006381333931', 'a1', 'Vorhanden'),
+    )
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Barcode 4006381333931')
+    expect(wrapper.text()).toContain('Vorhanden')
   })
 
   it('ignoriert einen leeren Preis', async () => {

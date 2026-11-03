@@ -2,7 +2,7 @@
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useArtikelStore } from '../stores/artikel'
+import { BarcodeDuplikatError, useArtikelStore } from '../stores/artikel'
 import { useHerstellerStore } from '../stores/hersteller'
 import { useStandortStore } from '../stores/standort'
 import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
@@ -316,7 +316,14 @@ async function speichern(): Promise<void> {
     }
     void router.push('/artikel')
   } catch (e) {
-    fehler.value = e instanceof Error ? e.message : String(e)
+    if (e instanceof BarcodeDuplikatError) {
+      fehler.value = t('view.artikel.form.barcodeDuplikat', {
+        barcode: e.barcode,
+        titel: e.konfliktTitel,
+      })
+    } else {
+      fehler.value = e instanceof Error ? e.message : String(e)
+    }
   } finally {
     laufend.value = false
   }

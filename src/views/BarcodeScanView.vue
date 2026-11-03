@@ -12,7 +12,7 @@
 import { computed, nextTick, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useArtikelStore } from '../stores/artikel'
+import { BarcodeDuplikatError, useArtikelStore } from '../stores/artikel'
 import { useBarcode } from '../composables/useBarcode'
 import ArtikelSucheSelect from '../components/ArtikelSucheSelect.vue'
 
@@ -127,7 +127,14 @@ async function barcodeZuweisen(): Promise<void> {
     dialogOffen.value = false
     void router.push({ name: 'buchung-neu', query: { artikelId, from: 'scan' } })
   } catch (e) {
-    zuweisungFehler.value = e instanceof Error ? e.message : String(e)
+    if (e instanceof BarcodeDuplikatError) {
+      zuweisungFehler.value = t('view.artikel.form.barcodeDuplikat', {
+        barcode: e.barcode,
+        titel: e.konfliktTitel,
+      })
+    } else {
+      zuweisungFehler.value = e instanceof Error ? e.message : String(e)
+    }
   } finally {
     zuweisungLaeuft.value = false
   }

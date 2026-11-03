@@ -39,6 +39,51 @@ export interface ArtikelEingabe {
   herstellerId?: string | null
 }
 
+/**
+ * The barcode already belongs to another article.
+ *
+ * Barcodes must be unique: the scanner resolves an article by its code and
+ * takes the first hit, so a duplicate moves stock on the wrong article. The
+ * store checks before writing, so the user gets the message immediately and no
+ * outbox entry is created. The server stays the authority for concurrent
+ * devices (resolver + partial unique index, migration 0031).
+ */
+export class BarcodeDuplikatError extends Error {
+  constructor(
+    public readonly barcode: string,
+    public readonly konfliktId: string,
+    public readonly konfliktTitel: string,
+  ) {
+    super(`Barcode ${barcode} gehört bereits zu Artikel „${konfliktTitel}“.`)
+    this.name = 'BarcodeDuplikatError'
+  }
+}
+
+/**
+ * Local article that already owns `barcode`, ignoring `ausserId` (the article
+ * being edited keeps its own code). Blank codes mean "no code" and never
+ * match.
+ *
+ * The local article list is a complete mirror of the server (full snapshot on
+ * every sync), so a hit here is reliable — a miss is merely not decisive, and
+ * the server still rejects the push.
+ */
+async function artikelMitBarcode(
+  barcode: string | null | undefined,
+  ausserId?: string,
+): Promise<Artikel | undefined> {
+  const code = barcode?.trim() ?? ''
+  if (code === '') return undefined
+  const treffer = await getDb().artikel.where('barcode').equals(code).toArray()
+  return treffer.find((a) => a.id !== ausserId)
+}
+
+/** Same normalization the resolver applies: trim, empty becomes `null`. */
+function normalisiereBarcode(barcode: string | null | undefined): string | null {
+  const code = barcode?.trim() ?? ''
+  return code === '' ? null : code
+}
+
 // Hinweis: Filter (Suche/Typ/Status/Standort) leben absichtlich NICHT im
 // Store, sondern nur lokal in der ArtikelListView. Grund war ein Bug, bei
 // dem eine in /artikel gesetzte Filterauswahl die Dashboard-Zählung
@@ -76,6 +121,12 @@ export const useArtikelStore = defineStore('artikel', () => {
   }
 
   async function anlegen(e: ArtikelEingabe): Promise<Artikel> {
+    const barcode = normalisiereBarcode(e.barcode)
+    const konflikt = await artikelMitBarcode(barcode)
+    if (konflikt) {
+      throw new BarcodeDuplikatError(barcode ?? '', konflikt.id, konflikt.titel)
+    }
+
     const now = jetztIso()
     const a: Artikel = {
       id: neueUuid(),
@@ -88,7 +139,7 @@ export const useArtikelStore = defineStore('artikel', () => {
       mindestbestand: e.mindestbestand ?? null,
       nachbestellHinweis: e.nachbestellHinweis ?? null,
       bestellnummer: e.bestellnummer ?? null,
-      barcode: e.barcode ?? null,
+      barcode,
       etikettenNeu: e.etikettenNeu ?? true,
       listenpreis: e.listenpreis ?? null,
       einkaufspreis: e.einkaufspreis ?? null,
@@ -107,7 +158,18 @@ export const useArtikelStore = defineStore('artikel', () => {
   async function aktualisieren(id: string, patch: Partial<Artikel>): Promise<void> {
     const a = await getDb().artikel.get(id)
     if (!a) throw new Error(`Artikel ${id} nicht gefunden`)
-    const updated: Artikel = { ...a, ...patch, geaendertAm: jetztIso() }
+
+    let patchMitBarcode = patch
+    if (Object.prototype.hasOwnProperty.call(patch, 'barcode')) {
+      const barcode = normalisiereBarcode(patch.barcode)
+      const konflikt = await artikelMitBarcode(barcode, id)
+      if (konflikt) {
+        throw new BarcodeDuplikatError(barcode ?? '', konflikt.id, konflikt.titel)
+      }
+      patchMitBarcode = { ...patch, barcode }
+    }
+
+    const updated: Artikel = { ...a, ...patchMitBarcode, geaendertAm: jetztIso() }
     await getDb().artikel.put(updated)
     await queueOp('artikel', 'update', updated)
   }

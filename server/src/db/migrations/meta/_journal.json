@@ -218,6 +218,13 @@
       "when": 1793700000000,
       "tag": "0030_rollen_berechtigungen",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793800000000,
+      "tag": "0031_artikel_barcode_unique",
+      "breakpoints": true
     }
   ]
 }

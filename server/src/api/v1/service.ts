@@ -141,7 +141,11 @@ function checkResolverResult(result: {
         ? 422
         : err.code === 'VALIDATION'
           ? 400
-          : err.code === 'HAS_DEPENDENCIES' || err.code === 'PROTECTED_STANDORT'
+          : err.code === 'HAS_DEPENDENCIES' ||
+              err.code === 'PROTECTED_STANDORT' ||
+              // Barcode already belongs to another article — a conflict the
+              // caller has to resolve, not a server fault.
+              err.code === 'BARCODE_DUPLIKAT'
             ? 409
             : 500
     throw new ApiV1Error(status, err.code, err.message, {

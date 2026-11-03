@@ -233,6 +233,7 @@ export default {
         abbrechen: 'Cancel',
         duplikatHinweis: 'An item with this barcode already exists: “{titel}".',
         duplikatZumArtikel: 'To existing item',
+        barcodeDuplikat: 'Barcode {barcode} already belongs to item “{titel}".',
         pflicht: 'Required',
         ungespeichertVerlassen: 'You have unsaved changes. Leave anyway?',
       },

@@ -164,6 +164,24 @@ describe('ArtikelDetailView — Barcode', () => {
 
     w.unmount()
   })
+
+  it('lehnt das Speichern eines bereits vergebenen Barcodes ab', async () => {
+    const { w, artikel } = await setupView(null, [{ titel: 'Konflikt', barcode: '999' }])
+
+    await w.get('[data-testid="artikel-detail-bearbeiten"]').trigger('click')
+    await flushPromises()
+
+    await fuehreKataloguebernahmeDurch(w, '999')
+    await w.find('form').trigger('submit')
+    await warte(30)
+
+    const fehler = w.find('.fehler')
+    expect(fehler.text()).toContain('Barcode 999')
+    expect(fehler.text()).toContain('Konflikt')
+    expect(useArtikelStore(pinia).byId(artikel.id)?.barcode).toBeNull()
+
+    w.unmount()
+  })
 })
 
 describe('ArtikelDetailView — Bestellnummer kopieren', () => {

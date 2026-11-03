@@ -7,7 +7,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import 'fake-indexeddb/auto'
 import { getDb, setDb } from '../../db/database'
 import { clearLocalDbForTests } from '../../services/sync/reset-local-db'
-import { useArtikelStore } from '../artikel'
+import { BarcodeDuplikatError, useArtikelStore } from '../artikel'
 import type { Artikel } from '../../db/types'
 
 function artikelAnlegen(titel: string): Artikel {
@@ -74,5 +74,60 @@ describe('useArtikelStore.loeschen', () => {
     await store.loeschen('gibt-es-nicht')
     const outbox = await getDb().outbox.toArray()
     expect(outbox).toHaveLength(0)
+  })
+})
+
+describe('useArtikelStore — Barcode-Eindeutigkeit', () => {
+  beforeEach(async () => {
+    await clearLocalDbForTests()
+    setDb(getDb())
+    setActivePinia(createPinia())
+  })
+
+  afterEach(async () => {
+    await clearLocalDbForTests()
+  })
+
+  it('lehnt einen neuen Artikel mit einem bereits vergebenen Barcode ab', async () => {
+    const vorhanden = artikelAnlegen('Vorhanden')
+    vorhanden.barcode = '4006381333931'
+    await getDb().artikel.add(vorhanden)
+
+    const store = useArtikelStore()
+    await expect(
+      store.anlegen({ titel: 'Neu', typ: 'Demo', barcode: '4006381333931' }),
+    ).rejects.toBeInstanceOf(BarcodeDuplikatError)
+
+    expect(await getDb().artikel.count()).toBe(1)
+    expect(await getDb().outbox.count()).toBe(0)
+  })
+
+  it('lehnt ein Update ab, das einen fremden Barcode setzt', async () => {
+    const store = useArtikelStore()
+    await store.anlegen({ titel: 'A', typ: 'Demo', barcode: '1111111111111' })
+    const b = await store.anlegen({ titel: 'B', typ: 'Demo' })
+
+    await expect(store.aktualisieren(b.id, { barcode: '1111111111111' })).rejects.toBeInstanceOf(
+      BarcodeDuplikatError,
+    )
+
+    expect((await getDb().artikel.get(b.id))?.barcode).toBeNull()
+  })
+
+  it('erlaubt dasselbe Barcode-Update, wenn der Artikel ihn bereits selbst hält', async () => {
+    const store = useArtikelStore()
+    const a = await store.anlegen({ titel: 'A', typ: 'Demo', barcode: '2222222222222' })
+    await store.aktualisieren(a.id, { titel: 'A umbenannt', barcode: '2222222222222' })
+
+    expect((await getDb().artikel.get(a.id))?.barcode).toBe('2222222222222')
+  })
+
+  it('normalisiert den Barcode beim Anlegen und Aktualisieren', async () => {
+    const store = useArtikelStore()
+    const a = await store.anlegen({ titel: 'A', typ: 'Demo', barcode: '  ' })
+    expect((await getDb().artikel.get(a.id))?.barcode).toBeNull()
+
+    await store.aktualisieren(a.id, { barcode: ' 3333333333333 ' })
+    expect((await getDb().artikel.get(a.id))?.barcode).toBe('3333333333333')
   })
 })

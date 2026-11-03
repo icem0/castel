@@ -13,6 +13,7 @@ Regeln für alle Coding-Agents und Entwickler, die an diesem Projekt arbeiten.
 - **Bestand ist die Summe von Buchungen.** Es gibt keine überschreibenden Mengenupdates.
 - Jede Buchung hat eine **UUID** (kein auto-increment, keine laufende Nummer) und einen Zeitstempel.
 - Buchungen sind unveränderlich. Korrekturen erfolgen durch Storno- oder Gegenbuchungen.
+- **Barcodes sind je Artikel eindeutig** (Migration `0031`, partieller UNIQUE-Index auf `artikel.barcode`, `NULL`/leere Werte ausgenommen). Der Server erzwingt das über `BARCODE_DUPLIKAT`, und die PWA prüft lokal vor dem Speichern, damit die Outbox keinen unbrauchbaren Op erhält.
 - **Mindestbestand gilt je (Artikel, Standort)** — nicht mehr global pro Artikel. Die Konfiguration liegt in `artikel_standort_mindestbestaende` (PK = `(artikel_id, standort_id)`, LWW auf `geaendert_am`, Migration `0020`).
   - **Sparse**: eine Zeile existiert nur für einen *positiven* Wert. `0` bzw. ein leeres Feld = „kein Mindestbestand" (kein Alarm) und löscht die Zeile (Outbox-`delete`).
   - **Kein globaler Fallback**: `artikel.mindestbestand` ist deprecated und wird **nicht** ausgewertet. Der Server-Backfill (Migration 0020) und der lokale Dexie-Upgrade (v15) wandern bestehende globale Werte ins Hauptlager (aktiver Standard-Standort).

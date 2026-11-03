@@ -2,7 +2,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useArtikelStore } from '../stores/artikel'
+import { BarcodeDuplikatError, useArtikelStore } from '../stores/artikel'
 import { useHerstellerStore } from '../stores/hersteller'
 import { useStandortStore } from '../stores/standort'
 import { useArtikelStandortMindestbestandStore } from '../stores/artikelStandortMindestbestand'
@@ -370,7 +370,14 @@ async function bearbeitenSpeichern(): Promise<void> {
     formular.value = null
     katalogDrawerOffen.value = false
   } catch (e) {
-    bearbeitFehler.value = e instanceof Error ? e.message : String(e)
+    if (e instanceof BarcodeDuplikatError) {
+      bearbeitFehler.value = t('view.artikel.form.barcodeDuplikat', {
+        barcode: e.barcode,
+        titel: e.konfliktTitel,
+      })
+    } else {
+      bearbeitFehler.value = e instanceof Error ? e.message : String(e)
+    }
   } finally {
     bearbeitLaufend.value = false
   }

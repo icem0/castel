@@ -157,6 +157,12 @@ export const artikel = pgTable(
     index('artikel_typ_idx').on(t.typ),
     index('artikel_status_idx').on(t.status),
     index('artikel_barcode_idx').on(t.barcode),
+    // A barcode must be unique — the scanner resolves an article by its code
+    // and takes the first hit, so a duplicate moves stock on the wrong
+    // article. Partial: NULL and '' both mean "no code" and may repeat.
+    uniqueIndex('artikel_barcode_uniq_idx')
+      .on(t.barcode)
+      .where(sql`${t.barcode} IS NOT NULL AND ${t.barcode} <> ''`),
     index('artikel_hersteller_idx').on(t.herstellerId),
     // Sync-Snapshot filtert auf `geaendert_am > since` — Index ist Pflicht.
     index('artikel_geaendert_am_idx').on(t.geaendertAm),

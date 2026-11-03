@@ -150,6 +150,25 @@ describe('importArtikelAusCsv (nur Stammdaten)', () => {
     expect(mit?.barcode).toBe('4006381333931')
     expect(ohne?.barcode).toBeNull()
   })
+
+  it('überspringt eine CSV-Zeile, deren Barcode schon an einem Artikel hängt', async () => {
+    const csv = `ID;Title;Barcode
+1;Vorhanden;4006381333931
+2;Duplikat;4006381333931
+`
+    const parsed = parseCsv(csv)
+    const bericht = await importArtikelAusCsv({
+      rows: parsed.rows,
+      headers: parsed.headers,
+      mapping: defaultArtikelMapping(parsed.headers),
+    })
+    const artikel = await testDb.artikel.toArray()
+    expect(artikel).toHaveLength(1)
+    expect(bericht.artikelAngelegt).toBe(1)
+    expect(bericht.konflikte[0]).toContain('Barcode')
+    expect(bericht.konflikte[0]).toContain('4006381333931')
+    expect(bericht.konflikte[0]).toContain('Zeile 3')
+  })
 })
 
 describe('Outbox-Integration', () => {

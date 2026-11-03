@@ -16,7 +16,7 @@
 //
 // Alles in einer DB-Transaktion pro Push-Batch.
 
-import { and, count, desc, eq, getTableColumns, isNull } from 'drizzle-orm'
+import { and, count, desc, eq, getTableColumns, isNull, ne } from 'drizzle-orm'
 import { PgTimestamp } from 'drizzle-orm/pg-core'
 import { z } from 'zod'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
@@ -38,6 +38,7 @@ import {
 } from '../db/schema.js'
 import { berechneBestand, type BestandQuerier } from '../domain/bestand.js'
 import {
+  BarcodeDuplikatError,
   HatAbhaengigkeitenError,
   NegativerBestandError,
   NichtLetzteBestellungError,
@@ -371,7 +372,8 @@ function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?
     err instanceof ValidationError ||
     err instanceof HatAbhaengigkeitenError ||
     err instanceof ProtectedStandortError ||
-    err instanceof NichtLetzteBestellungError
+    err instanceof NichtLetzteBestellungError ||
+    err instanceof BarcodeDuplikatError
   ) {
     result.errors.push({
       id,
@@ -493,18 +495,26 @@ async function resolveArtikel(
   const artikelId = payload['id'] as string
   if (op.op !== 'delete') {
     await stelleHerstellerReferenzSicher(tx, payload)
+    normalisiereBarcode(payload)
+    await pruefeBarcodeEindeutig(tx, payload, artikelId)
   }
 
   if (op.op === 'create') {
     const existing = await tx.select().from(artikel).where(eq(artikel.id, artikelId)).limit(1)
     if (existing.length > 0) {
       // Idempotent: bereits vorhanden, einfach akzeptieren (Update-Fall)
-      await applyLastWriterWins(tx, artikel, payload)
+      await schreibeArtikelMitBarcodeSchutz(payload, () =>
+        applyLastWriterWins(tx, artikel, payload),
+      )
     } else {
-      await tx.insert(artikel).values(normalizeStammdatenTimestamps(artikel, payload) as never)
+      await schreibeArtikelMitBarcodeSchutz(payload, () =>
+        tx.insert(artikel).values(normalizeStammdatenTimestamps(artikel, payload) as never),
+      )
     }
   } else if (op.op === 'update') {
-    await applyLastWriterWins(tx, artikel, payload)
+    await schreibeArtikelMitBarcodeSchutz(payload, () =>
+      applyLastWriterWins(tx, artikel, payload),
+    )
   } else if (op.op === 'delete') {
     // Löschen ist nur erlaubt, solange keine referenzierenden Zeilen mehr
     // existieren. `buchungen.artikel_id` und `mindestbestand_ereignisse.
@@ -527,6 +537,82 @@ async function resolveArtikel(
     ])
     await tx.delete(artikel).where(eq(artikel.id, artikelId))
   }
+}
+
+/** Name des partiellen UNIQUE-Index aus Migration 0031 — race guard. */
+const BARCODE_UNIQUE_INDEX = 'artikel_barcode_uniq_idx'
+
+/** The barcode currently in an article payload ('' = no code). */
+function barcodeAusPayload(payload: Record<string, unknown>): string {
+  const wert = payload['barcode']
+  return typeof wert === 'string' ? wert : ''
+}
+
+/**
+ * Normalizes `barcode`: trims, and maps an empty string to `null`.
+ *
+ * Older clients and the v1 agent API accepted `barcode: ''`. The partial
+ * unique index treats `''` as a real value, so two articles that simply have
+ * no code would collide with each other. `null` is excluded from the index.
+ */
+function normalisiereBarcode(payload: Record<string, unknown>): void {
+  if (!('barcode' in payload)) return
+  const roh = payload['barcode']
+  if (typeof roh !== 'string') return // null stays null
+  const barcode = roh.trim()
+  payload['barcode'] = barcode === '' ? null : barcode
+}
+
+/**
+ * Rejects a barcode that already belongs to another article.
+ *
+ * The scanner picks an article by its code and takes the first hit, so a
+ * duplicate silently moves stock on the wrong article. Runs before the write;
+ * `schreibeArtikelMitBarcodeSchutz` covers the parallel case the SELECT
+ * cannot see.
+ */
+async function pruefeBarcodeEindeutig(
+  tx: Tx,
+  payload: Record<string, unknown>,
+  artikelId: string,
+): Promise<void> {
+  if (!('barcode' in payload)) return // update without the field: unchanged
+  const barcode = barcodeAusPayload(payload)
+  if (barcode === '') return
+  const treffer = await tx
+    .select({ id: artikel.id })
+    .from(artikel)
+    .where(and(eq(artikel.barcode, barcode), ne(artikel.id, artikelId)))
+    .limit(1)
+  if (treffer.length > 0) throw new BarcodeDuplikatError(barcode, treffer[0]!.id)
+}
+
+/**
+ * Runs an article write and translates a unique violation on the barcode
+ * index into the same domain error the pre-check throws.
+ *
+ * Two devices can push the same code in parallel — neither SELECT sees the
+ * other's uncommitted row. The index is the authority; after its violation
+ * the transaction is already aborted, so the conflicting id cannot be looked
+ * up anymore.
+ */
+async function schreibeArtikelMitBarcodeSchutz(
+  payload: Record<string, unknown>,
+  schreiben: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await schreiben()
+  } catch (err) {
+    if (istBarcodeIndexVerletzung(err)) throw new BarcodeDuplikatError(barcodeAusPayload(payload))
+    throw err
+  }
+}
+
+/** SQLSTATE 23505 caused by `artikel_barcode_uniq_idx` — not any other index. */
+function istBarcodeIndexVerletzung(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string; message?: string }
+  if (e?.code !== '23505') return false
+  return `${e.constraint ?? ''} ${e.message ?? ''}`.includes(BARCODE_UNIQUE_INDEX)
 }
 
 async function resolveHersteller(

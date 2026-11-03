@@ -58,6 +58,7 @@ const HARD_QUARANTINE_CODES = new Set([
   'BEREITS_STORNIED',
   'HAS_DEPENDENCIES',
   'NICHT_LETZTE_BESTELLUNG',
+  'BARCODE_DUPLIKAT',
 ])
 /**
  * Number of consecutive completed syncs with unchanged row counts before

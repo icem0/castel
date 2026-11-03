@@ -125,3 +125,30 @@ export class HatAbhaengigkeitenError extends DomainError {
     )
   }
 }
+
+/**
+ * Der Barcode ist einem anderen Artikel zugeordnet.
+ *
+ * Barcodes müssen eindeutig sein: der Scanner wählt den Artikel über den Code
+ * und nimmt den ersten Treffer — ein Duplikat verschiebt Bestand auf den
+ * falschen Artikel. Geworfen vom Sync-Resolver (`resolveArtikel`) und
+ * DB-seitig durch den partiellen UNIQUE-Index gesichert
+ * (`0031_artikel_barcode_unique`). Der Client legt das Outbox-Item sofort
+ * still (Spiegel der `HARD_QUARANTINE_CODES`) — ein Retry kann einen fremden
+ * Code nicht heilen.
+ */
+export class BarcodeDuplikatError extends DomainError {
+  constructor(
+    public readonly barcode: string,
+    /** Der andere Artikel, der den Code schon hält. Fehlt er, hat der
+     *  UNIQUE-Index den Parallelfall erwischt (zwei Geräte gleichzeitig). */
+    public readonly konfliktId?: string,
+  ) {
+    super(
+      'BARCODE_DUPLIKAT',
+      konfliktId
+        ? `Barcode ${barcode} ist bereits einem anderen Artikel zugeordnet (${konfliktId})`
+        : `Barcode ${barcode} wurde gerade einem anderen Artikel zugeordnet`,
+    )
+  }
+}
