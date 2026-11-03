@@ -230,9 +230,12 @@ function formatDatum(iso: string | null): string {
   <section class="view">
     <header class="view-head">
       <h1>Benutzer-Verwaltung</h1>
-      <button type="button" class="primary" @click="formularOffen = !formularOffen">
-        {{ formularOffen ? 'Abbrechen' : 'Neuer Benutzer' }}
-      </button>
+      <div class="head-actions">
+        <RouterLink to="/einstellungen/rollen" class="btn">Rollen &amp; Berechtigungen</RouterLink>
+        <button type="button" class="primary" @click="formularOffen = !formularOffen">
+          {{ formularOffen ? 'Abbrechen' : 'Neuer Benutzer' }}
+        </button>
+      </div>
     </header>
 
     <p class="hint">
@@ -473,6 +476,12 @@ function formatDatum(iso: string | null): string {
 </template>
 
 <style scoped>
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
 .rollen-legend-liste {
   display: grid;
   gap: 1rem;
