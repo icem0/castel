@@ -1,7 +1,7 @@
 {
   "name": "castel",
   "private": true,
-  "version": "1.0.78",
+  "version": "1.0.79",
   "type": "module",
   "scripts": {
     "dev": "npm run version:write && npm run ocr:assets && vite",
