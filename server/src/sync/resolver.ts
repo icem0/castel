@@ -53,6 +53,7 @@ import {
   normalisiereRollen,
   pruefeBerechtigung,
   pruefeAkkutauschRolle,
+  type Permission,
   type Rolle,
 } from '../domain/rollen.js'
 import {
@@ -1445,6 +1446,46 @@ const ADMIN_ONLY_PER_USER_KEYS = new Set<string>(['standardStandortId'])
 // commission there.
 const ADD_ONLY_KEYS = new Set<string>(['kommissionen'])
 
+// Global keys that require a dedicated, granular permission instead of the
+// blanket `globalEinstellung`. The value is the permission string the user
+// must hold to write this key.
+const KEY_PERMISSION: Record<string, Permission> = {
+  'inventur.stichtag': 'inventur.stichtag',
+  'inventur.vorlaufTage': 'inventur.stichtag',
+}
+
+/** Prüft `inventur.stichtag`: Kalenderdatum `YYYY-MM-DD`, echtes Datum. */
+function pruefeInventurStichtag(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return 'muss ein Kalenderdatum im Format YYYY-MM-DD sein'
+  }
+  const zeit = Date.parse(value)
+  if (!Number.isFinite(zeit)) return 'kein gültiges Datum'
+  // Date.parse akzeptiert z. B. "2026-02-30" als 2. März — das ausschliessen.
+  const [jahrStr, monatStr, tagStr] = value.split('-')
+  const jahr = Number.parseInt(jahrStr ?? '', 10)
+  const monat = Number.parseInt(monatStr ?? '', 10)
+  const tag = Number.parseInt(tagStr ?? '', 10)
+  const probe = new Date(Date.UTC(jahr, monat - 1, tag))
+  if (
+    probe.getUTCFullYear() !== jahr ||
+    probe.getUTCMonth() !== monat - 1 ||
+    probe.getUTCDate() !== tag
+  ) {
+    return 'kein gültiges Kalenderdatum'
+  }
+  return null
+}
+
+/** Prüft `inventur.vorlaufTage`: ganze Zahl zwischen 0 und 365. */
+function pruefeInventurVorlaufTage(value: string): string | null {
+  const tage = Number.parseInt(value, 10)
+  if (!Number.isFinite(tage) || tage < 0 || tage > 365 || String(tage) !== value.trim()) {
+    return 'muss eine ganze Zahl zwischen 0 und 365 sein'
+  }
+  return null
+}
+
 async function resolveEinstellung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'einstellung' }>,
@@ -1489,6 +1530,18 @@ async function resolveEinstellung(
     )
   }
 
+  // 1c) Schlüssel mit einer eigenen, granularen Berechtigung (z. B.
+  //     `inventur.stichtag` für Lageristen). Der Schlüssel ist nicht in
+  //     `ADMIN_ONLY_KEYS` — deshalb wird hier die zugeordnete
+  //     Berechtigung geprüft statt `globalEinstellung`.
+  const requiredPerm = KEY_PERMISSION[p.key]
+  if (requiredPerm !== undefined && !(await hatBerechtigung(rollen, requiredPerm))) {
+    throw new ValidationError(
+      'einstellung.userId',
+      `Key "${p.key}" erfordert die Berechtigung "${requiredPerm}"`,
+    )
+  }
+
   // 2) Wenn userId gesetzt: muss dem JWT-Sub entsprechen
   if (p.userId !== null && p.userId !== benutzerId) {
     throw new ValidationError('einstellung.userId', 'Eine fremde User-ID ist nicht erlaubt')
@@ -1514,7 +1567,22 @@ async function resolveEinstellung(
     }
   }
 
-  // 5) LWW-Upsert auf (key, userId)
+  // 5) `inventur.stichtag` ist ein Kalenderdatum `YYYY-MM-DD`,
+  //    `inventur.vorlaufTage` ein ganzer Wert zwischen 0 und 365.
+  if (p.key === 'inventur.stichtag') {
+    const geprueft = pruefeInventurStichtag(p.value)
+    if (geprueft !== null) {
+      throw new ValidationError('einstellung.value', geprueft)
+    }
+  }
+  if (p.key === 'inventur.vorlaufTage') {
+    const geprueft = pruefeInventurVorlaufTage(p.value)
+    if (geprueft !== null) {
+      throw new ValidationError('einstellung.value', geprueft)
+    }
+  }
+
+  // 6) LWW-Upsert auf (key, userId)
   const incomingGeaendertAm = new Date(p.geaendertAm)
   const where = and(
     eq(einstellungen.key, p.key),

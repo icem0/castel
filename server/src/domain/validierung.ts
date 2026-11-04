@@ -231,6 +231,8 @@ export const EINSTELLUNG_KEYS = [
   'mindestbestandSoundAn',
   'mindestbestandLautstaerke',
   'mindestbestandWiederholen',
+  'inventur.stichtag',
+  'inventur.vorlaufTage',
 ] as const
 export type EinstellungKey = (typeof EINSTELLUNG_KEYS)[number]
 

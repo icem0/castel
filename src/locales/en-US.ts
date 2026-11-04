@@ -406,6 +406,13 @@ export default {
       apiKeys: 'API keys',
       stammdaten: 'Master data',
       artikelKataloge: 'Supplier catalogues',
+      inventur: 'Inventory',
+      inventurStichtag: 'Inventory cut-off date',
+      inventurStichtagHint:
+        'Calendar day on which the inventory count is frozen as a snapshot for accounting.',
+      inventurVorlaufTage: 'Reminder lead time (days)',
+      inventurVorlaufTageHint:
+        'How many days before the cut-off date the reminder is shown in the minimum-stock alerts.',
     },
     apiKeys: {
       h1: 'API keys for agents',

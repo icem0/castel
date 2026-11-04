@@ -68,6 +68,8 @@ const GLOBAL_SETTING_KEYS = new Set<string>([
   'kommissionen',
   'companyName',
   'barcodeTyp',
+  'inventur.stichtag',
+  'inventur.vorlaufTage',
 ])
 const PER_USER_SETTING_KEYS = new Set<string>([
   'sprache',

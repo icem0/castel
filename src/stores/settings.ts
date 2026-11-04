@@ -59,6 +59,18 @@ export interface Settings {
   /** Barcode-Format für die Artikel-Detail-Ansicht (nur Admins). */
   barcodeTyp: BarcodeTyp
   /**
+   * Kalenderdatum des Inventur-Stichtags (`YYYY-MM-DD`, leer = nicht gesetzt).
+   * An diesem Tag wird der Lagerbestand als Snapshot für die Buchhaltung
+   * eingefroren. Global, darf mit `inventur.stichtag` geschrieben werden.
+   */
+  inventurStichtag: string | null
+  /**
+   * Wie viele Tage vor dem Inventur-Stichtag die Erinnerung in den
+   * Mindestbestand-Alerts (Glocke) angezeigt wird. Global, darf mit
+   * `inventur.stichtag` geschrieben werden.
+   */
+  inventurVorlaufTage: number
+  /**
    * Pro User: hat der User das Onboarding-Tutorial ("Erste Schritte") bereits
    * gesehen / abgeschlossen? Steuert, ob der Tutorial-Modal beim Login
    * automatisch geöffnet wird.
@@ -122,6 +134,8 @@ const DEFAULTS: Settings = {
   kommissionen: [],
   companyName: '',
   barcodeTyp: 'CODE128',
+  inventurStichtag: null,
+  inventurVorlaufTage: 14,
   onboardingSeen: false,
   firstLoginDone: false,
   // Safe fallback: the effective default for a user without a stored row is
@@ -138,6 +152,8 @@ const GLOBAL_KEYS = new Set<string>([
   'kommissionen',
   'companyName',
   'barcodeTyp',
+  'inventur.stichtag',
+  'inventur.vorlaufTage',
 ])
 const PER_USER_KEYS = new Set<string>([
   'sprache',
@@ -259,6 +275,24 @@ function fromRows(rows: Einstellung[], currentUserId: string | null, istAdmin: b
       ? barcodeTypRaw
       : DEFAULTS.barcodeTyp
 
+  const inventurStichtagRow = byKey.get('inventur.stichtag')
+  const inventurStichtagRaw = inventurStichtagRow?.value
+  const inventurStichtag: string | null =
+    inventurStichtagRaw !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(inventurStichtagRaw)
+      ? inventurStichtagRaw
+      : DEFAULTS.inventurStichtag
+
+  const inventurVorlaufTageRow = byKey.get('inventur.vorlaufTage')
+  const inventurVorlaufTageGeparst = inventurVorlaufTageRow
+    ? Number.parseInt(inventurVorlaufTageRow.value, 10)
+    : Number.NaN
+  const inventurVorlaufTage: number =
+    Number.isFinite(inventurVorlaufTageGeparst) &&
+    inventurVorlaufTageGeparst >= 0 &&
+    inventurVorlaufTageGeparst <= 365
+      ? inventurVorlaufTageGeparst
+      : DEFAULTS.inventurVorlaufTage
+
   const onboardingSeenRow = byKey.get('onboardingSeen')
   const onboardingSeen = onboardingSeenRow?.value === 'true'
 
@@ -294,6 +328,8 @@ function fromRows(rows: Einstellung[], currentUserId: string | null, istAdmin: b
     kommissionen,
     companyName,
     barcodeTyp,
+    inventurStichtag,
+    inventurVorlaufTage,
     onboardingSeen,
     firstLoginDone,
     mindestbestandSoundAn,
@@ -460,6 +496,15 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('mindestbestandWiederholen', an ? 'true' : 'false')
   }
 
+  async function setInventurStichtag(datum: string | null): Promise<void> {
+    await setKey('inventur.stichtag', datum ?? '')
+  }
+
+  async function setInventurVorlaufTage(tage: number): Promise<void> {
+    const geklemmt = Math.max(0, Math.min(365, Math.round(tage)))
+    await setKey('inventur.vorlaufTage', String(geklemmt))
+  }
+
   // Hilfsfunktion: legt eine UUID-basierte ID an (für Outbox-Einträge).
   void neueUuid
 
@@ -482,5 +527,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setMindestbestandSoundAn,
     setMindestbestandLautstaerke,
     setMindestbestandWiederholen,
+    setInventurStichtag,
+    setInventurVorlaufTage,
   }
 })

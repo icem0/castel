@@ -417,6 +417,13 @@ export default {
       apiKeys: 'API-Keys',
       stammdaten: 'Stammdaten',
       artikelKataloge: 'Artikelkataloge',
+      inventur: 'Inventur',
+      inventurStichtag: 'Inventur-Stichtag',
+      inventurStichtagHint:
+        'Kalendertag, an dem der Inventur-Bestand als Snapshot für die Buchhaltung festgehalten wird.',
+      inventurVorlaufTage: 'Vorlauf-Tage',
+      inventurVorlaufTageHint:
+        'Wie viele Tage vor dem Stichtag die Erinnerung in den Mindestbestand-Alerts angezeigt wird.',
     },
     apiKeys: {
       h1: 'API-Keys für Agenten',

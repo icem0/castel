@@ -56,6 +56,7 @@ export const KNOWN_PERMISSIONS: readonly Permission[] = [
   'import.fuehren',
   'apiKey.verwalten',
   'entwicklung',
+  'inventur.stichtag',
 ]
 
 /**
@@ -86,6 +87,7 @@ export const DEFAULT_ROLLEN_MATRIX: Record<Rolle, RolleMitBerechtigungen> = {
       'buchung.erstellen', 'buchung.storno', 'kommission.beitragen',
       'etikett.drucken', 'geraet.lokal',
       'artikel.schreiben', 'artikel.loeschen', 'standort.schreiben', 'mindestbestand.schreiben',
+      'inventur.stichtag',
     ],
   },
   admin: {
@@ -172,6 +174,10 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   'entwicklung': {
     titel: 'Entwicklung',
     beschreibung: 'Entwicklermenue, Geraete-Reset und Buchungs-Bulk-Delete.',
+  },
+  'inventur.stichtag': {
+    titel: 'Inventur-Stichtag',
+    beschreibung: 'Inventur-Stichtag und Erinnerungs-Vorlauf in den Einstellungen setzen.',
   },
 }
 

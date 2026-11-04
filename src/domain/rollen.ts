@@ -41,6 +41,7 @@ export const PERMISSIONS = [
   'import.fuehren',
   'apiKey.verwalten',
   'entwicklung',
+  'inventur.stichtag',
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
@@ -61,6 +62,7 @@ const LAGERIST_BEREECHTIGUNGEN: readonly Permission[] = [
   'artikel.loeschen',
   'standort.schreiben',
   'mindestbestand.schreiben',
+  'inventur.stichtag',
 ]
 
 const ADMIN_BEREECHTIGUNGEN: readonly Permission[] = PERMISSIONS
@@ -195,6 +197,10 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   entwicklung: {
     titel: 'Entwicklung',
     beschreibung: 'Entwicklermenue, Geraete-Reset und Buchungs-Bulk-Delete.',
+  },
+  'inventur.stichtag': {
+    titel: 'Inventur-Stichtag',
+    beschreibung: 'Inventur-Stichtag und Erinnerungs-Vorlauf in den Einstellungen setzen.',
   },
 }
 

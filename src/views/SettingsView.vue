@@ -19,6 +19,10 @@ const firmaName = ref<string>(settings.settings.companyName ?? '')
 const firmaNameVomUser = ref(false)
 const barcodeTyp = ref<BarcodeTyp>(settings.settings.barcodeTyp)
 const barcodeTypVomUser = ref(false)
+const inventurStichtag = ref<string>(settings.settings.inventurStichtag ?? '')
+const inventurStichtagVomUser = ref(false)
+const inventurVorlaufTage = ref<number>(settings.settings.inventurVorlaufTage ?? 14)
+const inventurVorlaufTageVomUser = ref(false)
 
 const barcodeFormate = [
   { wert: 'CODE128' as BarcodeTyp, label: t('view.barcode.formatCode128') },
@@ -35,6 +39,12 @@ watch(
     }
     if (!barcodeTypVomUser.value) {
       barcodeTyp.value = s.barcodeTyp
+    }
+    if (!inventurStichtagVomUser.value) {
+      inventurStichtag.value = s.inventurStichtag ?? ''
+    }
+    if (!inventurVorlaufTageVomUser.value) {
+      inventurVorlaufTage.value = s.inventurVorlaufTage ?? 14
     }
   },
 )
@@ -106,6 +116,36 @@ async function akkutauschAendern(e: Event): Promise<void> {
   const aktiv = (e.target as HTMLInputElement).checked
   if (aktiv === settings.settings.akkutauschAktiv) return
   await settings.setAkkutauschAktiv(aktiv)
+}
+
+/**
+ * Speichert die Inventur-Einstellungen (Stichtag + Vorlauf-Tage). Der
+ * Schalter steht Lageristen mit `inventur.stichtag` offen, nicht nur
+ * Admins mit `globalEinstellung`.
+ */
+async function speichernInventur(): Promise<void> {
+  if (laufend.value) return
+  laufend.value = true
+  try {
+    if (auth.hat('inventur.stichtag')) {
+      await settings.setInventurStichtag(inventurStichtag.value || null)
+      await settings.setInventurVorlaufTage(inventurVorlaufTage.value)
+      inventurStichtagVomUser.value = false
+      inventurVorlaufTageVomUser.value = false
+    }
+  } finally {
+    laufend.value = false
+  }
+}
+
+function onInventurStichtagChange(): void {
+  inventurStichtagVomUser.value = true
+  void speichernInventur()
+}
+
+function onInventurVorlaufTageChange(): void {
+  inventurVorlaufTageVomUser.value = true
+  void speichernInventur()
 }
 
 onBeforeUnmount(() => {
@@ -280,6 +320,33 @@ onBeforeUnmount(() => {
         t('view.settings.artikelKataloge')
       }}</RouterLink>
       <RouterLink to="/etiketten">{{ t('view.barcode.h1') }}</RouterLink>
+    </div>
+
+    <h2 v-if="auth.hat('inventur.stichtag')">{{ t('view.settings.inventur') }}</h2>
+    <div v-if="auth.hat('inventur.stichtag')" class="card">
+      <label class="account-setting">
+        <span class="label">{{ t('view.settings.inventurStichtag') }}</span>
+        <input
+          v-model="inventurStichtag"
+          type="date"
+          :disabled="laufend"
+          @change="onInventurStichtagChange"
+        />
+        <small class="hint">{{ t('view.settings.inventurStichtagHint') }}</small>
+      </label>
+      <label class="account-setting">
+        <span class="label">{{ t('view.settings.inventurVorlaufTage') }}</span>
+        <input
+          v-model.number="inventurVorlaufTage"
+          type="number"
+          min="0"
+          max="365"
+          step="1"
+          :disabled="laufend"
+          @change="onInventurVorlaufTageChange"
+        />
+        <small class="hint">{{ t('view.settings.inventurVorlaufTageHint') }}</small>
+      </label>
     </div>
   </section>
 </template>
