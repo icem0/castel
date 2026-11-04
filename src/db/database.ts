@@ -18,6 +18,8 @@ import type {
   Einstellung,
   EtikettenBogenLayout,
   Hersteller,
+  InventurPosition,
+  InventurStichtag,
   MindestbestandEreignis,
   Netzteil,
   OutboxEintrag,
@@ -67,6 +69,10 @@ export class CastelDb extends Dexie {
    * Gespeichert serverseitig pro User; genau eine Zeile pro User.
    */
   etikettenBogenLayout!: Table<EtikettenBogenLayout, string>
+  /** Inventur-Stichtage: eingefrorene Bestands-Snapshots für die Buchhaltung. */
+  inventurStichtage!: Table<InventurStichtag, string>
+  /** Inventur-Positionen: die einzelnen Positionen der Stichtage. */
+  inventurPositionen!: Table<InventurPosition, string>
 
   constructor(name = DB_NAME) {
     super(name)
@@ -486,6 +492,14 @@ export class CastelDb extends Dexie {
     //      Persistenz) gehaltenen Werte des "Benutzerdefiniert"-Presets.
     this.version(19).stores({
       etikettenBogenLayout: 'id, userId, geaendertAm',
+    })
+
+    // v20: Inventur-Snapshots (Stichtage + Positionen) für die Buchhaltung.
+    //      Append-only Tabellen, die vom Server per Snapshot geliefert
+    //      werden. Keine Daten-Migration nötig.
+    this.version(20).stores({
+      inventurStichtage: 'id, stichtag, status, erstelltAm',
+      inventurPositionen: 'id, stichtageId, artikelId, erstelltAm',
     })
   }
 }

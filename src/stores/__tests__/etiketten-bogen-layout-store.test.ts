@@ -11,7 +11,10 @@ import { setActivePinia, createPinia } from 'pinia'
 import 'fake-indexeddb/auto'
 
 const { queueOpMock } = vi.hoisted(() => ({ queueOpMock: vi.fn() }))
-vi.mock('../../services/sync/worker', () => ({ queueOp: queueOpMock }))
+vi.mock('../../services/sync/worker', () => ({
+  queueOp: queueOpMock,
+  verdraengeAeltereEinstellungsOps: vi.fn(async () => 0),
+}))
 
 import { useEtikettenBogenLayoutStore } from '../etikettenBogenLayout'
 import { resetDbForTests, getDb } from '../../db/database'

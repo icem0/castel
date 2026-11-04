@@ -22,7 +22,8 @@ import { ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
 import { sessionLesen } from '../auth/session'
 import { jetztIso, neueUuid } from '../domain/ids'
-import { queueOp } from '../services/sync/worker'
+import { queueOp, verdraengeAeltereEinstellungsOps } from '../services/sync/worker'
+import { parseInventurStichtag } from '../domain/inventur-stichtag'
 import type { Einstellung } from '../db/types'
 import type { AkkuTyp } from '../domain/akkutausch/types'
 import { parseAkkuTypen, serialisiereAkkuTypen } from '../domain/akkutausch/serialisierung'
@@ -276,11 +277,11 @@ function fromRows(rows: Einstellung[], currentUserId: string | null, istAdmin: b
       : DEFAULTS.barcodeTyp
 
   const inventurStichtagRow = byKey.get('inventur.stichtag')
-  const inventurStichtagRaw = inventurStichtagRow?.value
+  // Strict: only a real calendar date counts. The old form could produce
+  // `11-00`; showing that as a valid cut-off date would hide the fact that
+  // the server never accepted it.
   const inventurStichtag: string | null =
-    inventurStichtagRaw !== undefined && /^\d{2}-\d{2}$/.test(inventurStichtagRaw)
-      ? inventurStichtagRaw
-      : DEFAULTS.inventurStichtag
+    parseInventurStichtag(inventurStichtagRow?.value) ?? DEFAULTS.inventurStichtag
 
   const inventurVorlaufTageRow = byKey.get('inventur.vorlaufTage')
   const inventurVorlaufTageGeparst = inventurVorlaufTageRow
@@ -432,6 +433,10 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     await getDb().einstellungen.put(indexedRow)
     const outboxRow: Einstellung = { key, userId, value, geaendertAm }
+    // LWW per (key, userId): every older queued op for this setting is
+    // obsolete. Dropping it also clears a value the server rejected before
+    // (e.g. an incomplete cut-off date), which would otherwise keep failing.
+    await verdraengeAeltereEinstellungsOps(key, userId, geaendertAm)
     await queueOp('einstellung', 'upsert', outboxRow)
   }
 
@@ -496,12 +501,25 @@ export const useSettingsStore = defineStore('settings', () => {
     await setKey('mindestbestandWiederholen', an ? 'true' : 'false')
   }
 
+  /**
+   * Sets the annual inventory cut-off date. `null` / `''` clears it (the
+   * server accepts the empty value as "not set"). Anything that is not a real
+   * `MM-TT` calendar date is refused here: an op the server would reject
+   * blocks the whole outbox until it lands in the quarantine.
+   */
   async function setInventurStichtag(datum: string | null): Promise<void> {
-    await setKey('inventur.stichtag', datum ?? '')
+    const roh = typeof datum === 'string' ? datum.trim() : ''
+    const genormt = roh === '' ? '' : parseInventurStichtag(roh)
+    if (genormt === null) {
+      console.warn(`[settings] Ungültiger Inventur-Stichtag übersprungen: "${roh}"`)
+      return
+    }
+    await setKey('inventur.stichtag', genormt)
   }
 
   async function setInventurVorlaufTage(tage: number): Promise<void> {
-    const geklemmt = Math.max(0, Math.min(365, Math.round(tage)))
+    const zahl = Number(tage)
+    const geklemmt = Number.isFinite(zahl) ? Math.max(0, Math.min(365, Math.round(zahl))) : 0
     await setKey('inventur.vorlaufTage', String(geklemmt))
   }
 

@@ -23,6 +23,8 @@ import type {
   Einstellung,
   EtikettenBogenLayout,
   Hersteller,
+  InventurPosition,
+  InventurStichtag,
   MindestbestandEreignis,
   Netzteil,
   OutboxEintrag,
@@ -107,6 +109,8 @@ export function zaehleAbweichungen(l: TableCounts | null, s: TableCounts | null)
   if ((l.akkuNetzteile ?? 0) !== (s.akkuNetzteile ?? 0)) n++
   if ((l.akkuProjekte ?? 0) !== (s.akkuProjekte ?? 0)) n++
   if ((l.akkuBestellungen ?? 0) !== (s.akkuBestellungen ?? 0)) n++
+  if ((l.inventurStichtage ?? 0) !== (s.inventurStichtage ?? 0)) n++
+  if ((l.inventurPositionen ?? 0) !== (s.inventurPositionen ?? 0)) n++
   return n
 }
 
@@ -315,6 +319,16 @@ export interface SyncSnapshot {
    * Marker `mindestbestand.lastPullAt` in `einstellungen`.
    */
   mindestbestandEreignisse: MindestbestandEreignis[]
+  /**
+   * Inventur-Stichtage: eingefrorene Bestands-Snapshots für die Buchhaltung.
+   * Optional, damit ältere Server-Antworten und Test-Fixtures weiter laden.
+   */
+  inventurStichtage?: InventurStichtag[]
+  /**
+   * Inventur-Positionen: die einzelnen Positionen der Stichtage.
+   * Optional, damit ältere Server-Antworten und Test-Fixtures weiter laden.
+   */
+  inventurPositionen?: InventurPosition[]
   /** Server-Zeitstempel, an dem `mindestbestandEreignisse` gefiltert
    *  wurde. Wir spiegeln den Wert zurück, damit der Client den
    *  Marker aktualisieren kann (Pagination-Support). */
@@ -357,6 +371,10 @@ export interface TableCounts {
   akkuProjekte?: number
   /** Optional, damit aeltere Server-/Test-Fixtures ohne die Zaehler laden. */
   akkuBestellungen?: number
+  /** Optional: Zaehler für Inventur-Stichtage. */
+  inventurStichtage?: number
+  /** Optional: Zaehler für Inventur-Positionen. */
+  inventurPositionen?: number
 }
 
 export interface ServerStatus {
@@ -1277,6 +1295,16 @@ export async function buildDiagnostics(opts: {
       localCounts.akkuBestellungen ?? 0,
       serverCounts?.akkuBestellungen ?? null,
     ),
+    table(
+      'inventur-stichtage',
+      localCounts.inventurStichtage ?? 0,
+      serverCounts?.inventurStichtage ?? null,
+    ),
+    table(
+      'inventur-positionen',
+      localCounts.inventurPositionen ?? 0,
+      serverCounts?.inventurPositionen ?? null,
+    ),
   ]
   const divergent = tables.some((t) => t.server !== null && t.local !== t.server)
 
@@ -1503,6 +1531,8 @@ async function getLocalCounts(): Promise<TableCounts> {
     akkuNetzteile,
     akkuProjekte,
     akkuBestellungen,
+    inventurStichtage,
+    inventurPositionen,
   ] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
@@ -1513,6 +1543,8 @@ async function getLocalCounts(): Promise<TableCounts> {
     db.akkuNetzteile.count(),
     db.akkuProjekte.count(),
     db.akkuBestellungen.count(),
+    db.inventurStichtage.count(),
+    db.inventurPositionen.count(),
   ])
   return {
     artikel,
@@ -1524,6 +1556,8 @@ async function getLocalCounts(): Promise<TableCounts> {
     akkuNetzteile,
     akkuProjekte,
     akkuBestellungen,
+    inventurStichtage,
+    inventurPositionen,
   }
 }
 
@@ -1733,6 +1767,8 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       db.akkuProjekte,
       db.akkuBestellungen,
       db.etikettenBogenLayout,
+      db.inventurStichtage,
+      db.inventurPositionen,
     ],
     async () => {
       // Artikel
@@ -1851,6 +1887,18 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       // einfach überschrieben — id-basiertes `put` ist hier ok.
       for (const e of snap.mindestbestandEreignisse ?? []) {
         await db.mindestbestandEreignisse.put(e)
+      }
+      // Inventur-Stichtage — append-only, nie geändert. Identität = id.
+      for (const s of snap.inventurStichtage ?? []) {
+        const existing = await db.inventurStichtage.get(s.id)
+        if (!existing) await db.inventurStichtage.add(s)
+        else await db.inventurStichtage.put(s)
+      }
+      // Inventur-Positionen — append-only, nie geändert. Identität = id.
+      for (const p of snap.inventurPositionen ?? []) {
+        const existing = await db.inventurPositionen.get(p.id)
+        if (!existing) await db.inventurPositionen.add(p)
+        else await db.inventurPositionen.put(p)
       }
     },
   )
@@ -3213,6 +3261,60 @@ export async function queueOp(
     quarantinedAt: null,
     quarantineReason: null,
   })
+}
+
+/**
+ * Drops queued `einstellung` ops that the new write supersedes.
+ *
+ * A setting is a last-writer-wins upsert identified by `(key, userId)`, so an
+ * older queued op for the same identity can never win against the value that
+ * is queued now. Keeping it is not harmless either: a value the server
+ * rejects (an incomplete inventory cut-off date such as `11-00` written by an
+ * older build) retried on every tick and finally sat in the quarantine, so the
+ * user kept seeing a sync error long after fixing the field.
+ *
+ * Only unsynced items are touched — synced history stays. Quarantined items
+ * are dropped too: once the local value has been corrected, re-enabling them
+ * would push the rejected value again.
+ *
+ * Returns the number of dropped items.
+ */
+export async function verdraengeAeltereEinstellungsOps(
+  key: string,
+  userId: string | null,
+  geaendertAm: string,
+): Promise<number> {
+  const db = getDb()
+  const identitaet = payloadIdFor('einstellung', { key, userId })
+  if (identitaet === null) return 0
+  const kandidaten = await db.outbox.where('entity').equals('einstellung').toArray()
+  const ids: string[] = []
+  for (const o of kandidaten) {
+    if (o.syncedAt != null) continue
+    let payload: unknown
+    try {
+      payload = JSON.parse(o.payload)
+    } catch {
+      continue
+    }
+    if (payloadIdFor('einstellung', payload) !== identitaet) continue
+    const bisherigeAm = (payload as { geaendertAm?: unknown }).geaendertAm
+    if (typeof bisherigeAm === 'string') {
+      const alt = Date.parse(bisherigeAm)
+      const neu = Date.parse(geaendertAm)
+      // A queued op that is strictly newer than the incoming write is not
+      // superseded — keep it so the newer value still wins.
+      if (!Number.isNaN(alt) && !Number.isNaN(neu) && alt > neu) continue
+    }
+    ids.push(o.id)
+  }
+  if (ids.length === 0) return 0
+  await db.outbox.bulkDelete(ids)
+  updateStatus(await syncCountPatch())
+  console.warn(
+    `[sync] ${ids.length} ältere Outbox-Op(s) für Einstellung "${key}" durch den aktuellen Wert ersetzt`,
+  )
+  return ids.length
 }
 
 /**

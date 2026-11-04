@@ -503,6 +503,8 @@ export const auditLog = pgTable(
         'akku_projekt',
         'akku_bestellung',
         'etiketten_bogen_layout',
+        'inventur_stichtag',
+        'inventur_position',
       ],
     }).notNull(),
     entitaetId: text('entitaet_id').notNull(),
@@ -592,6 +594,63 @@ export const mindestbestandEreignisse = pgTable(
       t.standortId,
       t.erstelltAm,
     ),
+  ],
+)
+
+// ---------- Inventur-Snapshots ----------
+//
+// `inventur_stichtage` + `inventur_positionen` werden vom Endpoint
+// `POST /api/inventur/abschliessen` befüllt: der Bestand je (Artikel,
+// Standort) zum Stichtag wird eingefroren und dient der Buchhaltung.
+// Das Buchungs-Journal bleibt unangetastet (append-only).
+
+export const inventurStichtage = pgTable(
+  'inventur_stichtage',
+  {
+    id: text('id').primaryKey(),
+    stichtag: date('stichtag', { mode: 'string' }).notNull(),
+    status: text('status', { enum: ['offen', 'abgeschlossen'] })
+      .notNull()
+      .default('abgeschlossen'),
+    festgehaltenVon: text('festgehalten_von')
+      .notNull()
+      .references(() => users.id),
+    festgehaltenVonName: text('festgehalten_von_name'),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('inventur_stichtage_stichtag_idx').on(t.stichtag),
+    index('inventur_stichtage_erstellt_am_idx').on(t.erstelltAm),
+  ],
+)
+
+export const inventurPositionen = pgTable(
+  'inventur_positionen',
+  {
+    id: text('id').primaryKey(),
+    stichtageId: text('stichtage_id')
+      .notNull()
+      .references(() => inventurStichtage.id, { onDelete: 'cascade' }),
+    artikelId: text('artikel_id')
+      .notNull()
+      .references(() => artikel.id, { onDelete: 'cascade' }),
+    standortId: text('standort_id')
+      .notNull()
+      .references(() => standorte.id, { onDelete: 'cascade' }),
+    titel: text('titel').notNull(),
+    typ: text('typ').notNull().default(''),
+    verpackungseinheit: integer('verpackungseinheit').notNull().default(1),
+    menge: integer('menge').notNull(),
+    einkaufspreisCent: integer('einkaufspreis_cent'),
+    listenpreisCent: integer('listenpreis_cent'),
+    wert: integer('wert').notNull().default(0),
+    inventurGeprueft: boolean('inventur_geprueft').notNull().default(false),
+    negativerBestand: boolean('negativer_bestand').notNull().default(false),
+    erstelltAm: timestamp('erstellt_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('inventur_positionen_stichtage_id_idx').on(t.stichtageId),
+    index('inventur_positionen_artikel_id_idx').on(t.artikelId),
   ],
 )
 

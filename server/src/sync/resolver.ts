@@ -48,6 +48,7 @@ import {
 } from '../domain/errors.js'
 import { berechneDefizit, sollteWarnungAusloesen } from '../domain/mindestbestand.js'
 import { parseAkkuTypenWert } from '../domain/akkutausch.js'
+import { pruefeInventurStichtag, pruefeInventurVorlaufTage } from '../domain/inventur.js'
 import {
   hatBerechtigung,
   normalisiereRollen,
@@ -1454,33 +1455,6 @@ const KEY_PERMISSION: Record<string, Permission> = {
   'inventur.vorlaufTage': 'inventur.stichtag',
 }
 
-/** Prüft `inventur.stichtag`: Kalenderdatum `MM-TT` ohne Jahr (jährlich wiederkehrend). */
-function pruefeInventurStichtag(value: string): string | null {
-  if (!/^\d{2}-\d{2}$/.test(value)) {
-    return 'muss ein Kalenderdatum im Format MM-TT sein (ohne Jahr)'
-  }
-  const [monatStr, tagStr] = value.split('-')
-  const monat = Number.parseInt(monatStr ?? '', 10)
-  const tag = Number.parseInt(tagStr ?? '', 10)
-  if (!Number.isFinite(monat) || monat < 1 || monat > 12) return 'Monat muss zwischen 1 und 12 liegen'
-  if (!Number.isFinite(tag) || tag < 1 || tag > 31) return 'Tag muss zwischen 1 und 31 liegen'
-  // Ungültige Kombinationen (z. B. 02-30, 04-31) ausschliessen.
-  const probe = new Date(Date.UTC(2000, monat - 1, tag))
-  if (probe.getUTCMonth() !== monat - 1 || probe.getUTCDate() !== tag) {
-    return 'kein gültiges Kalenderdatum'
-  }
-  return null
-}
-
-/** Prüft `inventur.vorlaufTage`: ganze Zahl zwischen 0 und 365. */
-function pruefeInventurVorlaufTage(value: string): string | null {
-  const tage = Number.parseInt(value, 10)
-  if (!Number.isFinite(tage) || tage < 0 || tage > 365 || String(tage) !== value.trim()) {
-    return 'muss eine ganze Zahl zwischen 0 und 365 sein'
-  }
-  return null
-}
-
 async function resolveEinstellung(
   tx: Tx,
   op: Extract<PushOp, { entity: 'einstellung' }>,
@@ -1562,8 +1536,10 @@ async function resolveEinstellung(
     }
   }
 
-  // 5) `inventur.stichtag` ist ein Kalenderdatum `YYYY-MM-DD`,
-  //    `inventur.vorlaufTage` ein ganzer Wert zwischen 0 und 365.
+  // 5) `inventur.stichtag` is an annually repeating calendar date `MM-TT`
+  //    (empty = not set), `inventur.vorlaufTage` a whole number 0..365. The
+  //    rules live in the domain module so the PWA can mirror them exactly and
+  //    never queue an op the server would reject.
   if (p.key === 'inventur.stichtag') {
     const geprueft = pruefeInventurStichtag(p.value)
     if (geprueft !== null) {

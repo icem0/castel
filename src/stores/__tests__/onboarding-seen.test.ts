@@ -20,6 +20,7 @@ const { queueOpMock } = vi.hoisted(() => ({
 }))
 vi.mock('../../services/sync/worker', () => ({
   queueOp: queueOpMock,
+  verdraengeAeltereEinstellungsOps: vi.fn(async () => 0),
 }))
 
 import { useSettingsStore } from '../settings'

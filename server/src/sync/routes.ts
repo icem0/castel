@@ -14,6 +14,8 @@ import {
   einstellungen,
   geraete,
   hersteller,
+  inventurPositionen,
+  inventurStichtage,
   mindestbestandEreignisse,
   projekte,
   standorte,
@@ -28,6 +30,7 @@ import { mappeHerstellerRabattsatz, stripEinkaufspreis } from './preise.js'
 import { hatBerechtigung } from '../domain/rollen.js'
 import type { NotificationGateway } from '../services/notification-gateway.js'
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 
 async function countRows(db: ReturnType<typeof getDb>): Promise<{
   artikel: number
@@ -40,8 +43,10 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   akkuProjekte: number
   akkuBestellungen: number
   etikettenBogenLayout: number
+  inventurStichtage: number
+  inventurPositionen: number
 }> {
-  const [a, s, p, b, h, m, n, q, ab, ebl] = await Promise.all([
+  const [a, s, p, b, h, m, n, q, ab, ebl, ist, ip] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
@@ -52,6 +57,8 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     db.select({ c: sql<number>`count(*)::int` }).from(akkuProjekte),
     db.select({ c: sql<number>`count(*)::int` }).from(akkuBestellungen),
     db.select({ c: sql<number>`count(*)::int` }).from(etikettenBogenLayout),
+    db.select({ c: sql<number>`count(*)::int` }).from(inventurStichtage),
+    db.select({ c: sql<number>`count(*)::int` }).from(inventurPositionen),
   ])
   return {
     artikel: a[0]?.c ?? 0,
@@ -64,6 +71,8 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     akkuProjekte: q[0]?.c ?? 0,
     akkuBestellungen: ab[0]?.c ?? 0,
     etikettenBogenLayout: ebl[0]?.c ?? 0,
+    inventurStichtage: ist[0]?.c ?? 0,
+    inventurPositionen: ip[0]?.c ?? 0,
   }
 }
 
@@ -115,6 +124,8 @@ export async function syncRoutes(
         akkuProjektRows,
         akkuBestellungRows,
         etikettenBogenLayoutRows,
+        inventurStichtageRows,
+        inventurPositionenRows,
         restoreEpoch,
       ] = await Promise.all([
         db
@@ -200,6 +211,10 @@ export async function syncRoutes(
               eq(etikettenBogenLayout.userId, user.sub),
             ),
           ),
+        // Inventur-Stichtage — append-only, Tabelle ist klein, voller Stand.
+        db.select().from(inventurStichtage).orderBy(inventurStichtage.erstelltAm),
+        // Inventur-Positionen — voller Stand.
+        db.select().from(inventurPositionen).orderBy(inventurPositionen.erstelltAm),
         // Restore-Epoche (null, wenn nie restauriert). Der Client vergleicht
         // sie mit seinem lokalen Marker und baut bei Abweichung die komplette
         // IndexedDB neu auf — inkrementeller Sync kann nach einem pg_restore
@@ -285,6 +300,30 @@ export async function syncRoutes(
           stornoVon: r.stornoVon,
           stornoVonKuerzel: r.stornoVonKuerzel,
           zeilen: r.zeilen,
+        })),
+        inventurStichtage: inventurStichtageRows.map((r) => ({
+          id: r.id,
+          stichtag: r.stichtag,
+          status: r.status,
+          festgehaltenVon: r.festgehaltenVon,
+          festgehaltenVonName: r.festgehaltenVonName,
+          erstelltAm: r.erstelltAm.toISOString(),
+        })),
+        inventurPositionen: inventurPositionenRows.map((r) => ({
+          id: r.id,
+          stichtageId: r.stichtageId,
+          artikelId: r.artikelId,
+          standortId: r.standortId,
+          titel: r.titel,
+          typ: r.typ,
+          verpackungseinheit: r.verpackungseinheit,
+          menge: r.menge,
+          einkaufspreisCent: r.einkaufspreisCent,
+          listenpreisCent: r.listenpreisCent,
+          wert: r.wert,
+          inventurGeprueft: r.inventurGeprueft,
+          negativerBestand: r.negativerBestand,
+          erstelltAm: r.erstelltAm.toISOString(),
         })),
         etikettenBogenLayout: etikettenBogenLayoutRows.map((r) => ({
           id: r.id,
@@ -638,5 +677,173 @@ export async function syncRoutes(
     const result = await resolvePush(db, parsed.data.ops, user.sub, user.rollen, notificationGateway)
 
     return reply.send(result)
+  })
+
+  // ---------- POST /api/inventur/abschliessen ----------
+  // Friert den Bestand zum Stichtag als Snapshot für die Buchhaltung ein.
+  // Idempotent pro Stichtag-Datum: ein zweiter Aufruf für dasselbe Datum
+  // liefert den bestehenden Stand zurück, ohne neue Positionen anzulegen.
+  app.post('/api/inventur/abschliessen', { preHandler: app.requireAuth }, async (req, reply) => {
+    const user = req.authUser
+    if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
+    if (!(await hatBerechtigung(user.rollen, 'inventur.abschliessen'))) {
+      return reply.code(403).send({ code: 'FORBIDDEN', message: 'inventur.abschliessen erforderlich' })
+    }
+    const body = req.body as { stichtag?: string }
+    if (!body.stichtag || !/^\d{2}-\d{2}$/.test(body.stichtag)) {
+      return reply.code(400).send({ code: 'VALIDATION', message: 'stichtag im Format MM-TT erforderlich' })
+    }
+    const parts = body.stichtag.split('-')
+    const monat = Number.parseInt(parts[0] ?? '', 10)
+    const tag = Number.parseInt(parts[1] ?? '', 10)
+    const jetzt = new Date()
+    // Stichtag = aktuelles Jahr, UTC-Tagesende 23:59:59.999
+    const stichtagBis = new Date(Date.UTC(jetzt.getUTCFullYear(), monat - 1, tag, 23, 59, 59, 999))
+
+    const db = getDb()
+    const bestehend = await db
+      .select({ id: inventurStichtage.id, status: inventurStichtage.status })
+      .from(inventurStichtage)
+      .where(eq(inventurStichtage.stichtag, body.stichtag))
+      .limit(1)
+    if (bestehend.length > 0 && bestehend[0]) {
+      const posCount = await db
+        .select({ c: sql<number>`count(*)::int` })
+        .from(inventurPositionen)
+        .where(eq(inventurPositionen.stichtageId, bestehend[0].id))
+      return reply.send({
+        stichtag: body.stichtag,
+        status: bestehend[0].status,
+        positionen: posCount[0]?.c ?? 0,
+        bereitsVorhanden: true,
+      })
+    }
+
+    // Alle Bestände zum Stichtag: nur nicht-stornierte Buchungen <= Stichtag.
+    const bestandRows = await db
+      .select({
+        artikelId: buchungen.artikelId,
+        standortId: buchungen.standortId,
+        menge: sql<number>`coalesce(sum(${buchungen.menge}), 0)::int`,
+      })
+      .from(buchungen)
+      .where(
+        and(
+          eq(buchungen.storno, false),
+          sql`${buchungen.erstelltAm} <= ${stichtagBis.toISOString()}`,
+        ),
+      )
+      .groupBy(buchungen.artikelId, buchungen.standortId)
+
+    const artikelIds = [...new Set(bestandRows.map((r) => r.artikelId))]
+    const artikelRows = await db
+      .select({
+        id: artikel.id,
+        titel: artikel.titel,
+        typ: artikel.typ,
+        verpackungseinheit: artikel.verpackungseinheit,
+        einkaufspreis: artikel.einkaufspreis,
+        listenpreis: artikel.listenpreis,
+      })
+      .from(artikel)
+      .where(inArray(artikel.id, artikelIds))
+    const artikelMap = new Map(artikelRows.map((a) => [a.id, a]))
+
+    const stichtageId = randomUUID()
+    const now = new Date()
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`INSERT INTO inventur_stichtage (id, stichtag, status, festgehalten_von, festgehalten_von_name, erstellt_am)
+        VALUES (${stichtageId}, ${body.stichtag!}, 'abgeschlossen', ${user.sub}, NULL, ${now})`)
+      for (const row of bestandRows) {
+        const art = artikelMap.get(row.artikelId)
+        const ve = art?.verpackungseinheit ?? 1
+        const ek = art?.einkaufspreis ?? null
+        const lp = art?.listenpreis ?? null
+        const wert = ek !== null ? Math.round((Number(row.menge) / ve) * ek) : 0
+        await tx.execute(sql`INSERT INTO inventur_positionen (id, stichtage_id, artikel_id, standort_id, titel, typ, verpackungseinheit, menge, einkaufspreis_cent, listenpreis_cent, wert, inventur_geprueft, negativer_bestand, erstellt_am)
+          VALUES (${randomUUID()}, ${stichtageId}, ${row.artikelId}, ${row.standortId}, ${art?.titel ?? ''}, ${art?.typ ?? ''}, ${ve}, ${Number(row.menge)}, ${ek}, ${lp}, ${wert}, FALSE, ${Number(row.menge) < 0}, ${now})`)
+      }
+      await tx.execute(sql`INSERT INTO audit_log (id, aktion, entitaet, entitaet_id, benutzer_id, daten, zeit)
+        VALUES (${randomUUID()}, 'abschliessen', 'inventur_stichtag', ${stichtageId}, ${user.sub}, ${JSON.stringify({ stichtag: body.stichtag, positionen: bestandRows.length })}, ${now})`)
+    })
+
+    return reply.send({
+      stichtag: body.stichtag,
+      status: 'abgeschlossen',
+      positionen: bestandRows.length,
+      bereitsVorhanden: false,
+    })
+  })
+
+  // ---------- POST /api/inventur/archiv ----------
+  // Liefert alte Buchungen aus dem Journal mit Filter + Paging.
+  // Zeigt alle Buchungstypen (inkl. Stornos) als Historie.
+  app.post('/api/inventur/archiv', { preHandler: app.requireAuth }, async (req, reply) => {
+    const user = req.authUser
+    if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
+    if (!(await hatBerechtigung(user.rollen, 'inventur.lesen'))) {
+      return reply.code(403).send({ code: 'FORBIDDEN', message: 'inventur.lesen erforderlich' })
+    }
+    const body = req.body as {
+      artikelId?: string
+      standortId?: string
+      standortZielId?: string
+      typ?: string
+      von?: string
+      bis?: string
+      erstelltVon?: string
+      limit?: number
+      offset?: number
+    }
+    const limit = Math.min(Math.max(Number(body.limit ?? 50), 1), 500)
+    const offset = Math.max(Number(body.offset ?? 0), 0)
+
+    const db = getDb()
+    const conditions: Array<Parameters<typeof and>[0]> = []
+    if (body.artikelId) conditions.push(eq(buchungen.artikelId, body.artikelId))
+    if (body.standortId) conditions.push(eq(buchungen.standortId, body.standortId))
+    if (body.standortZielId) conditions.push(eq(buchungen.standortZielId, body.standortZielId))
+    if (body.typ) conditions.push(sql`${buchungen.typ} = ${body.typ}`)
+    if (body.erstelltVon) conditions.push(eq(buchungen.erstelltVon, body.erstelltVon))
+    if (body.von) conditions.push(sql`${buchungen.erstelltAm} >= ${String(body.von)}`)
+    if (body.bis) conditions.push(sql`${buchungen.erstelltAm} <= ${String(body.bis)}`)
+
+    const [rows, countRow] = await Promise.all([
+      db
+        .select()
+        .from(buchungen)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(buchungen.erstelltAm)
+        .limit(limit)
+        .offset(offset),
+      db
+        .select({ c: sql<number>`count(*)::int` })
+        .from(buchungen)
+        .where(conditions.length > 0 ? and(...conditions) : undefined),
+    ])
+
+    return reply.send({
+      items: rows.map((r) => ({
+        id: r.id,
+        artikelId: r.artikelId,
+        standortId: r.standortId,
+        standortZielId: r.standortZielId,
+        typ: r.typ,
+        menge: r.menge,
+        paarId: r.paarId,
+        projekt: r.projekt,
+        erstelltAm: r.erstelltAm.toISOString(),
+        clientEingabeAm: r.clientEingabeAm?.toISOString() ?? null,
+        erstelltVon: r.erstelltVon,
+        kommentar: r.kommentar,
+        mitteilungAn: r.mitteilungAn,
+        stornoVon: r.stornoVon,
+        storno: r.storno,
+        storniertDurch: r.storniertDurch,
+      })),
+      limit,
+      offset,
+      total: countRow[0]?.c ?? 0,
+    })
   })
 }

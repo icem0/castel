@@ -458,3 +458,118 @@ describe('useSettingsStore — mindestbestandSoundAn (rollenabhängiger Default)
     userStore.stop()
   })
 })
+
+// Der Inventur-Stichtag war der Auslöser eines dauerhaften Sync-Fehlers: das
+// Einstellungsformular hat Monat und Tag blind zu `MM-TT` verkettet. Ein
+// leer gelassener Tag ergab `11-00`, der Server lehte jeden Push ab
+// (`VALIDATION: Tag muss zwischen 1 und 31 liegen`) und der vergiftete Op
+// hing in der Outbox. Der Store darf solche Werte weder anzeigen noch in die
+// Outbox schreiben — und ein nachträglich gesetzter, gültiger Wert muss den
+// alten abgelehnten Op verdrängen.
+
+describe('useSettingsStore — Inventur-Stichtag', () => {
+  beforeEach(async () => {
+    resetDbForTests()
+    setDb(getDb())
+    // Global keys (userId = "") are shared across tests in this file:
+    // fake-indexeddb keeps the database per process, so clear what the
+    // inventur tests read and write.
+    await Promise.all([getDb().einstellungen.clear(), getDb().outbox.clear()])
+    setActivePinia(createPinia())
+    localStorage.removeItem(LS_SESSION)
+    sessionSchreiben({
+      userId: 'user-inv',
+      email: 'inv@example.com',
+      rolle: 'admin',
+      anzeigename: 'Inv',
+      loginAm: jetztIso(),
+      mustChangePassword: false,
+      jwtExpiresAt: jetztIso(),
+    })
+  })
+
+  afterEach(() => {
+    localStorage.removeItem(LS_SESSION)
+  })
+
+  async function offeneEinstellungsOps(): Promise<Array<{ payload: string }>> {
+    const alle = await getDb().outbox.toArray()
+    return alle
+      .filter((o) => o.entity === 'einstellung' && o.syncedAt == null)
+      .map((o) => ({ payload: o.payload }))
+  }
+
+  it('zeigt einen unvollständigen Alt-Wert nicht als gesetzten Stichtag', async () => {
+    await getDb().einstellungen.put({
+      key: 'inventur.stichtag',
+      userId: '',
+      value: '11-00',
+      geaendertAm: jetztIso(),
+    })
+    const store = useSettingsStore()
+    store.start()
+    await new Promise<void>((r) => setTimeout(r, 50))
+    expect(store.settings.inventurStichtag).toBeNull()
+    store.stop()
+  })
+
+  it('setzt einen gültigen Stichtag (global, geaendertAm gesetzt)', async () => {
+    const store = useSettingsStore()
+    store.start()
+    await store.setInventurStichtag('11-15')
+
+    const zeile = await getDb().einstellungen.get(['inventur.stichtag', ''])
+    expect(zeile?.value).toBe('11-15')
+    const ops = await offeneEinstellungsOps()
+    expect(ops).toHaveLength(1)
+    expect(JSON.parse(ops[0]!.payload)).toMatchObject({ key: 'inventur.stichtag', value: '11-15' })
+    store.stop()
+  })
+
+  it('lehnt ein unvollständiges Datum ab und schreibt nichts in die Outbox', async () => {
+    const store = useSettingsStore()
+    store.start()
+    await store.setInventurStichtag('11-00')
+
+    expect(await getDb().einstellungen.get(['inventur.stichtag', ''])).toBeUndefined()
+    expect(await offeneEinstellungsOps()).toHaveLength(0)
+    store.stop()
+  })
+
+  it('leert die Einstellung mit dem Wert "" (Server: nicht gesetzt)', async () => {
+    const store = useSettingsStore()
+    store.start()
+    await store.setInventurStichtag('11-15')
+    await store.setInventurStichtag(null)
+
+    const zeile = await getDb().einstellungen.get(['inventur.stichtag', ''])
+    expect(zeile?.value).toBe('')
+    const ops = await offeneEinstellungsOps()
+    expect(ops).toHaveLength(1)
+    expect(JSON.parse(ops[0]!.payload).value).toBe('')
+    store.stop()
+  })
+
+  it('verdrängt einen älteren, abgelehnten Op derselben Einstellung', async () => {
+    const store = useSettingsStore()
+    store.start()
+    // Altbestand eines fehlerhaften Clients: ein Wert, den der Server ablehnt.
+    await store.setKey('inventur.stichtag', '11-00')
+    expect(await offeneEinstellungsOps()).toHaveLength(1)
+
+    await store.setInventurStichtag('11-15')
+    const ops = await offeneEinstellungsOps()
+    expect(ops).toHaveLength(1)
+    expect(JSON.parse(ops[0]!.payload).value).toBe('11-15')
+    store.stop()
+  })
+
+  it('setzt Vorlauf-Tage nie auf NaN (leeres Feld = 0)', async () => {
+    const store = useSettingsStore()
+    store.start()
+    await store.setInventurVorlaufTage(Number('x'))
+    const zeile = await getDb().einstellungen.get(['inventur.vorlaufTage', ''])
+    expect(zeile?.value).toBe('0')
+    store.stop()
+  })
+})

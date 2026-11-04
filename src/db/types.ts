@@ -191,6 +191,41 @@ export interface MindestbestandEreignis {
 }
 
 /**
+ * Inventur-Stichtag: ein eingefrorener Bestands-Snapshot für die Buchhaltung.
+ * Ein Stichtag ist jährlich wiederkehrend (MM-TT); der abgeschlossene Stand
+ * wird in `inventur_positionen` festgehalten.
+ */
+export interface InventurStichtag {
+  id: string
+  stichtag: string // MM-TT
+  status: 'offen' | 'abgeschlossen'
+  festgehaltenVon: string
+  festgehaltenVonName: string | null
+  erstelltAm: Iso
+}
+
+/**
+ * Eine Position eines Inventur-Stichtags: der eingefrorene Bestand eines
+ * Artikels an einem Standort zum Stichtag.
+ */
+export interface InventurPosition {
+  id: string
+  stichtageId: string
+  artikelId: string
+  standortId: string
+  titel: string
+  typ: string
+  verpackungseinheit: number
+  menge: number
+  einkaufspreisCent: number | null
+  listenpreisCent: number | null
+  wert: number
+  inventurGeprueft: boolean
+  negativerBestand: boolean
+  erstelltAm: Iso
+}
+
+/**
  * Mindestbestand je (Artikel, Standort).
  *
  * Sparse: eine Zeile existiert nur, wenn fuer dieses Lager ein Wert
