@@ -118,10 +118,10 @@ project folder and therefore survives the recreation of the API container.
 Progress and log end up in the database, the PWA displays them live.
 
 This requires the API container to reach the Docker socket. `docker-compose.yml`
-mounts `/var/run/docker.sock` and adds the socket group via `DOCKER_GID`. Set
-`DOCKER_GID` to the host socket group (`stat -c '%g' /var/run/docker.sock`)
-if the default `999` does not match. Without socket access the version check
-reports `canSelfUpdate:false` and the PWA shows the manual command as fallback.
+mounts `/var/run/docker.sock` and runs the `api` service as root (`user: "0:0"`),
+so no host socket GID has to be configured. Without socket access the version
+check reports `canSelfUpdate:false` and the PWA shows the manual command as
+fallback.
 
 The updater is deliberately environment-robust and also works in an
 Arcane/Portainer setup, i.e. without a git checkout and without a `.env` in the

@@ -88,6 +88,11 @@ services:
 
   api:
     image: ghcr.io/icem0/castel-api:${IMAGE_TAG:-latest}
+    # Self-update needs the Docker socket. The API image itself runs as the
+    # unprivileged `castel` user; root is required here so the updater sidecar
+    # can start (`docker compose up -d`) regardless of the host socket GID.
+    # This is the same access model as the StoerDesk update agent.
+    user: "0:0"
     restart: unless-stopped
     depends_on:
       db:
@@ -150,13 +155,11 @@ services:
       - backups-data:/var/lib/castel/backups
       - datanorm-data:/var/lib/castel/datanorm
       # Self-update: die API braucht Zugriff auf den Docker-Socket, um den
-      # kurzlebigen Updater-Container zu starten. DOCKER_GID muss zur Gruppe
-      # des Sockets auf dem Host passen (ermitteln mit:
-      # `stat -c '%g' /var/run/docker.sock`). Ohne Zugriff bleibt der
-      # manuelle Weg (scripts/update.sh) als Fallback.
+      # kurzlebigen Updater-Container zu starten. Der api-Service laeuft
+      # deshalb als root (siehe `user:` oben) — damit ist kein GID-Abgleich
+      # noetig. Ohne Socket-Mount bleibt der manuelle Weg
+      # (scripts/update.sh) als Fallback.
       - /var/run/docker.sock:/var/run/docker.sock
-    group_add:
-      - "${DOCKER_GID:-999}"
     healthcheck:
       test:
         [

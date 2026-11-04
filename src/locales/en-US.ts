@@ -1208,7 +1208,7 @@ export default {
       updateCheckFehler: 'Version check failed: {error}',
       updateCheckBtn: 'Check again',
       updateNoSelfUpdate:
-        "The server cannot reach the Docker socket. Check that /var/run/docker.sock is mounted into the api container and that DOCKER_GID matches the socket group (stat -c '%g' /var/run/docker.sock), then run docker compose up -d. The command below remains as a fallback.",
+        'The server cannot reach the Docker socket. Check that /var/run/docker.sock is mounted into the api container and that the api service runs as root (or has the socket group), then run docker compose up -d. The command below remains as a fallback.',
       updateNoSelfUpdateGrund: 'Diagnosis: {grund}',
       updateStartFehler: 'The server could not start the update itself (see the note below).',
       updateStartGrund: 'Reason: {grund}',
