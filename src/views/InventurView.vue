@@ -452,14 +452,17 @@ onBeforeUnmount(() => {
 .card {
   margin: 1rem 0;
   padding: 1rem;
-  border: 1px solid var(--border, #ddd);
-  border-radius: 6px;
-  background: var(--card-bg, #fff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
 }
 .card h2,
 .card h3 {
   margin-top: 0;
   font-size: 1.1rem;
+  color: var(--text-strong);
 }
 .form-grid {
   display: flex;
@@ -473,10 +476,11 @@ onBeforeUnmount(() => {
 }
 .account-setting .label {
   font-size: 0.85em;
-  color: var(--text-muted, #666);
+  color: var(--text-muted);
 }
 .account-setting .value {
   font-weight: 500;
+  color: var(--text);
 }
 .stichtag-zeile {
   display: flex;
@@ -485,14 +489,29 @@ onBeforeUnmount(() => {
 }
 .zahl {
   width: 6rem;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+}
+.zahl:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
 }
 button.btn {
   margin-top: 0.5rem;
   padding: 0.5rem 1rem;
   cursor: pointer;
-  border: 1px solid var(--border, #ccc);
-  background: var(--btn-bg, #f5f5f5);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+}
+button.btn:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 button.btn:disabled {
   opacity: 0.5;
@@ -508,15 +527,20 @@ button.btn:disabled {
   border-collapse: collapse;
   font-size: 0.9rem;
   margin-top: 0.5rem;
+  color: var(--text);
 }
 .archiv-tabelle th,
 .archiv-tabelle td {
-  border: 1px solid var(--border, #ddd);
+  border: 1px solid var(--border);
   padding: 0.4rem;
   text-align: left;
 }
 .archiv-tabelle th {
-  background: var(--muted-bg, #f0f0f0);
+  background: var(--bg-input);
+  color: var(--text-strong);
+}
+.archiv-tabelle tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
 }
 .archiv-mehr {
   margin-top: 0.5rem;
@@ -524,26 +548,47 @@ button.btn:disabled {
 .meldung {
   margin-top: 0.5rem;
   padding: 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
 }
 .meldung.Erfolg {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(74, 222, 128, 0.35);
 }
 .meldung.Fehler {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.35);
 }
 .erinnerung {
-  border-left: 4px solid var(--warn, #ff9800);
+  border-left: 4px solid var(--warning);
+  background: rgba(251, 191, 36, 0.1);
 }
 .erinnerung.aktiv {
-  border-left-color: #4caf50;
+  border-left-color: var(--success);
+  background: rgba(74, 222, 128, 0.1);
 }
 .erinnerung.ueberfaellig {
-  border-left-color: #f44336;
+  border-left-color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+}
+.erinnerung h3 {
+  color: var(--text-strong);
+}
+.erinnerung p {
+  color: var(--text);
+}
+.erinnerung small {
+  color: var(--text-muted);
+}
+.hint {
+  color: var(--text-muted);
+}
+.hint-danger {
+  color: var(--danger);
+}
+.hint-ok {
+  color: var(--success);
 }
 </style>
