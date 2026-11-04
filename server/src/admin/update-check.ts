@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { dockerReachable } from './update-runner.js'
+import { probeDocker, type DockerProbe } from './update-runner.js'
 
 export type Semver = [number, number, number]
 
@@ -55,6 +55,8 @@ export type UpdateCheck = {
   updateAvailable: boolean | null
   /** True when the API can reach the Docker socket and start the updater. */
   canSelfUpdate: boolean
+  /** Machine-readable diagnosis when canSelfUpdate is false. */
+  selfUpdateReason: string | null
   checkedAt: string
   error?: string
 }
@@ -65,9 +67,48 @@ export type CheckDeps = {
   owner?: string
   image?: string
   canSelfUpdate?: boolean
+  dockerProbe?: () => Promise<DockerProbe>
 }
 
 type TagsResponse = { tags?: string[] }
+
+/** Reads the `rel="next"` target out of a registry Link header. */
+function parseNextLink(link: string | null): string | null {
+  if (!link) return null
+  const match = /<([^>]+)>\s*;\s*rel="?next"?/.exec(link)
+  return match?.[1] ?? null
+}
+
+const TAGS_PER_PAGE = 1000
+const MAX_PAGES = 20
+
+/**
+ * Lists all tags of a package. GHCR paginates the tags endpoint (default
+ * page size 100), and the `vX.Y.Z` tags are usually far behind hundreds of
+ * SHA tags - without pagination the version check would never see them.
+ */
+async function fetchAllTags(
+  fetchImpl: typeof fetch,
+  token: string,
+  owner: string,
+  image: string,
+): Promise<string[]> {
+  const first = new URL(`https://ghcr.io/v2/${owner}/${image}/tags/list`)
+  first.searchParams.set('n', String(TAGS_PER_PAGE))
+
+  const tags: string[] = []
+  let next: string | null = first.toString()
+  for (let page = 0; next && page < MAX_PAGES; page += 1) {
+    const res: Response = await fetchImpl(next, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new Error(`tags request failed (${res.status})`)
+    const body = (await res.json()) as TagsResponse
+    tags.push(...(body.tags ?? []))
+    next = parseNextLink(res.headers.get('link'))
+  }
+  return tags
+}
 
 async function fetchLatestFromGhcr(
   fetchImpl: typeof fetch,
@@ -80,14 +121,10 @@ async function fetchLatestFromGhcr(
   const tokenBody = (await tokenRes.json()) as { token?: string }
   if (!tokenBody.token) throw new Error('no registry token')
 
-  const tagsRes = await fetchImpl(`https://ghcr.io/v2/${owner}/${image}/tags/list`, {
-    headers: { Authorization: `Bearer ${tokenBody.token}` },
-  })
-  if (!tagsRes.ok) throw new Error(`tags request failed (${tagsRes.status})`)
-  const body = (await tagsRes.json()) as TagsResponse
+  const tags = await fetchAllTags(fetchImpl, tokenBody.token, owner, image)
 
   let best: { latest: string; semver: Semver } | null = null
-  for (const tag of body.tags ?? []) {
+  for (const tag of tags) {
     const semver = parseSemver(tag)
     if (!semver) continue
     if (!best || compareSemver(semver, best.semver) > 0) {
@@ -108,12 +145,28 @@ export async function checkLatestVersion(deps: CheckDeps = {}): Promise<UpdateCh
   const owner = deps.owner ?? process.env.CASTEL_GHCR_OWNER ?? 'icem0'
   const image = deps.image ?? process.env.CASTEL_GHCR_IMAGE ?? 'castel-api'
   const checkedAt = new Date().toISOString()
-  const canSelfUpdate = deps.canSelfUpdate ?? (await dockerReachable())
+  let canSelfUpdate: boolean
+  let selfUpdateReason: string | null = null
+  if (deps.canSelfUpdate !== undefined) {
+    canSelfUpdate = deps.canSelfUpdate
+  } else {
+    const probe = await (deps.dockerProbe ?? probeDocker)()
+    canSelfUpdate = probe.available
+    selfUpdateReason = probe.reason
+  }
 
   try {
     const best = await fetchLatestFromGhcr(fetchImpl, owner, image)
     if (!best) {
-      return { current, latest: null, updateAvailable: null, canSelfUpdate, checkedAt }
+      return {
+        current,
+        latest: null,
+        updateAvailable: null,
+        canSelfUpdate,
+        selfUpdateReason,
+        checkedAt,
+        error: 'keine Versions-Tags in der Registry gefunden',
+      }
     }
     const currentSemver = current ? parseSemver(current) : null
     const updateAvailable = currentSemver
@@ -124,6 +177,7 @@ export async function checkLatestVersion(deps: CheckDeps = {}): Promise<UpdateCh
       latest: best.latest,
       updateAvailable,
       canSelfUpdate,
+      selfUpdateReason,
       checkedAt,
     }
   } catch (error) {
@@ -132,6 +186,7 @@ export async function checkLatestVersion(deps: CheckDeps = {}): Promise<UpdateCh
       latest: null,
       updateAvailable: null,
       canSelfUpdate,
+      selfUpdateReason,
       checkedAt,
       error: error instanceof Error ? error.message : String(error),
     }

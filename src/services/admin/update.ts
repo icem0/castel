@@ -40,6 +40,8 @@ export type UpdateCheck = {
   updateAvailable: boolean | null
   /** True when the server can reach the Docker socket and self-update. */
   canSelfUpdate: boolean
+  /** Machine-readable diagnosis when canSelfUpdate is false. */
+  selfUpdateReason: string | null
   checkedAt: string
   error?: string
 }

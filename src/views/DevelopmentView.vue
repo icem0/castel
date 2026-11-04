@@ -1163,6 +1163,13 @@ onBeforeUnmount(() => {
           </p>
           <p v-if="updateCheck.canSelfUpdate === false" class="hint hint-danger">
             {{ t('view.development.updateNoSelfUpdate') }}
+            <span v-if="updateCheck.selfUpdateReason">
+              ({{
+                t('view.development.updateNoSelfUpdateGrund', {
+                  grund: updateCheck.selfUpdateReason,
+                })
+              }})
+            </span>
           </p>
         </template>
         <p v-if="updateCheckFehler" class="wert-fehler">{{ updateCheckFehler }}</p>

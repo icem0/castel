@@ -30,14 +30,35 @@ const defaultRun: RunFn = async (cmd, args) => {
   return { stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }
 }
 
-/** True when the Docker daemon is reachable from this process. */
-export async function dockerReachable(run: RunFn = defaultRun): Promise<boolean> {
+export type DockerProbe = {
+  available: boolean
+  /** Why the daemon is not reachable (only set when available is false). */
+  reason: string | null
+}
+
+/**
+ * Probes the Docker daemon and classifies the failure so the admin UI can
+ * show an actionable hint (missing CLI vs. socket permission vs. no daemon).
+ */
+export async function probeDocker(run: RunFn = defaultRun): Promise<DockerProbe> {
   try {
     await run('docker', ['version', '--format', '{{.Server.Version}}'])
-    return true
-  } catch {
-    return false
+    return { available: true, reason: null }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/ENOENT|not found/i.test(message)) {
+      return { available: false, reason: 'DOCKER_CLI_MISSING' }
+    }
+    if (/permission denied|EACCES/i.test(message)) {
+      return { available: false, reason: 'SOCKET_PERMISSION' }
+    }
+    return { available: false, reason: 'DOCKER_UNAVAILABLE' }
   }
+}
+
+/** True when the Docker daemon is reachable from this process. */
+export async function dockerReachable(run: RunFn = defaultRun): Promise<boolean> {
+  return (await probeDocker(run)).available
 }
 
 /** The container id of the current process (Docker writes it to /etc/hostname). */
