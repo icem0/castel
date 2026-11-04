@@ -65,6 +65,21 @@ function hilfeKey(artikelId: string, standortId: string): string {
   return `${artikelId}#${standortId}`
 }
 
+/** Archive rows carry the internal booking slug — render the localized label. */
+function formatTyp(typ: string): string {
+  if (
+    typ === 'einlagerung' ||
+    typ === 'entnahme' ||
+    typ === 'umlagerung' ||
+    typ === 'inventur' ||
+    typ === 'kommission' ||
+    typ === 'storno'
+  ) {
+    return t(`view.buchung.form.typen.${typ}`)
+  }
+  return typ
+}
+
 function sollMengeAendern(z: InventurHilfeZeile, event: Event): void {
   const target = event.target as HTMLInputElement
   const wert = Number(target.value || 0)
@@ -127,9 +142,11 @@ async function hilfestellungSpeichern(): Promise<void> {
       })
       erstellt += 1
     }
+    // Named placeholders must be ASCII: vue-i18n's message compiler rejects
+    // `{übersprungen}`, which used to throw and swallow the whole message.
     hilfeMeldung.value = t('view.inventur.hilfeGespeichert', {
       erstellt,
-      übersprungen,
+      uebersprungen: übersprungen,
     })
     await ladeHilfestellung()
   } catch (e) {
@@ -517,7 +534,7 @@ onBeforeUnmount(() => {
             v-model="suche"
             type="text"
             class="zahl"
-            placeholder="{{ t('view.inventur.hilfeSuchePlaceholder') }}"
+            :placeholder="t('view.inventur.hilfeSuchePlaceholder')"
           />
         </label>
         <span class="filter-count">
@@ -606,7 +623,7 @@ onBeforeUnmount(() => {
         <tbody>
           <tr v-for="item in archivItems" :key="item.id">
             <td>{{ item.erstelltAm.slice(0, 10) }}</td>
-            <td>{{ item.typ }}</td>
+            <td>{{ formatTyp(item.typ) }}</td>
             <td>{{ item.menge }}</td>
             <td>{{ item.artikelId.slice(0, 8) }}…</td>
             <td>{{ item.standortId.slice(0, 8) }}…</td>

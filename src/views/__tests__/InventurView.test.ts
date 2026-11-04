@@ -146,6 +146,32 @@ describe('InventurView — Stichtag-Formular', () => {
     w.unmount()
   })
 
+  it('übersetzt die Erfolgsbestätigung des Inventur-Erfassens — kein roher Schlüssel', () => {
+    // Regression: the message used the named placeholder `{übersprungen}`.
+    // vue-i18n rejects non-ASCII placeholder names, the compile threw and the
+    // UI showed `view.inventur.hilfeGespeichert` instead of the text.
+    const de = i18n.global.t('view.inventur.hilfeGespeichert', { erstellt: 2, uebersprungen: 1 })
+    expect(de).not.toContain('view.inventur.hilfeGespeichert')
+    expect(de).toContain('2')
+    expect(de).toContain('1')
+
+    i18n.global.locale.value = 'en-US'
+    const en = i18n.global.t('view.inventur.hilfeGespeichert', { erstellt: 2, uebersprungen: 1 })
+    i18n.global.locale.value = 'de-DE'
+    expect(en).not.toContain('view.inventur.hilfeGespeichert')
+    expect(en).toContain('2')
+    expect(en).toContain('1')
+  })
+
+  it('rendert den Suchplatzhalter übersetzt, nicht als wörtliches {{ t() }}', async () => {
+    const w = mount(InventurView, { global: { plugins: [createPinia(), i18n, router] } })
+    await new Promise<void>((r) => setTimeout(r, 30))
+    const feld = w.get('input[type="text"]')
+    expect(feld.attributes('placeholder')).toBe('Artikel oder Standort …')
+    expect(feld.attributes('placeholder')).not.toContain('{{')
+    w.unmount()
+  })
+
   it('leert die Einstellung, wenn beide Felder leer sind', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

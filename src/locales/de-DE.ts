@@ -413,7 +413,7 @@ export default {
       daten: 'Daten',
       geraet: 'Lokaler Speicher (Gerät)',
       csvImport: 'CSV-Import',
-      backup: 'Backup &amp; Restore',
+      backup: 'Backup & Restore',
       apiKeys: 'API-Keys',
       stammdaten: 'Stammdaten',
       artikelKataloge: 'Artikelkataloge',
@@ -461,8 +461,12 @@ export default {
       hilfeSpeichert: 'Speichert …',
       hilfeKeineErlaubnis:
         'Sie benötigen die Berechtigung „Inventur erstellen", um Sollmengen zu erfassen.',
+      // Placeholder names must be ASCII (`[a-zA-Z_][a-zA-Z0-9_]*`) — vue-i18n's
+      // message compiler rejects `{übersprungen}` and the whole message is lost.
       hilfeGespeichert:
-        '{erstellt} Inventur-Buchung(en) erstellt, {übersprungen} ohne Änderung übersprungen.',
+        '{erstellt} Inventur-Buchung(en) erstellt, {uebersprungen} ohne Änderung übersprungen.',
+      fehlerStichtagNichtGesetzt:
+        'Es ist kein Inventur-Stichtag gesetzt — bitte zuerst Monat und Tag eintragen.',
       archiv: 'Buchungsarchiv',
       archivHint:
         'Alte Buchungen bleiben auf dem Server vollständig erhalten und sind hier abfragbar.',
@@ -482,6 +486,33 @@ export default {
       exportCsv: 'CSV exportieren',
       exportPdf: 'PDF exportieren',
       exportPreiseHinweis: 'Ohne EK-Berechtigung werden Preisspalten leer ausgegeben.',
+      exportSpalten: {
+        stichtag: 'Stichtag',
+        status: 'Status',
+        artikelId: 'Artikel-ID',
+        artikel: 'Artikel',
+        typ: 'Typ',
+        standortId: 'Standort-ID',
+        ve: 'VE',
+        menge: 'Menge',
+        ekCent: 'EK-Cent',
+        lpCent: 'LP-Cent',
+        wertCent: 'Wert-Cent',
+        wert: 'Wert',
+        geprueft: 'Geprüft',
+        negativ: 'Negativ',
+      },
+      exportPdfTexte: {
+        titel: 'Inventur-Snapshot',
+        erstellt: 'Erstellt: {zeit}',
+        stichtag: 'Stichtag: {wert} ({status})',
+        standort: 'Standort: {name}',
+        zwischensumme: 'Zwischensumme:',
+        gesamtmenge: 'Gesamtmenge: {menge}',
+        gesamtwert: 'Gesamtwert (Cent): {wert}',
+        fusszeile: 'castel Inventur-Export — {zeit}',
+      },
+      status: { offen: 'offen', abgeschlossen: 'abgeschlossen' },
       erinnerung: 'Inventur-Erinnerung',
       erinnerungUeberfaellig: 'Der Inventur-Stichtag ist überfällig.',
       erinnerungAktiv: 'Erinnerung aktiv: noch {tage} Tage bis zum Stichtag.',
@@ -1163,7 +1194,7 @@ export default {
       warnung: 'Alle Änderungen sind übertragen — es gehen keine Daten verloren.',
       neustartHinweis:
         'Die lokale Datenbank ist bereits gelöscht. Lade die Seite neu — der Sync füllt sie wieder auf.',
-      jaZuruecksetzen: 'Ja, zurücksetzen &amp; neu laden',
+      jaZuruecksetzen: 'Ja, zurücksetzen & neu laden',
       erfolg:
         'Lokale Datenbank neu aufgebaut: {artikel} Artikel, {standorte} Standorte, {buchungen} Buchungen.',
       neuladenIn: 'Die Seite lädt automatisch in {sek} Sekunden.',

@@ -8,6 +8,7 @@
 
 import type { InventurPosition, InventurStichtag } from '../../db/types'
 import { getDb } from '../../db/database'
+import { i18n } from '../../i18n'
 
 export interface ExportOptions {
   stichtage: InventurStichtag[]
@@ -16,24 +17,57 @@ export interface ExportOptions {
   mitPreise: boolean
 }
 
-/** CSV mit Semikolon-Trennzeichen + UTF-8 BOM (Excel-kompatibel). */
+/**
+ * Export labels follow the active UI language. The service runs outside a
+ * component, so it goes through `i18n.global` (same pattern as
+ * `src/auth/messages.ts`).
+ */
+function msg(key: string, named?: Record<string, unknown>): string {
+  return named === undefined ? i18n.global.t(key) : i18n.global.t(key, named)
+}
+
+function statusText(status: InventurStichtag['status']): string {
+  return msg(`view.inventur.status.${status}`)
+}
+
+const BEKANNTE_TYPEN = new Set([
+  'einlagerung',
+  'entnahme',
+  'umlagerung',
+  'inventur',
+  'kommission',
+  'storno',
+])
+
+/** Unknown slugs stay as-is instead of leaking an i18n key into the file. */
+function typText(typ: string): string {
+  return BEKANNTE_TYPEN.has(typ) ? msg(`view.buchung.form.typen.${typ}`) : typ
+}
+
+/** CSV with semicolon separators + UTF-8 BOM (Excel-compatible). */
 export function csvDatei(opts: ExportOptions): string {
   const { stichtage, positionen, mitPreise } = opts
   const stichtagMap = new Map(stichtage.map((s) => [s.id, s]))
 
   const lines: string[] = []
   const header = [
-    'Stichtag',
-    'Status',
-    'Artikel-ID',
-    'Artikel',
-    'Typ',
-    'Standort-ID',
-    'VE',
-    'Menge',
-    ...(mitPreise ? ['EK-Cent', 'LP-Cent', 'Wert-Cent'] : []),
-    'Geprueft',
-    'Negativ',
+    msg('view.inventur.exportSpalten.stichtag'),
+    msg('view.inventur.exportSpalten.status'),
+    msg('view.inventur.exportSpalten.artikelId'),
+    msg('view.inventur.exportSpalten.artikel'),
+    msg('view.inventur.exportSpalten.typ'),
+    msg('view.inventur.exportSpalten.standortId'),
+    msg('view.inventur.exportSpalten.ve'),
+    msg('view.inventur.exportSpalten.menge'),
+    ...(mitPreise
+      ? [
+          msg('view.inventur.exportSpalten.ekCent'),
+          msg('view.inventur.exportSpalten.lpCent'),
+          msg('view.inventur.exportSpalten.wertCent'),
+        ]
+      : []),
+    msg('view.inventur.exportSpalten.geprueft'),
+    msg('view.inventur.exportSpalten.negativ'),
   ]
   lines.push(header.join(';'))
 
@@ -41,10 +75,10 @@ export function csvDatei(opts: ExportOptions): string {
     const st = stichtagMap.get(p.stichtageId)
     const row: string[] = [
       st?.stichtag ?? '',
-      st?.status ?? '',
+      st ? statusText(st.status) : '',
       p.artikelId,
       `"${p.titel.replace(/"/g, '""')}"`,
-      p.typ,
+      typText(p.typ),
       p.standortId,
       String(p.verpackungseinheit),
       String(p.menge),
@@ -101,43 +135,62 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   const seitenFuss = () => {
     doc.setFontSize(8)
     doc.text(
-      `Castel Inventur-Export — ${new Date().toISOString()}`,
+      msg('view.inventur.exportPdfTexte.fusszeile', { zeit: new Date().toISOString() }),
       15,
       doc.internal.pageSize.height - 10,
     )
   }
 
   doc.setFontSize(16)
-  doc.text('Inventur-Snapshot', 15, y)
+  doc.text(msg('view.inventur.exportPdfTexte.titel'), 15, y)
   y += 8
   doc.setFontSize(10)
-  doc.text(`Erstellt: ${new Date().toISOString()}`, 15, y)
+  doc.text(msg('view.inventur.exportPdfTexte.erstellt', { zeit: new Date().toISOString() }), 15, y)
   y += 6
 
   for (const stichtag of stichtage) {
     y += 5
     doc.setFontSize(12)
-    doc.text(`Stichtag: ${stichtag.stichtag} (${stichtag.status})`, 15, y)
+    doc.text(
+      msg('view.inventur.exportPdfTexte.stichtag', {
+        wert: stichtag.stichtag,
+        status: statusText(stichtag.status),
+      }),
+      15,
+      y,
+    )
     y += 6
 
     for (const [standortId, posListe] of nachStandort) {
       const name = await standortName(standortId)
       doc.setFontSize(11)
-      doc.text(`Standort: ${name}`, 15, y)
+      doc.text(msg('view.inventur.exportPdfTexte.standort', { name }), 15, y)
       y += 5
 
       // Tabellen-Header
       const KopfX = 15
       doc.setFontSize(8)
       doc.setFont('helvetica', 'bold')
-      const headerCols: string[] = ['Artikel', 'Typ', 'VE', 'Menge']
-      if (mitPreise) headerCols.push('EK-Cent', 'LP-Cent', 'Wert')
-      headerCols.push('Geprueft')
-      let x = KopfX
-      for (const col of headerCols) {
-        doc.text(col, x, y)
-        x += col === 'Artikel' ? 55 : 20
+      const headerCols: string[] = [
+        msg('view.inventur.exportSpalten.artikel'),
+        msg('view.inventur.exportSpalten.typ'),
+        msg('view.inventur.exportSpalten.ve'),
+        msg('view.inventur.exportSpalten.menge'),
+      ]
+      if (mitPreise) {
+        headerCols.push(
+          msg('view.inventur.exportSpalten.ekCent'),
+          msg('view.inventur.exportSpalten.lpCent'),
+          msg('view.inventur.exportSpalten.wert'),
+        )
       }
+      headerCols.push(msg('view.inventur.exportSpalten.geprueft'))
+      let x = KopfX
+      // Column widths follow the position, not the German label.
+      headerCols.forEach((col, i) => {
+        doc.text(col, x, y)
+        x += i === 0 ? 55 : 20
+      })
       y += 4
 
       doc.setFont('helvetica', 'normal')
@@ -148,7 +201,7 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
         if (p.stichtageId !== stichtag.id) continue
         const artikel = `"${p.titel.slice(0, 40)}" (${p.artikelId.slice(0, 8)}…)`
         doc.text(artikel, KopfX, y)
-        doc.text(p.typ, KopfX + 50, y)
+        doc.text(typText(p.typ), KopfX + 50, y)
         doc.text(String(p.verpackungseinheit), KopfX + 70, y)
         doc.text(String(p.menge), KopfX + 85, y)
         if (mitPreise) {
@@ -169,7 +222,7 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
 
       // Zwischensumme Standort
       doc.setFont('helvetica', 'bold')
-      doc.text('Zwischensumme:', KopfX, y + 2)
+      doc.text(msg('view.inventur.exportPdfTexte.zwischensumme'), KopfX, y + 2)
       doc.text(String(summeMenge), KopfX + 85, y + 2)
       if (mitPreise) doc.text(String(summeWert), KopfX + 145, y + 2)
       doc.setFont('helvetica', 'normal')
@@ -188,8 +241,9 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   doc.setFont('helvetica', 'bold')
   const gesamtMenge = positionen.reduce((s, p) => s + p.menge, 0)
   const gesamtWert = positionen.reduce((s, p) => s + p.wert, 0)
-  doc.text(`Gesamtmenge: ${gesamtMenge}`, 15, y + 5)
-  if (mitPreise) doc.text(`Gesamtwert (Cent): ${gesamtWert}`, 15, y + 10)
+  doc.text(msg('view.inventur.exportPdfTexte.gesamtmenge', { menge: gesamtMenge }), 15, y + 5)
+  if (mitPreise)
+    doc.text(msg('view.inventur.exportPdfTexte.gesamtwert', { wert: gesamtWert }), 15, y + 10)
 
   seitenFuss()
 

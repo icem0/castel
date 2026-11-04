@@ -22,30 +22,36 @@ export const i18n = createI18n({
 })
 
 /**
- * Die globale `t()`-Funktion gegen Message-Kompilierfehler härten.
+ * Hardens the global `t()` against message-compiler failures.
  *
- * vue-i18n kompiliert Nachrichten lazy beim ersten Zugriff. Enthält eine
- * Nachricht ein ungültiges Platzhalter-Token (z. B. durch vom Server oder
- * aus IndexedDB stammende Daten mit einem fehlerhaften `{…}`), wirft
- * `@intlify/message-compiler` eine `SyntaxError` (Code 2 =
- * `INVALID_TOKEN_IN_PLACEHOLDER`). Das würde die rendernende Komponente
- * und damit die gesamte App zum Absturz bringen.
+ * vue-i18n compiles messages lazily on first access. A message with an invalid
+ * placeholder token (e.g. a non-ASCII name such as `{übersprungen}` — the
+ * message compiler only accepts `[a-zA-Z_][a-zA-Z0-9_]*`) makes
+ * `@intlify/message-compiler` raise a compile error. That would take down the
+ * rendering component, i.e. the whole app.
  *
- * `useI18n()` ohne Scope liefert `i18n.global` (Scope `global`), daher
- * decken ein einziger Wrapper hier alle Komponenten- und
- * `i18n.global.t()`-Aufrufe ab (inkl. `src/auth/messages.ts`).
+ * `useI18n()` without a scope returns `i18n.global` (scope `global`), so this
+ * single wrapper covers every component call and every `i18n.global.t()` call
+ * (incl. `src/auth/messages.ts` and the inventory export service).
  *
- * Im Fehlerfall wird der Schlüssel als Fallback zurückgegeben und der
- * Vorfall protokolliert, sodass der auslösende Schlüssel diagnostiziert
- * werden kann.
+ * `@intlify/core-base` re-throws the compile error as a plain `SyntaxError`
+ * prefixed with "Message compilation error:" and WITHOUT the compiler's `code`,
+ * so matching on `code === 2` alone silently never fires (vue-i18n 11). Match
+ * both shapes and return the key as fallback, logging the offending key.
  */
 const gl = i18n.global
+const NACHRICHTEN_FEHLER =
+  /message compilation error|invalid token in placeholder|unterminated single quote|unknown escape sequence/i
 const _t = gl.t as (...args: unknown[]) => unknown
 gl.t = ((key: unknown, ...rest: unknown[]): string => {
   try {
     return _t(key, ...rest) as string
   } catch (e) {
-    if (e instanceof SyntaxError && (e as { code?: number }).code === 2) {
+    const code = (e as { code?: unknown })?.code
+    const isCompileError =
+      e instanceof SyntaxError &&
+      (typeof code === 'number' || NACHRICHTEN_FEHLER.test((e as Error).message))
+    if (isCompileError) {
       console.warn('[i18n] message compilation failed for key', key, '->', (e as Error).message)
       return String(key)
     }
