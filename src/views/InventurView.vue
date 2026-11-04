@@ -13,6 +13,7 @@ import {
   stichtagAusTeilen,
 } from '../domain/inventur-stichtag'
 import { berechneInventurErinnerung, istAbgeschlossen } from '../domain/inventur/erinnerung'
+import { artikelOhneInventur, createInventur, type InventurHilfeZeile } from '../domain/buchungen'
 import { downloadCsv, downloadPdf } from '../services/inventur/pdf'
 
 const { t } = useI18n()
@@ -28,6 +29,89 @@ const darfEinstellen = computed(() => auth.hat('inventur.stichtag'))
 const darfAbschliessen = computed(() => auth.hat('inventur.abschliessen'))
 const darfLesen = computed(() => auth.hat('inventur.lesen'))
 const darfExportieren = computed(() => auth.hat('inventur.export'))
+const darfErfassen = computed(() => auth.hat('inventur.erstellen'))
+
+// ---------------------------------------------------------------------------
+// Geführte Inventur: Artikel/Standorte ohne Inventur-Buchung
+// ---------------------------------------------------------------------------
+const hilfeItems = ref<InventurHilfeZeile[]>([])
+const hilfeLaden = ref(false)
+const hilfeFehler = ref<string | null>(null)
+const hilfeMeldung = ref<string | null>(null)
+const hilfeSpeicherLaufend = ref(false)
+// Sollmenge je (artikelId#standortId)
+const sollMengen = ref<Record<string, number>>({})
+
+function hilfeKey(artikelId: string, standortId: string): string {
+  return `${artikelId}#${standortId}`
+}
+
+function sollMengeAendern(z: InventurHilfeZeile, event: Event): void {
+  const target = event.target as HTMLInputElement
+  const wert = Number(target.value || 0)
+  sollMengen.value = {
+    ...sollMengen.value,
+    [hilfeKey(z.artikelId, z.standortId)]: wert,
+  }
+}
+
+async function ladeHilfestellung(): Promise<void> {
+  if (!darfLesen.value) return
+  hilfeLaden.value = true
+  hilfeFehler.value = null
+  try {
+    hilfeItems.value = await artikelOhneInventur()
+    // Sollmengen zurücksetzen (Default = aktueller Bestand)
+    sollMengen.value = {}
+    for (const z of hilfeItems.value) {
+      sollMengen.value[hilfeKey(z.artikelId, z.standortId)] = z.bestand
+    }
+  } catch (e) {
+    hilfeFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    hilfeLaden.value = false
+  }
+}
+
+async function hilfestellungSpeichern(): Promise<void> {
+  if (!darfErfassen.value) return
+  if (hilfeSpeicherLaufend.value) return
+  hilfeSpeicherLaufend.value = true
+  hilfeFehler.value = null
+  hilfeMeldung.value = null
+
+  const erstelltVon = auth.erstelltVon
+  let erstellt = 0
+  let übersprungen = 0
+
+  try {
+    for (const z of hilfeItems.value) {
+      const key = hilfeKey(z.artikelId, z.standortId)
+      const soll = sollMengen.value[key] ?? 0
+      // Nur abweichend vom Bestand erfassen (Differenz ≠ 0)
+      if (soll === z.bestand) {
+        übersprungen += 1
+        continue
+      }
+      await createInventur({
+        artikelId: z.artikelId,
+        standortId: z.standortId,
+        sollMenge: soll,
+        erstelltVon,
+      })
+      erstellt += 1
+    }
+    hilfeMeldung.value = t('view.inventur.hilfeGespeichert', {
+      erstellt,
+      übersprungen,
+    })
+    await ladeHilfestellung()
+  } catch (e) {
+    hilfeFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    hilfeSpeicherLaufend.value = false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Cut-off date + lead time are edited right here (not on the main settings
@@ -243,6 +327,7 @@ async function pdfExportieren(): Promise<void> {
 onMounted(async () => {
   await ladeLokaleInventur()
   if (darfLesen.value) await archivLadenFunc(0)
+  await ladeHilfestellung()
 })
 
 watch(
@@ -386,8 +471,68 @@ onBeforeUnmount(() => {
     <div v-if="darfLesen" class="card">
       <h2>{{ t('view.inventur.hilfestellung') }}</h2>
       <p>{{ t('view.inventur.hilfestellungHint') }}</p>
-      <button type="button" class="btn" disabled>{{ t('view.inventur.ohneInventur') }}</button>
-      <small class="hint">{{ t('view.inventur.hilfestellungBald') }}</small>
+
+      <div v-if="hilfeLaden" class="hint">{{ t('view.inventur.laedt') }}</div>
+      <div v-if="hilfeFehler" class="meldung Fehler">{{ hilfeFehler }}</div>
+
+      <div v-if="hilfeItems.length === 0 && !hilfeLaden && !hilfeFehler">
+        <p class="hint">{{ t('view.inventur.hilfeKeineOffenen') }}</p>
+      </div>
+
+      <table v-if="hilfeItems.length > 0" class="hilfe-tabelle">
+        <thead>
+          <tr>
+            <th>{{ t('view.inventur.colArtikel') }}</th>
+            <th>{{ t('view.inventur.colStandort') }}</th>
+            <th>{{ t('view.inventur.colBestand') }}</th>
+            <th>{{ t('view.inventur.colSollMenge') }}</th>
+            <th>{{ t('view.inventur.colDifferenz') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="z in hilfeItems" :key="hilfeKey(z.artikelId, z.standortId)">
+            <td>{{ z.artikelTitel }}</td>
+            <td>{{ z.standortName }}</td>
+            <td class="zahl">{{ z.bestand }}</td>
+            <td>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                class="zahl"
+                :value="sollMengen[hilfeKey(z.artikelId, z.standortId)]"
+                @input="sollMengeAendern(z, $event)"
+              />
+            </td>
+            <td class="zahl">
+              {{
+                (Number(sollMengen[hilfeKey(z.artikelId, z.standortId)] || 0) - z.bestand).toFixed(
+                  0,
+                )
+              }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="hilfeItems.length > 0" class="hilfe-aktionen">
+        <button
+          type="button"
+          class="btn"
+          :disabled="hilfeSpeicherLaufend || !darfErfassen"
+          @click="hilfestellungSpeichern"
+        >
+          {{
+            hilfeSpeicherLaufend
+              ? t('view.inventur.hilfeSpeichert')
+              : t('view.inventur.hilfeErfassen')
+          }}
+        </button>
+        <span v-if="!darfErfassen" class="hint">
+          {{ t('view.inventur.hilfeKeineErlaubnis') }}
+        </span>
+        <div v-if="hilfeMeldung" class="meldung Erfolg">{{ hilfeMeldung }}</div>
+      </div>
     </div>
 
     <div v-if="darfLesen" class="card">
@@ -542,6 +687,36 @@ button.btn:disabled {
 }
 .archiv-mehr {
   margin-top: 0.5rem;
+}
+.hilfe-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  color: var(--text);
+}
+.hilfe-tabelle th,
+.hilfe-tabelle td {
+  border: 1px solid var(--border);
+  padding: 0.4rem;
+  text-align: left;
+}
+.hilfe-tabelle th {
+  background: var(--bg-input);
+  color: var(--text-strong);
+}
+.hilfe-tabelle tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.hilfe-tabelle .zahl {
+  width: 4rem;
+  text-align: right;
+}
+.hilfe-aktionen {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
 }
 .meldung {
   margin-top: 0.5rem;

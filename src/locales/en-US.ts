@@ -437,8 +437,16 @@ export default {
       hilfestellung: 'Inventory assistance (items without inventory)',
       hilfestellungHint:
         'Lists all article/location pairs without an inventory booking and allows entering the target quantities.',
-      ohneInventur: 'Show list',
-      hilfestellungBald: 'coming with the next release',
+      hilfeKeineOffenen: 'All articles/locations already have an inventory.',
+      colBestand: 'Stock',
+      colSollMenge: 'Target qty',
+      colDifferenz: 'Difference',
+      hilfeErfassen: 'Record inventory',
+      hilfeSpeichert: 'Saving …',
+      hilfeKeineErlaubnis:
+        'You need the "Create inventory" permission to record target quantities.',
+      hilfeGespeichert:
+        '{erstellt} inventory booking(s) created, {übersprungen} skipped without changes.',
       archiv: 'Booking archive',
       archivHint: 'Old bookings remain fully preserved on the server and are queryable here.',
       buchungsarchiv: 'Open archive',

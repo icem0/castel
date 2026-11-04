@@ -449,8 +449,16 @@ export default {
       hilfestellung: 'Inventur-Hilfestellung (Artikel ohne Inventur)',
       hilfestellungHint:
         'Listet alle Artikel/Standorte ohne Inventur-Buchung auf und erlaubt das Erfassen der Sollmengen.',
-      ohneInventur: 'Liste anzeigen',
-      hilfestellungBald: 'kommt mit dem nächsten Release',
+      hilfeKeineOffenen: 'Alle Artikel/Standorte haben bereits eine Inventur.',
+      colBestand: 'Bestand',
+      colSollMenge: 'Sollmenge',
+      colDifferenz: 'Differenz',
+      hilfeErfassen: 'Inventur erfassen',
+      hilfeSpeichert: 'Speichert …',
+      hilfeKeineErlaubnis:
+        'Sie benötigen die Berechtigung „Inventur erstellen", um Sollmengen zu erfassen.',
+      hilfeGespeichert:
+        '{erstellt} Inventur-Buchung(en) erstellt, {übersprungen} ohne Änderung übersprungen.',
       archiv: 'Buchungsarchiv',
       archivHint:
         'Alte Buchungen bleiben auf dem Server vollständig erhalten und sind hier abfragbar.',

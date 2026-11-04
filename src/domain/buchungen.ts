@@ -509,6 +509,65 @@ export function istKommissionStorno(
   )
 }
 
+export interface InventurHilfeZeile {
+  artikelId: string
+  standortId: string
+  artikelTitel: string
+  standortName: string
+  bestand: number
+}
+
+/**
+ * Listet alle (aktiven) Artikel × (aktiven) Standort-Paare auf, die noch keine
+ * nicht-stornierte Inventur-Buchung haben — plus den aktuellen Bestand je Paar.
+ * Basis für die geführte Inventur ("Artikel ohne Inventur").
+ */
+export async function artikelOhneInventur(): Promise<InventurHilfeZeile[]> {
+  const db = getDb()
+  const [artikel, standorte, buchungen] = await Promise.all([
+    db.artikel.toArray(),
+    db.standorte.toArray(),
+    db.buchungen.toArray(),
+  ])
+
+  const aktiveArtikel = artikel.filter((a) => a.status !== 'archiviert')
+  const aktiveStandorte = standorte.filter((s) => !s.archiviert)
+
+  // Paare, die bereits eine (nicht-stornierte) Inventur-Buchung haben
+  const mitInventur = new Set<string>()
+  for (const b of buchungen) {
+    if (b.typ === 'inventur' && !b.storno) {
+      mitInventur.add(`${b.artikelId}#${b.standortId}`)
+    }
+  }
+
+  // Buchungen nach ArtikelId gruppieren für schnelle Bestandsabfrage
+  const buchungenProArtikel = new Map<string, Buchung[]>()
+  for (const b of buchungen) {
+    const liste = buchungenProArtikel.get(b.artikelId) ?? []
+    liste.push(b)
+    buchungenProArtikel.set(b.artikelId, liste)
+  }
+
+  const zeilen: InventurHilfeZeile[] = []
+  for (const a of aktiveArtikel) {
+    const artikelBuchungen = buchungenProArtikel.get(a.id) ?? []
+    for (const s of aktiveStandorte) {
+      const key = `${a.id}#${s.id}`
+      if (mitInventur.has(key)) continue
+      const bestand = berechneBestand(artikelBuchungen, s.id)
+      zeilen.push({
+        artikelId: a.id,
+        standortId: s.id,
+        artikelTitel: a.titel,
+        standortName: s.name,
+        bestand,
+      })
+    }
+  }
+  return zeilen
+}
+
 export interface StornoAufhebenEingabe {
   /** ID of the storno booking to undo. */
   stornoId: string
