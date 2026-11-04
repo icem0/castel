@@ -19,7 +19,16 @@ const firmaName = ref<string>(settings.settings.companyName ?? '')
 const firmaNameVomUser = ref(false)
 const barcodeTyp = ref<BarcodeTyp>(settings.settings.barcodeTyp)
 const barcodeTypVomUser = ref(false)
-const inventurStichtag = ref<string>(settings.settings.inventurStichtag ?? '')
+const inventurStichtagMonat = ref<number>(
+  settings.settings.inventurStichtag
+    ? Number.parseInt(settings.settings.inventurStichtag.slice(0, 2), 10)
+    : 0,
+)
+const inventurStichtagTag = ref<number>(
+  settings.settings.inventurStichtag
+    ? Number.parseInt(settings.settings.inventurStichtag.slice(3, 5), 10)
+    : 0,
+)
 const inventurStichtagVomUser = ref(false)
 const inventurVorlaufTage = ref<number>(settings.settings.inventurVorlaufTage ?? 14)
 const inventurVorlaufTageVomUser = ref(false)
@@ -41,7 +50,14 @@ watch(
       barcodeTyp.value = s.barcodeTyp
     }
     if (!inventurStichtagVomUser.value) {
-      inventurStichtag.value = s.inventurStichtag ?? ''
+      const stichtag = s.inventurStichtag ?? ''
+      if (stichtag) {
+        inventurStichtagMonat.value = Number.parseInt(stichtag.slice(0, 2), 10) || 0
+        inventurStichtagTag.value = Number.parseInt(stichtag.slice(3, 5), 10) || 0
+      } else {
+        inventurStichtagMonat.value = 0
+        inventurStichtagTag.value = 0
+      }
     }
     if (!inventurVorlaufTageVomUser.value) {
       inventurVorlaufTage.value = s.inventurVorlaufTage ?? 14
@@ -128,7 +144,9 @@ async function speichernInventur(): Promise<void> {
   laufend.value = true
   try {
     if (auth.hat('inventur.stichtag')) {
-      await settings.setInventurStichtag(inventurStichtag.value || null)
+      const monat = String(inventurStichtagMonat.value).padStart(2, '0')
+      const tag = String(inventurStichtagTag.value).padStart(2, '0')
+      await settings.setInventurStichtag(`${monat}-${tag}`)
       await settings.setInventurVorlaufTage(inventurVorlaufTage.value)
       inventurStichtagVomUser.value = false
       inventurVorlaufTageVomUser.value = false
@@ -320,15 +338,31 @@ onBeforeUnmount(() => {
         t('view.settings.artikelKataloge')
       }}</RouterLink>
       <RouterLink to="/etiketten">{{ t('view.barcode.h1') }}</RouterLink>
+      <RouterLink v-if="auth.hat('inventur.lesen')" to="/einstellungen/inventur">{{
+        t('view.inventur.h1')
+      }}</RouterLink>
     </div>
 
     <h2 v-if="auth.hat('inventur.stichtag')">{{ t('view.settings.inventur') }}</h2>
     <div v-if="auth.hat('inventur.stichtag')" class="card">
       <label class="account-setting">
-        <span class="label">{{ t('view.settings.inventurStichtag') }}</span>
+        <span class="label">{{ t('view.settings.inventurStichtagMonat') }}</span>
         <input
-          v-model="inventurStichtag"
-          type="date"
+          v-model.number="inventurStichtagMonat"
+          type="number"
+          min="1"
+          max="12"
+          step="1"
+          :disabled="laufend"
+          @change="onInventurStichtagChange"
+        />
+        <span class="label">{{ t('view.settings.inventurStichtagTag') }}</span>
+        <input
+          v-model.number="inventurStichtagTag"
+          type="number"
+          min="1"
+          max="31"
+          step="1"
           :disabled="laufend"
           @change="onInventurStichtagChange"
         />

@@ -1454,24 +1454,19 @@ const KEY_PERMISSION: Record<string, Permission> = {
   'inventur.vorlaufTage': 'inventur.stichtag',
 }
 
-/** Prüft `inventur.stichtag`: Kalenderdatum `YYYY-MM-DD`, echtes Datum. */
+/** Prüft `inventur.stichtag`: Kalenderdatum `MM-TT` ohne Jahr (jährlich wiederkehrend). */
 function pruefeInventurStichtag(value: string): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return 'muss ein Kalenderdatum im Format YYYY-MM-DD sein'
+  if (!/^\d{2}-\d{2}$/.test(value)) {
+    return 'muss ein Kalenderdatum im Format MM-TT sein (ohne Jahr)'
   }
-  const zeit = Date.parse(value)
-  if (!Number.isFinite(zeit)) return 'kein gültiges Datum'
-  // Date.parse akzeptiert z. B. "2026-02-30" als 2. März — das ausschliessen.
-  const [jahrStr, monatStr, tagStr] = value.split('-')
-  const jahr = Number.parseInt(jahrStr ?? '', 10)
+  const [monatStr, tagStr] = value.split('-')
   const monat = Number.parseInt(monatStr ?? '', 10)
   const tag = Number.parseInt(tagStr ?? '', 10)
-  const probe = new Date(Date.UTC(jahr, monat - 1, tag))
-  if (
-    probe.getUTCFullYear() !== jahr ||
-    probe.getUTCMonth() !== monat - 1 ||
-    probe.getUTCDate() !== tag
-  ) {
+  if (!Number.isFinite(monat) || monat < 1 || monat > 12) return 'Monat muss zwischen 1 und 12 liegen'
+  if (!Number.isFinite(tag) || tag < 1 || tag > 31) return 'Tag muss zwischen 1 und 31 liegen'
+  // Ungültige Kombinationen (z. B. 02-30, 04-31) ausschliessen.
+  const probe = new Date(Date.UTC(2000, monat - 1, tag))
+  if (probe.getUTCMonth() !== monat - 1 || probe.getUTCDate() !== tag) {
     return 'kein gültiges Kalenderdatum'
   }
   return null

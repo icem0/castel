@@ -52,6 +52,7 @@ import BarcodeScanView from '../views/BarcodeScanView.vue'
 import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
 import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
+import InventurView from '../views/InventurView.vue'
 import BackupView from '../views/BackupView.vue'
 import GeraetView from '../views/GeraetView.vue'
 import ApiKeysView from '../views/ApiKeysView.vue'
@@ -151,6 +152,14 @@ const routes: RouteRecordRaw[] = [
     name: 'einstellungen-hersteller',
     component: HerstellerView,
     meta: { requiresPermission: ['stammdaten.verwalten'] },
+  },
+  {
+    // Inventur-Stichtag, Abschluss und Archiv. Jeder mit `inventur.lesen`
+    // darf den Stand sehen; das Setzen des Stichtags braucht `inventur.stichtag`.
+    path: '/einstellungen/inventur',
+    name: 'einstellungen-inventur',
+    component: InventurView,
+    meta: { requiresPermission: ['inventur.lesen'] },
   },
   {
     path: '/einstellungen/backup',

@@ -418,12 +418,39 @@ export default {
       stammdaten: 'Stammdaten',
       artikelKataloge: 'Artikelkataloge',
       inventur: 'Inventur',
-      inventurStichtag: 'Inventur-Stichtag',
+      inventurStichtagMonat: 'Monat',
+      inventurStichtagTag: 'Tag',
       inventurStichtagHint:
-        'Kalendertag, an dem der Inventur-Bestand als Snapshot für die Buchhaltung festgehalten wird.',
+        'Jährlich wiederkehrender Inventur-Stichtag (Monat/Tag, ohne Jahr). An diesem Tag wird der Inventur-Bestand als Snapshot für die Buchhaltung festgehalten.',
       inventurVorlaufTage: 'Vorlauf-Tage',
       inventurVorlaufTageHint:
         'Wie viele Tage vor dem Stichtag die Erinnerung in den Mindestbestand-Alerts angezeigt wird.',
+    },
+    inventur: {
+      h1: 'Inventur',
+      zurueck: 'Zurück zu den Einstellungen',
+      hint: 'Hier wird der Inventur-Stichtag gepflegt und der Lagerbestand als Snapshot für die Buchhaltung eingefroren. Alte Buchungen bleiben auf dem Server vollständig erhalten und sind über das Archiv abfragbar.',
+      einstellungen: 'Einstellungen',
+      inEinstellungen: 'in den Einstellungen ändern',
+      stichtag: 'Inventur-Stichtag',
+      nichtGesetzt: 'nicht gesetzt',
+      vorlaufTage: 'Erinnerungs-Vorlauf (Tage)',
+      tage: 'Tage',
+      abschluss: 'Abschluss (Snapshot einfrieren)',
+      abschlussHint:
+        'Friert den Bestand zum Stichtag als Snapshot für die Buchhaltung ein. Alte Buchungen bleiben unverändert.',
+      abschliessen: 'Stichtag abschließen',
+      abschlussBald: 'kommt mit dem nächsten Release',
+      hilfestellung: 'Inventur-Hilfestellung (Artikel ohne Inventur)',
+      hilfestellungHint:
+        'Listet alle Artikel/Standorte ohne Inventur-Buchung auf und erlaubt das Erfassen der Sollmengen.',
+      ohneInventur: 'Liste anzeigen',
+      hilfestellungBald: 'kommt mit dem nächsten Release',
+      archiv: 'Buchungsarchiv',
+      archivHint:
+        'Alte Buchungen bleiben auf dem Server vollständig erhalten und sind hier abfragbar.',
+      buchungsarchiv: 'Archiv öffnen',
+      archivBald: 'kommt mit dem nächsten Release',
     },
     apiKeys: {
       h1: 'API-Keys für Agenten',

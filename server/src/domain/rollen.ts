@@ -57,6 +57,10 @@ export const KNOWN_PERMISSIONS: readonly Permission[] = [
   'apiKey.verwalten',
   'entwicklung',
   'inventur.stichtag',
+  'inventur.lesen',
+  'inventur.erstellen',
+  'inventur.abschliessen',
+  'inventur.export',
 ]
 
 /**
@@ -88,6 +92,10 @@ export const DEFAULT_ROLLEN_MATRIX: Record<Rolle, RolleMitBerechtigungen> = {
       'etikett.drucken', 'geraet.lokal',
       'artikel.schreiben', 'artikel.loeschen', 'standort.schreiben', 'mindestbestand.schreiben',
       'inventur.stichtag',
+      'inventur.lesen',
+      'inventur.erstellen',
+      'inventur.abschliessen',
+      'inventur.export',
     ],
   },
   admin: {
@@ -178,6 +186,22 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   'inventur.stichtag': {
     titel: 'Inventur-Stichtag',
     beschreibung: 'Inventur-Stichtag und Erinnerungs-Vorlauf in den Einstellungen setzen.',
+  },
+  'inventur.lesen': {
+    titel: 'Inventur lesen',
+    beschreibung: 'Inventur-Stand, Liste „Artikel ohne Inventur" und Archiv einsehen.',
+  },
+  'inventur.erstellen': {
+    titel: 'Inventur erstellen',
+    beschreibung: 'Inventur-Buchung anlegen und „Inventurwert setzen" für Restbestände.',
+  },
+  'inventur.abschliessen': {
+    titel: 'Inventur abschließen',
+    beschreibung: 'Stichtag abschließen und Bestands-Snapshot für die Buchhaltung einfrieren.',
+  },
+  'inventur.export': {
+    titel: 'Inventur exportieren',
+    beschreibung: 'PDF/CSV für die Buchhaltung erzeugen (Preisspalten benötigen zusätzlich Einkaufspreis).',
   },
 }
 

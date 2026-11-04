@@ -42,6 +42,10 @@ export const PERMISSIONS = [
   'apiKey.verwalten',
   'entwicklung',
   'inventur.stichtag',
+  'inventur.lesen',
+  'inventur.erstellen',
+  'inventur.abschliessen',
+  'inventur.export',
 ] as const
 export type Permission = (typeof PERMISSIONS)[number]
 
@@ -63,6 +67,10 @@ const LAGERIST_BEREECHTIGUNGEN: readonly Permission[] = [
   'standort.schreiben',
   'mindestbestand.schreiben',
   'inventur.stichtag',
+  'inventur.lesen',
+  'inventur.erstellen',
+  'inventur.abschliessen',
+  'inventur.export',
 ]
 
 const ADMIN_BEREECHTIGUNGEN: readonly Permission[] = PERMISSIONS
@@ -201,6 +209,23 @@ export const BERECHTIGUNG_INFO: Record<Permission, BerechtigungInfo> = {
   'inventur.stichtag': {
     titel: 'Inventur-Stichtag',
     beschreibung: 'Inventur-Stichtag und Erinnerungs-Vorlauf in den Einstellungen setzen.',
+  },
+  'inventur.lesen': {
+    titel: 'Inventur lesen',
+    beschreibung: 'Inventur-Stand, Liste „Artikel ohne Inventur" und Archiv einsehen.',
+  },
+  'inventur.erstellen': {
+    titel: 'Inventur erstellen',
+    beschreibung: 'Inventur-Buchung anlegen und „Inventurwert setzen" für Restbestände.',
+  },
+  'inventur.abschliessen': {
+    titel: 'Inventur abschließen',
+    beschreibung: 'Stichtag abschließen und Bestands-Snapshot für die Buchhaltung einfrieren.',
+  },
+  'inventur.export': {
+    titel: 'Inventur exportieren',
+    beschreibung:
+      'PDF/CSV für die Buchhaltung erzeugen (Preisspalten benötigen zusätzlich Einkaufspreis).',
   },
 }
 

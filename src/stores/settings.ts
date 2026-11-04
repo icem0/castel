@@ -59,7 +59,7 @@ export interface Settings {
   /** Barcode-Format für die Artikel-Detail-Ansicht (nur Admins). */
   barcodeTyp: BarcodeTyp
   /**
-   * Kalenderdatum des Inventur-Stichtags (`YYYY-MM-DD`, leer = nicht gesetzt).
+   * Jährlich wiederkehrender Inventur-Stichtag (`MM-TT`, ohne Jahr, leer = nicht gesetzt).
    * An diesem Tag wird der Lagerbestand als Snapshot für die Buchhaltung
    * eingefroren. Global, darf mit `inventur.stichtag` geschrieben werden.
    */
@@ -278,7 +278,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null, istAdmin: b
   const inventurStichtagRow = byKey.get('inventur.stichtag')
   const inventurStichtagRaw = inventurStichtagRow?.value
   const inventurStichtag: string | null =
-    inventurStichtagRaw !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(inventurStichtagRaw)
+    inventurStichtagRaw !== undefined && /^\d{2}-\d{2}$/.test(inventurStichtagRaw)
       ? inventurStichtagRaw
       : DEFAULTS.inventurStichtag
 
