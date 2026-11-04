@@ -609,6 +609,24 @@ compose_up() {
   compose up -d --remove-orphans
 }
 
+# Entfernt alle Images der castel-Repositories, die nicht das aktuell
+# konfigurierte IMAGE_TAG tragen. Nach `docker compose pull` ist :latest (oder
+# der konfigurierte Tag) das neue Image; alle anderen Tags (z. B. :v1.0.83,
+# :pre-release, :<sha>) zeigen auf das alte Image und würden als verwaiste
+# (untagged) Images zurückbleiben, weil sie weder "dangling" noch älter als
+# PURGE_UNTIL sind.
+remove_superseded_images() {
+  local keep_tag="${IMAGE_TAG:-latest}"
+  local repo
+  for repo in ghcr.io/icem0/castel-api ghcr.io/icem0/castel-pwa; do
+    docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null \
+      | grep "^${repo}:" \
+      | grep -v ":${keep_tag}$" \
+      | awk '{print $2}' \
+      | xargs -r docker rmi -f 2>/dev/null || true
+  done
+}
+
 # Waits until the api container is healthy again (its healthcheck calls
 # /api/healthz) and reports the container log when it does not come up. When
 # no api container can be identified the check is skipped.
@@ -791,6 +809,13 @@ main() {
   fi
 
   compose_pull
+
+  # Alte Container stoppen, damit ihre Images freigegeben werden können, und
+  # alle veralteten Images entfernen (außer dem aktuellen IMAGE_TAG), sodass
+  # nach dem Update kein altes / untagged Image zurückbleibt.
+  docker compose stop api pwa 2>/dev/null || true
+  remove_superseded_images
+
   compose_up
   health_check
 
