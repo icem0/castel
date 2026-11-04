@@ -434,7 +434,6 @@ export default {
       abschliessen: 'Close cut-off date',
       abschliessenLaeuft: 'Saving …',
       abschlussErfolg: 'Inventory closed: {positionen} positions frozen.',
-      abschlussBald: 'coming with the next release',
       hilfestellung: 'Inventory assistance (items without inventory)',
       hilfestellungHint:
         'Lists all article/location pairs without an inventory booking and allows entering the target quantities.',
@@ -443,7 +442,6 @@ export default {
       archiv: 'Booking archive',
       archivHint: 'Old bookings remain fully preserved on the server and are queryable here.',
       buchungsarchiv: 'Open archive',
-      archivBald: 'coming with the next release',
       laedt: 'Loading …',
       laedtArchiv: 'Loading archive …',
       mehrLaden: 'Load more',

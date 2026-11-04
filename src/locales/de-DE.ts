@@ -446,7 +446,6 @@ export default {
       abschliessen: 'Stichtag abschließen',
       abschliessenLaeuft: 'Speichert …',
       abschlussErfolg: 'Inventur abgeschlossen: {positionen} Positionen eingefroren.',
-      abschlussBald: 'kommt mit dem nächsten Release',
       hilfestellung: 'Inventur-Hilfestellung (Artikel ohne Inventur)',
       hilfestellungHint:
         'Listet alle Artikel/Standorte ohne Inventur-Buchung auf und erlaubt das Erfassen der Sollmengen.',
@@ -456,7 +455,6 @@ export default {
       archivHint:
         'Alte Buchungen bleiben auf dem Server vollständig erhalten und sind hier abfragbar.',
       buchungsarchiv: 'Archiv öffnen',
-      archivBald: 'kommt mit dem nächsten Release',
       laedt: 'Lädt …',
       laedtArchiv: 'Archiv wird geladen …',
       mehrLaden: 'Mehr laden',

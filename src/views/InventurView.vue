@@ -379,7 +379,6 @@ onBeforeUnmount(() => {
           abschlussLaden ? t('view.inventur.abschliessenLaeuft') : t('view.inventur.abschliessen')
         }}
       </button>
-      <small class="hint">{{ t('view.inventur.abschlussBald') }}</small>
       <div v-if="meldung" class="meldung Erfolg">{{ meldung }}</div>
       <div v-if="fehler" class="meldung Fehler">{{ fehler }}</div>
     </div>
@@ -429,7 +428,6 @@ onBeforeUnmount(() => {
           {{ t('view.inventur.mehrLaden') }}
         </button>
       </div>
-      <small class="hint">{{ t('view.inventur.archivBald') }}</small>
     </div>
 
     <div v-if="darfExportieren" class="card">
