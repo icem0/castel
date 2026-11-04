@@ -9,6 +9,8 @@ export default {
       artikel: 'Items',
       buchungen: 'Transactions',
       mindestbestand: 'Minimum Stock',
+      inventur: 'Inventory',
+      inventurCountdown: 'Inventory in {tage} days',
       akkutausch: 'Batteries',
       scan: 'Scan',
       standorte: 'Locations',

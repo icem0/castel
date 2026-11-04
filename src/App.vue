@@ -13,6 +13,9 @@ import { useAuditStore } from './stores/audit'
 import { useAuthStore } from './stores/auth'
 import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
+import { getDb } from './db/database'
+import type { InventurStichtag } from './db/types'
+import { berechneInventurErinnerung, istAbgeschlossen } from './domain/inventur/erinnerung'
 import { getApiBaseUrl, ApiError, serverMeldung } from './auth/api'
 import { applyTheme } from './theme'
 
@@ -91,6 +94,57 @@ const updateCheckLaeuft = ref(false)
 const updateCheckFehler = ref<string | null>(null)
 const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
 const updateFehler = ref<string | null>(null)
+
+// ---------------------------------------------------------------------------
+// Inventur-Stichtag-Countdown im Menü (nur für inventur.erstellen).
+// Zeigt die Tage bis zum nächsten Stichtag, sobald der Alarm aktiv ist.
+// ---------------------------------------------------------------------------
+const inventurStichteLokal = ref<InventurStichtag[]>([])
+const inventurCountdown = ref<{ tage: number | null; aktiv: boolean }>({ tage: null, aktiv: false })
+let inventurCountdownTimer: ReturnType<typeof setInterval> | null = null
+
+async function ladeInventurStichte(): Promise<void> {
+  try {
+    const db = getDb()
+    inventurStichteLokal.value = await db.inventurStichtage.toArray()
+    berechneInventurCountdown()
+  } catch {
+    // DB evtl. noch nicht bereit — bei Next-Tick erneut versuchen.
+  }
+}
+
+function berechneInventurCountdown(): void {
+  if (!auth.hat('inventur.erstellen')) {
+    inventurCountdown.value = { tage: null, aktiv: false }
+    return
+  }
+  const stichtagWert = settings.settings.inventurStichtag ?? null
+  const vorlauf = settings.settings.inventurVorlaufTage ?? 14
+  if (!stichtagWert) {
+    inventurCountdown.value = { tage: null, aktiv: false }
+    return
+  }
+  const abgeschlossen = istAbgeschlossen(stichtagWert, inventurStichteLokal.value)
+  const er = berechneInventurErinnerung(stichtagWert, vorlauf, abgeschlossen, new Date())
+  inventurCountdown.value = {
+    tage: er.tageBisStichtag,
+    aktiv: er.aktiv,
+  }
+}
+
+function starteInventurCountdownTimer(): void {
+  if (inventurCountdownTimer !== null) return
+  inventurCountdownTimer = setInterval(() => {
+    berechneInventurCountdown()
+  }, 60 * 1000)
+}
+
+function stoppeInventurCountdownTimer(): void {
+  if (inventurCountdownTimer !== null) {
+    clearInterval(inventurCountdownTimer)
+    inventurCountdownTimer = null
+  }
+}
 function toggleVersion(): void {
   versionOffen.value = !versionOffen.value
   if (versionOffen.value && auth.istAdmin) {
@@ -183,6 +237,8 @@ onMounted(() => {
     buchung.start()
     projekt.start()
     audit.start()
+    void ladeInventurStichte()
+    starteInventurCountdownTimer()
   }
   aktualisiereLayout()
   mql = window.matchMedia(MOBILE_LAYOUT_QUERY)
@@ -202,11 +258,21 @@ onBeforeUnmount(() => {
   buchung.stop()
   projekt.stop()
   audit.stop()
+  stoppeInventurCountdownTimer()
   if (mql) mql.removeEventListener('change', onMqlChange)
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
   window.removeEventListener('click', onDocumentClick)
   document.removeEventListener('visibilitychange', onForeground)
+})
+
+// Countdown neu berechnen, wenn sich relevante Settings/Rechte ändern.
+watchEffect(() => {
+  // Trackt: auth.hat, settings.settings.inventurStichtag, settings.settings.inventurVorlaufTage
+  void auth.hat('inventur.erstellen')
+  void settings.settings.inventurStichtag
+  void settings.settings.inventurVorlaufTage
+  berechneInventurCountdown()
 })
 
 // Wenn sich der Login-Status ändert, Stores entsprechend starten/stoppen.
@@ -887,6 +953,20 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/einstellungen/mindestbestand">{{
           t('app.nav.mindestbestand')
         }}</RouterLink>
+        <RouterLink
+          v-if="auth.hat('inventur.erstellen')"
+          to="/einstellungen/inventur"
+          class="inventur-countdown-link"
+          :class="{ aktiv: inventurCountdown.aktiv }"
+        >
+          {{ t('app.nav.inventur') }}
+          <span
+            v-if="inventurCountdown.aktiv && inventurCountdown.tage != null"
+            class="countdown-badge"
+          >
+            {{ t('app.nav.inventurCountdown', { tage: inventurCountdown.tage }) }}
+          </span>
+        </RouterLink>
         <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
           t('app.nav.akkutausch')
         }}</RouterLink>
@@ -1602,6 +1682,45 @@ function formatRelativ(iso: string | null): string {
 .app-header nav a.scan-link.router-link-active {
   background: var(--accent);
   color: white;
+}
+
+.app-header nav a.inventur-countdown-link {
+  position: relative;
+  color: var(--text-muted);
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.92rem;
+  text-decoration: none;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.app-header nav a.inventur-countdown-link:hover {
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--text-strong);
+}
+
+.app-header nav a.inventur-countdown-link.router-link-active {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.app-header nav a.inventur-countdown-link.aktiv {
+  color: var(--danger);
+}
+
+.countdown-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.35);
 }
 
 .header-right {
