@@ -283,8 +283,8 @@ echo "- Anforderungsmodus"
 setup_env
 printf '{"phase":"done","ok":true}' >"$FAKE_DOCKER_STATE_FILE"
 run_update --if-requested --skip-git --skip-purge
-check "Exit-Code ohne offene Anforderung" "0" "$RUN_RC"
-check_not_contains "kein Update ohne offene Anforderung" "Update gestartet" "$RUN_OUT"
+check "Exit-Code ohne offene Anforderung (phase=done)" "23" "$RUN_RC"
+check_contains "Meldung nennt keine offene Anforderung" "keine offene Update-Anforderung" "$RUN_OUT"
 
 setup_env
 printf '{"phase":"requested","requestedAt":"2026-01-01T00:00:00Z"}' >"$FAKE_DOCKER_STATE_FILE"
@@ -294,13 +294,25 @@ check_contains "Update läuft bei offener Anforderung" "Update gestartet" "$RUN_
 setup_env
 printf '{"phase":"running","startedAtEpoch":%s}' "$(date +%s)" >"$FAKE_DOCKER_STATE_FILE"
 run_update --if-requested --skip-git --skip-purge
-check "frischer running-Zustand blockiert einen zweiten Lauf" "0" "$RUN_RC"
-check_not_contains "kein zweiter Lauf bei frischem running" "Update gestartet" "$RUN_OUT"
+check "frischer running-Zustand blockiert einen zweiten Lauf" "22" "$RUN_RC"
+check_contains "Meldung nennt laufendes Update" "läuft bereits" "$RUN_OUT"
 
 setup_env
 printf '{"phase":"running","startedAtEpoch":%s}' "$(( $(date +%s) - 7200 ))" >"$FAKE_DOCKER_STATE_FILE"
 run_update --if-requested --skip-git --skip-purge
 check_contains "veralteter running-Zustand wird neu gestartet" "veraltet" "$RUN_OUT"
+
+setup_env
+printf '' >"$FAKE_DOCKER_STATE_FILE"
+run_update --if-requested --skip-git --skip-purge
+check "Exit-Code ohne DB-Zeile (leerer State)" "21" "$RUN_RC"
+check_contains "Meldung nennt fehlende Anforderung in DB" "keine Update-Anforderung in der DB" "$RUN_OUT"
+
+setup_env
+export FAKE_DOCKER_DB_CONTAINER=""
+run_update --if-requested --skip-git --skip-purge
+check "Exit-Code ohne db-Container" "20" "$RUN_RC"
+check_contains "Meldung nennt fehlenden db-Container" "kein db-Container erreichbar" "$RUN_OUT"
 
 # ---------- 7. State writeback ----------
 echo "- Status-Rückmeldung"

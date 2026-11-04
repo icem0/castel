@@ -684,7 +684,7 @@ on_error() {
   local line="${1:-unknown}"
   set +e
   FINISHED_AT="$(now_iso)"
-  MESSAGE="Fehler in Zeile ${line} (Exit-Code ${exit_code})"
+  MESSAGE="Fehler in Schritt '${STEP:-unbekannt}' (Zeile ${line}, Exit-Code ${exit_code})"
   log_line "FEHLER: ${MESSAGE}"
   # Auch bei einem fehlgeschlagenen Lauf die ungetagten (dangling) Images
   # aufräumen, die durch einen abgebrochenen Pull/Retag zurückbleiben.
@@ -709,27 +709,34 @@ main() {
 
   if [ "$ONLY_IF_REQUESTED" -eq 1 ]; then
     if [ -z "$DB_CONTAINER" ]; then
-      log_line "Kein db-Container - Anforderung kann nicht gelesen werden. Abbruch."
-      exit 0
+      echo "FEHLER: kein db-Container erreichbar - Update-Anforderung kann nicht aus der DB gelesen werden." >&2
+      echo "        Prüfen Sie, ob der Postgres-Container läuft und erreichbar ist." >&2
+      exit 20
     fi
     local state
     state="$(state_read)"
+    if [ -z "$state" ]; then
+      echo "FEHLER: keine Update-Anforderung in der DB gefunden (einstellungen: key='server.updateState')." >&2
+      echo "        Führen Sie den Update-Request in der PWA (Einstellungen → Entwicklung) aus." >&2
+      exit 21
+    fi
     local phase=""
     phase="$(state_field "$state" "phase")"
     if [ "$phase" != "requested" ]; then
-      # A "running" state means another attempt is in flight. It is only
-      # retried when it is stale (the runner died).
       if [ "$phase" = "running" ]; then
         local started_epoch
         started_epoch="$(state_number "$state" "startedAtEpoch")"
         if state_is_stale "$started_epoch"; then
           log_line "Vorheriger Update-Lauf ist veraltet - neuer Versuch."
         else
-          exit 0
+          echo "FEHLER: ein Update läuft bereits (phase=running, gestartet am ${started_epoch:-unbekannt})." >&2
+          echo "        Warten Sie, bis dieser abgeschlossen ist, oder setzen Sie den Status zurück." >&2
+          exit 22
         fi
       else
-        # Nothing to do.
-        exit 0
+        echo "FEHLER: keine offene Update-Anforderung (phase='${phase:-nichts gesetzt}')." >&2
+        echo "        Führen Sie den Update-Request in der PWA (Einstellungen → Entwicklung) aus." >&2
+        exit 23
       fi
     fi
     local requested
