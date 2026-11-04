@@ -255,6 +255,20 @@ tatsächlichen Zustand der Liste, nicht die Erinnerung daran.
 
 ## Build & Deployment
 
+- **Build-Run-Namen in GitHub Actions — HARTE REGEL, keine Ausnahme:** Jeder
+  Workflow-Run heisst `v<MAJOR.MINOR.PATCH> — <sehr kurze Beschreibung>`
+  (z. B. `v1.0.73 — fix(sync): outbox retry`). Der Versions-Prefix ist die
+  `version` aus `package.json` des gepushten Commits; Root und Server müssen
+  identisch sein (sonst `v<root> (API v<server>)`). Die Beschreibung ist der
+  manuelle Run-Titel (`workflow_dispatch`), sonst der PR-Titel, sonst die
+  erste Zeile der Commit-Message — auf 80 Zeichen gekürzt. Ein Run ohne
+  Versions-Prefix ist ein Regelverstoss und wird als Fehler behandelt.
+  - Umsetzung: `run-name` kann `package.json` nicht lesen (wird vor den Jobs
+    ausgewertet). Der `version`-Job liest die Version und benennt den Run per
+    `PATCH /repos/:owner/:repo/actions/runs/:id` um (`actions: write`).
+    Schlägt das Umbenennen fehl, schlägt der Job fehl — kein stiller Verstoss.
+  - Nach jedem Push prüft der Agent den Run-Namen (`gh run list … --json
+    displayTitle` bzw. die GitHub-API) und meldet ihn im Abschluss-Status.
 - **CI-Build wird automatisch ausgelöst.** Der GitHub-Workflow `.github/workflows/build-and-push.yml` baut bei jedem Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** dem SHA-Tag. Der Agent startet den CI-Build **nicht manuell** — ein Push auf `main` reicht.
 - **Jeder Push wird verifiziert (Pflicht, gelernter Fix-Fehler).** Ein `git push` kann scheinbar durchlaufen und trotzdem still scheitern (Timeout, Remote-Ablehnung). Danach IMMER prüfen:
   ```bash
@@ -280,7 +294,7 @@ tatsächlichen Zustand der Liste, nicht die Erinnerung daran.
 - **Images kommen aus GHCR.** `docker-compose.yml` referenziert `api`, `pwa` und `migrate` hartkodiert als `ghcr.io/icem0/castel-{api,pwa}:latest`. **Kein** `build:`-Block, **kein** Variablen-Override. Deployer ziehen die Images — fertig.
 - **`migrate`** ist ein Entry-Point des API-Images (`node dist/db/migrate.js`). Es wird also nicht für jeden Job ein eigenes Image gebaut. Die `api`-Service-Definition startet vor jedem Server-Start automatisch `node dist/db/migrate.js` (idempotent — bereits angewendete Migrationen werden uebersprungen). Den allerersten Admin legt die PWA selbst an, sobald `/api/auth/setup-status` meldet, dass die `users`-Tabelle leer ist. Der `migrate`-Profil-Service bleibt fuer manuelle Aufrufe erhalten (`docker compose --profile migrate run --rm migrate`).
 - **CI-Workflow** `.github/workflows/build-and-push.yml` baut bei Push auf `main` die Images und pusht sie mit Tag `:latest`, `:pre-release` **und** mit dem SHA-Tag **und** mit dem Versions-Tag `:v<MAJOR.MINOR.PATCH>`. Bei Pull-Requests wird **nur** gebaut, nicht gepusht (Gate `if: github.event_name != 'pull_request'`). Sichtbarkeit wird per `PATCH /user/packages/container/{pkg}` auf `public` gesetzt.
-- **Manueller Build mit eigenem Titel** (`workflow_dispatch`): Im GitHub-UI unter *Actions → build-and-push → Run workflow* lässt sich ein Run mit einem **Titel** starten (Input `name`, z. B. „Akkutausch-Verwaltung“). Der `run-name` des Workflows übernimmt diesen Titel; Push-/PR-Runs bleiben unverändert `build-and-push`. Ein manueller Run pusht wie ein Push (`:latest`, `:pre-release`, SHA-Tag) — er ist also **kein**Dry-Run und überschreibt `:latest`. Es gibt bewusst **keinen** Workflow pro Feature: ein Build entsteht pro Push, das Thema steckt im Commit-Titel.
+- **Manueller Build mit eigenem Titel** (`workflow_dispatch`): Im GitHub-UI unter *Actions → build-and-push → Run workflow* lässt sich ein Run mit einem **Titel** starten (Input `name`, z. B. „Akkutausch-Verwaltung“). Der `version`-Job setzt den endgültigen Run-Namen **immer** als `v<version> — <Titel>` (Push: erste Commit-Zeile, PR: PR-Titel). Ein manueller Run pusht wie ein Push (`:latest`, `:pre-release`, SHA-Tag) — er ist also **kein** Dry-Run und überschreibt `:latest`. Es gibt bewusst **keinen** Workflow pro Feature: ein Build entsteht pro Push, das Thema steckt im Commit-Titel.
 - **GHCR-Token**: Für private Pakete braucht der Deployer einen GitHub-PAT mit Scope `read:packages`. Bare Docker / Coolify: `docker login ghcr.io`. Arcane: einmalig `POST /container-registries` mit dem PAT. Für öffentliche Pakete reicht kein Token.
 - **GHCR-Visibility-Automation**: `build-and-push.yml` ruft am Ende jedes Jobs `PATCH /user/packages/container/{pkg}` mit `{"visibility":"public"}`. Der automatische `GITHUB_TOKEN` darf das für User-Repos **nicht** (gibt 404). Lösung: klassischen PAT mit Scopes `repo` + `write:packages` unter dem Secret-Namen **`GHCR_ADMIN_TOKEN`** im Repo hinterlegen (`Settings → Secrets and variables → Actions`). Ohne Secret wird der Flip mit `::warning::` übersprungen — das Image wird trotzdem gepusht, das Paket bleibt aber `private`. Für server-seitige Pulls reicht das (Auth gegen `ghcr.io` via `docker login` bzw. Coolify-/Arcane-Registry-Config). Wer das Paket wirklich öffentlich haben will, legt den Secret an, der Flip läuft dann automatisch.
 - **Arcane / Coolify / bare Docker** funktionieren ohne Anpassung — sie alle ziehen `image:`-Referenzen transparent. Der frühere `build:`-Pfad ist absichtlich entfernt.
