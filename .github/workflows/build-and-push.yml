@@ -47,6 +47,47 @@ jobs:
           echo "serverVersion=$SERVER_VERSION" >> $GITHUB_OUTPUT
           echo "::notice title=Build version::PWA v$ROOT_VERSION / API v$SERVER_VERSION"
 
+      # HARD RULE: der Run-Name beginnt mit dem Versions-Prefix, z. B.
+      # "v1.0.76 — feat(inventur): stichtag als MM-TT ohne Jahr". run-name
+      # kann package.json nicht lesen, daher wird der Name hier gepatcht,
+      # sobald die Version bekannt ist. Ein fehlgeschlagener Rename schlägt
+      # den Job fehl — ein Run ohne Versions-Prefix verstösst gegen AGENTS.md.
+      - name: Rename run with version prefix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.read-version.outputs.rootVersion }}
+          SERVER_VERSION: ${{ steps.read-version.outputs.serverVersion }}
+          CUSTOM_TITLE: ${{ inputs.name }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          node -e '
+            const root = process.env.VERSION;
+            const server = process.env.SERVER_VERSION;
+            const prefix = root === server ? `v${root}` : `v${root} (API v${server})`;
+            let subject = (process.env.CUSTOM_TITLE || "").trim();
+            if (!subject) subject = (process.env.PR_TITLE || "").trim();
+            if (!subject) subject = (process.env.COMMIT_MESSAGE || "").split("\n")[0].trim();
+            if (subject.length > 80) subject = subject.slice(0, 77) + "...";
+            const name = subject ? `${prefix} — ${subject}` : prefix;
+            require("fs").writeFileSync("/tmp/run-name.json", JSON.stringify({ name }));
+            console.log(`Run name: ${name}`);
+          '
+          status=$(curl -sS -o /tmp/run-name-resp.json -w "%{http_code}" \
+            -X PATCH \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}" \
+            -d @/tmp/run-name.json)
+          cat /tmp/run-name-resp.json; echo
+          if [ "${status}" != "200" ]; then
+            echo "::error::Run konnte nicht mit Versions-Prefix benannt werden (HTTP ${status})."
+            exit 1
+          fi
+
   # ---------- API ----------
   api:
     needs: version
