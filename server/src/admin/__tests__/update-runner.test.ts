@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { startUpdater, type RunFn } from '../update-runner.js'
+import { probeDocker, startUpdater, type RunFn } from '../update-runner.js'
 
 type Call = { cmd: string; args: string[] }
 
@@ -27,6 +27,42 @@ const baseHandler = (call: Call) => {
   if (call.args[0] === 'run') return { stdout: 'container-id' }
   return { stdout: '' }
 }
+
+describe('probeDocker', () => {
+  it('meldet einen fehlenden Socket als SOCKET_MISSING', async () => {
+    vi.stubEnv('DOCKER_HOST', 'unix:///nonexistent/castel-test.sock')
+    const run: RunFn = async () => {
+      throw new Error(
+        'Cannot connect to the Docker daemon at unix:///nonexistent/castel-test.sock. Is the docker daemon running?',
+      )
+    }
+    await expect(probeDocker(run)).resolves.toEqual({
+      available: false,
+      reason: 'SOCKET_MISSING',
+    })
+    vi.unstubAllEnvs()
+  })
+
+  it('meldet eine fehlende Docker-CLI als DOCKER_CLI_MISSING', async () => {
+    const run: RunFn = async () => {
+      throw new Error('spawn docker ENOENT')
+    }
+    await expect(probeDocker(run)).resolves.toEqual({
+      available: false,
+      reason: 'DOCKER_CLI_MISSING',
+    })
+  })
+
+  it('meldet fehlende Rechte als SOCKET_PERMISSION', async () => {
+    const run: RunFn = async () => {
+      throw new Error('permission denied while trying to connect to the Docker daemon socket')
+    }
+    await expect(probeDocker(run)).resolves.toEqual({
+      available: false,
+      reason: 'SOCKET_PERMISSION',
+    })
+  })
+})
 
 describe('startUpdater', () => {
   it('startet einen abgesetzten Updater-Container mit Socket und Projektordner', async () => {

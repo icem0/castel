@@ -14,7 +14,7 @@
 //   `com.docker.compose.project.working_dir` of the api container itself.
 
 import { execFile } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -36,9 +36,18 @@ export type DockerProbe = {
   reason: string | null
 }
 
+/** Unix socket path the CLI talks to, or null for remote (tcp/ssh) daemons. */
+function dockerSocketPath(): string | null {
+  const host = process.env.DOCKER_HOST
+  if (host) {
+    return host.startsWith('unix://') ? host.slice('unix://'.length) : null
+  }
+  return '/var/run/docker.sock'
+}
+
 /**
  * Probes the Docker daemon and classifies the failure so the admin UI can
- * show an actionable hint (missing CLI vs. socket permission vs. no daemon).
+ * show an actionable hint (missing CLI vs. missing socket vs. permission).
  */
 export async function probeDocker(run: RunFn = defaultRun): Promise<DockerProbe> {
   try {
@@ -46,11 +55,18 @@ export async function probeDocker(run: RunFn = defaultRun): Promise<DockerProbe>
     return { available: true, reason: null }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (/ENOENT|not found/i.test(message)) {
+    if (/spawn docker ENOENT|docker: (command )?not found|command not found/i.test(message)) {
       return { available: false, reason: 'DOCKER_CLI_MISSING' }
     }
     if (/permission denied|EACCES/i.test(message)) {
       return { available: false, reason: 'SOCKET_PERMISSION' }
+    }
+    if (/cannot connect to the docker daemon|is the docker daemon running/i.test(message)) {
+      const socket = dockerSocketPath()
+      if (socket && !existsSync(socket)) {
+        return { available: false, reason: 'SOCKET_MISSING' }
+      }
+      return { available: false, reason: 'DOCKER_UNAVAILABLE' }
     }
     return { available: false, reason: 'DOCKER_UNAVAILABLE' }
   }
