@@ -105,8 +105,8 @@ case "$1" in
       *com.docker.compose.project*) printf '%s\n' "${FAKE_DOCKER_PROJECT:-castel}" ;;
       *Names*)
         case "$service" in
-          db) printf '%s\n' "${FAKE_DOCKER_DB_CONTAINER:-castel-db-1}" ;;
-          *) printf '%s\n' "${FAKE_DOCKER_API_CONTAINER:-castel-api-1}" ;;
+          db) printf '%s\n' "${FAKE_DOCKER_DB_CONTAINER-castel-db-1}" ;;
+          *) printf '%s\n' "${FAKE_DOCKER_API_CONTAINER-castel-api-1}" ;;
         esac
         ;;
       *) : ;;
@@ -207,8 +207,8 @@ echo "- Preflight"
 setup_env
 rm -f "$WORK_DIR/checkout/.env"
 run_update --skip-git --skip-purge
-check "Exit-Code bei fehlender .env" "11" "$RUN_RC"
-check_contains "Fehlermeldung nennt die .env" "keine .env" "$RUN_OUT"
+check "Fehlende .env bricht das Update nicht ab" "0" "$RUN_RC"
+check_contains "Fehlende .env wird nur als Hinweis gemeldet" "keine .env" "$RUN_OUT"
 
 setup_env
 rm -f "$WORK_DIR/checkout/docker-compose.yml"
@@ -226,6 +226,26 @@ export FAKE_DOCKER_INFO_RC=1
 run_update --skip-git --skip-purge
 check "Exit-Code bei totem Docker-Daemon" "10" "$RUN_RC"
 check_contains "Fehlermeldung nennt den Daemon" "Docker-Daemon nicht erreichbar" "$RUN_OUT"
+
+# ---------- 3b. Graceful degradation (Arcane-like environments) ----------
+echo "- Ohne Git/.env/DB (z. B. Arcane)"
+setup_env
+rm -rf "$WORK_DIR/checkout/.git"
+run_update --skip-purge
+check "Lauf ohne Git-Checkout gelingt" "0" "$RUN_RC"
+check_contains "git-Schritt wird automatisch übersprungen" "kein Git-Checkout" "$RUN_OUT"
+
+setup_env
+rm -f "$WORK_DIR/checkout/.env"
+rm -rf "$WORK_DIR/checkout/.git"
+run_update --skip-purge
+check "Lauf ohne .env und ohne Git gelingt" "0" "$RUN_RC"
+
+setup_env
+export FAKE_DOCKER_DB_CONTAINER=""
+run_update --skip-git --skip-purge
+check "Lauf ohne db-Container gelingt" "0" "$RUN_RC"
+check_contains "Hinweis auf fehlenden db-Container" "kein db-Container" "$RUN_OUT"
 
 # ---------- 4. Dirty worktree ----------
 echo "- Git"

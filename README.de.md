@@ -126,6 +126,22 @@ Das Skript prüft die Datenbank auf eine offene Anforderung und führt nur dann
 etwas aus. Fortschritt und Protokoll landen in der Datenbank, die PWA zeigt sie
 live an.
 
+Das Skript ist bewusst umgebungsrobust und funktioniert auch in einer
+Arcane-/Portainer-Umgebung, also ohne Git-Checkout und ohne `.env` im
+Projektordner: Fehlt `.git`/`git`, wird der git-Schritt automatisch
+übersprungen (es werden nur die Images aktualisiert). Stammt der Stack nicht
+aus einem Checkout, erkennt das Skript Projektname und Compose-Dateien über die
+Compose-Labels der laufenden Container (Fallback: `docker compose ls` bzw.
+Standard-Dateinamen). Reicht der Zugriff auf den Docker-Socket nicht, einmalig
+mit `sudo` ausführen. Pfad und Projektname lassen sich explizit setzen:
+
+```bash
+CASTEL_REPO_DIR=/opt/docker/castel CASTEL_PROJECT_NAME=castel ./scripts/update.sh --if-requested
+```
+
+Benötigt wird lediglich `docker` mit `docker compose` (v2) oder
+`docker-compose` (v1).
+
 > **Wichtig:** `docker compose down -v` oder ein zurückgesetztes `pgdata`-Volume löscht die Datenbank. Danach ist die User-Tabelle leer, die PWA springt auf das Erst-Setup und ein zuvor erstellter Admin existiert nicht mehr.
 
 ---

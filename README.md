@@ -125,6 +125,21 @@ cd /srv/castel && ./scripts/update.sh --if-requested
 The runner checks the database for a pending request and only acts then.
 Progress and log end up in the database, the PWA displays them live.
 
+The runner is deliberately environment-robust and also works in an
+Arcane/Portainer setup, i.e. without a git checkout and without a `.env` in the
+project folder: if `.git`/`git` is missing, the git step is skipped
+automatically (only the images are updated). If the stack does not come from a
+checkout, the runner detects the project name and compose files from the
+compose labels of the running containers (fallback: `docker compose ls` and the
+standard file names). If access to the docker socket is not sufficient, run it
+once with `sudo`. Path and project name can be set explicitly:
+
+```bash
+CASTEL_REPO_DIR=/opt/docker/castel CASTEL_PROJECT_NAME=castel ./scripts/update.sh --if-requested
+```
+
+All it needs is `docker` with `docker compose` (v2) or `docker-compose` (v1).
+
 > **Important:** `docker compose down -v` or a reset `pgdata` volume deletes the database. Afterwards the user table is empty, the PWA falls back to first-time setup and a previously created admin no longer exists.
 
 ---

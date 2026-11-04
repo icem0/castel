@@ -3,11 +3,24 @@
 # castel update runner (host side).
 #
 # Runs the complete stack update:
-#   1. git pull --ff-only     - source of truth for compose file, .env, scripts
-#   2. docker compose pull    - new images from GHCR
+#   1. git pull --ff-only     - only when the checkout is a clean git repo
+#   2. docker compose pull    - new images from GHCR (with retries)
 #   3. docker compose up -d   - recreate the containers that changed
 #   4. health check           - the api container must become healthy again
 #   5. docker image prune     - remove dangling + unused old images
+#
+# DESIGNED TO WORK IN MANY ENVIRONMENTS
+#   The runner does not assume a git checkout, a .env file or a specific
+#   compose version. It degrades gracefully:
+#     - no .git / no git binary  -> git step is skipped automatically
+#     - no .env                  -> warns and continues (env may come from the
+#                                   orchestrator, e.g. Arcane/Variables)
+#     - no db container          -> update runs, progress is only logged
+#     - docker compose v1        -> falls back to `docker-compose`
+#   It finds the stack from the compose labels of the running containers
+#   (works for stacks deployed by Arcane, Portainer, plain `docker compose`,
+#   systemd, ...), with `docker compose ls` and the current directory as
+#   additional fallbacks.
 #
 # WHY THIS RUNS ON THE HOST AND NOT INSIDE A CONTAINER
 #   The api container has no git credentials, no access to the compose project
@@ -18,13 +31,16 @@
 #   The update replaces the api container. Anything kept in process memory is
 #   gone afterwards. The DB survives, so the request flag and the progress log
 #   live in `einstellungen` (key "server.updateState") and the PWA can show
-#   them while the stack restarts.
+#   them while the stack restarts. Without a reachable db the runner still
+#   updates the stack, it just cannot report progress back.
 #
 # USAGE
 #   ./scripts/update.sh                  run the update right now
 #   ./scripts/update.sh --if-requested   run only if the PWA requested one
+#   sudo ./scripts/update.sh             when the docker socket needs root
 #
 # OPTIONS
+#   --if-requested      only run when the PWA requested an update
 #   --skip-git          do not touch git (images only)
 #   --skip-purge        do not remove any images
 #   --no-builder-prune  keep the docker build cache
@@ -33,7 +49,11 @@
 #
 # ENVIRONMENT
 #   CASTEL_REPO_DIR            explicit path of the compose checkout
-#   CASTEL_HEALTH_TIMEOUT_SEC  seconds to wait for a healthy api (default 120)
+#   CASTEL_PROJECT_NAME        explicit compose project name
+#   CASTEL_PROJECT_DIR         alias for the project directory (fallback)
+#   CASTEL_HEALTH_TIMEOUT_SEC  seconds to wait for a healthy api (default 180)
+#   CASTEL_PULL_RETRIES        attempts for `docker compose pull` (default 3)
+#   CASTEL_PULL_RETRY_DELAY    seconds between pull attempts (default 5)
 #   CASTEL_PURGE_UNTIL         age filter for unused images (default 168h)
 #
 set -Eeuo pipefail
@@ -42,9 +62,11 @@ set -Eeuo pipefail
 
 STATE_KEY="server.updateState"
 LOG_MAX_CHARS=32000
-HEALTH_TIMEOUT_SEC="${CASTEL_HEALTH_TIMEOUT_SEC:-120}"
+HEALTH_TIMEOUT_SEC="${CASTEL_HEALTH_TIMEOUT_SEC:-180}"
 HEALTH_POLL_SEC="${CASTEL_HEALTH_POLL_SEC:-3}"
 PURGE_UNTIL="${CASTEL_PURGE_UNTIL:-168h}"
+PULL_RETRIES="${CASTEL_PULL_RETRIES:-3}"
+PULL_RETRY_DELAY="${CASTEL_PULL_RETRY_DELAY:-5}"
 LOCK_FILE="${CASTEL_UPDATE_LOCK:-/tmp/castel-update.lock}"
 
 # ---------- Runtime state ----------
@@ -52,6 +74,7 @@ LOCK_FILE="${CASTEL_UPDATE_LOCK:-/tmp/castel-update.lock}"
 REPO_DIR=""
 PROJECT_NAME=""
 COMPOSE_FILES=()
+COMPOSE_CLI=()
 DB_CONTAINER=""
 API_CONTAINER=""
 LOG_FILE=""
@@ -66,11 +89,8 @@ VERSION_AFTER=""
 IMAGE_TAG="latest"
 HOSTNAME_VALUE="$(hostname 2>/dev/null || echo unknown)"
 
-PHASE="requested"
 STEP=""
 MESSAGE=""
-EXIT_CODE=""
-OK_JSON="null"
 
 # ---------- Options ----------
 
@@ -81,7 +101,7 @@ ALLOW_DIRTY=0
 PURGE_BUILDER=1
 
 usage() {
-  sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 parse_args() {
@@ -184,6 +204,179 @@ first_line() {
   printf '%s\n' "$1" | sed -n '1p'
 }
 
+# ---------- Docker / compose detection ----------
+
+# Chooses the compose CLI once. Supports the v2 plugin and the legacy
+# `docker-compose` binary so the runner works on older hosts too.
+detect_compose_cmd() {
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CLI=(docker compose)
+    return 0
+  fi
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_CLI=(docker-compose)
+    return 0
+  fi
+  COMPOSE_CLI=()
+}
+
+# Reads a label from running containers, optionally limited to the detected
+# project and one service. Returns one value per line.
+ps_label() {
+  local key="$1"
+  local service="${2:-}"
+  local args=(--format "{{.Label \"$key\"}}")
+  if [ -n "$PROJECT_NAME" ]; then
+    args=(--filter "label=com.docker.compose.project=$PROJECT_NAME" "${args[@]}")
+  fi
+  if [ -n "$service" ]; then
+    args+=(--filter "label=com.docker.compose.service=$service")
+  fi
+  docker ps "${args[@]}" 2>/dev/null | sed '/^[[:space:]]*$/d' || true
+}
+
+# Container names for a service label (optionally limited to the project).
+ps_names() {
+  local service="$1"
+  local args=(--filter "label=com.docker.compose.service=$service" --format '{{.Names}}')
+  if [ -n "$PROJECT_NAME" ]; then
+    args=(--filter "label=com.docker.compose.project=$PROJECT_NAME" "${args[@]}")
+  fi
+  docker ps "${args[@]}" 2>/dev/null | sed '/^[[:space:]]*$/d' || true
+}
+
+# The compose project name. Prefers explicit configuration, then the label of
+# any running container (works for Arcane/Portainer/plain compose), then a
+# project discovered via `docker compose ls`.
+detect_project_name() {
+  if [ -n "${CASTEL_PROJECT_NAME:-}" ]; then
+    printf '%s' "$CASTEL_PROJECT_NAME"
+    return 0
+  fi
+  if [ -n "${COMPOSE_PROJECT_NAME:-}" ]; then
+    printf '%s' "$COMPOSE_PROJECT_NAME"
+    return 0
+  fi
+
+  local names=""
+  names="$(docker ps --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null |
+    sed '/^[[:space:]]*$/d' | sort -u || true)"
+
+  local pick=""
+  if [ -n "$names" ]; then
+    pick="$(printf '%s\n' "$names" | grep -i 'castel' | head -n 1 || true)"
+    if [ -z "$pick" ] && [ "$(printf '%s\n' "$names" | wc -l | tr -d ' ')" = "1" ]; then
+      pick="$names"
+    fi
+  fi
+
+  if [ -z "$pick" ] && [ "${#COMPOSE_CLI[@]}" -gt 0 ]; then
+    local ls_json=""
+    ls_json="$("${COMPOSE_CLI[@]}" ls --format json 2>/dev/null || true)"
+    if [ -n "$ls_json" ]; then
+      pick="$(printf '%s' "$ls_json" |
+        grep -o '"Name"[[:space:]]*:[[:space:]]*"[^"]*"' |
+        sed 's/.*"\([^"]*\)"$/\1/' | grep -i 'castel' | head -n 1 || true)"
+      if [ -z "$pick" ]; then
+        pick="$(printf '%s' "$ls_json" |
+          grep -o '"Name"[[:space:]]*:[[:space:]]*"[^"]*"' |
+          sed 's/.*"\([^"]*\)"$/\1/' | head -n 1 || true)"
+      fi
+    fi
+  fi
+
+  printf '%s' "$pick"
+}
+
+# Finds the db and api containers. Both are optional: a missing db only
+# disables progress reporting, a missing api only simplifies the health check.
+detect_containers() {
+  DB_CONTAINER="${CASTEL_DB_CONTAINER:-}"
+  if [ -z "$DB_CONTAINER" ]; then
+    DB_CONTAINER="$(first_line "$(ps_names db)")"
+  fi
+  if [ -z "$DB_CONTAINER" ]; then
+    DB_CONTAINER="$(docker ps --format '{{.Names}}\t{{.Image}}' 2>/dev/null |
+      awk -F'\t' 'tolower($2) ~ /postgres/ {print $1; exit}' || true)"
+  fi
+
+  API_CONTAINER="${CASTEL_API_CONTAINER:-}"
+  if [ -z "$API_CONTAINER" ]; then
+    API_CONTAINER="$(first_line "$(ps_names api)")"
+  fi
+  return 0
+}
+
+# The compose checkout directory on the host. Docker compose v2 stores it in
+# the `com.docker.compose.project.working_dir` label of every container.
+detect_repo_dir() {
+  if [ -n "${CASTEL_REPO_DIR:-}" ]; then
+    printf '%s' "$CASTEL_REPO_DIR"
+    return 0
+  fi
+  if [ -n "${CASTEL_PROJECT_DIR:-}" ]; then
+    printf '%s' "$CASTEL_PROJECT_DIR"
+    return 0
+  fi
+
+  local dir=""
+  dir="$(first_line "$(ps_label 'com.docker.compose.project.working_dir')")"
+  if [ -n "$dir" ]; then
+    printf '%s' "$dir"
+    return 0
+  fi
+
+  # Fallback: derive it from the config file label.
+  local files=""
+  files="$(first_line "$(ps_label 'com.docker.compose.project.config_files')")"
+  if [ -n "$files" ]; then
+    local first="${files%%,*}"
+    if [ -n "$first" ]; then
+      printf '%s' "$(dirname "$first")"
+      return 0
+    fi
+  fi
+
+  # Last resort: the current directory, when it contains a compose file.
+  local c
+  for c in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+    if [ -f "$c" ]; then
+      printf '%s' "$(pwd)"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# The compose files that the running stack was created from. Falls back to the
+# usual filenames inside the project directory.
+detect_compose_files() {
+  COMPOSE_FILES=()
+
+  local files=""
+  files="$(first_line "$(ps_label 'com.docker.compose.project.config_files')")"
+  if [ -n "$files" ]; then
+    local IFS=','
+    local f
+    for f in $files; do
+      [ -n "$f" ] && COMPOSE_FILES+=("$f")
+    done
+    unset IFS
+  fi
+
+  if [ "${#COMPOSE_FILES[@]}" -eq 0 ] && [ -n "$REPO_DIR" ]; then
+    local c
+    for c in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+      [ -f "$REPO_DIR/$c" ] && COMPOSE_FILES+=("$REPO_DIR/$c")
+    done
+    for c in compose.override.yaml compose.override.yml docker-compose.override.yml docker-compose.override.yaml; do
+      [ -f "$REPO_DIR/$c" ] && COMPOSE_FILES+=("$REPO_DIR/$c")
+    done
+  fi
+  return 0
+}
+
 # ---------- State channel (DB) ----------
 
 db_psql() {
@@ -262,124 +455,77 @@ state_is_stale() {
   [ $((now_epoch - started_epoch)) -gt "$max_age" ]
 }
 
-# ---------- Detection ----------
-
-detect_containers() {
-  local names
-  names="$(docker ps --filter "label=com.docker.compose.service=db" --format '{{.Names}}' 2>/dev/null || true)"
-  DB_CONTAINER="$(first_line "$names")"
-
-  names="$(docker ps --filter "label=com.docker.compose.service=api" --format '{{.Names}}' 2>/dev/null || true)"
-  API_CONTAINER="$(first_line "$names")"
-}
-
-# The compose checkout directory on the host. Docker compose v2 stores it in
-# the `com.docker.compose.project.working_dir` label of every container.
-detect_repo_dir() {
-  if [ -n "${CASTEL_REPO_DIR:-}" ]; then
-    printf '%s' "$CASTEL_REPO_DIR"
-    return 0
-  fi
-
-  local dir=""
-  dir="$(docker ps --filter "label=com.docker.compose.service=api" \
-    --format '{{index .Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null | sed -n '1p' || true)"
-  if [ -n "$dir" ]; then
-    printf '%s' "$dir"
-    return 0
-  fi
-
-  # Fallback: derive it from the config file label.
-  local files
-  files="$(docker ps --filter "label=com.docker.compose.service=api" \
-    --format '{{index .Labels "com.docker.compose.project.config_files"}}' 2>/dev/null | sed -n '1p' || true)"
-  if [ -n "$files" ]; then
-    local first
-    first="$(printf '%s' "$files" | cut -d ',' -f 1)"
-    printf '%s' "$(dirname "$first")"
-    return 0
-  fi
-
-  return 1
-}
-
-# The compose project name. Without it compose would derive a new name from
-# the directory name and create a SECOND stack with fresh volumes.
-detect_project_name() {
-  local name
-  name="$(docker ps --filter "label=com.docker.compose.service=api" \
-    --format '{{index .Labels "com.docker.compose.project"}}' 2>/dev/null | sed -n '1p' || true)"
-  printf '%s' "$name"
-}
-
-# The compose files that the running stack was created from.
-detect_compose_files() {
-  local files=""
-  files="$(docker ps --filter "label=com.docker.compose.service=api" \
-    --format '{{index .Labels "com.docker.compose.project.config_files"}}' 2>/dev/null | sed -n '1p' || true)"
-
-  if [ -n "$files" ]; then
-    local IFS=','
-    local f
-    for f in $files; do
-      [ -n "$f" ] && COMPOSE_FILES+=("$f")
-    done
-  fi
-
-  if [ "${#COMPOSE_FILES[@]}" -eq 0 ]; then
-    COMPOSE_FILES=("$REPO_DIR/docker-compose.yml")
-    if [ -f "$REPO_DIR/docker-compose.override.yml" ]; then
-      COMPOSE_FILES+=("$REPO_DIR/docker-compose.override.yml")
-    fi
-  fi
-}
-
 # ---------- Preflight ----------
 
 preflight() {
   command -v docker >/dev/null 2>&1 ||
     { echo "FEHLER: docker nicht im PATH" >&2; exit 10; }
-  command -v git >/dev/null 2>&1 ||
-    { echo "FEHLER: git nicht im PATH" >&2; exit 10; }
-  docker compose version >/dev/null 2>&1 ||
-    { echo "FEHLER: 'docker compose' (Plugin v2) nicht verfügbar" >&2; exit 10; }
+
+  if [ "${#COMPOSE_CLI[@]}" -eq 0 ]; then
+    echo "FEHLER: weder 'docker compose' (v2) noch 'docker-compose' (v1) verfügbar" >&2
+    exit 10
+  fi
+
   docker info >/dev/null 2>&1 ||
-    { echo "FEHLER: Docker-Daemon nicht erreichbar" >&2; exit 10; }
+    { echo "FEHLER: Docker-Daemon nicht erreichbar (evtl. mit sudo starten)" >&2; exit 10; }
+
+  # Resolve the project directory from the compose files if still unknown.
+  if [ -z "$REPO_DIR" ] && [ "${#COMPOSE_FILES[@]}" -gt 0 ]; then
+    REPO_DIR="$(dirname "${COMPOSE_FILES[0]}")"
+  fi
 
   if [ -z "$REPO_DIR" ]; then
-    echo "FEHLER: Pfad des Compose-Checkouts nicht ermittelbar." >&2
-    echo "       Setze CASTEL_REPO_DIR (z. B. /srv/castel) oder starte das Skript" >&2
-    echo "       im Verzeichnis des Checkouts." >&2
+    echo "FEHLER: Pfad des Compose-Projekts nicht ermittelbar." >&2
+    echo "       Setze CASTEL_REPO_DIR (z. B. /opt/docker/castel) oder starte das" >&2
+    echo "       Skript im Verzeichnis des Compose-Projekts." >&2
     exit 11
   fi
   [ -d "$REPO_DIR" ] ||
     { echo "FEHLER: '$REPO_DIR' existiert nicht" >&2; exit 11; }
-  [ -f "$REPO_DIR/.env" ] ||
-    { echo "FEHLER: keine .env in '$REPO_DIR' gefunden" >&2; exit 11; }
 
-  local compose_ok=0
-  local f
-  for f in "${COMPOSE_FILES[@]}"; do
-    [ -f "$f" ] && compose_ok=1
-  done
-  [ "$compose_ok" -eq 1 ] ||
-    { echo "FEHLER: keine docker-compose.yml in '$REPO_DIR' gefunden" >&2; exit 11; }
+  # At least one compose file must exist. If none is known, the project dir
+  # must contain a standard compose file (compose auto-detects it).
+  if [ "${#COMPOSE_FILES[@]}" -eq 0 ]; then
+    local found=0 c
+    for c in compose.yaml compose.yml docker-compose.yml docker-compose.yaml; do
+      [ -f "$REPO_DIR/$c" ] && found=1
+    done
+    [ "$found" -eq 1 ] ||
+      { echo "FEHLER: keine Compose-Datei in '$REPO_DIR' gefunden" >&2; exit 11; }
+  else
+    local any=0 f
+    for f in "${COMPOSE_FILES[@]}"; do
+      [ -f "$f" ] && any=1
+    done
+    [ "$any" -eq 1 ] ||
+      { echo "FEHLER: keine der Compose-Dateien existiert (${COMPOSE_FILES[*]})" >&2; exit 11; }
+  fi
 
+  # The project name is required so we do not create a SECOND stack with fresh
+  # volumes. Fall back to the directory name (same default compose would use).
   if [ -z "$PROJECT_NAME" ]; then
-    echo "FEHLER: Compose-Projektname nicht ermittelbar (kein laufender api-Container)." >&2
-    echo "       Startet der Stack aus einem anderen Verzeichnis, passt der Pfad nicht." >&2
-    exit 11
+    PROJECT_NAME="$(basename "$REPO_DIR")"
+    log_line "    WARNUNG: Compose-Projektname nicht ermittelbar - verwende '$PROJECT_NAME'."
+    log_line "             Bei abweichendem Namen CASTEL_PROJECT_NAME setzen."
   fi
 
-  if [ -z "$DB_CONTAINER" ]; then
-    echo "FEHLER: kein laufender db-Container gefunden - Status kann nicht gemeldet werden." >&2
-    exit 11
+  # .env is optional: the orchestrator may inject the variables instead. We
+  # still load it when present (compose does that automatically).
+  if [ ! -f "$REPO_DIR/.env" ]; then
+    log_line "    HINWEIS: keine .env in '$REPO_DIR' - fahre fort (Variablen kommen ggf. von außen)."
   fi
 
+  # git is optional: Arcane/Portainer deployments are often plain folders, not
+  # git checkouts. In that case the source already is what it is - only images
+  # need updating.
   if [ "$SKIP_GIT" -eq 0 ]; then
-    [ -d "$REPO_DIR/.git" ] ||
-      { echo "FEHLER: '$REPO_DIR' ist kein Git-Checkout (kein .git)." >&2; exit 11; }
-    if [ "$ALLOW_DIRTY" -eq 0 ]; then
+    if ! command -v git >/dev/null 2>&1; then
+      SKIP_GIT=1
+      log_line "    HINWEIS: git nicht im PATH - git-Schritt wird übersprungen."
+    elif [ ! -d "$REPO_DIR/.git" ]; then
+      SKIP_GIT=1
+      log_line "    HINWEIS: kein Git-Checkout in '$REPO_DIR' - git-Schritt wird übersprungen."
+    elif [ "$ALLOW_DIRTY" -eq 0 ]; then
       local dirty
       dirty="$(git -C "$REPO_DIR" -c safe.directory="$REPO_DIR" status --porcelain 2>/dev/null || true)"
       if [ -n "$dirty" ]; then
@@ -389,13 +535,18 @@ preflight() {
       fi
     fi
   fi
+
+  # The status channel is nice-to-have, not a hard requirement.
+  if [ -z "$DB_CONTAINER" ]; then
+    log_line "    HINWEIS: kein db-Container gefunden - Fortschritt wird nicht in die DB geschrieben."
+  fi
 }
 
 # ---------- Steps ----------
 
 git_pull() {
   [ "$SKIP_GIT" -eq 1 ] && {
-    log_line "==> git pull übersprungen (--skip-git)"
+    log_line "==> git pull übersprungen"
     return 0
   }
 
@@ -417,21 +568,39 @@ git_pull() {
 }
 
 compose() {
-  local args=()
+  local project_args=()
+  local file_args=()
   local f
+
+  [ -n "$PROJECT_NAME" ] && project_args+=(--project-name "$PROJECT_NAME")
+  [ -n "$REPO_DIR" ] && project_args+=(--project-directory "$REPO_DIR")
   for f in "${COMPOSE_FILES[@]}"; do
-    args+=(-f "$f")
+    file_args+=(-f "$f")
   done
-  docker compose \
-    --project-name "$PROJECT_NAME" \
-    --project-directory "$REPO_DIR" \
-    "${args[@]}" "$@"
+
+  "${COMPOSE_CLI[@]}" \
+    "${project_args[@]+"${project_args[@]}"}" \
+    "${file_args[@]+"${file_args[@]}"}" "$@"
 }
 
 compose_pull() {
   STEP="compose-pull"
   log_line "==> docker compose pull (Projekt: ${PROJECT_NAME})"
-  compose pull
+
+  local attempt=1
+  while :; do
+    if compose pull; then
+      return 0
+    fi
+    if [ "$attempt" -ge "$PULL_RETRIES" ]; then
+      log_line "FEHLER: docker compose pull nach ${attempt} Versuchen fehlgeschlagen."
+      log_line "        Bei privaten Images ggf. 'docker login ghcr.io' auf dem Host ausführen."
+      return 1
+    fi
+    log_line "    Pull fehlgeschlagen - neuer Versuch in ${PULL_RETRY_DELAY}s (${attempt}/${PULL_RETRIES})."
+    attempt=$((attempt + 1))
+    sleep "$PULL_RETRY_DELAY"
+  done
 }
 
 compose_up() {
@@ -441,9 +610,16 @@ compose_up() {
 }
 
 # Waits until the api container is healthy again (its healthcheck calls
-# /api/healthz) and reports the container log when it does not come up.
+# /api/healthz) and reports the container log when it does not come up. When
+# no api container can be identified the check is skipped.
 health_check() {
   STEP="health"
+
+  if [ -z "$API_CONTAINER" ]; then
+    log_line "==> Health-Check übersprungen (kein api-Container ermittelbar)"
+    return 0
+  fi
+
   log_line "==> Health-Check (Timeout ${HEALTH_TIMEOUT_SEC}s)"
 
   local deadline=$((SECONDS + HEALTH_TIMEOUT_SEC))
@@ -452,8 +628,8 @@ health_check() {
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
       "$API_CONTAINER" 2>/dev/null || echo missing)"
     case "$status" in
-      healthy)
-        log_line "    api-Container ist healthy"
+      healthy | running)
+        log_line "    api-Container ist ${status}"
         return 0
         ;;
       unhealthy)
@@ -483,14 +659,14 @@ purge_images() {
 
   STEP="purge"
   log_line "==> docker image prune (dangling)"
-  docker image prune -f
+  docker image prune -f || true
 
   log_line "==> docker image prune -a (ungenutzt, älter als ${PURGE_UNTIL})"
-  docker image prune -a -f --filter "until=${PURGE_UNTIL}"
+  docker image prune -a -f --filter "until=${PURGE_UNTIL}" || true
 
   if [ "$PURGE_BUILDER" -eq 1 ]; then
     log_line "==> docker builder prune"
-    docker builder prune -f
+    docker builder prune -f || true
   fi
 }
 
@@ -517,17 +693,22 @@ main() {
 
   REQUESTED_AT="$(now_iso)"
 
+  detect_compose_cmd
+  PROJECT_NAME="$(detect_project_name)"
   detect_containers
 
   if [ "$ONLY_IF_REQUESTED" -eq 1 ]; then
+    if [ -z "$DB_CONTAINER" ]; then
+      log_line "Kein db-Container - Anforderung kann nicht gelesen werden. Abbruch."
+      exit 0
+    fi
     local state
     state="$(state_read)"
     local phase=""
     phase="$(state_field "$state" "phase")"
     if [ "$phase" != "requested" ]; then
       # A "running" state means another attempt is in flight. It is only
-      # retried when it is stale (the runner died), otherwise the timer would
-      # start a second update while the first one is still working.
+      # retried when it is stale (the runner died).
       if [ "$phase" = "running" ]; then
         local started_epoch
         started_epoch="$(state_number "$state" "startedAtEpoch")"
@@ -537,7 +718,7 @@ main() {
           exit 0
         fi
       else
-        # Nothing to do - stay quiet, the timer runs every few seconds.
+        # Nothing to do.
         exit 0
       fi
     fi
@@ -567,7 +748,6 @@ main() {
   log_line "==> castel Update gestartet (Host: ${HOSTNAME_VALUE})"
 
   REPO_DIR="$(detect_repo_dir || true)"
-  PROJECT_NAME="$(detect_project_name)"
   detect_compose_files
 
   log_line "    Checkout: ${REPO_DIR:-nicht ermittelbar}"
@@ -584,7 +764,6 @@ main() {
 
   STARTED_AT="$(now_iso)"
   STARTED_AT_EPOCH="$(date +%s)"
-  PHASE="running"
   state_write "running" "null" "" "Update läuft."
 
   git_pull
@@ -605,9 +784,6 @@ main() {
   purge_images
 
   FINISHED_AT="$(now_iso)"
-  PHASE="done"
-  EXIT_CODE="0"
-  OK_JSON="true"
   STEP=""
   MESSAGE="Update abgeschlossen."
   log_line "==> Update abgeschlossen."
