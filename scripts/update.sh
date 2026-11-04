@@ -651,6 +651,14 @@ health_check() {
   return 1
 }
 
+# Entfernt ungetagte (dangling) Images. Läuft sowohl im Erfolgs- als auch im
+# Fehlerpfad, sodass ein abgebrochenes Pull/Retag keine <none>:<none> Images
+# zurücklässt.
+purge_dangling() {
+  log_line "==> docker image prune (dangling / ungetagt)"
+  docker image prune -f || true
+}
+
 purge_images() {
   [ "$SKIP_PURGE" -eq 1 ] && {
     log_line "==> Image-Purge übersprungen (--skip-purge)"
@@ -658,8 +666,7 @@ purge_images() {
   }
 
   STEP="purge"
-  log_line "==> docker image prune (dangling)"
-  docker image prune -f || true
+  purge_dangling
 
   log_line "==> docker image prune -a (ungenutzt, älter als ${PURGE_UNTIL})"
   docker image prune -a -f --filter "until=${PURGE_UNTIL}" || true
@@ -679,6 +686,9 @@ on_error() {
   FINISHED_AT="$(now_iso)"
   MESSAGE="Fehler in Zeile ${line} (Exit-Code ${exit_code})"
   log_line "FEHLER: ${MESSAGE}"
+  # Auch bei einem fehlgeschlagenen Lauf die ungetagten (dangling) Images
+  # aufräumen, die durch einen abgebrochenen Pull/Retag zurückbleiben.
+  purge_dangling || true
   state_write "failed" "false" "$exit_code" "$MESSAGE"
   exit "$exit_code"
 }
