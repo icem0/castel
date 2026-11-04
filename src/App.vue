@@ -1033,7 +1033,7 @@ function formatRelativ(iso: string | null): string {
             {{ t('view.update.fehlgeschlagen', { error: updateCheckFehler }) }}
           </p>
           <div class="actions">
-            <button type="button" :disabled="updateCheckLaeuft" @click="updatePruefen">
+            <button type="button" :disabled="updateCheckLaeuft" @click.stop="updatePruefen">
               {{ updateCheckLaeuft ? t('view.update.pruefLaeuft') : t('view.update.pruefen') }}
             </button>
             <button
@@ -1041,7 +1041,7 @@ function formatRelativ(iso: string | null): string {
               type="button"
               class="primary"
               :disabled="updatePhase === 'laufend'"
-              @click="updateFrageStarten"
+              @click.stop="updateFrageStarten"
             >
               {{
                 updatePhase === 'laufend' ? t('view.update.startLaeuft') : t('view.update.start')
@@ -1050,7 +1050,7 @@ function formatRelativ(iso: string | null): string {
           </div>
         </template>
         <template v-else>
-          <button type="button" :disabled="updateCheckLaeuft" @click="updatePruefen">
+          <button type="button" :disabled="updateCheckLaeuft" @click.stop="updatePruefen">
             {{ t('view.update.pruefen') }}
           </button>
         </template>
@@ -1061,7 +1061,7 @@ function formatRelativ(iso: string | null): string {
         <template v-if="updatePhase === 'fertig'">
           <p class="hint hint-ok">{{ t('view.update.startErfolg') }}</p>
           <div class="actions">
-            <button type="button" @click="updatePhase = 'idle'">
+            <button type="button" @click.stop="updatePhase = 'idle'">
               {{ t('view.common.schliessen') }}
             </button>
           </div>
@@ -1069,7 +1069,7 @@ function formatRelativ(iso: string | null): string {
         <template v-else-if="updatePhase === 'fehler' && updateFehler">
           <p class="wert-fehler">{{ updateFehler }}</p>
           <div class="actions">
-            <button type="button" @click="updateAbbrechen">
+            <button type="button" @click.stop="updateAbbrechen">
               {{ t('view.common.schliessen') }}
             </button>
           </div>
@@ -1092,11 +1092,11 @@ function formatRelativ(iso: string | null): string {
               v-if="updatePhase === 'bestaetigen'"
               type="button"
               class="primary danger"
-              @click="updateBestaetigen"
+              @click.stop="updateBestaetigen"
             >
               {{ t('view.update.startBestaetigen') }}
             </button>
-            <button type="button" @click="updateAbbrechen">
+            <button type="button" @click.stop="updateAbbrechen">
               {{ t('view.common.abbrechen') }}
             </button>
           </div>
