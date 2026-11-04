@@ -450,6 +450,10 @@ export default {
       hilfestellungHint:
         'Listet alle Artikel/Standorte ohne Inventur-Buchung auf und erlaubt das Erfassen der Sollmengen.',
       hilfeKeineOffenen: 'Alle Artikel/Standorte haben bereits eine Inventur.',
+      hilfeStandort: 'Standort',
+      hilfeAlleStandorte: 'Alle Standorte',
+      hilfeSuche: 'Suchen',
+      hilfeSuchePlaceholder: 'Artikel oder Standort …',
       colBestand: 'Bestand',
       colSollMenge: 'Sollmenge',
       colDifferenz: 'Differenz',

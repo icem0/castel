@@ -438,6 +438,10 @@ export default {
       hilfestellungHint:
         'Lists all article/location pairs without an inventory booking and allows entering the target quantities.',
       hilfeKeineOffenen: 'All articles/locations already have an inventory.',
+      hilfeStandort: 'Location',
+      hilfeAlleStandorte: 'All locations',
+      hilfeSuche: 'Search',
+      hilfeSuchePlaceholder: 'Article or location …',
       colBestand: 'Stock',
       colSollMenge: 'Target qty',
       colDifferenz: 'Difference',

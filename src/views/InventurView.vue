@@ -6,7 +6,7 @@ import { useAuthStore } from '../stores/auth'
 import { jwtLesen } from '../auth/session'
 import { getApiBaseUrl } from '../auth/api'
 import { getDb } from '../db/database'
-import type { InventurPosition, InventurStichtag } from '../db/types'
+import type { InventurPosition, InventurStichtag, Standort } from '../db/types'
 import {
   inventurStichtagAnzeige,
   inventurStichtagTeile,
@@ -41,6 +41,25 @@ const hilfeMeldung = ref<string | null>(null)
 const hilfeSpeicherLaufend = ref(false)
 // Sollmenge je (artikelId#standortId)
 const sollMengen = ref<Record<string, number>>({})
+// Filter
+const standorte = ref<Standort[]>([])
+const standortFilter = ref<string>('')
+const suche = ref<string>('')
+
+/** Hilfestellung-Items, live gefiltert nach Standort und Suchbegriff. */
+const gefilterteHilfeItems = computed(() => {
+  const s = suche.value.trim().toLowerCase()
+  const sid = standortFilter.value.trim()
+  return hilfeItems.value.filter((z) => {
+    if (sid && z.standortId !== sid) return false
+    if (s) {
+      const titel = z.artikelTitel.toLowerCase()
+      const name = z.standortName.toLowerCase()
+      return titel.includes(s) || name.includes(s)
+    }
+    return true
+  })
+})
 
 function hilfeKey(artikelId: string, standortId: string): string {
   return `${artikelId}#${standortId}`
@@ -55,17 +74,24 @@ function sollMengeAendern(z: InventurHilfeZeile, event: Event): void {
   }
 }
 
+async function ladeStandorte(): Promise<void> {
+  const db = getDb()
+  standorte.value = (await db.standorte.toArray()).filter((s) => !s.archiviert)
+}
+
 async function ladeHilfestellung(): Promise<void> {
   if (!darfLesen.value) return
   hilfeLaden.value = true
   hilfeFehler.value = null
   try {
-    hilfeItems.value = await artikelOhneInventur()
-    // Sollmengen zurücksetzen (Default = aktueller Bestand)
-    sollMengen.value = {}
-    for (const z of hilfeItems.value) {
-      sollMengen.value[hilfeKey(z.artikelId, z.standortId)] = z.bestand
-    }
+    await Promise.all([ladeStandorte(), artikelOhneInventur()]).then(([, items]) => {
+      hilfeItems.value = items
+      // Sollmengen zurücksetzen (Default = aktueller Bestand)
+      sollMengen.value = {}
+      for (const z of hilfeItems.value) {
+        sollMengen.value[hilfeKey(z.artikelId, z.standortId)] = z.bestand
+      }
+    })
   } catch (e) {
     hilfeFehler.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -475,11 +501,35 @@ onBeforeUnmount(() => {
       <div v-if="hilfeLaden" class="hint">{{ t('view.inventur.laedt') }}</div>
       <div v-if="hilfeFehler" class="meldung Fehler">{{ hilfeFehler }}</div>
 
-      <div v-if="hilfeItems.length === 0 && !hilfeLaden && !hilfeFehler">
+      <div v-if="!hilfeLaden && !hilfeFehler" class="hilfe-filter">
+        <label class="filter-label">
+          {{ t('view.inventur.hilfeStandort') }}
+          <select v-model="standortFilter" class="zahl">
+            <option value="">{{ t('view.inventur.hilfeAlleStandorte') }}</option>
+            <option v-for="s in standorte" :key="s.id" :value="s.id">
+              {{ s.name }}
+            </option>
+          </select>
+        </label>
+        <label class="filter-label">
+          {{ t('view.inventur.hilfeSuche') }}
+          <input
+            v-model="suche"
+            type="text"
+            class="zahl"
+            placeholder="{{ t('view.inventur.hilfeSuchePlaceholder') }}"
+          />
+        </label>
+        <span class="filter-count">
+          {{ gefilterteHilfeItems.length }} / {{ hilfeItems.length }}
+        </span>
+      </div>
+
+      <div v-if="gefilterteHilfeItems.length === 0 && !hilfeLaden && !hilfeFehler">
         <p class="hint">{{ t('view.inventur.hilfeKeineOffenen') }}</p>
       </div>
 
-      <table v-if="hilfeItems.length > 0" class="hilfe-tabelle">
+      <table v-if="gefilterteHilfeItems.length > 0" class="hilfe-tabelle">
         <thead>
           <tr>
             <th>{{ t('view.inventur.colArtikel') }}</th>
@@ -490,7 +540,7 @@ onBeforeUnmount(() => {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="z in hilfeItems" :key="hilfeKey(z.artikelId, z.standortId)">
+          <tr v-for="z in gefilterteHilfeItems" :key="hilfeKey(z.artikelId, z.standortId)">
             <td>{{ z.artikelTitel }}</td>
             <td>{{ z.standortName }}</td>
             <td class="zahl">{{ z.bestand }}</td>
@@ -515,7 +565,7 @@ onBeforeUnmount(() => {
         </tbody>
       </table>
 
-      <div v-if="hilfeItems.length > 0" class="hilfe-aktionen">
+      <div v-if="gefilterteHilfeItems.length > 0" class="hilfe-aktionen">
         <button
           type="button"
           class="btn"
@@ -711,6 +761,29 @@ button.btn:disabled {
 .hilfe-tabelle .zahl {
   width: 4rem;
   text-align: right;
+}
+.hilfe-filter {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0.75rem 0;
+}
+.filter-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.filter-label select,
+.filter-label input {
+  width: 14rem;
+}
+.filter-count {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-left: auto;
 }
 .hilfe-aktionen {
   display: flex;
