@@ -25,7 +25,9 @@ const schema = z.object({
 
   // Version / Update
   GIT_COMMIT: z.string().default('unknown'),
-  GITHUB_REPO: z.string().default(''),
+  // Repo für den Versions-Check. Default = das eigene Repo, damit der
+  // Update-Endpunkt ohne Zusatzkonfiguration funktioniert.
+  GITHUB_REPO: z.string().default('icem0/castel'),
   GITHUB_BRANCH: z.string().default('main'),
   GITHUB_TOKEN: z.string().default(''),
   UPDATE_WEBHOOK_URL: z.string().default(''),

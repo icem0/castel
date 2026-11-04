@@ -13,13 +13,14 @@ import { useAuditStore } from './stores/audit'
 import { useAuthStore } from './stores/auth'
 import { useSyncStore } from './stores/sync'
 import { useToastStore } from './stores/toast'
-import { getApiBaseUrl } from './auth/api'
+import { getApiBaseUrl, ApiError, serverMeldung } from './auth/api'
 import { applyTheme } from './theme'
 
 import { discardQuarantine, releaseQuarantine, zaehleAbweichungen } from './services/sync/worker'
 import { istMobilLayout, MOBILE_LAYOUT_QUERY } from './services/layout'
 import { version, commit, branch, buildDate } from './version'
 import { checkUpdate, startUpdate, type UpdateCheck } from './services/admin/update-webhook'
+import UpdateMenu from './components/UpdateMenu.vue'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
 import AppToast from './components/AppToast.vue'
 import SyncDiagnostics from './components/SyncDiagnostics.vue'
@@ -104,12 +105,22 @@ async function updatePruefen(): Promise<void> {
   updateCheckLaeuft.value = true
   updateCheckFehler.value = null
   try {
-    updateCheck.value = await checkUpdate()
+    const res = await checkUpdate()
+    updateCheck.value = res
+    // Der Server liefert einen fehlgeschlagenen Check als Ergebnis mit
+    // `error`-Feld (HTTP 200) — sonst ginge die installierte Version verloren.
+    if (res.error) updateCheckFehler.value = res.error
   } catch (e) {
-    updateCheckFehler.value = e instanceof Error ? e.message : String(e)
+    updateCheckFehler.value = updateFehlerText(e)
   } finally {
     updateCheckLaeuft.value = false
   }
+}
+
+/** Server-Meldung bevorzugen — der ApiError praegelt sonst „HTTP 502: …" davor. */
+function updateFehlerText(e: unknown): string {
+  if (e instanceof ApiError) return serverMeldung(e) ?? e.message
+  return e instanceof Error ? e.message : String(e)
 }
 
 function updateFrageStarten(): void {
@@ -127,7 +138,7 @@ async function updateBestaetigen(): Promise<void> {
     await startUpdate()
     updatePhase.value = 'fertig'
   } catch (e) {
-    updateFehler.value = e instanceof Error ? e.message : String(e)
+    updateFehler.value = updateFehlerText(e)
     updatePhase.value = 'fehler'
   }
 }
@@ -1011,97 +1022,19 @@ function formatRelativ(iso: string | null): string {
         </div>
       </dl>
       <!-- Update-Menü (nur für Admins) -->
-      <div v-if="auth.istAdmin" class="update-block">
-        <h3>{{ t('view.update.h1') }}</h3>
-        <div v-if="updateCheckLaeuft" class="hint">{{ t('view.update.pruefLaeuft') }}</div>
-        <template v-else-if="updateCheck">
-          <p class="hint">
-            {{
-              t('view.update.versionen', {
-                current: updateCheck.current ?? '?',
-                latest: updateCheck.latest ?? '?',
-              })
-            }}
-          </p>
-          <p v-if="updateCheck.updateAvailable === true" class="hint hint-ok">
-            {{ t('view.update.verfuegbar', { latest: updateCheck.latest }) }}
-          </p>
-          <p v-else-if="updateCheck.updateAvailable === false" class="hint hint-ok">
-            {{ t('view.update.aktuellVersion') }}
-          </p>
-          <p v-if="updateCheckFehler" class="wert-fehler">
-            {{ t('view.update.fehlgeschlagen', { error: updateCheckFehler }) }}
-          </p>
-          <div class="actions">
-            <button type="button" :disabled="updateCheckLaeuft" @click.stop="updatePruefen">
-              {{ updateCheckLaeuft ? t('view.update.pruefLaeuft') : t('view.update.pruefen') }}
-            </button>
-            <button
-              v-if="updateCheck.updateAvailable === true"
-              type="button"
-              class="primary"
-              :disabled="updatePhase === 'laufend'"
-              @click.stop="updateFrageStarten"
-            >
-              {{
-                updatePhase === 'laufend' ? t('view.update.startLaeuft') : t('view.update.start')
-              }}
-            </button>
-          </div>
-        </template>
-        <template v-else>
-          <button type="button" :disabled="updateCheckLaeuft" @click.stop="updatePruefen">
-            {{ t('view.update.pruefen') }}
-          </button>
-        </template>
-      </div>
-
-      <!-- Update-Bestätigung / Status -->
-      <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
-        <template v-if="updatePhase === 'fertig'">
-          <p class="hint hint-ok">{{ t('view.update.startErfolg') }}</p>
-          <div class="actions">
-            <button type="button" @click.stop="updatePhase = 'idle'">
-              {{ t('view.common.schliessen') }}
-            </button>
-          </div>
-        </template>
-        <template v-else-if="updatePhase === 'fehler' && updateFehler">
-          <p class="wert-fehler">{{ updateFehler }}</p>
-          <div class="actions">
-            <button type="button" @click.stop="updateAbbrechen">
-              {{ t('view.common.schliessen') }}
-            </button>
-          </div>
-        </template>
-        <template v-else>
-          <p>
-            <strong>
-              {{
-                updatePhase === 'bestaetigen'
-                  ? t('view.update.startFrage', {
-                      latest: updateCheck?.latest ?? '',
-                    })
-                  : t('view.update.startLaeuft')
-              }}
-            </strong>
-          </p>
-          <p class="hint">{{ t('view.update.startDetail') }}</p>
-          <div class="actions">
-            <button
-              v-if="updatePhase === 'bestaetigen'"
-              type="button"
-              class="primary danger"
-              @click.stop="updateBestaetigen"
-            >
-              {{ t('view.update.startBestaetigen') }}
-            </button>
-            <button type="button" @click.stop="updateAbbrechen">
-              {{ t('view.common.abbrechen') }}
-            </button>
-          </div>
-        </template>
-      </div>
+      <UpdateMenu
+        v-if="auth.istAdmin"
+        :check="updateCheck"
+        :check-laeuft="updateCheckLaeuft"
+        :check-fehler="updateCheckFehler"
+        :phase="updatePhase"
+        :fehler="updateFehler"
+        @pruefen="updatePruefen"
+        @start="updateFrageStarten"
+        @bestaetigen="updateBestaetigen"
+        @abbrechen="updateAbbrechen"
+        @schliessen="updatePhase = 'idle'"
+      />
 
       <p class="hint">
         Zum Reproduzieren:
@@ -2509,45 +2442,5 @@ main {
   .user-email {
     display: none;
   }
-}
-
-.update-block {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-.update-block h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
-  color: var(--text-strong);
-}
-.update-block .actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
-}
-.confirm {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.confirm p {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-}
-.confirm .hint {
-  color: var(--text-muted);
-  font-size: 0.78rem !important;
-}
-.hint-ok {
-  color: var(--success);
-  font-weight: 600;
-}
-.wert-fehler {
-  color: var(--danger);
-  font-weight: 600;
 }
 </style>

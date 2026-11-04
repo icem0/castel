@@ -21,17 +21,27 @@ type CommitInfo = {
   date: string | null
 }
 
-type CheckResult = {
+export type CheckResult = {
   current: string | null
   latest: string | null
   updateAvailable: boolean | null
   commitsBehind: number | null
   commits: CommitInfo[]
   checkedAt: string
+  /** Fehlermeldung, wenn der Check fehlgeschlagen ist (GitHub nicht erreichbar, Rate-Limit, ...). */
   error?: string
 }
 
+export type CheckDeps = {
+  fetchImpl?: typeof fetch
+  repo?: string
+  branch?: string
+  token?: string
+  current?: string | null
+}
+
 type CheckCache = {
+  key: string
   data: CheckResult
   fetchedAt: number
 }
@@ -39,19 +49,24 @@ type CheckCache = {
 let checkCache: CheckCache | null = null
 let lastStartAt = 0
 
-function githubHeaders(): Record<string, string> {
+/** Leert den Check-Cache (Tests / manuelles Neuladen). */
+export function resetUpdateCache(): void {
+  checkCache = null
+}
+
+function githubHeaders(token: string): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   }
-  if (config.GITHUB_TOKEN) {
-    headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
   }
   return headers
 }
 
-async function fetchJson(url: string): Promise<unknown> {
-  const res = await fetch(url, { headers: githubHeaders() })
+async function fetchJson(url: string, token: string, fetchImpl: typeof fetch): Promise<unknown> {
+  const res = await fetchImpl(url, { headers: githubHeaders(token) })
   if (!res.ok) {
     throw new Error(`GitHub API: HTTP ${res.status}`)
   }
@@ -71,14 +86,27 @@ function datum(commit: unknown): string | null {
 
 /**
  * Prüft GitHub auf eine neuere Version als die installierte (GIT_COMMIT).
- * Ergebnis wird 60 Sekunden gecached; Fehler werden nicht gecached.
+ * Ergebnis wird 60 Sekunden gecacht; Fehler werden nicht gecacht.
+ *
+ * Wirft NIE: ein fehlgeschlagener Check liefert ein Ergebnis mit gesetztem
+ * `error`-Feld. So bleibt `current` (die installierte Version) immer
+ * sichtbar — der Admin sieht, was installiert ist, und zusätzlich, warum
+ * der Vergleich nicht klappte.
  */
-async function checkLatestVersion(): Promise<CheckResult> {
-  const now = Date.now()
-  const current = config.GIT_COMMIT === 'unknown' ? null : config.GIT_COMMIT
+export async function checkLatestVersion(deps: CheckDeps = {}): Promise<CheckResult> {
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const repo = deps.repo ?? config.GITHUB_REPO
+  const branch = deps.branch ?? config.GITHUB_BRANCH
+  const token = deps.token ?? config.GITHUB_TOKEN
+  const current =
+    deps.current !== undefined
+      ? deps.current
+      : config.GIT_COMMIT === 'unknown'
+        ? null
+        : config.GIT_COMMIT
   const checkedAt = new Date().toISOString()
 
-  if (!config.GITHUB_REPO) {
+  if (!repo) {
     return {
       current,
       latest: null,
@@ -90,17 +118,23 @@ async function checkLatestVersion(): Promise<CheckResult> {
     }
   }
 
-  // Cache hit (nur erfolgreiche Ergebnisse)
-  if (checkCache && now - checkCache.fetchedAt < CHECK_CACHE_TTL_MS) {
+  // Cache hit (nur erfolgreiche Ergebnisse, pro Repo+Branch+Version)
+  const cacheKey = `${repo}@${branch}#${current ?? 'unknown'}`
+  const now = Date.now()
+  if (checkCache && checkCache.key === cacheKey && now - checkCache.fetchedAt < CHECK_CACHE_TTL_MS) {
     return checkCache.data
   }
 
   try {
-    const latest: any = await fetchJson(
-      `https://api.github.com/repos/${config.GITHUB_REPO}/commits/${config.GITHUB_BRANCH}`,
-    )
-    const latestSha: string = latest.sha
-    const latestDate: string | null = datum(latest)
+    const latest = (await fetchJson(
+      `https://api.github.com/repos/${repo}/commits/${branch}`,
+      token,
+      fetchImpl,
+    )) as { sha?: string }
+    const latestSha = latest.sha
+    if (!latestSha) {
+      throw new Error('GitHub API: keine Commit-SHA in der Antwort')
+    }
 
     let updateAvailable: boolean | null = null
     let commitsBehind: number | null = null
@@ -110,21 +144,23 @@ async function checkLatestVersion(): Promise<CheckResult> {
       updateAvailable = latestSha !== current
       if (updateAvailable) {
         try {
-          const compare: any = await fetchJson(
-            `https://api.github.com/repos/${config.GITHUB_REPO}/compare/${current}...${latestSha}`,
-          )
-          commitsBehind =
-            typeof compare.ahead_by === 'number' ? compare.ahead_by : null
+          const compare = (await fetchJson(
+            `https://api.github.com/repos/${repo}/compare/${current}...${latestSha}`,
+            token,
+            fetchImpl,
+          )) as { ahead_by?: number; commits?: unknown[] }
+          commitsBehind = typeof compare.ahead_by === 'number' ? compare.ahead_by : null
           for (const c of compare.commits ?? []) {
-            commits.push({ sha: c.sha, message: betreff(c), date: datum(c) })
+            commits.push({ sha: (c as { sha: string }).sha, message: betreff(c), date: datum(c) })
           }
         } catch {
           // Compare fehlgeschlagen — Update trotzdem melden, Commits bleiben leer
         }
       }
     } else {
-      // Keine installierte Version bekannt → nur Latest anzeigen
-      commits.push({ sha: latestSha, message: betreff(latest), date: latestDate })
+      // Keine installierte Version bekannt → nur den HEAD-Commit anzeigen.
+      // Die erste Antwort IST der Commit — kein zweiter Request nötig.
+      commits.push({ sha: latestSha, message: betreff(latest), date: datum(latest) })
     }
 
     const result: CheckResult = {
@@ -135,7 +171,7 @@ async function checkLatestVersion(): Promise<CheckResult> {
       commits,
       checkedAt,
     }
-    checkCache = { data: result, fetchedAt: now }
+    checkCache = { key: cacheKey, data: result, fetchedAt: now }
     return result
   } catch (error) {
     return {
@@ -152,11 +188,11 @@ async function checkLatestVersion(): Promise<CheckResult> {
 
 export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
   // ---------- GET /api/update/check ----------
+  // Antwortet IMMER mit 200 und einem vollständigen Ergebnis: die installierte
+  // Version bleibt sichtbar, ein fehlgeschlagener Vergleich steht im
+  // `error`-Feld. Ein 5xx würde die Response-Form im Frontend brechen.
   app.get('/api/update/check', { preHandler: app.requireAdmin }, async (_req, reply) => {
     const result = await checkLatestVersion()
-    if (result.error) {
-      return reply.code(502).send({ code: 'UPDATE_CHECK_FAILED', message: result.error })
-    }
     return reply.send(result)
   })
 
@@ -165,15 +201,18 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
     // Doppelklick-Schutz: kein zweiter Start innerhalb von 5 Minuten
     const now = Date.now()
     if (now - lastStartAt < START_COOLDOWN_MS) {
-      const restante = Math.ceil((START_COOLDOWN_MS - (now - lastStartAt)) / 1000)
+      const reste = Math.ceil((START_COOLDOWN_MS - (now - lastStartAt)) / 1000)
       return reply.code(409).send({
         code: 'UPDATE_COOLDOWN',
-        message: `Bitte ${restante}s warten, bevor ein weiteres Update gestartet wird.`,
+        message: `Bitte ${reste}s warten, bevor ein weiteres Update gestartet wird.`,
       })
     }
 
     // Nochmal serverseitig prüfen, ob ein Update verfügbar ist
     const check = await checkLatestVersion()
+    if (check.error) {
+      return reply.code(502).send({ code: 'UPDATE_CHECK_FAILED', message: check.error })
+    }
     if (check.updateAvailable !== true) {
       return reply.code(409).send({
         code: 'UPDATE_NOT_AVAILABLE',
