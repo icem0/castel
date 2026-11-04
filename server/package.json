@@ -1,7 +1,7 @@
 {
   "name": "castel-server",
   "private": true,
-  "version": "1.0.94",
+  "version": "1.0.95",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

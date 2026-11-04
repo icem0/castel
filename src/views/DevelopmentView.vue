@@ -55,7 +55,18 @@ const updateCheckFehler = ref<string | null>(null)
 /** Grund, warum der Server das Update nicht selbst starten konnte. */
 const updateStartGrund = ref<string | null>(null)
 const updateFallbackOffen = ref(false)
+/** Zeigt die Webhook-Info-Karte (externes System kann Update ausloesen). */
+const updateWebhookInfo = ref(false)
 let updateTimer: ReturnType<typeof setInterval> | null = null
+
+/** API-Basis-URL fuer den Webhook-Endpunkt. */
+const apiBaseUrl = computed(() => getApiBaseUrl())
+/** Curl-Beispiel fuer den Inbound-Webhook. */
+const webhookCurl = computed(() => {
+  const base = apiBaseUrl.value
+  const url = base ? `${base}/api/admin/update/webhook` : '<API-URL>/api/admin/update/webhook'
+  return `curl -X POST ${url} \\\n  -H "X-Deploy-Token: <Ihr-Token>" \\\n  -H "Content-Type: application/json" \\\n  -d '{}'`
+})
 
 /** Anzeigename des aktuellen Schritts - unbekannte Schritte bleiben leer. */
 const updateStepLabel = computed(() => {
@@ -1135,6 +1146,14 @@ onBeforeUnmount(() => {
     </div>
 
     <h2>{{ t('view.development.update') }}</h2>
+    <button
+      type="button"
+      class="small"
+      :class="{ aktiv: updateWebhookInfo }"
+      @click="updateWebhookInfo = !updateWebhookInfo"
+    >
+      {{ t('view.development.updateWebhookInfo') }}
+    </button>
     <div class="card">
       <p class="hint">{{ t('view.development.updateHint') }}</p>
 
@@ -1237,6 +1256,15 @@ onBeforeUnmount(() => {
       <p v-if="updateStartGrund" class="hint">
         {{ t('view.development.updateStartGrund', { grund: updateStartGrund }) }}
       </p>
+    </div>
+
+    <!-- Webhook-Info: externes System kann Update auf diesem Server ausloesen -->
+    <div v-if="updateWebhookInfo" class="card update-anleitung">
+      <h3>{{ t('view.development.updateWebhookTitel') }}</h3>
+      <p class="hint">{{ t('view.development.updateWebhookText') }}</p>
+      <pre>{{ webhookCurl }}</pre>
+      <p class="hint">{{ t('view.development.updateWebhookHeader') }}</p>
+      <p class="hint">{{ t('view.development.updateWebhookHinweis') }}</p>
     </div>
 
     <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
@@ -1529,5 +1557,9 @@ onBeforeUnmount(() => {
 }
 .update-anleitung-liste li {
   margin-bottom: 0.35rem;
+}
+button.aktiv {
+  background: var(--primary);
+  color: var(--text-on-primary);
 }
 </style>

@@ -1338,6 +1338,13 @@ export default {
       updateFallbackText:
         'Run this command on the server to perform the update (the requested state is already in the database):',
       updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
+      updateWebhookInfo: 'Webhook info',
+      updateWebhookTitel: 'Inbound webhook: trigger external update',
+      updateWebhookText:
+        'An external system (CI/CD, orchestrator, Portainer, ...) can trigger an update on this server without logging into the PWA. The server then performs the update (pull new images, restart the stack, remove old images).',
+      updateWebhookHeader: 'Header: X-Deploy-Token: <your-token>',
+      updateWebhookHinweis:
+        'Set UPDATE_WEBHOOK_TOKEN in the .env of the API server. The token is never sent to the frontend.',
       geräteAlle: 'All devices of a user',
       geräteAlleHint:
         'Sets (or clears) the reset flag for all devices of the selected user at once.',

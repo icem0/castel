@@ -11,6 +11,13 @@
 
 import type { FastifyInstance } from 'fastify'
 import { config } from '../config/config.js'
+import {
+  buildRequestDocument,
+  parseUpdateState,
+  readUpdateState,
+  writeUpdateState,
+} from './update-routes.js'
+import { startUpdater } from './update-runner.js'
 
 const CHECK_CACHE_TTL_MS = 60_000
 const START_COOLDOWN_MS = 5 * 60_000
@@ -250,5 +257,51 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
     })()
 
     return reply.send({ started: true })
+  })
+}
+
+// ---------- POST /api/admin/update/webhook (inbound) ----------
+// Externes System (CI/CD, Orchestrator, Portainer, ...)
+// kann ein Update auf dem Server ausloesen.
+// Geschuetzt nur durch X-Deploy-Token (UPDATE_WEBHOOK_TOKEN), kein JWT noetig.
+// Fuehrt denselben Ablauf aus wie POST /api/admin/update:
+// Marker server.updateState in die DB + kurzlebigen Updater-Container starten.
+export async function updateInboundWebhookRoutes(app: FastifyInstance): Promise<void> {
+  app.post('/api/admin/update/webhook', async (req, reply) => {
+    if (!config.UPDATE_WEBHOOK_TOKEN) {
+      return reply.code(500).send({
+        code: 'UPDATE_NO_WEBHOOK_TOKEN',
+        message: 'UPDATE_WEBHOOK_TOKEN nicht konfiguriert.',
+      })
+    }
+
+    const token = req.headers['x-deploy-token']
+    if (typeof token !== 'string' || token !== config.UPDATE_WEBHOOK_TOKEN) {
+      return reply.code(401).send({
+        code: 'UNAUTHORIZED',
+        message: 'Ungültiges oder fehlendes X-Deploy-Token.',
+      })
+    }
+
+    const current = await readUpdateState()
+    if (current.phase === 'running') {
+      return reply.code(409).send({
+        code: 'UPDATE_RUNNING',
+        message: 'Ein Update läuft bereits.',
+        state: current,
+      })
+    }
+
+    const now = new Date().toISOString()
+    const requestedDocument = buildRequestDocument(now)
+    await writeUpdateState(requestedDocument)
+
+    const updater = await startUpdater()
+    return reply.send({
+      requested: true,
+      started: updater.started,
+      reason: updater.reason ?? null,
+      state: parseUpdateState(requestedDocument),
+    })
   })
 }

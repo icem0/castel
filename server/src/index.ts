@@ -24,7 +24,7 @@ import { fotoRoutes, fotoStaticRoutes } from './fotos/routes.js'
 import { userRoutes } from './users/routes.js'
 import { rollenRoutes } from './auth/rollen-routes.js'
 import { adminRoutes } from './admin/routes.js'
-import { updateWebhookRoutes } from './admin/update-webhook-routes.js'
+import { updateWebhookRoutes, updateInboundWebhookRoutes } from './admin/update-webhook-routes.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
 import { pgDumpMajor, serverVersionMajor } from './admin/backup.js'
@@ -141,6 +141,13 @@ async function main() {
     await fotoRoutes(instance)
     await adminRoutes(instance)
     await updateWebhookRoutes(instance)
+  })
+
+  // Inbound-Update-Webhook: externes System kann ein Update ausloesen.
+  // Geschuetzt nur durch X-Deploy-Token (kein JWT), deshalb ausserhalb des
+  // requireAuth-Blocks registriert.
+  await app.register(async (instance) => {
+    await updateInboundWebhookRoutes(instance)
   })
 
   // Backup-Routes in einem eigenen Block: sie brauchen ein eigenes
