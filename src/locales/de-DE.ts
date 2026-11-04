@@ -1364,6 +1364,22 @@ export default {
       bulkSpalteProjekt: 'Projekt',
       bulkSpalteStorno: 'Storno',
     },
+    update: {
+      h1: 'Update',
+      versionen: 'Installiert: {current} · Neueste: {latest}',
+      verfuegbar: 'Update auf {latest} verfügbar.',
+      aktuellVersion: 'Sie nutzen bereits die neueste Version.',
+      pruefen: 'Auf Updates prüfen',
+      pruefLaeuft: 'Prüfe …',
+      start: 'Jetzt aktualisieren',
+      startLaeuft: 'Update wird gestartet …',
+      startBestaetigen: 'Ja, jetzt aktualisieren',
+      startFrage: 'Update auf Version {latest} starten?',
+      startDetail:
+        'Der Server löst den Rollout über einen Webhook aus. Die App startet danach neu.',
+      startErfolg: 'Update ausgelöst.',
+      fehlgeschlagen: 'Versionsprüfung fehlgeschlagen: {error}',
+    },
   },
   datanorm: {
     drawer: {

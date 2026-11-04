@@ -23,9 +23,9 @@ COPY scripts ./scripts
 # in Buildx (ohne .git/) die echten Werte hat und nicht auf 'unbekannt' fällt.
 # Lokale `docker build`-Aufrufe bekommen leer-String und fallen sauber auf
 # git rev-parse zurück.
-ARG GIT_COMMIT=""
+ARG GIT_COMMIT=unknown
 ARG GIT_BRANCH=""
-ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_COMMIT=$GIT_COMMIT
 ENV GIT_BRANCH=${GIT_BRANCH}
 RUN npm run build
 

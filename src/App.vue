@@ -19,6 +19,7 @@ import { applyTheme } from './theme'
 import { discardQuarantine, releaseQuarantine, zaehleAbweichungen } from './services/sync/worker'
 import { istMobilLayout, MOBILE_LAYOUT_QUERY } from './services/layout'
 import { version, commit, branch, buildDate } from './version'
+import { checkUpdate, startUpdate, type UpdateCheck } from './services/admin/update-webhook'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
 import AppToast from './components/AppToast.vue'
 import SyncDiagnostics from './components/SyncDiagnostics.vue'
@@ -84,11 +85,51 @@ function onForeground(): void {
 }
 
 const versionOffen = ref(false)
+const updateCheck = ref<UpdateCheck | null>(null)
+const updateCheckLaeuft = ref(false)
+const updateCheckFehler = ref<string | null>(null)
+const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
+const updateFehler = ref<string | null>(null)
 function toggleVersion(): void {
   versionOffen.value = !versionOffen.value
+  if (versionOffen.value && auth.istAdmin) {
+    void updatePruefen()
+  }
 }
 function closeVersion(): void {
   versionOffen.value = false
+}
+
+async function updatePruefen(): Promise<void> {
+  updateCheckLaeuft.value = true
+  updateCheckFehler.value = null
+  try {
+    updateCheck.value = await checkUpdate()
+  } catch (e) {
+    updateCheckFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    updateCheckLaeuft.value = false
+  }
+}
+
+function updateFrageStarten(): void {
+  updatePhase.value = 'bestaetigen'
+  updateFehler.value = null
+}
+function updateAbbrechen(): void {
+  updatePhase.value = 'idle'
+  updateFehler.value = null
+}
+async function updateBestaetigen(): Promise<void> {
+  updatePhase.value = 'laufend'
+  updateFehler.value = null
+  try {
+    await startUpdate()
+    updatePhase.value = 'fertig'
+  } catch (e) {
+    updateFehler.value = e instanceof Error ? e.message : String(e)
+    updatePhase.value = 'fehler'
+  }
 }
 
 function onDocumentClick(e: MouseEvent): void {
@@ -969,6 +1010,99 @@ function formatRelativ(iso: string | null): string {
           <dd>{{ buildDateFormatiert }}</dd>
         </div>
       </dl>
+      <!-- Update-Menü (nur für Admins) -->
+      <div v-if="auth.istAdmin" class="update-block">
+        <h3>{{ t('view.update.h1') }}</h3>
+        <div v-if="updateCheckLaeuft" class="hint">{{ t('view.update.pruefLaeuft') }}</div>
+        <template v-else-if="updateCheck">
+          <p class="hint">
+            {{
+              t('view.update.versionen', {
+                current: updateCheck.current ?? '?',
+                latest: updateCheck.latest ?? '?',
+              })
+            }}
+          </p>
+          <p v-if="updateCheck.updateAvailable === true" class="hint hint-ok">
+            {{ t('view.update.verfuegbar', { latest: updateCheck.latest }) }}
+          </p>
+          <p v-else-if="updateCheck.updateAvailable === false" class="hint hint-ok">
+            {{ t('view.update.aktuellVersion') }}
+          </p>
+          <p v-if="updateCheckFehler" class="wert-fehler">
+            {{ t('view.update.fehlgeschlagen', { error: updateCheckFehler }) }}
+          </p>
+          <div class="actions">
+            <button type="button" :disabled="updateCheckLaeuft" @click="updatePruefen">
+              {{ updateCheckLaeuft ? t('view.update.pruefLaeuft') : t('view.update.pruefen') }}
+            </button>
+            <button
+              v-if="updateCheck.updateAvailable === true"
+              type="button"
+              class="primary"
+              :disabled="updatePhase === 'laufend'"
+              @click="updateFrageStarten"
+            >
+              {{
+                updatePhase === 'laufend' ? t('view.update.startLaeuft') : t('view.update.start')
+              }}
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <button type="button" :disabled="updateCheckLaeuft" @click="updatePruefen">
+            {{ t('view.update.pruefen') }}
+          </button>
+        </template>
+      </div>
+
+      <!-- Update-Bestätigung / Status -->
+      <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
+        <template v-if="updatePhase === 'fertig'">
+          <p class="hint hint-ok">{{ t('view.update.startErfolg') }}</p>
+          <div class="actions">
+            <button type="button" @click="updatePhase = 'idle'">
+              {{ t('view.common.schliessen') }}
+            </button>
+          </div>
+        </template>
+        <template v-else-if="updatePhase === 'fehler' && updateFehler">
+          <p class="wert-fehler">{{ updateFehler }}</p>
+          <div class="actions">
+            <button type="button" @click="updateAbbrechen">
+              {{ t('view.common.schliessen') }}
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p>
+            <strong>
+              {{
+                updatePhase === 'bestaetigen'
+                  ? t('view.update.startFrage', {
+                      latest: updateCheck?.latest ?? '',
+                    })
+                  : t('view.update.startLaeuft')
+              }}
+            </strong>
+          </p>
+          <p class="hint">{{ t('view.update.startDetail') }}</p>
+          <div class="actions">
+            <button
+              v-if="updatePhase === 'bestaetigen'"
+              type="button"
+              class="primary danger"
+              @click="updateBestaetigen"
+            >
+              {{ t('view.update.startBestaetigen') }}
+            </button>
+            <button type="button" @click="updateAbbrechen">
+              {{ t('view.common.abbrechen') }}
+            </button>
+          </div>
+        </template>
+      </div>
+
       <p class="hint">
         Zum Reproduzieren:
         <code>git checkout {{ commit }}</code>
@@ -2375,5 +2509,45 @@ main {
   .user-email {
     display: none;
   }
+}
+
+.update-block {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.update-block h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text-strong);
+}
+.update-block .actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.confirm {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.confirm p {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+.confirm .hint {
+  color: var(--text-muted);
+  font-size: 0.78rem !important;
+}
+.hint-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+.wert-fehler {
+  color: var(--danger);
+  font-weight: 600;
 }
 </style>

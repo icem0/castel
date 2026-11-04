@@ -1334,6 +1334,21 @@ export default {
       bulkSpalteProjekt: 'Commission',
       bulkSpalteStorno: 'Reversal',
     },
+    update: {
+      h1: 'Update',
+      versionen: 'Installed: {current} · Latest: {latest}',
+      verfuegbar: 'Update on {latest} available.',
+      aktuellVersion: 'You are already on the latest version.',
+      pruefen: 'Check for updates',
+      pruefLaeuft: 'Checking …',
+      start: 'Update now',
+      startLaeuft: 'Starting update …',
+      startBestaetigen: 'Yes, update now',
+      startFrage: 'Update to version {latest}?',
+      startDetail: 'The server triggers the rollout via a webhook. The app restarts afterwards.',
+      startErfolg: 'Update triggered.',
+      fehlgeschlagen: 'Version check failed: {error}',
+    },
   },
   datanorm: {
     drawer: {

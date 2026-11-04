@@ -24,6 +24,7 @@ import { fotoRoutes, fotoStaticRoutes } from './fotos/routes.js'
 import { userRoutes } from './users/routes.js'
 import { rollenRoutes } from './auth/rollen-routes.js'
 import { adminRoutes } from './admin/routes.js'
+import { updateWebhookRoutes } from './admin/update-webhook-routes.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
 import { pgDumpMajor, serverVersionMajor } from './admin/backup.js'
@@ -139,6 +140,7 @@ async function main() {
     await rollenRoutes(instance)
     await fotoRoutes(instance)
     await adminRoutes(instance)
+    await updateWebhookRoutes(instance)
   })
 
   // Backup-Routes in einem eigenen Block: sie brauchen ein eigenes

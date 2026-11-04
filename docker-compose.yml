@@ -135,6 +135,15 @@ services:
       # Host-Pfad des Compose-Projekts, falls er nicht aus den Labels
       # ermittelbar ist (Arcane/Portainer setzen die Labels normalerweise).
       CASTEL_REPO_DIR: ${CASTEL_REPO_DIR:-}
+      # Update: installierte Version (aus GIT_COMMIT beim Image-Build) sowie
+      # GitHub-Konfiguration für den Versions-Check.
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      GITHUB_REPO: ${GITHUB_REPO}
+      GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      UPDATE_WEBHOOK_URL: ${UPDATE_WEBHOOK_URL}
+      # UPDATE_WEBHOOK_TOKEN kommt bewusst nicht hier rein — das Token darf
+      # nicht in die Compose-Umgebung/Inspect gelangen. Vom Deployer separat injizieren.
     # Migrationen laufen vor jedem API-Start. Idempotent: bereits
     # angewendete SQL-Dateien werden uebersprungen, also kein Risiko.
     # Der separate `migrate`-Profil-Service unten bleibt fuer manuelle
@@ -160,6 +169,8 @@ services:
       # noetig. Ohne Socket-Mount bleibt der manuelle Weg
       # (scripts/update.sh) als Fallback.
       - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test:
         [

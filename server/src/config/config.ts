@@ -22,6 +22,14 @@ const schema = z.object({
   // Auth
   JWT_SECRET: z.string().min(32, 'JWT_SECRET muss mindestens 32 Zeichen haben'),
   JWT_EXPIRES_IN: z.string().default('12h'),
+
+  // Version / Update
+  GIT_COMMIT: z.string().default('unknown'),
+  GITHUB_REPO: z.string().default(''),
+  GITHUB_BRANCH: z.string().default('main'),
+  GITHUB_TOKEN: z.string().default(''),
+  UPDATE_WEBHOOK_URL: z.string().default(''),
+  UPDATE_WEBHOOK_TOKEN: z.string().default(''),
   COOKIE_SECURE: z
     .union([z.literal('true'), z.literal('false')])
     .transform((v) => v === 'true')

@@ -96,6 +96,11 @@ RUN groupadd -r castel && useradd -r -g castel castel \
  && chown -R castel:castel /var/lib/castel
 USER castel
 
+# Installierte Version (aus GIT_COMMIT beim Image-Build), auswertbar via
+# process.env.GIT_COMMIT im laufenden Server.
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
+
 EXPOSE 3000
 
 # Healthcheck
