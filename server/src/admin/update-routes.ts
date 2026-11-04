@@ -1,23 +1,24 @@
 // Update-Endpunkte fuer den Entwicklungs-View.
 //
-// Der Update-Lauf selbst passiert NICHT im API-Container, sondern auf dem
-// Host: dort liegen der Git-Checkout, die Git-Credentials, der Docker-CLI und
-// der echte Compose-Projektname. Ein Update im Container wuerde sich
-// selbst ersetzen und dabei mitten im Lauf sterben.
-//
 // Ablauf:
-//   1. PWA ruft POST /api/admin/update          -> Marker "requested" in der DB
-//   2. Host-Runner (scripts/update.sh, per systemd-Timer alle 15 s) fragt die
-//      DB ab, startet das Update und schreibt Fortschritt + Log in die DB
+//   1. PWA ruft GET  /api/admin/update/check    -> laufende vs. neueste Version
+//   2. PWA ruft POST /api/admin/update          -> Marker "requested" in die DB
+//      und startet einen kurzlebigen Updater-Container (scripts/update.sh).
+//      Der laeuft NICHT im Compose-Projekt, damit er das Neuerstellen des
+//      api-Containers ueberlebt.
 //   3. PWA pollt GET /api/admin/update/status   -> Phase, Log, Versionen
 //
 // Die DB ist der Kanal, weil sie den Neustart des API-Containers ueberlebt:
-// alles im Prozessspeicher waere danach weg.
+// alles im Prozessspeicher waere danach weg. Ohne Docker-Socket (oder ohne
+// Rechte daran) wird nur der Marker gesetzt; die PWA zeigt dann den manuellen
+// Befehl als Fallback.
 
 import type { FastifyInstance } from 'fastify'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen } from '../db/schema.js'
+import { startUpdater } from './update-runner.js'
+import { checkLatestVersion } from './update-check.js'
 
 /** Marker-Key in `einstellungen` (globale Zeile, user_id IS NULL). */
 export const UPDATE_STATE_KEY = 'server.updateState'
@@ -178,9 +179,15 @@ export function buildRequestDocument(now: string): string {
 }
 
 export async function updateRoutes(app: FastifyInstance): Promise<void> {
+  // ---------- GET /api/admin/update/check ----------
+  // Admin-only. Vergleicht die laufende Version mit dem neuesten GHCR-Tag.
+  app.get('/api/admin/update/check', { preHandler: app.requireAdmin }, async (_req, reply) => {
+    const result = await checkLatestVersion()
+    return reply.send(result)
+  })
+
   // ---------- POST /api/admin/update ----------
-  // Admin-only. Merkt eine Update-Anforderung vor. Die Ausfuehrung uebernimmt
-  // der Host-Runner (scripts/update.sh) innerhalb von wenigen Sekunden.
+  // Admin-only. Setzt den Marker und startet den Updater-Container.
   app.post('/api/admin/update', { preHandler: app.requireAdmin }, async (_req, reply) => {
     const current = await readUpdateState()
     if (current.phase === 'running') {
@@ -191,16 +198,29 @@ export async function updateRoutes(app: FastifyInstance): Promise<void> {
       })
     }
     if (current.phase === 'requested') {
-      // Schon angefordert - nicht erneut anfordern (der Runner startet ohnehin).
-      return reply.send({ requested: true, alreadyRequested: true, state: current })
+      // Schon angefordert - Start trotzdem versuchen (der Marker allein macht
+      // noch nichts).
+      const updater = await startUpdater()
+      return reply.send({
+        requested: true,
+        alreadyRequested: true,
+        started: updater.started,
+        reason: updater.reason ?? null,
+        state: current,
+      })
     }
 
     const now = new Date().toISOString()
-    await writeUpdateState(buildRequestDocument(now))
+    const requestedDocument = buildRequestDocument(now)
+    await writeUpdateState(requestedDocument)
+
+    const updater = await startUpdater()
     return reply.send({
       requested: true,
       alreadyRequested: false,
-      state: parseUpdateState(buildRequestDocument(now)),
+      started: updater.started,
+      reason: updater.reason ?? null,
+      state: parseUpdateState(requestedDocument),
     })
   })
 

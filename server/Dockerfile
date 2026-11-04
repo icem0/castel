@@ -43,19 +43,29 @@ ARG PG_MAJOR=16
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl dumb-init unzip; \
+    apt-get install -y --no-install-recommends ca-certificates curl dumb-init unzip git; \
     install -d /usr/share/postgresql-common/pgdg; \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
     . /etc/os-release; \
     echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
       > /etc/apt/sources.list.d/pgdg.list; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://download.docker.com/linux/debian/gpg \
+      -o /etc/apt/keyrings/docker.asc; \
+    chmod a+r /etc/apt/keyrings/docker.asc; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" \
+      > /etc/apt/sources.list.d/docker.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}"; \
+    apt-get install -y --no-install-recommends \
+      "postgresql-client-${PG_MAJOR}" docker-ce-cli docker-compose-plugin; \
     apt-get purge -y --auto-remove curl || true; \
     rm -rf /var/lib/apt/lists/*; \
     pg_dump --version; \
-    pg_restore --version
+    pg_restore --version; \
+    git --version; \
+    docker --version; \
+    docker compose version
 
 COPY --from=deps   /app/node_modules ./node_modules
 COPY --from=build  /app/dist          ./dist

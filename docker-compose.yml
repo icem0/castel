@@ -122,6 +122,14 @@ services:
       DATANORM_MAX_FEHLER_ABSOLUT: ${DATANORM_MAX_FEHLER_ABSOLUT:-100000}
       DATANORM_CLEANUP_TAGE: ${DATANORM_CLEANUP_TAGE:-730}
       PORT: "3000"
+      # Update: Die API startet einen kurzlebigen Updater-Container
+      # (scripts/update.sh) ueber den Docker-Socket. Das Image fuer diesen
+      # Container ist standardmaessig das eigene; ueberschreibbar, falls noetig.
+      CASTEL_UPDATE_IMAGE: ${CASTEL_UPDATE_IMAGE:-}
+      CASTEL_UPDATER_CONTAINER: ${CASTEL_UPDATER_CONTAINER:-castel-updater}
+      # Host-Pfad des Compose-Projekts, falls er nicht aus den Labels
+      # ermittelbar ist (Arcane/Portainer setzen die Labels normalerweise).
+      CASTEL_REPO_DIR: ${CASTEL_REPO_DIR:-}
     # Migrationen laufen vor jedem API-Start. Idempotent: bereits
     # angewendete SQL-Dateien werden uebersprungen, also kein Risiko.
     # Der separate `migrate`-Profil-Service unten bleibt fuer manuelle
@@ -141,6 +149,14 @@ services:
       - fotos-data:/var/lib/castel/fotos
       - backups-data:/var/lib/castel/backups
       - datanorm-data:/var/lib/castel/datanorm
+      # Self-update: die API braucht Zugriff auf den Docker-Socket, um den
+      # kurzlebigen Updater-Container zu starten. DOCKER_GID muss zur Gruppe
+      # des Sockets auf dem Host passen (ermitteln mit:
+      # `stat -c '%g' /var/run/docker.sock`). Ohne Zugriff bleibt der
+      # manuelle Weg (scripts/update.sh) als Fallback.
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
     healthcheck:
       test:
         [

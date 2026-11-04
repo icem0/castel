@@ -3,7 +3,9 @@ name: build-and-push
 # Display name of the run. Manual runs (workflow_dispatch) use the title
 # entered in the UI (e.g. "Akkutausch-Verwaltung"); push runs fall back to the
 # commit message and PR runs to the PR title. Empty falls back to the workflow
-# name ("build-and-push").
+# name ("build-and-push"). Die Versionsnummer steht im Image-Tag :v<version>
+# (siehe Job "version" und die Build-Tags unten), nicht im Run-Namen, weil
+# run-name vor den Jobs ausgewertet wird und nicht auf Job-Outputs zugreifen kann.
 run-name: ${{ inputs.name || github.event.head_commit.message || github.event.pull_request.title || '' }}
 
 on:
@@ -24,8 +26,30 @@ permissions:
   packages: write
 
 jobs:
+  # ---------- Version ----------
+  # Liest die Versionsnummern aus beiden package.json (Root=PWA, server=API)
+  # und stellt sie als Outputs bereit. Läuft bei jedem Event, damit die
+  # nachfolgenden Jobs auch bei PRs/Workflow-Dispatch darauf zugreifen können
+  # (dort werden die Images nicht gepusht, aber die Outputs sind vorhanden).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      rootVersion: ${{ steps.read-version.outputs.rootVersion }}
+      serverVersion: ${{ steps.read-version.outputs.serverVersion }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read versions
+        id: read-version
+        run: |
+          ROOT_VERSION=$(node -e "console.log(require('./package.json').version)")
+          SERVER_VERSION=$(node -e "console.log(require('./server/package.json').version)")
+          echo "rootVersion=$ROOT_VERSION" >> $GITHUB_OUTPUT
+          echo "serverVersion=$SERVER_VERSION" >> $GITHUB_OUTPUT
+          echo "::notice title=Build version::PWA v$ROOT_VERSION / API v$SERVER_VERSION"
+
   # ---------- API ----------
   api:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,6 +108,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/castel-api:latest
             ghcr.io/${{ github.repository_owner }}/castel-api:pre-release
             ghcr.io/${{ github.repository_owner }}/castel-api:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/castel-api:v${{ needs.version.outputs.serverVersion }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -132,6 +157,7 @@ jobs:
 
   # ---------- PWA ----------
   pwa:
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,6 +220,7 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/castel-pwa:latest
             ghcr.io/${{ github.repository_owner }}/castel-pwa:pre-release
             ghcr.io/${{ github.repository_owner }}/castel-pwa:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/castel-pwa:v${{ needs.version.outputs.rootVersion }}
           # Commit/Branch als Build-Args durchreichen, damit version.ts im
           # Image die echten Werte hat (docker buildx hat kein .git/).
           build-args: |

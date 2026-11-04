@@ -5,7 +5,13 @@ import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
 import { holeAktiveUserliste, type UserDto } from '../auth/users'
 import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
-import { fetchUpdateState, requestUpdate, type UpdateState } from '../services/admin/update'
+import {
+  checkUpdate,
+  fetchUpdateState,
+  requestUpdate,
+  type UpdateCheck,
+  type UpdateState,
+} from '../services/admin/update'
 import {
   collectReseedPlan,
   reseedServer,
@@ -43,7 +49,12 @@ const updateFehler = ref<string | null>(null)
 const updateState = ref<UpdateState | null>(null)
 /** Der Server ist während des Stack-Neustarts kurz nicht erreichbar. */
 const updateServerAus = ref(false)
-const updateAnleitungOffen = ref(false)
+const updateCheck = ref<UpdateCheck | null>(null)
+const updateCheckLaeuft = ref(false)
+const updateCheckFehler = ref<string | null>(null)
+/** Grund, warum der Server das Update nicht selbst starten konnte. */
+const updateStartGrund = ref<string | null>(null)
+const updateFallbackOffen = ref(false)
 let updateTimer: ReturnType<typeof setInterval> | null = null
 
 /** Anzeigename des aktuellen Schritts - unbekannte Schritte bleiben leer. */
@@ -225,6 +236,7 @@ onMounted(() => {
   void bulkLaden()
   void ladeGeraete()
   void ladeUserListe()
+  void updateCheckLaden()
 })
 
 function cacheFrageStarten(): void {
@@ -475,15 +487,29 @@ async function reseedBestaetigen(force: boolean): Promise<void> {
   }
 }
 
+async function updateCheckLaden(): Promise<void> {
+  updateCheckLaeuft.value = true
+  updateCheckFehler.value = null
+  try {
+    updateCheck.value = await checkUpdate()
+  } catch (e) {
+    updateCheckFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    updateCheckLaeuft.value = false
+  }
+}
+
 async function updateFrageStarten(): Promise<void> {
   updatePhase.value = 'bestaetigen'
   updateFehler.value = null
   updateServerAus.value = false
+  updateStartGrund.value = null
 }
 function updateAbbrechen(): void {
   updatePhase.value = 'idle'
   updateFehler.value = null
   updateServerAus.value = false
+  updateStartGrund.value = null
   updatePollingStoppen()
 }
 function updatePollingStoppen(): void {
@@ -496,8 +522,19 @@ async function updateBestaetigen(): Promise<void> {
   updatePhase.value = 'laufend'
   updateFehler.value = null
   updateServerAus.value = false
+  updateStartGrund.value = null
   try {
-    await requestUpdate()
+    const result = await requestUpdate()
+    updateState.value = result.state
+    if (!result.started) {
+      // Der Server konnte den Updater nicht starten (z. B. kein Docker-Socket).
+      // Der Marker steht trotzdem - der Befehl unten bleibt als Fallback.
+      updateStartGrund.value = result.reason ?? 'UNKNOWN'
+      updateFallbackOffen.value = true
+      updatePhase.value = 'fehler'
+      updateFehler.value = t('view.development.updateStartFehler')
+      return
+    }
   } catch (e) {
     updateFehler.value = e instanceof Error ? e.message : String(e)
     updatePhase.value = 'fehler'
@@ -1100,6 +1137,47 @@ onBeforeUnmount(() => {
     <h2>{{ t('view.development.update') }}</h2>
     <div class="card">
       <p class="hint">{{ t('view.development.updateHint') }}</p>
+
+      <!-- Versions-Check gegen GHCR -->
+      <div class="update-check">
+        <span v-if="updateCheckLaeuft" class="hint">
+          {{ t('view.development.updateCheckLaeuft') }}
+        </span>
+        <template v-else-if="updateCheck">
+          <p class="hint">
+            {{
+              t('view.development.updateCheckVersion', {
+                current: updateCheck.current ?? '?',
+                latest: updateCheck.latest ?? '?',
+              })
+            }}
+          </p>
+          <p v-if="updateCheck.updateAvailable === true" class="hint hint-ok">
+            {{ t('view.development.updateCheckAvailable', { latest: updateCheck.latest ?? '' }) }}
+          </p>
+          <p v-else-if="updateCheck.updateAvailable === false" class="hint">
+            {{ t('view.development.updateCheckUpToDate') }}
+          </p>
+          <p v-if="updateCheck.error" class="hint">
+            {{ t('view.development.updateCheckFehler', { error: updateCheck.error }) }}
+          </p>
+          <p v-if="updateCheck.canSelfUpdate === false" class="hint hint-danger">
+            {{ t('view.development.updateNoSelfUpdate') }}
+          </p>
+        </template>
+        <p v-if="updateCheckFehler" class="wert-fehler">{{ updateCheckFehler }}</p>
+        <div class="actions">
+          <button
+            type="button"
+            class="small"
+            :disabled="updateCheckLaeuft"
+            @click="updateCheckLaden"
+          >
+            {{ t('view.development.updateCheckBtn') }}
+          </button>
+        </div>
+      </div>
+
       <div class="actions">
         <button
           type="button"
@@ -1114,9 +1192,6 @@ onBeforeUnmount(() => {
                 ? t('view.development.updateFertig')
                 : t('view.development.updateBtn')
           }}
-        </button>
-        <button type="button" class="small" @click="updateAnleitungOffen = !updateAnleitungOffen">
-          {{ t('view.development.updateAnleitungTitel') }}
         </button>
       </div>
 
@@ -1147,19 +1222,14 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Anleitung: Update auf dem Host ausführen -->
-    <div v-if="updateAnleitungOffen" class="card update-anleitung">
-      <h3>{{ t('view.development.updateAnleitungTitel') }}</h3>
-      <p class="hint">{{ t('view.development.updateAnleitungIntro') }}</p>
+    <!-- Fallback: nur wenn der Server das Update nicht selbst starten kann -->
+    <div v-if="updateFallbackOffen" class="card update-anleitung">
+      <h3>{{ t('view.development.updateFallbackTitel') }}</h3>
+      <p class="hint">{{ t('view.development.updateFallbackText') }}</p>
       <pre>{{ t('view.development.updateAnleitungBefehl') }}</pre>
-      <p class="hint">{{ t('view.development.updateAnleitungHinweis') }}</p>
-      <h4>{{ t('view.development.updateAnleitungFehlerTitel') }}</h4>
-      <ul class="hint update-anleitung-liste">
-        <li>{{ t('view.development.updateAnleitungFehler1') }}</li>
-        <li>{{ t('view.development.updateAnleitungFehler2') }}</li>
-        <li>{{ t('view.development.updateAnleitungFehler3') }}</li>
-        <li>{{ t('view.development.updateAnleitungFehler4') }}</li>
-      </ul>
+      <p v-if="updateStartGrund" class="hint">
+        {{ t('view.development.updateStartGrund', { grund: updateStartGrund }) }}
+      </p>
     </div>
 
     <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">

@@ -105,26 +105,24 @@ git pull origin main
 docker compose pull && docker compose up -d
 ```
 
-### Update aus der PWA heraus (optional)
+### Update aus der PWA heraus
 
-Unter **Einstellungen → Entwicklung → Update** kann ein Admin ein vollständiges
-Stack-Update anfordern: `git pull`, neue Images ziehen, Container neu starten,
+Unter **Einstellungen → Entwicklung → Update** kann ein Admin die laufende
+Version gegen den neuesten GHCR-Image-Tag prüfen und mit einem Klick ein
+vollständiges Stack-Update starten: neue Images ziehen, Container neu starten,
 Health-Check und alte Images entfernen.
 
-Das Update läuft dabei **auf dem Host**, nicht im Container — nur dort liegen
-der Git-Checkout, die Git-Zugangsdaten, der Docker-CLI und der echte
-Compose-Projektname. Ein Update im Container würde sich selbst ersetzen und
-mitten im Lauf sterben. Deshalb gibt es auch keinen laufenden Timer.
+Die API startet dafür einen **kurzlebigen Updater-Container** (aus demselben
+Image), der nicht zum Compose-Projekt gehört. Er führt `scripts/update.sh` im
+Host-Projektordner aus und überlebt damit das Neuerstellen des API-Containers.
+Fortschritt und Protokoll landen in der Datenbank, die PWA zeigt sie live an.
 
-Nach dem Klicken auf „Update anfordern" führen Sie auf dem Host einmalig aus:
-
-```bash
-cd /srv/castel && ./scripts/update.sh --if-requested
-```
-
-Das Skript prüft die Datenbank auf eine offene Anforderung und führt nur dann
-etwas aus. Fortschritt und Protokoll landen in der Datenbank, die PWA zeigt sie
-live an.
+Voraussetzung ist, dass der API-Container den Docker-Socket erreicht.
+`docker-compose.yml` mountet `/var/run/docker.sock` und fügt die Socket-Gruppe
+über `DOCKER_GID` hinzu. Passt der Default `999` nicht, `DOCKER_GID` auf die
+Gruppe des Host-Sockets setzen (`stat -c '%g' /var/run/docker.sock`). Ohne
+Socket-Zugriff meldet der Versions-Check `canSelfUpdate:false` und die PWA
+zeigt den manuellen Befehl als Fallback.
 
 Das Skript ist bewusst umgebungsrobust und funktioniert auch in einer
 Arcane-/Portainer-Umgebung, also ohne Git-Checkout und ohne `.env` im
@@ -132,15 +130,13 @@ Projektordner: Fehlt `.git`/`git`, wird der git-Schritt automatisch
 übersprungen (es werden nur die Images aktualisiert). Stammt der Stack nicht
 aus einem Checkout, erkennt das Skript Projektname und Compose-Dateien über die
 Compose-Labels der laufenden Container (Fallback: `docker compose ls` bzw.
-Standard-Dateinamen). Reicht der Zugriff auf den Docker-Socket nicht, einmalig
-mit `sudo` ausführen. Pfad und Projektname lassen sich explizit setzen:
+Standard-Dateinamen). Pfad und Projektname lassen sich explizit setzen:
 
 ```bash
 CASTEL_REPO_DIR=/opt/docker/castel CASTEL_PROJECT_NAME=castel ./scripts/update.sh --if-requested
 ```
 
-Benötigt wird lediglich `docker` mit `docker compose` (v2) oder
-`docker-compose` (v1).
+Dasselbe Skript lässt sich bei Bedarf auch manuell auf dem Host ausführen.
 
 > **Wichtig:** `docker compose down -v` oder ein zurückgesetztes `pgdata`-Volume löscht die Datenbank. Danach ist die User-Tabelle leer, die PWA springt auf das Erst-Setup und ein zuvor erstellter Admin existiert nicht mehr.
 

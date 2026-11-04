@@ -27,16 +27,31 @@ export type UpdateState = {
 export type UpdateRequestResult = {
   requested: boolean
   alreadyRequested: boolean
+  /** True when the server started the updater container itself. */
+  started: boolean
+  /** Machine-readable reason when started is false (e.g. DOCKER_UNAVAILABLE). */
+  reason: string | null
   state: UpdateState
 }
 
-/**
- * Fordert ein Update an. Die Ausfuehrung uebernimmt der Host-Runner
- * (scripts/update.sh) innerhalb von wenigen Sekunden - der API-Container
- * startet sich nicht selbst neu.
- */
+export type UpdateCheck = {
+  current: string | null
+  latest: string | null
+  updateAvailable: boolean | null
+  /** True when the server can reach the Docker socket and self-update. */
+  canSelfUpdate: boolean
+  checkedAt: string
+  error?: string
+}
+
+/** Fordert ein Update an und startet den Updater-Container auf dem Server. */
 export async function requestUpdate(): Promise<UpdateRequestResult> {
   return await apiFetch<UpdateRequestResult>('/api/admin/update', { method: 'POST' })
+}
+
+/** Prueft GHCR auf eine neuere Version als die laufende. */
+export async function checkUpdate(): Promise<UpdateCheck> {
+  return await apiFetch<UpdateCheck>('/api/admin/update/check')
 }
 
 /** Liest den aktuellen Update-Status. */

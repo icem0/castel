@@ -105,40 +105,37 @@ git pull origin main
 docker compose pull && docker compose up -d
 ```
 
-### Update from the PWA (optional)
+### Update from the PWA
 
-Under **Settings → Development → Update** an admin can request a complete
-stack update: `git pull`, pull the new images, restart the containers, health
-check and remove old images.
+Under **Settings → Development → Update** an admin can check the running
+version against the newest GHCR image tag and start a complete stack update
+with one click: pull new images, restart the containers, health check and
+remove old images.
 
-The update runs **on the host**, not inside a container — only there are the
-git checkout, the git credentials, the docker CLI and the real compose project
-name. An update inside the container would replace itself and die in the middle
-of the run. There is therefore no background timer.
-
-After clicking "Request update", run once on the host:
-
-```bash
-cd /srv/castel && ./scripts/update.sh --if-requested
-```
-
-The runner checks the database for a pending request and only acts then.
+The API starts a **short-lived updater container** (from the same image) that
+is not part of the compose project. It runs `scripts/update.sh` in the host
+project folder and therefore survives the recreation of the API container.
 Progress and log end up in the database, the PWA displays them live.
 
-The runner is deliberately environment-robust and also works in an
+This requires the API container to reach the Docker socket. `docker-compose.yml`
+mounts `/var/run/docker.sock` and adds the socket group via `DOCKER_GID`. Set
+`DOCKER_GID` to the host socket group (`stat -c '%g' /var/run/docker.sock`)
+if the default `999` does not match. Without socket access the version check
+reports `canSelfUpdate:false` and the PWA shows the manual command as fallback.
+
+The updater is deliberately environment-robust and also works in an
 Arcane/Portainer setup, i.e. without a git checkout and without a `.env` in the
 project folder: if `.git`/`git` is missing, the git step is skipped
 automatically (only the images are updated). If the stack does not come from a
 checkout, the runner detects the project name and compose files from the
 compose labels of the running containers (fallback: `docker compose ls` and the
-standard file names). If access to the docker socket is not sufficient, run it
-once with `sudo`. Path and project name can be set explicitly:
+standard file names). Path and project name can be set explicitly:
 
 ```bash
 CASTEL_REPO_DIR=/opt/docker/castel CASTEL_PROJECT_NAME=castel ./scripts/update.sh --if-requested
 ```
 
-All it needs is `docker` with `docker compose` (v2) or `docker-compose` (v1).
+The same script also works manually on the host if desired.
 
 > **Important:** `docker compose down -v` or a reset `pgdata` volume deletes the database. Afterwards the user table is empty, the PWA falls back to first-time setup and a previously created admin no longer exists.
 

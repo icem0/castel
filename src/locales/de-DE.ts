@@ -1221,17 +1221,27 @@ export default {
       geräteKeine: 'Noch keine Geräte registriert.',
       update: 'Update',
       updateHint:
-        'Fordert ein Update des Stacks an: git pull, neue Images ziehen, Container neu starten und alte Images entfernen. Die Ausführung läuft auf dem Host — dafür muss dort der Update-Runner eingerichtet sein (siehe Anleitung unten).',
-      updateFrage: 'Update wirklich anfordern?',
+        'Prüft die laufende Version gegen die neueste auf GHCR und startet bei Bedarf ein Update: neue Images ziehen, Stack neu starten, alte Images entfernen. Die Datenbank bleibt erhalten.',
+      updateCheckLaeuft: 'Prüfe auf neue Version …',
+      updateCheckVersion: 'Laufend: {current} · Neueste: {latest}',
+      updateCheckAvailable: 'Neue Version {latest} verfügbar.',
+      updateCheckUpToDate: 'Es ist bereits die neueste Version installiert.',
+      updateCheckFehler: 'Versionsprüfung nicht möglich: {error}',
+      updateCheckBtn: 'Erneut prüfen',
+      updateNoSelfUpdate:
+        'Der Server kann den Docker-Socket nicht erreichen. Das Update lässt sich hier nicht automatisch starten — der Befehl unten bleibt als Fallback.',
+      updateStartFehler: 'Der Server konnte das Update nicht selbst starten (siehe Hinweis unten).',
+      updateStartGrund: 'Grund: {grund}',
+      updateFrage: 'Update jetzt starten?',
       updateDetail:
-        'Der Host zieht die neuesten Änderungen, holt die neuen Images aus der Registry, startet den Stack neu und entfernt anschließend alte, ungenutzte Images. Die Datenbank bleibt unangetastet.',
+        'Der Server zieht die neuesten Änderungen (falls Git-Checkout), holt die neuen Images aus der Registry, startet den Stack neu und entfernt anschließend alte, ungenutzte Images. Die Datenbank bleibt unangetastet.',
       updateWarnung:
         'Während des Updates ist der Dienst kurz nicht erreichbar. Die lokalen Daten der Clients bleiben erhalten; nach dem Neustart zieht jeder Client seinen Snapshot erneut.',
-      updateBtn: 'Update anfordern',
+      updateBtn: 'Jetzt aktualisieren',
       updateLaeuft: 'Update läuft…',
       updateFertig: 'Update abgeschlossen',
       updateFertigText: 'Das Update wurde erfolgreich durchgeführt.',
-      updateBestaetigen: 'Ja, Update anfordern',
+      updateBestaetigen: 'Ja, jetzt aktualisieren',
       updateNachHinweis:
         'Der Stack wurde neu gestartet. Bitte die Seite neu laden, damit die neue PWA-Version geladen wird.',
       updateServerAus:
@@ -1240,7 +1250,7 @@ export default {
       updateVersion: 'Version: {before} → {after}',
       updateLog: 'Protokoll anzeigen',
       updatePhase: {
-        requested: 'Angefordert — wartet auf den Host-Runner',
+        requested: 'Update angefordert',
         running: 'Update läuft',
         done: 'Update abgeschlossen',
         failed: 'Update fehlgeschlagen',
@@ -1252,21 +1262,10 @@ export default {
         health: 'Health-Check',
         purge: 'Alte Images entfernen',
       },
-      updateAnleitungTitel: 'Wie wird das Update ausgeführt?',
-      updateAnleitungIntro:
-        'Das Update läuft auf dem Host und nicht im Container – nur dort liegen der Git-Checkout, die Git-Zugangsdaten und der Docker-CLI. Nach dem Klicken auf „Update anfordern" führen Sie auf dem Host einmalig aus:',
+      updateFallbackTitel: 'Update manuell starten',
+      updateFallbackText:
+        'Führe diesen Befehl auf dem Server aus, um das Update durchzuführen (der angeforderte Zustand steht bereits in der Datenbank):',
       updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
-      updateAnleitungHinweis:
-        'Der Runner prüft die Datenbank auf eine offene Anforderung und führt nur dann etwas aus. Ohne systemd-Timer passiert nichts automatisch – das ist Absicht, damit nichts im Hintergrund läuft.',
-      updateAnleitungFehlerTitel: 'Wenn nichts passiert',
-      updateAnleitungFehler1:
-        'Der Marker „Update angefordert" steht in der Datenbank, aber ./scripts/update.sh wurde noch nicht auf dem Host ausgeführt.',
-      updateAnleitungFehler2:
-        '„Checkout nicht ermittelbar": der Stack läuft aus einem anderen Verzeichnis. Dann CASTEL_REPO_DIR auf den Pfad setzen.',
-      updateAnleitungFehler3:
-        '„Lokale Änderungen im Checkout": nicht committete Änderungen blockieren das Update. Diese committen oder --allow-dirty verwenden.',
-      updateAnleitungFehler4:
-        '„Docker-Daemon nicht erreichbar": der Benutzer, der das Skript ausführt, hat keine Rechte am Docker-Socket.',
       geräteAlle: 'Alle Geräte eines Nutzers',
       geräteAlleHint:
         'Setzt (oder hebt) das Reset-Flag für alle Endgeräte des ausgewählten Nutzers gleichzeitig.',

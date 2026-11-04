@@ -1193,17 +1193,27 @@ export default {
       geräteKeine: 'No devices registered yet.',
       update: 'Update',
       updateHint:
-        'Requests a stack update: git pull, pull the new images, restart the containers and remove old images. The run happens on the host — the update runner has to be set up there (see the guide below).',
-      updateFrage: 'Really request an update?',
+        'Checks the running version against the newest one on GHCR and starts an update when needed: pull new images, restart the stack, remove old images. The database is kept.',
+      updateCheckLaeuft: 'Checking for a new version …',
+      updateCheckVersion: 'Running: {current} · Latest: {latest}',
+      updateCheckAvailable: 'New version {latest} available.',
+      updateCheckUpToDate: 'The latest version is already installed.',
+      updateCheckFehler: 'Version check failed: {error}',
+      updateCheckBtn: 'Check again',
+      updateNoSelfUpdate:
+        'The server cannot reach the Docker socket. The update cannot be started automatically from here — the command below remains as a fallback.',
+      updateStartFehler: 'The server could not start the update itself (see the note below).',
+      updateStartGrund: 'Reason: {grund}',
+      updateFrage: 'Start the update now?',
       updateDetail:
-        'The host pulls the latest changes, fetches the new images from the registry, restarts the stack and afterwards removes old, unused images. The database is left untouched.',
+        'The server pulls the latest changes (if it is a git checkout), fetches the new images from the registry, restarts the stack and afterwards removes old, unused images. The database is left untouched.',
       updateWarnung:
         'The service is briefly unavailable during the update. Client-local data is kept; each client re-pulls its snapshot after the restart.',
-      updateBtn: 'Request update',
+      updateBtn: 'Update now',
       updateLaeuft: 'Update running…',
       updateFertig: 'Update completed',
       updateFertigText: 'The update was carried out successfully.',
-      updateBestaetigen: 'Yes, request update',
+      updateBestaetigen: 'Yes, update now',
       updateNachHinweis:
         'The stack has been restarted. Please reload the page so the new PWA version is loaded.',
       updateServerAus:
@@ -1212,7 +1222,7 @@ export default {
       updateVersion: 'Version: {before} → {after}',
       updateLog: 'Show log',
       updatePhase: {
-        requested: 'Requested — waiting for the host runner',
+        requested: 'Update requested',
         running: 'Update running',
         done: 'Update completed',
         failed: 'Update failed',
@@ -1224,21 +1234,10 @@ export default {
         health: 'Health check',
         purge: 'Removing old images',
       },
-      updateAnleitungTitel: 'How is the update run?',
-      updateAnleitungIntro:
-        'The update runs on the host, not inside the container — only there are the git checkout, the git credentials and the docker CLI. After clicking "Request update", run once on the host:',
+      updateFallbackTitel: 'Start the update manually',
+      updateFallbackText:
+        'Run this command on the server to perform the update (the requested state is already in the database):',
       updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
-      updateAnleitungHinweis:
-        'The runner checks the database for a pending request and only acts then. Without a systemd timer, nothing happens automatically — that is intentional, so nothing runs in the background.',
-      updateAnleitungFehlerTitel: 'If nothing happens',
-      updateAnleitungFehler1:
-        'The "update requested" marker is in the database, but ./scripts/update.sh has not been executed on the host yet.',
-      updateAnleitungFehler2:
-        '"Checkout cannot be detected": the stack runs from a different directory. In that case set CASTEL_REPO_DIR to the path.',
-      updateAnleitungFehler3:
-        '"Local changes in the checkout": uncommitted changes block the update. Commit them or start with --allow-dirty.',
-      updateAnleitungFehler4:
-        '"Docker daemon not reachable": the user running the script has no access to the docker socket.',
       geräteAlle: 'All devices of a user',
       geräteAlleHint:
         'Sets (or clears) the reset flag for all devices of the selected user at once.',
