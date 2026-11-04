@@ -111,8 +111,9 @@ export async function startUpdater(deps: StartUpdaterDeps = {}): Promise<StartUp
   const run = deps.run ?? defaultRun
   const name = deps.containerName ?? process.env.CASTEL_UPDATER_CONTAINER ?? 'castel-updater'
 
-  if (!(await dockerReachable(run))) {
-    return { started: false, reason: 'DOCKER_UNAVAILABLE' }
+  const probe = await probeDocker(run)
+  if (!probe.available) {
+    return { started: false, reason: probe.reason ?? 'DOCKER_UNAVAILABLE' }
   }
 
   const selfId = deps.selfId ?? selfContainerId()
