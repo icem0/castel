@@ -952,7 +952,7 @@ export async function syncRoutes(
       limit?: number
       offset?: number
     }
-    const limit = Math.min(Math.max(Number(body.limit ?? 50), 1), 500)
+    const limit = Math.min(Math.max(Number(body.limit ?? 50), 1), 10000)
     const offset = Math.max(Number(body.offset ?? 0), 0)
 
     const db = getDb()

@@ -54,6 +54,7 @@ import BarcodeErzeugenView from '../views/BarcodeErzeugenView.vue'
 import InfoView from '../views/InfoView.vue'
 import MindestbestandPanelView from '../views/MindestbestandPanelView.vue'
 import InventurView from '../views/InventurView.vue'
+import InventurArchivView from '../views/InventurArchivView.vue'
 import BackupView from '../views/BackupView.vue'
 import GeraetView from '../views/GeraetView.vue'
 import ApiKeysView from '../views/ApiKeysView.vue'
@@ -160,6 +161,14 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/inventur',
     name: 'einstellungen-inventur',
     component: InventurView,
+    meta: { requiresPermission: ['inventur.lesen'] },
+  },
+  {
+    // Dediziertes Buchungsarchiv mit Zeitraumfilter, Pagination und CSV-Export.
+    // Benötigt `inventur.lesen` (gleich wie die Inventur-Hauptseite).
+    path: '/einstellungen/inventur/archiv',
+    name: 'einstellungen-inventur-archiv',
+    component: InventurArchivView,
     meta: { requiresPermission: ['inventur.lesen'] },
   },
   {
