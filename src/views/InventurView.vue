@@ -743,13 +743,12 @@ onBeforeUnmount(() => {
             <th>{{ t('view.inventur.colStichtag') }}</th>
             <th>{{ t('view.inventur.colStatus') }}</th>
             <th>{{ t('view.inventur.colPositionen') }}</th>
-            <th>{{ t('view.inventur.colErstelltAm') }}</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="st in inventurenSortiert" :key="st.id">
-            <td>{{ inventurStichtagAnzeige(st.stichtag) }}</td>
+            <td>{{ st.stichtag }}.{{ st.erstelltAm.slice(0, 4) }}</td>
             <td>
               <span class="status-badge" :class="st.status">{{
                 t(`view.inventur.status.${st.status}`)
