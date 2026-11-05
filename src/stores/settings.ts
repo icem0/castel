@@ -60,7 +60,7 @@ export interface Settings {
   /** Barcode-Format für die Artikel-Detail-Ansicht (nur Admins). */
   barcodeTyp: BarcodeTyp
   /**
-   * Jährlich wiederkehrender Inventur-Stichtag (`MM-TT`, ohne Jahr, leer = nicht gesetzt).
+   * Inventur-Stichtag als konkretes Datum (DD.MM.YYYY, mit Jahr, leer = nicht gesetzt).
    * An diesem Tag wird der Lagerbestand als Snapshot für die Buchhaltung
    * eingefroren. Global, darf mit `inventur.stichtag` geschrieben werden.
    */
@@ -278,7 +278,7 @@ function fromRows(rows: Einstellung[], currentUserId: string | null, istAdmin: b
 
   const inventurStichtagRow = byKey.get('inventur.stichtag')
   // Strict: only a real calendar date counts. The old form could produce
-  // `11-00`; showing that as a valid cut-off date would hide the fact that
+  // \`00.11.2026\`; showing that as a valid cut-off date would hide the fact that
   // the server never accepted it.
   const inventurStichtag: string | null =
     parseInventurStichtag(inventurStichtagRow?.value) ?? DEFAULTS.inventurStichtag
@@ -502,10 +502,10 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * Sets the annual inventory cut-off date. `null` / `''` clears it (the
-   * server accepts the empty value as "not set"). Anything that is not a real
-   * `MM-TT` calendar date is refused here: an op the server would reject
-   * blocks the whole outbox until it lands in the quarantine.
+   * Sets the inventory cut-off date as `DD.MM.YYYY`. `null` / `''` clears it
+   * (the server accepts the empty value as "not set"). Anything that is not a
+   * real `DD.MM.YYYY` calendar date is refused here: an op the server would
+   * reject blocks the whole outbox until it lands in the quarantine.
    */
   async function setInventurStichtag(datum: string | null): Promise<void> {
     const roh = typeof datum === 'string' ? datum.trim() : ''

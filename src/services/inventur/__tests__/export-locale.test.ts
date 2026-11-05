@@ -9,7 +9,7 @@ import { csvDatei } from '../pdf'
 
 const stichtag: InventurStichtag = {
   id: 'st-1',
-  stichtag: '11-15',
+  stichtag: '15.11.2026',
   status: 'abgeschlossen',
   festgehaltenVon: 'user-1',
   festgehaltenVonName: 'Chef',

@@ -7,26 +7,28 @@
 export const INVENTUR_STICHAG_LEER = ''
 
 /**
- * Validates `inventur.stichtag`: an annually repeating calendar date `MM-TT`
- * (without year). An empty string is explicitly allowed and clears the
- * setting — the PWA uses it for "not set".
+ * Validates `inventur.stichtag`: a concrete calendar date `DD.MM.YYYY`
+ * (with year). An empty string is explicitly allowed and clears the setting
+ * — the PWA uses it for "not set".
  *
  * Returns `null` when the value is acceptable, otherwise a message that is
  * shown to the user as the rejection reason.
  */
 export function pruefeInventurStichtag(value: string): string | null {
   if (value === INVENTUR_STICHAG_LEER) return null
-  if (!/^\d{2}-\d{2}$/.test(value)) {
-    return 'muss ein Kalenderdatum im Format MM-TT sein (ohne Jahr)'
+  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(value)) {
+    return 'muss ein Kalenderdatum im Format DD.MM.YYYY sein'
   }
-  const [monatStr, tagStr] = value.split('-')
-  const monat = Number.parseInt(monatStr ?? '', 10)
+  const [tagStr, monatStr, jahrStr] = value.split('.')
   const tag = Number.parseInt(tagStr ?? '', 10)
-  if (!Number.isFinite(monat) || monat < 1 || monat > 12) return 'Monat muss zwischen 1 und 12 liegen'
+  const monat = Number.parseInt(monatStr ?? '', 10)
+  const jahr = Number.parseInt(jahrStr ?? '', 10)
   if (!Number.isFinite(tag) || tag < 1 || tag > 31) return 'Tag muss zwischen 1 und 31 liegen'
-  // Reject impossible combinations (e.g. 02-30, 04-31) and an empty day (00).
-  const probe = new Date(Date.UTC(2000, monat - 1, tag))
-  if (probe.getUTCMonth() !== monat - 1 || probe.getUTCDate() !== tag) {
+  if (!Number.isFinite(monat) || monat < 1 || monat > 12) return 'Monat muss zwischen 1 und 12 liegen'
+  if (!Number.isFinite(jahr) || jahr < 1 || jahr > 9999) return 'Jahr muss zwischen 1 und 9999 liegen'
+  // Reject impossible combinations (e.g. 31.02.2026) and round-trip check.
+  const probe = new Date(Date.UTC(jahr, monat - 1, tag))
+  if (probe.getUTCFullYear() !== jahr || probe.getUTCMonth() !== monat - 1 || probe.getUTCDate() !== tag) {
     return 'kein gültiges Kalenderdatum'
   }
   return null

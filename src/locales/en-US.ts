@@ -418,11 +418,13 @@ export default {
       stichtag: 'Inventory cut-off date',
       stichtagMonat: 'Month',
       stichtagTag: 'Day',
+      stichtagJahr: 'Year',
       stichtagHint:
-        'Annual inventory cut-off date (month/day, without year). On this day the inventory count is frozen as a snapshot for accounting. Both fields empty = no cut-off date.',
+        'Inventory cut-off date as a concrete date (DD.MM.YYYY, with year). On this day the inventory count is frozen as a snapshot for accounting. All three fields empty = no cut-off date.',
       stichtagUnvollstaendig:
-        'Please fill in both month and day — a half-filled cut-off date is not saved.',
-      stichtagUngueltig: 'Month (1–12) and day (1–31) must form a real calendar date (e.g. 11-15).',
+        'Please fill in day, month and year — a half-filled cut-off date is not saved.',
+      stichtagUngueltig:
+        'Day (1–31), month (1–12) and year must form a real calendar date (e.g. 31.12.2026).',
       stichtagGesetzt: 'Inventory cut-off date saved.',
       stichtagGeloescht: 'Inventory cut-off date removed — no cut-off date is set.',
       nichtGesetzt: 'not set',

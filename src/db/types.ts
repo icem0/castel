@@ -211,13 +211,13 @@ export interface BestandZeile {
 
 /**
  * Inventur-Stichtag: ein eingefrorener Bestands-Snapshot für die Buchhaltung.
- * Ein Stichtag ist jährlich wiederkehrend (MM-TT); der abgeschlossene Stand
+ * Ein Stichtag ist ein konkretes Datum (DD.MM.YYYY); der abgeschlossene Stand
  * wird in `inventur_positionen` festgehalten.
  */
 export interface InventurStichtag {
   id: string
-  /** MM-TT (der Server speichert intern das gelöste YYYY-MM-DD; das
-   *  Snapshot-Endpoint liefert MM-TT zurück). */
+  /** DD.MM.YYYY (der Server speichert intern das gelöste YYYY-MM-DD; das
+   *  Snapshot-Endpoint liefert DD.MM.YYYY zurück). */
   stichtag: string
   status: 'offen' | 'abgeschlossen'
   festgehaltenVon: string

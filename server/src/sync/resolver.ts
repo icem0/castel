@@ -1544,7 +1544,7 @@ async function resolveEinstellung(
     }
   }
 
-  // 5) `inventur.stichtag` is an annually repeating calendar date `MM-TT`
+  // 5) `inventur.stichtag` is a concrete calendar date `DD.MM.YYYY`
   //    (empty = not set), `inventur.vorlaufTage` a whole number 0..365. The
   //    rules live in the domain module so the PWA can mirror them exactly and
   //    never queue an op the server would reject.

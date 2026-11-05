@@ -3,45 +3,41 @@
 // lokalen Freeze-Status berechnet.
 //
 // Aktiv: Stichtag gesetzt, nicht abgeschlossen und tageBisStichtag <= vorlaufTage.
-// Überfällig: Stichtag gesetzt, nicht abgeschlossen und der Stichtag in
-// diesem Kalenderjahr ist bereits verstrichen.
+// Überfällig: Stichtag gesetzt, nicht abgeschlossen und der Stichtag ist
+// bereits verstrichen.
 
-/** Der nächste Stichtag als Date (Mitternacht UTC) für ein gegebenes MM-TT. */
-function naechsterStichtag(monat: number, tag: number, jetzt: Date): Date {
-  const jahr = jetzt.getUTCFullYear()
-  const kandidat = new Date(Date.UTC(jahr, monat - 1, tag))
-  // Wenn der Stichtag in diesem Jahr schon vorbei ist, nächstes Jahr.
-  if (kandidat.getTime() < jetzt.getTime()) {
-    return new Date(Date.UTC(jahr + 1, monat - 1, tag))
-  }
-  return kandidat
+/** Der Stichtag als Date (Mitternacht UTC) für ein gegebenes DD.MM.YYYY. */
+function stichtagAlsDate(stichtag: string): Date | null {
+  const m = stichtag.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
+  if (!m) return null
+  const tag = Number.parseInt(m[1] ?? '', 10)
+  const monat = Number.parseInt(m[2] ?? '', 10)
+  const jahr = Number.parseInt(m[3] ?? '', 10)
+  const d = new Date(Date.UTC(jahr, monat - 1, tag))
+  if (d.getUTCFullYear() !== jahr || d.getUTCMonth() !== monat - 1 || d.getUTCDate() !== tag)
+    return null
+  return d
 }
 
-/** Tage bis zum nächsten Stichtag (gerundet auf ganze Tage, kann negativ sein). */
+/** Tage bis zum Stichtag (gerundet auf ganze Tage, kann negativ sein). */
 export function tageBisStichtag(stichtag: string, jetzt: Date): number | null {
-  const m = stichtag.match(/^(\d{2})-(\d{2})$/)
-  if (!m) return null
-  const monat = Number.parseInt(m[1] ?? '', 10)
-  const tag = Number.parseInt(m[2] ?? '', 10)
+  const ziel = stichtagAlsDate(stichtag)
+  if (!ziel) return null
   const jetztUtc = new Date(
     Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), jetzt.getUTCDate()),
   )
-  const ziel = naechsterStichtag(monat, tag, jetztUtc)
   const diff = ziel.getTime() - jetztUtc.getTime()
   return Math.round(diff / (1000 * 60 * 60 * 24))
 }
 
-/** True, wenn der Stichtag in diesem Kalenderjahr bereits verstrichen ist. */
+/** True, wenn der Stichtag bereits verstrichen ist. */
 export function stichtagVerstrichen(stichtag: string, jetzt: Date): boolean | null {
-  const m = stichtag.match(/^(\d{2})-(\d{2})$/)
-  if (!m) return null
-  const monat = Number.parseInt(m[1] ?? '', 10)
-  const tag = Number.parseInt(m[2] ?? '', 10)
+  const ziel = stichtagAlsDate(stichtag)
+  if (!ziel) return null
   const jetztUtc = new Date(
     Date.UTC(jetzt.getUTCFullYear(), jetzt.getUTCMonth(), jetzt.getUTCDate()),
   )
-  const stichtagDiesesJahr = new Date(Date.UTC(jetzt.getUTCFullYear(), monat - 1, tag))
-  return stichtagDiesesJahr.getTime() < jetztUtc.getTime()
+  return ziel.getTime() < jetztUtc.getTime()
 }
 
 /**
@@ -61,7 +57,7 @@ export interface InventurErinnerung {
 /**
  * Berechnet den Erinnerungsstatus für den Inventur-Stichtag.
  *
- * @param stichtag - MM-TT, null wenn nicht gesetzt
+ * @param stichtag - DD.MM.YYYY, null wenn nicht gesetzt
  * @param vorlaufTage - Erinnerungs-Vorlauf in Tagen (0–365)
  * @param abgeschlossen - ob ein abgeschlossener Stichtag für dieses Datum existiert
  * @param jetzt - Referenzzeitpunkt (UTC)
@@ -102,11 +98,7 @@ export function istAbgeschlossen(
   stichtag: string,
   inventurStichtage: { id: string; stichtag: string; status: string }[],
 ): boolean {
-  // Der Server speichert den Stichtag als volles Datum (YYYY-MM-DD), das
-  // Setting (und `stichtag`) ist MM-TT. Deshalb auf die letzten 5 Zeichen
-  // vergleichen — funktioniert auch für alte MM-TT-Zeilen.
-  const gesucht = stichtag.slice(-5)
-  return inventurStichtage.some(
-    (s) => s.stichtag.slice(-5) === gesucht && s.status === 'abgeschlossen',
-  )
+  // Der Server liefert den Stichtag als DD.MM.YYYY zurück, das Setting
+  // (und `stichtag`) ist ebenfalls DD.MM.YYYY. Direkter String-Vergleich.
+  return inventurStichtage.some((s) => s.stichtag === stichtag && s.status === 'abgeschlossen')
 }

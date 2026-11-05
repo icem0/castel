@@ -18,6 +18,7 @@ import {
 } from './errors'
 import { assertKeinZukunftsDatum, assertMengePositiv, assertPflichtfeld } from './validierung'
 import { bestandFuerPaar } from './bestand'
+import { vergleicheNachName } from './sortierung'
 
 /**
  * Prüft, dass Artikel- und Standort-IDs in der lokalen DB existieren.
@@ -562,6 +563,12 @@ export async function artikelOhneInventur(): Promise<InventurHilfeZeile[]> {
       })
     }
   }
+  // Sorted by name ascending (article title, then location name) for the UI.
+  zeilen.sort(
+    (a, b) =>
+      vergleicheNachName(a.artikelTitel, b.artikelTitel) ||
+      vergleicheNachName(a.standortName, b.standortName),
+  )
   return zeilen
 }
 

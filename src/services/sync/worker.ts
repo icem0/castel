@@ -3326,7 +3326,7 @@ export async function queueOp(
  * A setting is a last-writer-wins upsert identified by `(key, userId)`, so an
  * older queued op for the same identity can never win against the value that
  * is queued now. Keeping it is not harmless either: a value the server
- * rejects (an incomplete inventory cut-off date such as `11-00` written by an
+ * rejects (an incomplete inventory cut-off date such as `00.11.2026` written by an
  * older build) retried on every tick and finally sat in the quarantine, so the
  * user kept seeing a sync error long after fixing the field.
  *

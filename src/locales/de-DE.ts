@@ -428,12 +428,13 @@ export default {
       stichtag: 'Inventur-Stichtag',
       stichtagMonat: 'Monat',
       stichtagTag: 'Tag',
+      stichtagJahr: 'Jahr',
       stichtagHint:
-        'Jährlich wiederkehrender Inventur-Stichtag (Monat/Tag, ohne Jahr). An diesem Tag wird der Inventur-Bestand als Snapshot für die Buchhaltung festgehalten. Beide Felder leer = kein Stichtag.',
+        'Inventur-Stichtag als konkretes Datum (TT.MM.JJJJ, mit Jahr). An diesem Tag wird der Inventur-Bestand als Snapshot für die Buchhaltung festgehalten. Alle drei Felder leer = kein Stichtag.',
       stichtagUnvollstaendig:
-        'Bitte Monat und Tag ausfüllen — ein halb ausgefüllter Stichtag wird nicht gespeichert.',
+        'Bitte Tag, Monat und Jahr ausfüllen — ein halb ausgefüllter Stichtag wird nicht gespeichert.',
       stichtagUngueltig:
-        'Monat (1–12) und Tag (1–31) müssen ein echtes Kalenderdatum ergeben (z. B. 11-15).',
+        'Tag (1–31), Monat (1–12) und Jahr müssen ein echtes Kalenderdatum ergeben (z. B. 31.12.2026).',
       stichtagGesetzt: 'Inventur-Stichtag gespeichert.',
       stichtagGeloescht: 'Inventur-Stichtag entfernt — es ist kein Stichtag gesetzt.',
       nichtGesetzt: 'nicht gesetzt',
