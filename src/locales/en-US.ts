@@ -514,6 +514,16 @@ export default {
       erinnerungAktiv: 'Reminder active: {tage} days until cut-off.',
       erinnerungInaktiv: 'No active reminder.',
       stichtagWert: 'Cut-off date: {wert}',
+      uebersicht: 'Inventory overview',
+      uebersichtHint:
+        'All completed inventory snapshots. Each row allows exporting CSV and PDF for the individual cut-off date.',
+      colStichtag: 'Cut-off date',
+      colStatus: 'Status',
+      colPositionen: 'Positions',
+      colErstelltAm: 'Created at',
+      keineInventuren: 'No inventory snapshots yet.',
+      exportStichtagCsv: 'CSV (cut-off date)',
+      exportStichtagPdf: 'PDF (cut-off date)',
     },
     apiKeys: {
       h1: 'API keys for agents',

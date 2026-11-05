@@ -404,6 +404,46 @@ async function pdfExportieren(): Promise<void> {
   }
 }
 
+/** Inventuren sortiert nach Erstellungsdatum absteigend (neueste zuerst). */
+const inventurenSortiert = computed(() => {
+  return [...lokalenStichtage.value].sort(
+    (a, b) => new Date(b.erstelltAm).getTime() - new Date(a.erstelltAm).getTime(),
+  )
+})
+
+/** Anzahl der Positionen für einen Stichtag. */
+function positionCount(stichtageId: string): number {
+  return lokalenPositionen.value.filter((p) => p.stichtageId === stichtageId).length
+}
+
+/** Einzelnen Stichtag als CSV exportieren. */
+async function exporteiereStichtagCsv(st: InventurStichtag): Promise<void> {
+  if (!darfExportieren.value) return
+  const mitPreise = auth.hat('einkaufspreis')
+  downloadCsv({
+    stichtage: lokalenStichtage.value,
+    positionen: lokalenPositionen.value,
+    mitPreise,
+    stichtageId: st.id,
+  })
+}
+
+/** Einzelnen Stichtag als PDF exportieren. */
+async function exporteiereStichtagPdf(st: InventurStichtag): Promise<void> {
+  if (!darfExportieren.value) return
+  const mitPreise = auth.hat('einkaufspreis')
+  try {
+    await downloadPdf({
+      stichtage: lokalenStichtage.value,
+      positionen: lokalenPositionen.value,
+      mitPreise,
+      stichtageId: st.id,
+    })
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 onMounted(async () => {
   await ladeLokaleInventur()
   if (darfLesen.value) await archivLadenFunc(0)
@@ -694,6 +734,53 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <div v-if="darfLesen" class="card">
+      <h2>{{ t('view.inventur.uebersicht') }}</h2>
+      <p>{{ t('view.inventur.uebersichtHint') }}</p>
+      <table v-if="inventurenSortiert.length > 0" class="inventur-tabelle">
+        <thead>
+          <tr>
+            <th>{{ t('view.inventur.colStichtag') }}</th>
+            <th>{{ t('view.inventur.colStatus') }}</th>
+            <th>{{ t('view.inventur.colPositionen') }}</th>
+            <th>{{ t('view.inventur.colErstelltAm') }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="st in inventurenSortiert" :key="st.id">
+            <td>{{ inventurStichtagAnzeige(st.stichtag) }}</td>
+            <td>
+              <span class="status-badge" :class="st.status">{{
+                t(`view.inventur.status.${st.status}`)
+              }}</span>
+            </td>
+            <td class="zahl">{{ positionCount(st.id) }}</td>
+            <td>{{ st.erstelltAm.slice(0, 10) }}</td>
+            <td class="aktions-spalte">
+              <button
+                v-if="darfExportieren"
+                type="button"
+                class="btn klein"
+                @click="exporteiereStichtagCsv(st)"
+              >
+                {{ t('view.inventur.exportStichtagCsv') }}
+              </button>
+              <button
+                v-if="darfExportieren"
+                type="button"
+                class="btn klein"
+                @click="exporteiereStichtagPdf(st)"
+              >
+                {{ t('view.inventur.exportStichtagPdf') }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-else class="hint">{{ t('view.inventur.keineInventuren') }}</div>
+    </div>
+
     <div v-if="darfExportieren" class="card">
       <h2>{{ t('view.inventur.export') }}</h2>
       <p>{{ t('view.inventur.exportHint') }}</p>
@@ -806,6 +893,49 @@ button.btn:disabled {
 }
 .archiv-mehr {
   margin-top: 0.5rem;
+}
+.inventur-tabelle {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  color: var(--text);
+}
+.inventur-tabelle th,
+.inventur-tabelle td {
+  border: 1px solid var(--border);
+  padding: 0.4rem;
+  text-align: left;
+}
+.inventur-tabelle th {
+  background: var(--bg-input);
+  color: var(--text-strong);
+}
+.inventur-tabelle tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+.aktions-spalte {
+  display: flex;
+  gap: 0.3rem;
+}
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85em;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.status-badge.offen {
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+}
+.status-badge.abgeschlossen {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(74, 222, 128, 0.35);
 }
 .hilfe-tabelle {
   width: 100%;

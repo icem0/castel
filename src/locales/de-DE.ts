@@ -529,6 +529,16 @@ export default {
       erinnerungAktiv: 'Erinnerung aktiv: noch {tage} Tage bis zum Stichtag.',
       erinnerungInaktiv: 'Keine aktive Erinnerung.',
       stichtagWert: 'Stichtag: {wert}',
+      uebersicht: 'Inventur-Übersicht',
+      uebersichtHint:
+        'Alle abgeschlossenen Inventur-Snapshots. Je Zeile können CSV und PDF für den einzelnen Stichtag exportiert werden.',
+      colStichtag: 'Stichtag',
+      colStatus: 'Status',
+      colPositionen: 'Positionen',
+      colErstelltAm: 'Erstellt am',
+      keineInventuren: 'Noch keine Inventur-Snapshots vorhanden.',
+      exportStichtagCsv: 'CSV (Stichtag)',
+      exportStichtagPdf: 'PDF (Stichtag)',
     },
     apiKeys: {
       h1: 'API-Keys für Agenten',

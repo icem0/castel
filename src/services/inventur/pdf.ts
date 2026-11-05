@@ -15,6 +15,8 @@ export interface ExportOptions {
   positionen: InventurPosition[]
   /** Ob Preisspalten (EK/Listenpreis/Wert) mit ausgegeben werden. */
   mitPreise: boolean
+  /** Optional: nur Positionen/Stichtage mit dieser stichtageId exportieren. */
+  stichtageId?: string
 }
 
 /**
@@ -46,8 +48,12 @@ function typText(typ: string): string {
 
 /** CSV with semicolon separators + UTF-8 BOM (Excel-compatible). */
 export function csvDatei(opts: ExportOptions): string {
-  const { stichtage, positionen, mitPreise } = opts
+  const { stichtage, positionen, mitPreise, stichtageId } = opts
   const stichtagMap = new Map(stichtage.map((s) => [s.id, s]))
+
+  const filteredPositionen = stichtageId
+    ? positionen.filter((p) => p.stichtageId === stichtageId)
+    : positionen
 
   const lines: string[] = []
   const header = [
@@ -71,7 +77,7 @@ export function csvDatei(opts: ExportOptions): string {
   ]
   lines.push(header.join(';'))
 
-  for (const p of positionen) {
+  for (const p of filteredPositionen) {
     const st = stichtagMap.get(p.stichtageId)
     const row: string[] = [
       st?.stichtag ?? '',
@@ -100,7 +106,9 @@ export function downloadCsv(opts: ExportOptions, dateiname?: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = dateiname ?? `inventur-${new Date().toISOString().slice(0, 10)}.csv`
+  const st = opts.stichtage.find((s) => s.id === opts.stichtageId)
+  const suffix = st ? `-${st.stichtag.replaceAll('-', '')}` : ''
+  a.download = dateiname ?? `inventur${suffix}-${new Date().toISOString().slice(0, 10)}.csv`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -109,7 +117,7 @@ export function downloadCsv(opts: ExportOptions, dateiname?: string): void {
 
 /** PDF erzeugen (jsPDF, lazy import). A4, gruppiert nach Standort. */
 export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
-  const { stichtage, positionen, mitPreise } = opts
+  const { stichtage, positionen, mitPreise, stichtageId } = opts
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
 
@@ -123,9 +131,17 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
     return name
   }
 
+  // Optional: nur einen Stichtag exportieren
+  const gefilterteStichtage = stichtageId
+    ? stichtage.filter((s) => s.id === stichtageId)
+    : stichtage
+  const gefiltertePositionen = stichtageId
+    ? positionen.filter((p) => p.stichtageId === stichtageId)
+    : positionen
+
   // Positionen nach Standort gruppieren
   const nachStandort = new Map<string, InventurPosition[]>()
-  for (const p of positionen) {
+  for (const p of gefiltertePositionen) {
     const liste = nachStandort.get(p.standortId) ?? []
     liste.push(p)
     nachStandort.set(p.standortId, liste)
@@ -148,7 +164,7 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   doc.text(msg('view.inventur.exportPdfTexte.erstellt', { zeit: new Date().toISOString() }), 15, y)
   y += 6
 
-  for (const stichtag of stichtage) {
+  for (const stichtag of gefilterteStichtage) {
     y += 5
     doc.setFontSize(12)
     doc.text(
@@ -239,8 +255,8 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   // Gesamtsumme
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
-  const gesamtMenge = positionen.reduce((s, p) => s + p.menge, 0)
-  const gesamtWert = positionen.reduce((s, p) => s + p.wert, 0)
+  const gesamtMenge = gefiltertePositionen.reduce((s, p) => s + p.menge, 0)
+  const gesamtWert = gefiltertePositionen.reduce((s, p) => s + p.wert, 0)
   doc.text(msg('view.inventur.exportPdfTexte.gesamtmenge', { menge: gesamtMenge }), 15, y + 5)
   if (mitPreise)
     doc.text(msg('view.inventur.exportPdfTexte.gesamtwert', { wert: gesamtWert }), 15, y + 10)
@@ -256,7 +272,9 @@ export async function downloadPdf(opts: ExportOptions, dateiname?: string): Prom
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = dateiname ?? `inventur-${new Date().toISOString().slice(0, 10)}.pdf`
+  const st = opts.stichtage.find((s) => s.id === opts.stichtageId)
+  const suffix = st ? `-${st.stichtag.replaceAll('-', '')}` : ''
+  a.download = dateiname ?? `inventur${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
