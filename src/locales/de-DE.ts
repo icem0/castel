@@ -511,7 +511,8 @@ export default {
         negativ: 'Negativ',
       },
       exportPdfTexte: {
-        titel: 'Inventur-Snapshot',
+        titel: 'Inventur',
+        titelStichtag: '{titel} {wert}',
         erstellt: 'Erstellt: {zeit}',
         stichtag: 'Stichtag: {wert} ({status})',
         standort: 'Standort: {name}',

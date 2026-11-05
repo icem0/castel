@@ -53,8 +53,8 @@ export function csvDatei(opts: ExportOptions): string {
   const stichtagMap = new Map(stichtage.map((s) => [s.id, s]))
 
   const filteredPositionen = stichtageId
-    ? positionen.filter((p) => p.stichtageId === stichtageId)
-    : positionen
+    ? positionen.filter((p) => p.stichtageId === stichtageId && p.menge !== 0)
+    : positionen.filter((p) => p.menge !== 0)
 
   const lines: string[] = []
   const header = [
@@ -132,8 +132,8 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
     ? stichtage.filter((s) => s.id === stichtageId)
     : stichtage
   const gefiltertePositionen = stichtageId
-    ? positionen.filter((p) => p.stichtageId === stichtageId)
-    : positionen
+    ? positionen.filter((p) => p.stichtageId === stichtageId && p.menge !== 0)
+    : positionen.filter((p) => p.menge !== 0)
 
   // Positionen nach Standort gruppieren
   const nachStandort = new Map<string, InventurPosition[]>()
@@ -156,6 +156,16 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
     y += 5
     doc.setFontSize(12)
     doc.text(
+      msg('view.inventur.exportPdfTexte.titelStichtag', {
+        titel: msg('view.inventur.exportPdfTexte.titel'),
+        wert: stichtag.stichtag,
+      }),
+      15,
+      y,
+    )
+    y += 6
+    doc.setFontSize(10)
+    doc.text(
       msg('view.inventur.exportPdfTexte.stichtag', {
         wert: stichtag.stichtag,
         status: statusText(stichtag.status),
@@ -170,13 +180,13 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       doc.setFontSize(11)
       doc.text(msg('view.inventur.exportPdfTexte.standort', { name }), 15, y)
       y += 5
-
       // Tabellen-Header
       const KopfX = 15
       doc.setFontSize(8)
       doc.setFont('helvetica', 'bold')
       const headerCols: string[] = [
         msg('view.inventur.exportSpalten.artikel'),
+        msg('view.inventur.exportSpalten.artikelId'),
         msg('view.inventur.exportSpalten.typ'),
         msg('view.inventur.exportSpalten.menge'),
       ]
@@ -189,7 +199,7 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       let x = KopfX
       headerCols.forEach((col, i) => {
         doc.text(col, x, y)
-        x += i === 0 ? 55 : 20
+        x += i === 0 ? 40 : i === 1 ? 20 : 15
       })
       y += 4
       doc.setFont('helvetica', 'normal')
@@ -198,19 +208,20 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       for (const p of posListe) {
         // Stichtag-Filter: nur Positionen dieses Stichtags anzeigen
         if (p.stichtageId !== stichtag.id) continue
-        const artikel = `"${p.titel.slice(0, 20)}" (${p.artikelId.slice(0, 8)}…)`
-        const artikelLines = doc.splitTextToSize(artikel, 50)
+        const artikel = `"${p.titel.slice(0, 30)}"`
+        const artikelLines = doc.splitTextToSize(artikel, 38)
         for (const line of artikelLines) {
           doc.text(line, KopfX, y)
           y += 3
         }
-        doc.text(typText(p.typ), KopfX + 55, y - 3)
+        doc.text(p.artikelId.slice(0, 12), KopfX + 40, y - 3)
+        doc.text(typText(p.typ), KopfX + 60, y - 3)
         doc.text(String(p.menge), KopfX + 75, y - 3)
         if (mitPreise) {
           const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
           const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
-          doc.text(ep + ' €', KopfX + 95, y - 3)
-          doc.text(gpWert !== null ? gpWert.toFixed(2) + ' €' : '', KopfX + 115, y - 3)
+          doc.text(ep + ' €', KopfX + 90, y - 3)
+          doc.text(gpWert !== null ? gpWert.toFixed(2) + ' €' : '', KopfX + 105, y - 3)
         }
         summeMenge += p.menge
         summeWert += p.menge * (p.einkaufspreisCent ?? 0)

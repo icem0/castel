@@ -497,7 +497,8 @@ export default {
         negativ: 'Negative',
       },
       exportPdfTexte: {
-        titel: 'Inventory snapshot',
+        titel: 'Inventory',
+        titelStichtag: '{titel} {wert}',
         erstellt: 'Created: {zeit}',
         stichtag: 'Cut-off date: {wert} ({status})',
         standort: 'Location: {name}',
