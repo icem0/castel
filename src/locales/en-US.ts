@@ -1340,12 +1340,20 @@ export default {
       updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
       updateUnbekannt: 'unknown',
       updateWebhookInfo: 'Webhook info',
-      updateWebhookTitel: 'Inbound webhook: trigger external update',
+      updateWebhookTitel: 'Inbound webhook: trigger an update from outside the PWA',
       updateWebhookText:
-        'An external system (CI/CD, orchestrator, Portainer, ...) can trigger an update on this server without logging into the PWA. The server then performs the update (pull new images, restart the stack, remove old images).',
-      updateWebhookHeader: 'Header: X-Deploy-Token: <your-token>',
+        'You start it: `curl` from any shell (SSH from a deploy PC, systemd-cron, an alias) or an external system (CI/CD, adnanh/webhook, Portainer, ...). The endpoint `POST /api/admin/update/webhook` lives directly in the API container — no external webhook receiver is needed. It writes the `server.updateState` marker and starts the short-lived updater container (same as the "Start update" button).',
+      updateWebhookHeader: 'Header: X-Deploy-Token: <TOKEN from .env>',
       updateWebhookHinweis:
-        'Set UPDATE_WEBHOOK_TOKEN in the .env of the API server. The token is never sent to the frontend.',
+        'Token flow: Pick a secret ONCE (`openssl rand -hex 32`), put it in your `.env` (via `docker-compose.yml:149 UPDATE_WEBHOOK_TOKEN: ${UPDATE_WEBHOOK_TOKEN}`). On every request send THE SAME string in the `X-Deploy-Token` header. The route compares header == `config.UPDATE_WEBHOOK_TOKEN`.',
+      updateWebhookFlow:
+        'The token never reaches the frontend. Both sides must carry the SAME value — nothing is "transmitted" to a separate webhook server, this endpoint IS the API server.',
+      updateWebhookErrors:
+        'Empty `UPDATE_WEBHOOK_TOKEN` in `.env` → HTTP 500 `UPDATE_NO_WEBHOOK_TOKEN`. Missing or wrong `X-Deploy-Token` → HTTP 401 `UNAUTHORIZED`. Update already running → HTTP 409 `UPDATE_RUNNING` (with current state).',
+      updateWebhookSelf:
+        'Self-call: `UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/api/admin/update/webhook` → the "Start update" button hits the same endpoint on itself, no external webhook service. No `extra_hosts` needed (same container).',
+      updateWebhookExternal:
+        'External receiver: `UPDATE_WEBHOOK_URL=http://host.docker.internal:9000/hooks/deploy` (adnanh/webhook) — `docker-compose.yml:176 extra_hosts: ["host.docker.internal:host-gateway"]` lets the API container resolve the name. The receiver must itself verify `X-Deploy-Token` against the same secret.',
       geräteAlle: 'All devices of a user',
       geräteAlleHint:
         'Sets (or clears) the reset flag for all devices of the selected user at once.',

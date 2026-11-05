@@ -61,11 +61,12 @@ let updateTimer: ReturnType<typeof setInterval> | null = null
 
 /** API-Basis-URL fuer den Webhook-Endpunkt. */
 const apiBaseUrl = computed(() => getApiBaseUrl())
-/** Curl-Beispiel fuer den Inbound-Webhook. */
+/** Curl-Beispiel fuer den Inbound-Webhook (Token-Placeholder bleibt offentlich). */
 const webhookCurl = computed(() => {
   const base = apiBaseUrl.value
   const url = base ? `${base}/api/admin/update/webhook` : '<API-URL>/api/admin/update/webhook'
-  return `curl -X POST ${url} \\\n  -H "X-Deploy-Token: <Ihr-Token>" \\\n  -H "Content-Type: application/json" \\\n  -d '{}'`
+  const tokenHint = '$(grep -m1 UPDATE_WEBHOOK_TOKEN .env | cut -d= -f2-)'
+  return `curl -X POST ${url} \\\n  -H "X-Deploy-Token: ${tokenHint}" \\\n  -H "Content-Type: application/json" \\\n  -d '{}'`
 })
 
 /** Anzeigename des aktuellen Schritts - unbekannte Schritte bleiben leer. */
@@ -1265,6 +1266,10 @@ onBeforeUnmount(() => {
       <pre>{{ webhookCurl }}</pre>
       <p class="hint">{{ t('view.development.updateWebhookHeader') }}</p>
       <p class="hint">{{ t('view.development.updateWebhookHinweis') }}</p>
+      <p class="hint">{{ t('view.development.updateWebhookFlow') }}</p>
+      <p class="hint">{{ t('view.development.updateWebhookErrors') }}</p>
+      <p class="hint">{{ t('view.development.updateWebhookSelf') }}</p>
+      <p class="hint">{{ t('view.development.updateWebhookExternal') }}</p>
     </div>
 
     <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
