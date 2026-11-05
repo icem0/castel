@@ -519,7 +519,7 @@ export default {
         gesamtmenge: 'Gesamtmenge: {menge}',
         gesamtwert: 'Gesamtwert: {wert} €',
         fusszeile:
-          'castel Inventur-Export — {zeit} | {webseite} | Version {version} | Seite {seite} von {gesamt}',
+          'castel Inventur-Export — {zeit} | Version {version} | Seite {seite} von {gesamt}',
       },
       status: { offen: 'offen', abgeschlossen: 'abgeschlossen' },
       erinnerung: 'Inventur-Erinnerung',

@@ -11,8 +11,6 @@ import { getDb } from '../../db/database'
 import { i18n } from '../../i18n'
 import { version } from '../../version'
 
-const WEBSITE = 'https://castel.app'
-
 export interface ExportOptions {
   stichtage: InventurStichtag[]
   positionen: InventurPosition[]
@@ -194,26 +192,28 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
         x += i === 0 ? 55 : 20
       })
       y += 4
-
       doc.setFont('helvetica', 'normal')
       let summeMenge = 0
       let summeWert = 0
       for (const p of posListe) {
         // Stichtag-Filter: nur Positionen dieses Stichtags anzeigen
         if (p.stichtageId !== stichtag.id) continue
-        const artikel = `"${p.titel.slice(0, 28)}" (${p.artikelId.slice(0, 8)}…)`
-        doc.text(artikel, KopfX, y)
-        doc.text(typText(p.typ), KopfX + 55, y)
-        doc.text(String(p.menge), KopfX + 75, y)
+        const artikel = `"${p.titel.slice(0, 20)}" (${p.artikelId.slice(0, 8)}…)`
+        const artikelLines = doc.splitTextToSize(artikel, 50)
+        for (const line of artikelLines) {
+          doc.text(line, KopfX, y)
+          y += 3
+        }
+        doc.text(typText(p.typ), KopfX + 55, y - 3)
+        doc.text(String(p.menge), KopfX + 75, y - 3)
         if (mitPreise) {
           const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
           const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
-          doc.text(ep + ' €', KopfX + 95, y)
-          doc.text(gpWert !== null ? gpWert.toFixed(2) + ' €' : '', KopfX + 115, y)
+          doc.text(ep + ' €', KopfX + 95, y - 3)
+          doc.text(gpWert !== null ? gpWert.toFixed(2) + ' €' : '', KopfX + 115, y - 3)
         }
         summeMenge += p.menge
         summeWert += p.menge * (p.einkaufspreisCent ?? 0)
-        y += 4
         if (y > 260) {
           doc.addPage()
           y = 20
@@ -263,8 +263,7 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
     doc.text(
       msg('view.inventur.exportPdfTexte.fusszeile', {
         zeit: jetzt,
-        webseite: WEBSITE,
-        version,
+        version: `v${version}`,
         seite: pageNum,
         gesamt: totalPages,
       }),

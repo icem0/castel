@@ -505,7 +505,7 @@ export default {
         gesamtmenge: 'Total quantity: {menge}',
         gesamtwert: 'Total value: {wert} €',
         fusszeile:
-          'castel inventory export — {zeit} | {webseite} | Version {version} | Page {seite} of {gesamt}',
+          'castel inventory export — {zeit} | Version {version} | Page {seite} of {gesamt}',
       },
       status: { offen: 'open', abgeschlossen: 'closed' },
       erinnerung: 'Inventory reminder',
