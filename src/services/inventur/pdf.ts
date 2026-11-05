@@ -196,10 +196,11 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
           msg('view.inventur.exportSpalten.gp'),
         )
       }
+      const spaltenBreiten = mitPreise ? [55, 30, 30, 20, 20, 25] : [55, 30, 30, 20]
       let x = KopfX
       headerCols.forEach((col, i) => {
         doc.text(col, x, y)
-        x += i === 0 ? 40 : i === 1 ? 20 : 15
+        x += spaltenBreiten[i]!
       })
       y += 4
       doc.setFont('helvetica', 'normal')
@@ -208,23 +209,47 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       for (const p of posListe) {
         // Stichtag-Filter: nur Positionen dieses Stichtags anzeigen
         if (p.stichtageId !== stichtag.id) continue
-        const artikel = `"${p.titel.slice(0, 30)}"`
-        const artikelLines = doc.splitTextToSize(artikel, 38)
+        const artikel = `"${p.titel.slice(0, 60)}"`
+        const artikelLines = doc.splitTextToSize(artikel, spaltenBreiten[0]! - 2)
+        let letzteArtikelY = y
         for (const line of artikelLines) {
-          doc.text(line, KopfX, y)
-          y += 3
+          doc.text(line, KopfX, letzteArtikelY)
+          letzteArtikelY += 3
         }
-        doc.text(p.artikelId.slice(0, 12), KopfX + 40, y - 3)
-        doc.text(typText(p.typ), KopfX + 60, y - 3)
-        doc.text(String(p.menge), KopfX + 75, y - 3)
+        const zeilenEnde = letzteArtikelY - 3
+        doc.text(p.artikelId.slice(0, 12), KopfX + spaltenBreiten[0]!, zeilenEnde)
+        doc.text(typText(p.typ), KopfX + spaltenBreiten[0]! + spaltenBreiten[1]!, zeilenEnde)
+        doc.text(
+          String(p.menge),
+          KopfX + spaltenBreiten[0]! + spaltenBreiten[1]! + spaltenBreiten[2]!,
+          zeilenEnde,
+        )
         if (mitPreise) {
           const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
           const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
-          doc.text(ep + ' €', KopfX + 90, y - 3)
-          doc.text(gpWert !== null ? gpWert.toFixed(2) + ' €' : '', KopfX + 105, y - 3)
+          doc.text(
+            ep + ' €',
+            KopfX +
+              spaltenBreiten[0]! +
+              spaltenBreiten[1]! +
+              spaltenBreiten[2]! +
+              spaltenBreiten[3]!,
+            zeilenEnde,
+          )
+          doc.text(
+            gpWert !== null ? gpWert.toFixed(2) + ' €' : '',
+            KopfX +
+              spaltenBreiten[0]! +
+              spaltenBreiten[1]! +
+              spaltenBreiten[2]! +
+              spaltenBreiten[3]! +
+              spaltenBreiten[4]!,
+            zeilenEnde,
+          )
         }
         summeMenge += p.menge
         summeWert += p.menge * (p.einkaufspreisCent ?? 0)
+        y = letzteArtikelY + 1
         if (y > 260) {
           doc.addPage()
           y = 20
@@ -234,8 +259,22 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       // Zwischensumme Standort
       doc.setFont('helvetica', 'bold')
       doc.text(msg('view.inventur.exportPdfTexte.zwischensumme'), KopfX, y + 2)
-      doc.text(String(summeMenge), KopfX + 75, y + 2)
-      if (mitPreise) doc.text((summeWert / 100).toFixed(2) + ' €', KopfX + 115, y + 2)
+      doc.text(
+        String(summeMenge),
+        KopfX + spaltenBreiten[0]! + spaltenBreiten[1]! + spaltenBreiten[2]!,
+        y + 2,
+      )
+      if (mitPreise)
+        doc.text(
+          (summeWert / 100).toFixed(2) + ' €',
+          KopfX +
+            spaltenBreiten[0]! +
+            spaltenBreiten[1]! +
+            spaltenBreiten[2]! +
+            spaltenBreiten[3]! +
+            spaltenBreiten[4]!,
+          y + 2,
+        )
       doc.setFont('helvetica', 'normal')
       y += 8
 
