@@ -859,7 +859,11 @@ export async function syncRoutes(
       .where(and(eq(buchungen.typ, 'inventur'), eq(buchungen.storno, false)))
       .groupBy(buchungen.artikelId, buchungen.standortId)
     const latestMarker = new Map<string, Date>()
-    for (const r of markerRows) latestMarker.set(`${r.artikelId}#${r.standortId}`, r.latest!)
+    for (const r of markerRows) {
+      if (!r.latest) continue
+      const d = r.latest instanceof Date ? r.latest : new Date(r.latest)
+      latestMarker.set(`${r.artikelId}#${r.standortId}`, d)
+    }
 
     const bestandZeilen: Array<{ artikelId: string; standortId: string; menge: number }> = []
     let erstellteMarker = 0
