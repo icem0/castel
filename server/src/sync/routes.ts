@@ -915,8 +915,9 @@ export async function syncRoutes(
       await tx.execute(sql`INSERT INTO einstellungen (key, user_id, value, geaendert_am)
         VALUES ('inventur.sichtbarAb', NULL, ${fensterAb}, ${jetzt.toISOString()})
         ON CONFLICT (key) WHERE (user_id IS NULL) DO UPDATE SET value = EXCLUDED.value, geaendert_am = EXCLUDED.geaendert_am`)
+      const rebaseId = randomUUID()
       await tx.execute(sql`INSERT INTO audit_log (id, aktion, entitaet, entitaet_id, benutzer_id, daten, zeit)
-        VALUES (${randomUUID()}, 'inventur.rebase', 'bestand', NULL, ${user.sub},
+        VALUES (${randomUUID()}, 'inventur.rebase', 'bestand', ${rebaseId}, ${user.sub},
           ${JSON.stringify({ marker: erstellteMarker, uebersprungen: uebersprungeneMarker, paare: bestandZeilen.length, fensterAb })}, ${jetzt.toISOString()})`)
     })
 
