@@ -1370,6 +1370,7 @@ export default {
       updateFallbackText:
         'Führe diesen Befehl auf dem Server aus, um das Update durchzuführen (der angeforderte Zustand steht bereits in der Datenbank):',
       updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
+      updateUnbekannt: 'unbekannt',
       updateWebhookInfo: 'Webhook-Info',
       updateWebhookTitel: 'Inbound-Webhook: externes Update ausloesen',
       updateWebhookText:
@@ -1411,6 +1412,7 @@ export default {
     update: {
       h1: 'Update',
       versionen: 'Installiert: {current} · Neueste: {latest}',
+      unbekannt: 'unbekannt',
       verfuegbar: 'Update auf {latest} verfügbar.',
       aktuellVersion: 'Sie nutzen bereits die neueste Version.',
       pruefen: 'Auf Updates prüfen',

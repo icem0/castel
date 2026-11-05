@@ -138,8 +138,10 @@ Klar trennen — beides kommt **nicht** zusammen in der DB ab:
 (Version aus `package.json`, Commit/Branch/Build-Datum). Im PWA-Buildx gibt es
 kein `.git/`, also fallen Commit/Branch sonst auf `unbekannt` zurück. Das CI
 reicht deshalb `GIT_COMMIT` (`github.sha`) und `GIT_BRANCH` (`github.ref_name`)
-als Build-Args an `Dockerfile.pwa` durch — `write-version.mjs` liest sie aus
-der ENV und nutzt sie mit Fallback auf `git rev-parse` (lokal).
+als Build-Args an `Dockerfile.pwa` **und** an `server/Dockerfile` (API) durch —
+`write-version.mjs` liest sie aus der ENV und nutzt sie mit Fallback auf
+`git rev-parse` (lokal). Ohne den API-Build-Arg bleibt `config.GIT_COMMIT`
+auf `unknown` und der Update-Endpunkt zeigt "Installiert: unbekannt".
 
 ## Code-Qualität
 

@@ -56,8 +56,8 @@ const { t } = useI18n()
       <p class="hint" data-test="update-versionen">
         {{
           t('view.update.versionen', {
-            current: props.check.current ?? '?',
-            latest: props.check.latest ?? '?',
+            current: props.check.current ?? t('view.update.unbekannt'),
+            latest: props.check.latest ?? t('view.update.unbekannt'),
           })
         }}
       </p>

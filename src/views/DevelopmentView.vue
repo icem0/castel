@@ -1166,8 +1166,8 @@ onBeforeUnmount(() => {
           <p class="hint">
             {{
               t('view.development.updateCheckVersion', {
-                current: updateCheck.current ?? '?',
-                latest: updateCheck.latest ?? '?',
+                current: updateCheck.current ?? t('view.development.updateUnbekannt'),
+                latest: updateCheck.latest ?? t('view.development.updateUnbekannt'),
               })
             }}
           </p>

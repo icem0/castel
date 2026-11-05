@@ -135,9 +135,10 @@ services:
       # Host-Pfad des Compose-Projekts, falls er nicht aus den Labels
       # ermittelbar ist (Arcane/Portainer setzen die Labels normalerweise).
       CASTEL_REPO_DIR: ${CASTEL_REPO_DIR:-}
-      # Update: installierte Version (aus GIT_COMMIT beim Image-Build) sowie
-      # GitHub-Konfiguration für den Versions-Check.
-      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      # GitHub-Konfiguration für den Versions-Check. Die installierte
+      # Version (GIT_COMMIT) wird beim Image-Build als ENV eingebaut und
+      # darf hier nicht überschrieben werden, sonst liefert der
+      # Update-Endpunkt "Installiert: ?".
       GITHUB_REPO: ${GITHUB_REPO}
       GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
       GITHUB_TOKEN: ${GITHUB_TOKEN}
