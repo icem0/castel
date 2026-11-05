@@ -9,6 +9,9 @@
 import type { InventurPosition, InventurStichtag } from '../../db/types'
 import { getDb } from '../../db/database'
 import { i18n } from '../../i18n'
+import { version } from '../../version'
+
+const WEBSITE = 'https://castel.app'
 
 export interface ExportOptions {
   stichtage: InventurStichtag[]
@@ -63,16 +66,10 @@ export function csvDatei(opts: ExportOptions): string {
     msg('view.inventur.exportSpalten.artikel'),
     msg('view.inventur.exportSpalten.typ'),
     msg('view.inventur.exportSpalten.standortId'),
-    msg('view.inventur.exportSpalten.ve'),
     msg('view.inventur.exportSpalten.menge'),
     ...(mitPreise
-      ? [
-          msg('view.inventur.exportSpalten.ekCent'),
-          msg('view.inventur.exportSpalten.lpCent'),
-          msg('view.inventur.exportSpalten.wertCent'),
-        ]
+      ? [msg('view.inventur.exportSpalten.ep'), msg('view.inventur.exportSpalten.gp')]
       : []),
-    msg('view.inventur.exportSpalten.geprueft'),
     msg('view.inventur.exportSpalten.negativ'),
   ]
   lines.push(header.join(';'))
@@ -86,13 +83,14 @@ export function csvDatei(opts: ExportOptions): string {
       `"${p.titel.replace(/"/g, '""')}"`,
       typText(p.typ),
       p.standortId,
-      String(p.verpackungseinheit),
       String(p.menge),
     ]
     if (mitPreise) {
-      row.push(String(p.einkaufspreisCent ?? ''), String(p.listenpreisCent ?? ''), String(p.wert))
+      const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
+      const gp = p.wert !== null ? (p.wert / 100).toFixed(2) : ''
+      row.push(ep + ' €', gp + ' €')
     }
-    row.push(String(p.inventurGeprueft), String(p.negativerBestand))
+    row.push(String(p.negativerBestand))
     lines.push(row.join(';'))
   }
 
@@ -148,14 +146,6 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   }
 
   let y = 20
-  const seitenFuss = () => {
-    doc.setFontSize(8)
-    doc.text(
-      msg('view.inventur.exportPdfTexte.fusszeile', { zeit: new Date().toISOString() }),
-      15,
-      doc.internal.pageSize.height - 10,
-    )
-  }
 
   doc.setFontSize(16)
   doc.text(msg('view.inventur.exportPdfTexte.titel'), 15, y)
@@ -190,19 +180,15 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       const headerCols: string[] = [
         msg('view.inventur.exportSpalten.artikel'),
         msg('view.inventur.exportSpalten.typ'),
-        msg('view.inventur.exportSpalten.ve'),
         msg('view.inventur.exportSpalten.menge'),
       ]
       if (mitPreise) {
         headerCols.push(
-          msg('view.inventur.exportSpalten.ekCent'),
-          msg('view.inventur.exportSpalten.lpCent'),
-          msg('view.inventur.exportSpalten.wert'),
+          msg('view.inventur.exportSpalten.ep'),
+          msg('view.inventur.exportSpalten.gp'),
         )
       }
-      headerCols.push(msg('view.inventur.exportSpalten.geprueft'))
       let x = KopfX
-      // Column widths follow the position, not the German label.
       headerCols.forEach((col, i) => {
         doc.text(col, x, y)
         x += i === 0 ? 55 : 20
@@ -217,37 +203,34 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
         if (p.stichtageId !== stichtag.id) continue
         const artikel = `"${p.titel.slice(0, 40)}" (${p.artikelId.slice(0, 8)}…)`
         doc.text(artikel, KopfX, y)
-        doc.text(typText(p.typ), KopfX + 50, y)
-        doc.text(String(p.verpackungseinheit), KopfX + 70, y)
-        doc.text(String(p.menge), KopfX + 85, y)
+        doc.text(typText(p.typ), KopfX + 55, y)
+        doc.text(String(p.menge), KopfX + 75, y)
         if (mitPreise) {
-          doc.text(String(p.einkaufspreisCent ?? ''), KopfX + 105, y)
-          doc.text(String(p.listenpreisCent ?? ''), KopfX + 125, y)
-          doc.text(String(p.wert), KopfX + 145, y)
+          const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
+          const gp = p.wert !== null ? (p.wert / 100).toFixed(2) : ''
+          doc.text(ep + ' €', KopfX + 95, y)
+          doc.text(gp + ' €', KopfX + 115, y)
         }
-        doc.text(String(p.inventurGeprueft), KopfX + (mitPreise ? 165 : 145), y)
         summeMenge += p.menge
         summeWert += p.wert
         y += 4
         if (y > 260) {
           doc.addPage()
           y = 20
-          seitenFuss()
         }
       }
 
       // Zwischensumme Standort
       doc.setFont('helvetica', 'bold')
       doc.text(msg('view.inventur.exportPdfTexte.zwischensumme'), KopfX, y + 2)
-      doc.text(String(summeMenge), KopfX + 85, y + 2)
-      if (mitPreise) doc.text(String(summeWert), KopfX + 145, y + 2)
+      doc.text(String(summeMenge), KopfX + 75, y + 2)
+      if (mitPreise) doc.text((summeWert / 100).toFixed(2) + ' €', KopfX + 115, y + 2)
       doc.setFont('helvetica', 'normal')
       y += 8
 
       if (y > 250) {
         doc.addPage()
         y = 20
-        seitenFuss()
       }
     }
   }
@@ -259,9 +242,33 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   const gesamtWert = gefiltertePositionen.reduce((s, p) => s + p.wert, 0)
   doc.text(msg('view.inventur.exportPdfTexte.gesamtmenge', { menge: gesamtMenge }), 15, y + 5)
   if (mitPreise)
-    doc.text(msg('view.inventur.exportPdfTexte.gesamtwert', { wert: gesamtWert }), 15, y + 10)
+    doc.text(
+      msg('view.inventur.exportPdfTexte.gesamtwert', { wert: (gesamtWert / 100).toFixed(2) }) +
+        ' €',
+      15,
+      y + 10,
+    )
 
-  seitenFuss()
+  // Fußzeile auf jeder Seite: Webseite, Version, Seite X von Y
+  const totalPages = (
+    doc.internal as unknown as { getNumberOfPages: () => number }
+  ).getNumberOfPages()
+  const jetzt = new Date().toISOString()
+  for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+    doc.setPage(pageNum)
+    doc.setFontSize(8)
+    doc.text(
+      msg('view.inventur.exportPdfTexte.fusszeile', {
+        zeit: jetzt,
+        webseite: WEBSITE,
+        version,
+        seite: pageNum,
+        gesamt: totalPages,
+      }),
+      15,
+      doc.internal.pageSize.height - 10,
+    )
+  }
 
   return doc.output('blob')
 }

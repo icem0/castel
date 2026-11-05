@@ -48,7 +48,8 @@ describe('csvDatei — Lokalität', () => {
     i18n.global.locale.value = 'de-DE'
     const [kopf, zeile] = zeilen({ mitPreise: true })
     expect(kopf).toContain('Stichtag')
-    expect(kopf).toContain('Geprüft')
+    expect(kopf).toContain('EP (€)')
+    expect(kopf).toContain('GP (€)')
     expect(zeile).toContain('abgeschlossen')
     expect(zeile).toContain('Inventur')
   })
@@ -57,7 +58,8 @@ describe('csvDatei — Lokalität', () => {
     i18n.global.locale.value = 'en-US'
     const [kopf, zeile] = zeilen({ mitPreise: true })
     expect(kopf).toContain('Cut-off date')
-    expect(kopf).toContain('Checked')
+    expect(kopf).toContain('EP (€)')
+    expect(kopf).toContain('GP (€)')
     expect(zeile).toContain('closed')
     expect(zeile).toContain('Inventory')
   })
@@ -65,7 +67,7 @@ describe('csvDatei — Lokalität', () => {
   it('lässt Preisspalten ohne Berechtigung weg', () => {
     i18n.global.locale.value = 'en-US'
     const [kopf] = zeilen({ mitPreise: false })
-    expect(kopf).not.toContain('Cost (cent)')
-    expect(kopf).not.toContain('Value (cent)')
+    expect(kopf).not.toContain('EP (€)')
+    expect(kopf).not.toContain('GP (€)')
   })
 })
