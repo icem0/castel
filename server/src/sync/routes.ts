@@ -789,7 +789,7 @@ export async function syncRoutes(
     const now = new Date()
     await db.transaction(async (tx) => {
       await tx.execute(sql`INSERT INTO inventur_stichtage (id, stichtag, status, festgehalten_von, festgehalten_von_name, erstellt_am)
-        VALUES (${stichtageId}, ${stichtagFull}, 'abgeschlossen', ${user.sub}, NULL, ${now})`)
+        VALUES (${stichtageId}, ${stichtagFull}, 'abgeschlossen', ${user.sub}, NULL, ${now.toISOString()})`)
       for (const row of bestandRows) {
         const art = artikelMap.get(row.artikelId)
         const ve = art?.verpackungseinheit ?? 1
@@ -797,10 +797,10 @@ export async function syncRoutes(
         const lp = art?.listenpreis ?? null
         const wert = ek !== null ? Math.round((Number(row.menge) / ve) * ek) : 0
         await tx.execute(sql`INSERT INTO inventur_positionen (id, stichtage_id, artikel_id, standort_id, titel, typ, verpackungseinheit, menge, einkaufspreis_cent, listenpreis_cent, wert, inventur_geprueft, negativer_bestand, erstellt_am)
-          VALUES (${randomUUID()}, ${stichtageId}, ${row.artikelId}, ${row.standortId}, ${art?.titel ?? ''}, ${art?.typ ?? ''}, ${ve}, ${Number(row.menge)}, ${ek}, ${lp}, ${wert}, FALSE, ${Number(row.menge) < 0}, ${now})`)
+          VALUES (${randomUUID()}, ${stichtageId}, ${row.artikelId}, ${row.standortId}, ${art?.titel ?? ''}, ${art?.typ ?? ''}, ${ve}, ${Number(row.menge)}, ${ek}, ${lp}, ${wert}, FALSE, ${Number(row.menge) < 0}, ${now.toISOString()})`)
       }
       await tx.execute(sql`INSERT INTO audit_log (id, aktion, entitaet, entitaet_id, benutzer_id, daten, zeit)
-        VALUES (${randomUUID()}, 'abschliessen', 'inventur_stichtag', ${stichtageId}, ${user.sub}, ${JSON.stringify({ stichtag: body.stichtag, positionen: bestandRows.length })}, ${now})`)
+        VALUES (${randomUUID()}, 'abschliessen', 'inventur_stichtag', ${stichtageId}, ${user.sub}, ${JSON.stringify({ stichtag: body.stichtag, positionen: bestandRows.length })}, ${now.toISOString()})`)
     })
 
     return reply.send({
@@ -913,11 +913,11 @@ export async function syncRoutes(
       }
       // Sync-Fenster setzen (server-interner Key, nie an Clients ausgeliefert).
       await tx.execute(sql`INSERT INTO einstellungen (key, user_id, value, geaendert_am)
-        VALUES ('inventur.sichtbarAb', NULL, ${fensterAb}, ${jetzt})
+        VALUES ('inventur.sichtbarAb', NULL, ${fensterAb}, ${jetzt.toISOString()})
         ON CONFLICT (key) WHERE (user_id IS NULL) DO UPDATE SET value = EXCLUDED.value, geaendert_am = EXCLUDED.geaendert_am`)
       await tx.execute(sql`INSERT INTO audit_log (id, aktion, entitaet, entitaet_id, benutzer_id, daten, zeit)
         VALUES (${randomUUID()}, 'inventur.rebase', 'bestand', NULL, ${user.sub},
-          ${JSON.stringify({ marker: erstellteMarker, uebersprungen: uebersprungeneMarker, paare: bestandZeilen.length, fensterAb })}, ${jetzt})`)
+          ${JSON.stringify({ marker: erstellteMarker, uebersprungen: uebersprungeneMarker, paare: bestandZeilen.length, fensterAb })}, ${jetzt.toISOString()})`)
     })
 
     return reply.send({
