@@ -87,8 +87,8 @@ export function csvDatei(opts: ExportOptions): string {
     ]
     if (mitPreise) {
       const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
-      const gp = p.wert !== null ? (p.wert / 100).toFixed(2) : ''
-      row.push(ep + ' €', gp + ' €')
+      const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
+      row.push(ep + ' €', gpWert !== null ? gpWert.toFixed(2) + ' €' : '')
     }
     row.push(String(p.negativerBestand))
     lines.push(row.join(';'))
@@ -201,18 +201,18 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
       for (const p of posListe) {
         // Stichtag-Filter: nur Positionen dieses Stichtags anzeigen
         if (p.stichtageId !== stichtag.id) continue
-        const artikel = `"${p.titel.slice(0, 40)}" (${p.artikelId.slice(0, 8)}…)`
+        const artikel = `"${p.titel.slice(0, 28)}" (${p.artikelId.slice(0, 8)}…)`
         doc.text(artikel, KopfX, y)
         doc.text(typText(p.typ), KopfX + 55, y)
         doc.text(String(p.menge), KopfX + 75, y)
         if (mitPreise) {
           const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
-          const gp = p.wert !== null ? (p.wert / 100).toFixed(2) : ''
+          const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
           doc.text(ep + ' €', KopfX + 95, y)
-          doc.text(gp + ' €', KopfX + 115, y)
+          doc.text(gpWert !== null ? gpWert.toFixed(2) + ' €' : '', KopfX + 115, y)
         }
         summeMenge += p.menge
-        summeWert += p.wert
+        summeWert += p.menge * (p.einkaufspreisCent ?? 0)
         y += 4
         if (y > 260) {
           doc.addPage()
@@ -239,7 +239,10 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
   const gesamtMenge = gefiltertePositionen.reduce((s, p) => s + p.menge, 0)
-  const gesamtWert = gefiltertePositionen.reduce((s, p) => s + p.wert, 0)
+  const gesamtWert = gefiltertePositionen.reduce(
+    (s, p) => s + p.menge * (p.einkaufspreisCent ?? 0),
+    0,
+  )
   doc.text(msg('view.inventur.exportPdfTexte.gesamtmenge', { menge: gesamtMenge }), 15, y + 5)
   if (mitPreise)
     doc.text(
