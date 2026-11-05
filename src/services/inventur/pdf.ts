@@ -107,7 +107,7 @@ export function downloadCsv(opts: ExportOptions, dateiname?: string): void {
   const a = document.createElement('a')
   a.href = url
   const st = opts.stichtage.find((s) => s.id === opts.stichtageId)
-  const suffix = st ? `-${st.stichtag.replaceAll('-', '')}` : ''
+  const suffix = st ? `-${st.stichtag.replace(/-/g, '')}` : ''
   a.download = dateiname ?? `inventur${suffix}-${new Date().toISOString().slice(0, 10)}.csv`
   document.body.appendChild(a)
   a.click()
@@ -273,7 +273,7 @@ export async function downloadPdf(opts: ExportOptions, dateiname?: string): Prom
   const a = document.createElement('a')
   a.href = url
   const st = opts.stichtage.find((s) => s.id === opts.stichtageId)
-  const suffix = st ? `-${st.stichtag.replaceAll('-', '')}` : ''
+  const suffix = st ? `-${st.stichtag.replace(/-/g, '')}` : ''
   a.download = dateiname ?? `inventur${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`
   document.body.appendChild(a)
   a.click()
