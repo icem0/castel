@@ -862,6 +862,7 @@ export async function syncRoutes(
     for (const r of markerRows) {
       if (!r.latest) continue
       const d = r.latest instanceof Date ? r.latest : new Date(r.latest)
+      if (Number.isNaN(d.getTime())) continue
       latestMarker.set(`${r.artikelId}#${r.standortId}`, d)
     }
 
@@ -874,7 +875,7 @@ export async function syncRoutes(
         const menge = sumMap.get(`${a.id}#${s.id}`) ?? 0
         bestandZeilen.push({ artikelId: a.id, standortId: s.id, menge })
         const letzte = latestMarker.get(`${a.id}#${s.id}`)
-        if (letzte && jetzt.getTime() - letzte.getTime() <= zehnTageMs) {
+        if (letzte instanceof Date && jetzt.getTime() - letzte.getTime() <= zehnTageMs) {
           uebersprungeneMarker += 1
           continue
         }
