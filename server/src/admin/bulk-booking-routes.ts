@@ -173,7 +173,9 @@ export async function bulkBookingRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const db = getDb()
-      const result = await db.transaction(async (tx) => {
+      let result
+      try {
+        result = await db.transaction(async (tx) => {
         const betroffenePaare = await tx
           .select({ artikelId: buchungen.artikelId, standortId: buchungen.standortId })
           .from(buchungen)
@@ -218,6 +220,13 @@ export async function bulkBookingRoutes(app: FastifyInstance): Promise<void> {
           bestaendeAktualisiert,
         }
       })
+      } catch (err) {
+        app.log.error({ err, ids }, '[admin] bulk-delete Transaktion fehlgeschlagen')
+        return reply.code(500).send({
+          code: 'BULK_DELETE_FAILED',
+          message: err instanceof Error ? err.message : 'Bulk-Delete fehlgeschlagen',
+        })
+      }
 
       // Hard deletes are invisible to the incremental sync (it only upserts).
       // Bumping the restore epoch is what tells every client to rebuild its
