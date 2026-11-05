@@ -1390,6 +1390,58 @@ export default {
       startDetail: 'The server triggers the rollout via a webhook. The app restarts afterwards.',
       startErfolg: 'Update triggered.',
       fehlgeschlagen: 'Version check failed: {error}',
+      hilfeLink: 'Guide: enable updates on the server',
+      hilfe: {
+        h1: 'Enable updates on the server',
+        untertitel:
+          'This guide connects the update button in the PWA with the update script on the server. The server pulls the current images, restarts the stack and cleans up old images.',
+        ablaufTitel: 'How it works',
+        ablaufText: 'The update has two stages: the PWA triggers it, the server runs it.',
+        ablaufS1:
+          'An admin clicks “Check for updates” in the version menu. The server compares the installed version with the newest commit on GitHub.',
+        ablaufS2:
+          'When an update is available, the server calls the configured webhook URL (UPDATE_WEBHOOK_URL).',
+        ablaufS3:
+          'The webhook starts scripts/update.sh on the host — the same path the built-in self-update uses.',
+        ablaufS4:
+          'The script runs in order: git pull --ff-only, docker compose pull, docker compose up -d, health check and docker image prune (remove old images).',
+        ablaufS5:
+          'After the restart the PWA loads the new version. Progress and log are shown under Settings → Development → Update.',
+        voraussetzungenTitel: 'Requirements',
+        voraussetzungSocket:
+          'The API container can reach the Docker socket (/var/run/docker.sock). The bundled docker-compose.yml mounts it and runs the api service as root.',
+        voraussetzungCheckout:
+          'A git checkout of the project exists on the host (e.g. /srv/castel). Without a checkout the script only updates the images.',
+        voraussetzungToken:
+          'UPDATE_WEBHOOK_TOKEN and UPDATE_WEBHOOK_URL are set in .env. Restart the stack with docker compose up -d after changes.',
+        aktivierenTitel: 'Activate the update function',
+        aktivierenText:
+          'Add a long random token and the internal webhook address to the .env in the project folder. With this, the button in the version menu triggers the built-in update flow without an external service.',
+        aktivierenNeustart: 'Then recreate the containers so the API reads the new variables:',
+        aktivierenHinweis:
+          'Note: 127.0.0.1:3000 is the API inside the container. The address stays internal, the token is never sent to the browser.',
+        webhookTitel: 'Connect an external system',
+        webhookText:
+          'The same update can be triggered from outside — from a CI/CD pipeline, an orchestrator or another script. The endpoint is protected by the token and does not need a login.',
+        webhookCicdTitel: 'Example: GitHub Actions',
+        webhookCicdText:
+          'A push to main starts the update on the server. Store the URL and token as repository secrets (CASTEL_UPDATE_URL, CASTEL_UPDATE_TOKEN).',
+        tokenTitel: 'Generate a secure token',
+        tokenText:
+          'The token is a password for the update endpoint. It must be long and random and must never land in the repository. An example:',
+        selbstupdateTitel: 'Without a webhook: built-in self-update',
+        selbstupdateText:
+          'The admin area Settings → Development → Update starts the updater container directly, without an external webhook URL. The script can also be run manually on the host at any time:',
+        fehlerTitel: 'When the start fails',
+        fehlerText: 'The PWA shows the reason as a diagnosis. The most common causes:',
+        fehlerSocket:
+          'DOCKER_CLI_MISSING / SOCKET_MISSING / SOCKET_PERMISSION: the Docker CLI or socket is missing in the API container, or the service has no permission.',
+        fehlerProjekt:
+          'PROJECT_DIR_UNKNOWN / IMAGE_UNKNOWN: the host project folder was not found. Set CASTEL_REPO_DIR in .env.',
+        fehlerToken:
+          '401 UNAUTHORIZED: X-Deploy-Token is missing or does not match UPDATE_WEBHOOK_TOKEN.',
+        zurueck: 'Back',
+      },
     },
   },
   datanorm: {

@@ -1116,6 +1116,16 @@ function formatRelativ(iso: string | null): string {
         @schliessen="updatePhase = 'idle'"
       />
 
+      <RouterLink
+        v-if="auth.istAdmin"
+        to="/einstellungen/update-hilfe"
+        class="version-help-link"
+        data-test="update-hilfe-link"
+        @click="closeVersion"
+      >
+        {{ t('view.update.hilfeLink') }}
+      </RouterLink>
+
       <p class="hint">
         Zum Reproduzieren:
         <code>git checkout {{ commit }}</code>
@@ -2325,6 +2335,23 @@ function formatRelativ(iso: string | null): string {
   border-radius: 4px;
   font-family: var(--mono);
   font-size: 0.8rem;
+}
+
+.version-panel .version-help-link {
+  display: inline-block;
+  margin: 0.6rem 0 0.25rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.version-panel .version-help-link:hover {
+  border-color: var(--accent-border);
+  text-decoration: underline;
 }
 
 .version-panel .version-footer {

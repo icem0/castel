@@ -38,6 +38,7 @@ import KommissionView from '../views/KommissionView.vue'
 import StandortListView from '../views/StandortListView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import DevelopmentView from '../views/DevelopmentView.vue'
+import UpdateHilfeView from '../views/UpdateHilfeView.vue'
 import ArtikelTypenView from '../views/ArtikelTypenView.vue'
 import AkkuTypenView from '../views/AkkuTypenView.vue'
 import AkkutauschView from '../views/AkkutauschView.vue'
@@ -178,6 +179,12 @@ const routes: RouteRecordRaw[] = [
     path: '/einstellungen/entwicklung',
     name: 'einstellungen-entwicklung',
     component: DevelopmentView,
+    meta: { requiresPermission: ['entwicklung'] },
+  },
+  {
+    path: '/einstellungen/update-hilfe',
+    name: 'einstellungen-update-hilfe',
+    component: UpdateHilfeView,
     meta: { requiresPermission: ['entwicklung'] },
   },
   {

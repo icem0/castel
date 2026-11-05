@@ -142,8 +142,10 @@ services:
       GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       UPDATE_WEBHOOK_URL: ${UPDATE_WEBHOOK_URL}
-      # UPDATE_WEBHOOK_TOKEN kommt bewusst nicht hier rein — das Token darf
-      # nicht in die Compose-Umgebung/Inspect gelangen. Vom Deployer separat injizieren.
+      # Token fuer den Update-Webhook (ausgehend als X-Deploy-Token, eingehend
+      # zur Pruefung). Ohne diesen Durchgriff koennte die API den Wert aus der
+      # .env nicht lesen und der Inbound-Webhook wuerde mit 500 antworten.
+      UPDATE_WEBHOOK_TOKEN: ${UPDATE_WEBHOOK_TOKEN}
     # Migrationen laufen vor jedem API-Start. Idempotent: bereits
     # angewendete SQL-Dateien werden uebersprungen, also kein Risiko.
     # Der separate `migrate`-Profil-Service unten bleibt fuer manuelle

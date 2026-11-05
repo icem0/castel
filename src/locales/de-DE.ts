@@ -1423,6 +1423,59 @@ export default {
         'Der Server löst den Rollout über einen Webhook aus. Die App startet danach neu.',
       startErfolg: 'Update ausgelöst.',
       fehlgeschlagen: 'Versionsprüfung fehlgeschlagen: {error}',
+      hilfeLink: 'Anleitung: Update auf dem Server aktivieren',
+      hilfe: {
+        h1: 'Update auf dem Server aktivieren',
+        untertitel:
+          'So verbindest du die Update-Funktion der PWA mit dem Update-Skript auf dem Server. Der Server zieht die aktuellen Images, startet den Stack neu und räumt alte Images auf.',
+        ablaufTitel: 'So funktioniert der Ablauf',
+        ablaufText: 'Die Update-Funktion ist zweistufig: Die PWA löst aus, der Server führt aus.',
+        ablaufS1:
+          'Ein Admin klickt im Versionsmenü auf „Auf Updates prüfen“. Der Server vergleicht die installierte Version mit dem neuesten Commit auf GitHub.',
+        ablaufS2:
+          'Bei verfügbarem Update ruft der Server die konfigurierte Webhook-URL auf (UPDATE_WEBHOOK_URL).',
+        ablaufS3:
+          'Der Webhook startet das Skript scripts/update.sh auf dem Host. Das ist derselbe Weg wie beim eingebauten Selbst-Update.',
+        ablaufS4:
+          'Das Skript führt nacheinander aus: git pull --ff-only, docker compose pull, docker compose up -d, Health-Check und docker image prune (alte Images entfernen).',
+        ablaufS5:
+          'Nach dem Neustart lädt die PWA die neue Version. Fortschritt und Protokoll stehen unter Einstellungen → Entwicklung → Update.',
+        voraussetzungenTitel: 'Voraussetzungen',
+        voraussetzungSocket:
+          'Der API-Container erreicht den Docker-Socket (/var/run/docker.sock). In der mitgelieferten docker-compose.yml ist der Mount gesetzt und der api-Service läuft als root.',
+        voraussetzungCheckout:
+          'Auf dem Host liegt ein Git-Checkout des Projekts (z. B. /srv/castel). Ohne Checkout aktualisiert das Skript nur die Images.',
+        voraussetzungToken:
+          'In der .env sind UPDATE_WEBHOOK_TOKEN und UPDATE_WEBHOOK_URL gesetzt. Nach Änderungen den Stack mit docker compose up -d neu starten.',
+        aktivierenTitel: 'Update-Funktion aktivieren',
+        aktivierenText:
+          'Trage in der .env im Projektordner ein langes, zufälliges Token und die interne Webhook-Adresse ein. Damit löst der Button im Versionsmenü den eingebauten Update-Ablauf aus, ohne dass ein externer Dienst nötig ist.',
+        aktivierenNeustart:
+          'Anschließend die Container neu erstellen, damit die API die neuen Variablen liest:',
+        aktivierenHinweis:
+          'Hinweis: 127.0.0.1:3000 ist die API innerhalb des Containers. Die Adresse bleibt intern, das Token wird nie an den Browser gesendet.',
+        webhookTitel: 'Externes System anbinden',
+        webhookText:
+          'Dasselbe Update lässt sich von außen auslösen — etwa aus einer CI/CD-Pipeline, einem Orchestrator oder einem zweiten Skript. Der Endpunkt ist durch das Token geschützt und braucht keinen Login.',
+        webhookCicdTitel: 'Beispiel: GitHub Actions',
+        webhookCicdText:
+          'Ein Push auf main startet das Update auf dem Server. Die URL und das Token als Repository-Secrets hinterlegen (CASTEL_UPDATE_URL, CASTEL_UPDATE_TOKEN).',
+        tokenTitel: 'Token sicher erzeugen',
+        tokenText:
+          'Das Token ist ein Passwort für den Update-Endpunkt. Es muss lang und zufällig sein und darf nicht im Repository landen. Ein Beispiel zum Erzeugen:',
+        selbstupdateTitel: 'Ohne Webhook: eingebautes Selbst-Update',
+        selbstupdateText:
+          'Der Adminbereich Einstellungen → Entwicklung → Update startet den Updater-Container direkt, ohne externe Webhook-URL. Das Skript lässt sich außerdem jederzeit manuell auf dem Host ausführen:',
+        fehlerTitel: 'Wenn der Start nicht klappt',
+        fehlerText: 'Die PWA zeigt den Grund als Diagnose an. Die häufigsten Ursachen:',
+        fehlerSocket:
+          'DOCKER_CLI_MISSING / SOCKET_MISSING / SOCKET_PERMISSION: Docker-CLI oder Socket fehlt im API-Container, oder der Service hat keine Rechte.',
+        fehlerProjekt:
+          'PROJECT_DIR_UNKNOWN / IMAGE_UNKNOWN: Der Host-Projektordner wurde nicht gefunden. Setze CASTEL_REPO_DIR in der .env.',
+        fehlerToken:
+          '401 UNAUTHORIZED: X-Deploy-Token fehlt oder passt nicht zu UPDATE_WEBHOOK_TOKEN.',
+        zurueck: 'Zurück',
+      },
     },
   },
   datanorm: {
