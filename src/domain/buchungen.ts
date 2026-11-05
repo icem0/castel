@@ -17,7 +17,7 @@ import {
   UnbekannteReferenzError,
 } from './errors'
 import { assertKeinZukunftsDatum, assertMengePositiv, assertPflichtfeld } from './validierung'
-import { berechneBestand } from './bestand'
+import { bestandFuerPaar } from './bestand'
 
 /**
  * Prüft, dass Artikel- und Standort-IDs in der lokalen DB existieren.
@@ -98,6 +98,7 @@ function standardEingabeZuBuchung(
     storno: false,
     storniertDurch: null,
     serverId: null,
+    pendingSync: true,
     ...extras,
   }
 }
@@ -145,18 +146,15 @@ export async function createEntnahme(eingabe: BuchungsEingabe): Promise<Entnahme
   await assertReferenzenExistieren(eingabe.artikelId, eingabe.standortId)
   const db = getDb()
 
-  // Bestand muss innerhalb der Transaktion berechnet werden,
-  // damit er den aktuellen Stand sieht.
+  // Bestand muss VOR der Transaktion gelesen werden — Dexie erlaubt keinen
+  // Zugriff auf Tabellen, die nicht im Transaktions-Scope liegen.
+  const bestand = await bestandFuerPaar(eingabe.artikelId, eingabe.standortId)
   let warnung: NegativerBestandWarnung | null = null
   let mindest: MindestbestandWarnung | null = null
   const buchung = standardEingabeZuBuchung(eingabe, 'entnahme', { menge: -eingabe.menge })
-  // Schwelle VOR der Transaktion lesen — Dexie erlaubt keinen Zugriff auf
-  // Tabellen, die nicht im Transaktions-Scope liegen.
   const schwelle = await leseMindestbestand(eingabe.artikelId, eingabe.standortId)
 
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
-    const aktuelle = await db.buchungen.where('artikelId').equals(eingabe.artikelId).toArray()
-    const bestand = berechneBestand(aktuelle, eingabe.standortId)
     if (bestand < eingabe.menge) {
       warnung = new NegativerBestandWarnung(
         eingabe.artikelId,
@@ -229,16 +227,18 @@ export async function createUmlagerung(e: UmlagerungEingabe): Promise<Umlagerung
     storno: false,
     storniertDurch: null,
     serverId: null,
+    pendingSync: true,
   }
   const einlagerung: Buchung = { ...entnahme, id: neueUuid(), standortId: e.nachId, menge: e.menge }
   let warnung: NegativerBestandWarnung | null = null
   let mindest: MindestbestandWarnung | null = null
   // Schwelle VOR der Transaktion lesen (siehe createEntnahme).
   const schwelle = await leseMindestbestand(e.artikelId, e.vonId)
+  // Bestand VOR der Transaktion lesen — Dexie erlaubt keinen Zugriff auf
+  // Tabellen, die nicht im Transaktions-Scope liegen.
+  const bestand = await bestandFuerPaar(e.artikelId, e.vonId)
 
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
-    const aktuelle = await db.buchungen.where('artikelId').equals(e.artikelId).toArray()
-    const bestand = berechneBestand(aktuelle, e.vonId)
     if (bestand < e.menge) {
       warnung = new NegativerBestandWarnung(e.artikelId, e.vonId, bestand, e.menge)
     }
@@ -281,15 +281,15 @@ export async function createInventur(e: InventurEingabe): Promise<InventurErgebn
   await assertReferenzenExistieren(e.artikelId, e.standortId)
   const db = getDb()
   const now = jetztIso()
-  let vorher = 0
-  let differenz = 0
+  const vorher = await bestandFuerPaar(e.artikelId, e.standortId)
+  const differenz = e.sollMenge - vorher
   const buchung: Buchung = {
     id: neueUuid(),
     artikelId: e.artikelId,
     standortId: e.standortId,
     standortZielId: null,
     typ: 'inventur',
-    menge: 0, // wird unten gesetzt
+    menge: differenz,
     paarId: null,
     projekt: null,
     erstelltAm: (e.erstelltAm as Iso) ?? now,
@@ -300,13 +300,10 @@ export async function createInventur(e: InventurEingabe): Promise<InventurErgebn
     stornoVon: null,
     storno: false,
     storniertDurch: null,
+    pendingSync: true,
     serverId: null,
   }
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
-    const aktuelle = await db.buchungen.where('artikelId').equals(e.artikelId).toArray()
-    vorher = berechneBestand(aktuelle, e.standortId)
-    differenz = e.sollMenge - vorher
-    buchung.menge = differenz
     await db.buchungen.add(buchung)
     await queueOp('buchung', 'create', buchung)
     await auditSchreiben('createInventur', buchung)
@@ -357,6 +354,7 @@ export async function createKommission(e: KommissionEingabe): Promise<Kommission
     storno: true,
     storniertDurch: null,
     serverId: null,
+    pendingSync: true,
   }
   const neubuchung: Buchung = {
     id: neueUuid(),
@@ -376,6 +374,7 @@ export async function createKommission(e: KommissionEingabe): Promise<Kommission
     storno: false,
     storniertDurch: null,
     serverId: null,
+    pendingSync: true,
   }
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
     const original = await db.buchungen.get(e.buchungId)
@@ -454,6 +453,7 @@ export async function stornieren(e: StornoEingabe): Promise<StornoErgebnis> {
     storno: true,
     storniertDurch: null,
     serverId: null,
+    pendingSync: true,
   }
   let original!: Buchung
   await db.transaction('rw', db.buchungen, db.auditLog, db.outbox, async () => {
@@ -518,9 +518,10 @@ export interface InventurHilfeZeile {
 }
 
 /**
- * Listet alle (aktiven) Artikel × (aktiven) Standort-Paare auf, die noch keine
- * nicht-stornierte Inventur-Buchung haben — plus den aktuellen Bestand je Paar.
- * Basis für die geführte Inventur ("Artikel ohne Inventur").
+ * Listet alle (aktiven) Artikel × (aktiven) Standort-Paare auf, die in den
+ * letzten 10 Tagen keine nicht-stornierte Inventur-Buchung hatten — plus
+ * den aktuellen Bestand je Paar. Basis für die geführte Inventur
+ * ("Artikel ohne Inventur").
  */
 export async function artikelOhneInventur(): Promise<InventurHilfeZeile[]> {
   const db = getDb()
@@ -533,29 +534,25 @@ export async function artikelOhneInventur(): Promise<InventurHilfeZeile[]> {
   const aktiveArtikel = artikel.filter((a) => a.status !== 'archiviert')
   const aktiveStandorte = standorte.filter((s) => !s.archiviert)
 
-  // Paare, die bereits eine (nicht-stornierte) Inventur-Buchung haben
-  const mitInventur = new Set<string>()
+  // Paare mit einer (nicht-stornierten) Inventur-Buchung der letzten 10 Tage
+  // brauchen keine erneute Marker-Buchung.
+  const jetzt = new Date()
+  const zehnTageMs = 10 * 24 * 60 * 60 * 1000
+  const mitKuerzlicherInventur = new Set<string>()
   for (const b of buchungen) {
     if (b.typ === 'inventur' && !b.storno) {
-      mitInventur.add(`${b.artikelId}#${b.standortId}`)
+      if (jetzt.getTime() - new Date(b.erstelltAm).getTime() <= zehnTageMs) {
+        mitKuerzlicherInventur.add(`${b.artikelId}#${b.standortId}`)
+      }
     }
-  }
-
-  // Buchungen nach ArtikelId gruppieren für schnelle Bestandsabfrage
-  const buchungenProArtikel = new Map<string, Buchung[]>()
-  for (const b of buchungen) {
-    const liste = buchungenProArtikel.get(b.artikelId) ?? []
-    liste.push(b)
-    buchungenProArtikel.set(b.artikelId, liste)
   }
 
   const zeilen: InventurHilfeZeile[] = []
   for (const a of aktiveArtikel) {
-    const artikelBuchungen = buchungenProArtikel.get(a.id) ?? []
     for (const s of aktiveStandorte) {
       const key = `${a.id}#${s.id}`
-      if (mitInventur.has(key)) continue
-      const bestand = berechneBestand(artikelBuchungen, s.id)
+      if (mitKuerzlicherInventur.has(key)) continue
+      const bestand = await bestandFuerPaar(a.id, s.id)
       zeilen.push({
         artikelId: a.id,
         standortId: s.id,
@@ -620,6 +617,7 @@ export async function stornoAufheben(e: StornoAufhebenEingabe): Promise<StornoAu
     storno: true,
     storniertDurch: null,
     serverId: null,
+    pendingSync: true,
   }
   let original!: Buchung
   let stornierung!: Buchung

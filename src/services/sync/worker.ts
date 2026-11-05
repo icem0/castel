@@ -20,6 +20,7 @@ import type {
   Artikel,
   ArtikelStandortMindestbestand,
   Buchung,
+  BestandZeile,
   Einstellung,
   EtikettenBogenLayout,
   Hersteller,
@@ -329,6 +330,12 @@ export interface SyncSnapshot {
    * Optional, damit ältere Server-Antworten und Test-Fixtures weiter laden.
    */
   inventurPositionen?: InventurPosition[]
+  /**
+   * Materialisierter Bestand je (Artikel, Standort) — LWW auf `geaendertAm`,
+   * Identität ist das Paar. Optional, damit ältere Server-Versionen (vor dem
+   * Rebase / Materialisierten Bestand) weiter laden.
+   */
+  bestand?: BestandZeile[]
   /** Server-Zeitstempel, an dem `mindestbestandEreignisse` gefiltert
    *  wurde. Wir spiegeln den Wert zurück, damit der Client den
    *  Marker aktualisieren kann (Pagination-Support). */
@@ -375,6 +382,8 @@ export interface TableCounts {
   inventurStichtage?: number
   /** Optional: Zaehler für Inventur-Positionen. */
   inventurPositionen?: number
+  /** Optional: Zaehler für materialisierte Bestand-Zeilen. */
+  bestand?: number
 }
 
 export interface ServerStatus {
@@ -1305,6 +1314,7 @@ export async function buildDiagnostics(opts: {
       localCounts.inventurPositionen ?? 0,
       serverCounts?.inventurPositionen ?? null,
     ),
+    table('bestand', localCounts.bestand ?? 0, serverCounts?.bestand ?? null),
   ]
   const divergent = tables.some((t) => t.server !== null && t.local !== t.server)
 
@@ -1533,6 +1543,7 @@ async function getLocalCounts(): Promise<TableCounts> {
     akkuBestellungen,
     inventurStichtage,
     inventurPositionen,
+    bestand,
   ] = await Promise.all([
     db.artikel.count(),
     db.standorte.count(),
@@ -1545,6 +1556,7 @@ async function getLocalCounts(): Promise<TableCounts> {
     db.akkuBestellungen.count(),
     db.inventurStichtage.count(),
     db.inventurPositionen.count(),
+    db.bestand.count(),
   ])
   return {
     artikel,
@@ -1558,6 +1570,7 @@ async function getLocalCounts(): Promise<TableCounts> {
     akkuBestellungen,
     inventurStichtage,
     inventurPositionen,
+    bestand,
   }
 }
 
@@ -1586,6 +1599,32 @@ async function nextBatch(): Promise<OutboxEintrag[]> {
 
 async function markSynced(id: string): Promise<void> {
   await getDb().outbox.update(id, { syncedAt: jetztIso() })
+}
+
+/**
+ * Führt den lokalen materialisierten Bestand für ein erfolgreich gepushtes
+ * Buchungs-Item fort: Menge des Paares um die Buchungsmenge korrigieren
+ * (Storno-Marker tragen bereits die invertierte Menge, Aufhebung trägt die
+ * positive Menge). Fehlende Zeile wird ergänzt. `pendingSync` wird entfernt,
+ * bis zum nächsten Pull gilt der lokal korrigierte Wert als Source of Truth.
+ */
+async function patchBestandNachPush(b: Buchung): Promise<void> {
+  const db = getDb()
+  const key: [string, string] = [b.artikelId, b.standortId]
+  const row = await db.bestand.get(key)
+  const neu = (row?.menge ?? 0) + b.menge
+  const geaendertAm = jetztIso()
+  if (row) {
+    await db.bestand.update(key, { menge: neu, geaendertAm })
+  } else {
+    await db.bestand.add({
+      artikelId: b.artikelId,
+      standortId: b.standortId,
+      menge: neu,
+      geaendertAm,
+    })
+  }
+  await db.buchungen.update(b.id, { pendingSync: false })
 }
 
 async function markFailed(id: string, error: string): Promise<void> {
@@ -1769,6 +1808,7 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
       db.etikettenBogenLayout,
       db.inventurStichtage,
       db.inventurPositionen,
+      db.bestand,
     ],
     async () => {
       // Artikel
@@ -1899,6 +1939,15 @@ export async function applySnapshot(snap: SyncSnapshot): Promise<void> {
         const existing = await db.inventurPositionen.get(p.id)
         if (!existing) await db.inventurPositionen.add(p)
         else await db.inventurPositionen.put(p)
+      }
+      // Bestand — materialisiert, LWW auf geaendertAm, Identität = Paar.
+      for (const z of snap.bestand ?? []) {
+        const existing = await db.bestand.get([z.artikelId, z.standortId])
+        if (!existing) {
+          await db.bestand.add(z)
+        } else if (z.geaendertAm > existing.geaendertAm) {
+          await db.bestand.put(z)
+        }
       }
     },
   )
@@ -2446,7 +2495,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
       // Wir behalten für jedes Item den Outbox-Eintrag, damit wir hinterher
       // die richtige outbox.id markieren können. Der Server antwortet mit
       // `op.payload.id` (Domain-UUID) — nicht mit der Outbox-UUID.
-      const items: Array<{ outboxId: string; payloadId: string }> = []
+      const items: Array<{ outboxId: string; payloadId: string; entity: string }> = []
       const ops: Array<{ op: OutboxOp; entity: OutboxEintrag['entity']; payload: unknown }> = []
       for (const o of batch) {
         let payload: unknown
@@ -2494,7 +2543,7 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
             continue
           }
         }
-        items.push({ outboxId: o.id, payloadId })
+        items.push({ outboxId: o.id, payloadId, entity: o.entity })
         ops.push({ op: o.op, entity: o.entity, payload })
       }
       if (ops.length > 0) {
@@ -2529,6 +2578,14 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
             const outboxRow = await getDb().outbox.get(it.outboxId)
             if (acceptedIds.has(it.payloadId) || skippedIds.has(it.payloadId)) {
               await markSynced(it.outboxId)
+              // Erfolgreich gepushte Buchung: den lokalen materialisierten
+              // Bestand des Paares fortführen und den pendingSync-Marker
+              // entfernen. Skipped-Items (Duplikate etc.) verändern den
+              // Server-Bestand nicht und werden nicht korrigiert.
+              if (it.entity === 'buchung' && acceptedIds.has(it.payloadId)) {
+                const b = await getDb().buchungen.get(it.payloadId)
+                if (b && b.pendingSync === true) await patchBestandNachPush(b)
+              }
             } else if (conflictsById.has(it.payloadId)) {
               // Quarantäne VOR markFailed — wenn das Item quarantiniert
               // wird, überschreibt das nachfolgende markFailed sonst die

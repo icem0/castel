@@ -36,7 +36,7 @@ import {
   standorte,
   auditLog,
 } from '../db/schema.js'
-import { berechneBestand, type BestandQuerier } from '../domain/bestand.js'
+import { berechneBestand, type BestandQuerier, upsertBestandRow } from '../domain/bestand.js'
 import {
   BarcodeDuplikatError,
   HatAbhaengigkeitenError,
@@ -1317,7 +1317,16 @@ export async function resolveBuchungCreate(
     }
   }
 
-  // 7) Mindestbestand-Trigger: nur für Buchungstypen, die den Bestand
+  // 7) Materialisierter Bestand für das Paar auf den aktuellen Stand bringen.
+  //    Wird für jeden Buchungstyp geschrieben (auch Storno/Kommission — der
+  //    Rechenweg ist idempotent und der Wert ändert sich nur, wenn sich der
+  //    Bestand ändert). Der Resolver hält die PWA-seitige `bestand`-Tabelle
+  //    so konsistent, auch nachdem alte Buchungen aus dem Sync-Fenster
+  //    herausgefallen sind.
+  const neuerBestand = await berechneBestand(bestandQuerier, b.artikelId, b.standortId)
+  await upsertBestandRow(tx, b.artikelId, b.standortId, neuerBestand)
+
+  // 8) Mindestbestand-Trigger: nur für Buchungstypen, die den Bestand
   //    real verändern (also nicht storno, nicht kommission). Inventur
   //    zählt, weil sie als Differenz kodiert ist und der neue Bestand
   //    genau `soll` ist (= bestand_davor + differenz). Bei Umlagerung
@@ -1327,7 +1336,6 @@ export async function resolveBuchungCreate(
   if (b.typ === 'storno' || b.typ === 'kommission' || b.storno) {
     return null
   }
-  const neuerBestand = await berechneBestand(bestandQuerier, b.artikelId, b.standortId)
   if (!sollteWarnungAusloesen(mindestbestand, neuerBestand)) {
     return null
   }

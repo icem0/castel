@@ -13,10 +13,11 @@
 // `handleRestoreEpochMismatch`) — no login and no manual reset required.
 
 import type { FastifyInstance } from 'fastify'
-import { and, desc, eq, gte, inArray, isNotNull, lte, type SQL } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNotNull, lte, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { artikel, buchungen, mindestbestandEreignisse, standorte } from '../db/schema.js'
 import { schreibeRestoreEpoch } from './backup.js'
+import { upsertBestandRow } from '../domain/bestand.js'
 
 const MAX_BULK_IDS = 5000
 
@@ -173,6 +174,11 @@ export async function bulkBookingRoutes(app: FastifyInstance): Promise<void> {
 
       const db = getDb()
       const result = await db.transaction(async (tx) => {
+        const betroffenePaare = await tx
+          .select({ artikelId: buchungen.artikelId, standortId: buchungen.standortId })
+          .from(buchungen)
+          .where(inArray(buchungen.id, ids))
+
         const ereignisse = await tx
           .delete(mindestbestandEreignisse)
           .where(inArray(mindestbestandEreignisse.ausloeserBuchungId, ids))
@@ -183,9 +189,33 @@ export async function bulkBookingRoutes(app: FastifyInstance): Promise<void> {
           .where(inArray(buchungen.id, ids))
           .returning({ id: buchungen.id })
 
+        // Hart gelöschte Buchungen ändern den Bestand der betroffenen Paare.
+        // Der inkrementelle Sync trägt keine Löschungen, daher werden die
+        // `bestand`-Zeilen hier neu berechnet (Reste mit Menge 0 bleiben als
+        // Zeile erhalten, die PWA behandelt fehlende Zeilen als 0).
+        const paare = new Set<string>()
+        for (const p of betroffenePaare) paare.add(`${p.artikelId}#${p.standortId}`)
+        let bestaendeAktualisiert = 0
+        for (const key of paare) {
+          const [artikelId, standortId] = key.split('#') as [string, string]
+          const row = await tx
+            .select({ menge: sql<number>`coalesce(sum(${buchungen.menge}), 0)::int` })
+            .from(buchungen)
+            .where(
+              and(
+                eq(buchungen.artikelId, artikelId),
+                eq(buchungen.standortId, standortId),
+                eq(buchungen.storno, false),
+              ),
+            )
+          await upsertBestandRow(tx, artikelId, standortId, Number(row[0]?.menge ?? 0))
+          bestaendeAktualisiert += 1
+        }
+
         return {
           deletedIds: geloescht.map((b) => b.id),
           mindestbestandEreignisseDeleted: ereignisse.length,
+          bestaendeAktualisiert,
         }
       })
 
@@ -210,6 +240,7 @@ export async function bulkBookingRoutes(app: FastifyInstance): Promise<void> {
         deletedCount: result.deletedIds.length,
         deletedIds: result.deletedIds,
         mindestbestandEreignisseDeleted: result.mindestbestandEreignisseDeleted,
+        bestaendeAktualisiert: result.bestaendeAktualisiert,
         restoreEpoch,
       })
     },

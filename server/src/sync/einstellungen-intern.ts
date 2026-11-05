@@ -16,6 +16,7 @@ export const INTERN_EINSTELLUNGS_KEYS: readonly string[] = [
   'backup.lastSlot',
   'server.restoreEpoch',
   'server.updateState',
+  'inventur.sichtbarAb',
 ]
 
 export function istInterneEinstellung(key: string): boolean {

@@ -11,7 +11,7 @@ import { ref, onScopeDispose } from 'vue'
 import { getDb } from '../db/database'
 import type { Artikel, ArtikelStatus, NachbestellHinweis } from '../db/types'
 import { neueUuid, jetztIso } from '../domain/ids'
-import { berechneBestand } from '../domain/bestand'
+import { bestandFuerPaar } from '../domain/bestand'
 import { berechneEinkaufspreisCent } from '../domain/rabatt'
 import { sortiereNachName } from '../domain/sortierung'
 import { queueOp } from '../services/sync/worker'
@@ -322,8 +322,7 @@ export const useArtikelStore = defineStore('artikel', () => {
   ): Promise<boolean> {
     const a = byId(artikelId)
     if (!a) return false
-    const rows = await getDb().buchungen.where('artikelId').equals(artikelId).toArray()
-    const bestand = berechneBestand(rows, standortId)
+    const bestand = await bestandFuerPaar(artikelId, standortId)
     if (bestand < 0) return true
     // Threshold is per (Artikel, Standort), sparse. No global fallback.
     const konfig = await getDb().artikelStandortMindestbestaende.get([artikelId, standortId])

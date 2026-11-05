@@ -437,6 +437,15 @@ export default {
       abschliessen: 'Close cut-off date',
       abschliessenLaeuft: 'Saving …',
       abschlussErfolg: 'Inventory closed: {positionen} positions frozen.',
+      rebase: 'Take stock as-is (inventory baseline)',
+      rebaseHint:
+        'Takes the current stock per article/location as the baseline ("take stock as-is"). For pairs without an inventory booking in the last 10 days an inventory baseline booking is created, the stock is frozen and older bookings are archived (no longer delivered to clients).',
+      bestandUebernehmen: 'Take stock as-is',
+      rebaseLaeuft: 'Processing …',
+      rebaseBestaetigen:
+        'Really proceed? The current stock is frozen as the inventory baseline, an inventory booking is created for all pairs without an inventory booking in the last 10 days, and the sync window is moved forward. Older bookings remain on the server but are no longer delivered to clients.',
+      rebaseErfolg:
+        'Stock taken as-is: {marker} baselines created, {skipped} pairs skipped (recent inventory), {paare} pairs total.',
       hilfestellung: 'Inventory assistance (items without inventory)',
       hilfestellungHint:
         'Lists all article/location pairs without an inventory booking and allows entering the target quantities.',

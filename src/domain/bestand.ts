@@ -9,6 +9,13 @@
 // übereinstimmen. Bei einer Änderung muss die Server-Variante angepasst
 // werden (oder umgekehrt). Der DB-Layer (Drizzle-SQL bzw. Dexie) ist
 // separat.
+//
+// Darüber hinaus liefert dieses Modul `bestandFuerPaar`, das den
+// materialisierten Bestand aus der `bestand`-Tabelle liest und um lokale,
+// noch nicht zum Server gepushte Buchungen korrigiert (solange der Pull
+// den neuen Server-Stand noch nicht gebracht hat).
+
+import { getDb } from '../db/database'
 
 /**
  * Strukturelles Minimum an Feldern, das die Pure-Funktionen brauchen.
@@ -57,4 +64,33 @@ export function summeAktiveBuchungen(buchungen: BestandBuchung[]): number {
     if (!b.storno) summe += b.menge
   }
   return summe
+}
+
+/**
+ * Bestand eines Artikels an einem Standort, wie der Client ihn derzeit
+ * sehen soll: der materialisierte `bestand`-Wert vom Server plus die
+ * lokal noch nicht gepushten Buchungen (korrigiert den materialisierten
+ * Stand, bis der Pull den aktualisierten Server-Wert liefert).
+ *
+ * Gibt 0 zurück, wenn es noch keine `bestand`-Zeile für das Paar gibt
+ * (z. B. vor dem ersten Rebase / für frische Paare).
+ */
+export async function bestandFuerPaar(artikelId: string, standortId: string): Promise<number> {
+  const db = getDb()
+  const row = await db.bestand.get([artikelId, standortId])
+  if (row !== undefined) {
+    // Materialisierter Server-Stand existiert — korrigiere um lokal noch
+    // nicht gepushte Buchungen, bis der Pull den aktuellen Stand bringt.
+    let korrektur = 0
+    const pending = await db.buchungen.filter((b) => b.pendingSync === true).toArray()
+    for (const b of pending) {
+      if (b.artikelId === artikelId && b.standortId === standortId) korrektur += b.menge
+    }
+    return row.menge + korrektur
+  }
+  // Keine bestand-Zeile (vor dem ersten Rebase / für frische Paare): über
+  // die lokalen Buchungen summieren. Nach dem Rebase existiert für jedes
+  // Paar eine Zeile, dieser Pfad wird dann nicht mehr genommen.
+  const alle = await db.buchungen.where('artikelId').equals(artikelId).toArray()
+  return berechneBestand(alle, standortId)
 }

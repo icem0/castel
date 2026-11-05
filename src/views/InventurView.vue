@@ -247,6 +247,7 @@ const erinnerung = ref<{
 
 const abschlussLaden = ref(false)
 const archivLaden = ref(false)
+const rebaseLaden = ref(false)
 const archivItems = ref<
   Array<{
     id: string
@@ -314,6 +315,41 @@ async function stichtagAbschliessen(): Promise<void> {
     fehler.value = e instanceof Error ? e.message : String(e)
   } finally {
     abschlussLaden.value = false
+  }
+}
+
+async function bestandUebernehmen(): Promise<void> {
+  if (!darfAbschliessen.value || rebaseLaden.value) return
+  if (!window.confirm(t('view.inventur.rebaseBestaetigen'))) return
+  rebaseLaden.value = true
+  fehler.value = null
+  meldung.value = null
+  try {
+    const res = await fetch(`${apiBase}/api/inventur/rebase`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      const body = await res.text()
+      fehler.value = `${res.status} ${body}`
+      return
+    }
+    const data = await res.json()
+    meldung.value = t('view.inventur.rebaseErfolg', {
+      marker: data.erstellteMarker,
+      skipped: data.uebersprungeneMarker,
+      paare: data.paare,
+    })
+    await ladeHilfestellung()
+    await ladeLokaleInventur()
+  } catch (e) {
+    fehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    rebaseLaden.value = false
   }
 }
 
@@ -506,6 +542,21 @@ onBeforeUnmount(() => {
         {{
           abschlussLaden ? t('view.inventur.abschliessenLaeuft') : t('view.inventur.abschliessen')
         }}
+      </button>
+      <div v-if="meldung" class="meldung Erfolg">{{ meldung }}</div>
+      <div v-if="fehler" class="meldung Fehler">{{ fehler }}</div>
+    </div>
+
+    <div class="card">
+      <h2>{{ t('view.inventur.rebase') }}</h2>
+      <p>{{ t('view.inventur.rebaseHint') }}</p>
+      <button
+        type="button"
+        class="btn"
+        :disabled="rebaseLaden || !darfAbschliessen"
+        @click="bestandUebernehmen"
+      >
+        {{ rebaseLaden ? t('view.inventur.rebaseLaeuft') : t('view.inventur.bestandUebernehmen') }}
       </button>
       <div v-if="meldung" class="meldung Erfolg">{{ meldung }}</div>
       <div v-if="fehler" class="meldung Fehler">{{ fehler }}</div>

@@ -14,7 +14,7 @@
 // SQL-Variante. Validierung + Schreiben bleiben im Resolver.
 
 import { sql, eq, and } from 'drizzle-orm'
-import { buchungen } from '../db/schema.js'
+import { bestand, buchungen } from '../db/schema.js'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import * as schema from '../db/schema.js'
 
@@ -155,4 +155,39 @@ export async function berechneBestaendeProArtikel(
     if (r.sid) results.push({ artikelId, standortId: r.sid, menge: r.total })
   }
   return results
+}
+
+/**
+ * Materialisierte Bestand-Zeile für ein (Artikel, Standort)-Paar upserten.
+ * Wird vom Sync-Resolver nach jeder gepuschten Buchung und vom Rebase-
+ * Endpunkt geschrieben, damit die PWA den Bestand aus der `bestand`-Tabelle
+ * bezieht (statt über die Summe lokaler Buchungen) und archivierte
+ * Buchungen sicher aus dem Sync-Fenster herausfallen können.
+ *
+ * `querier` muss derselbe Transaktions-Handle sein wie der Buchungs-Insert
+ * (siehe `berechneBestand`), sonst liest der Aggregate den ungecommiteten
+ * Buchungswert nicht.
+ */
+export async function upsertBestandRow(
+  querier: PostgresJsDatabase<typeof schema>,
+  artikelId: string,
+  standortId: string,
+  menge: number,
+): Promise<void> {
+  const geaendertAm = new Date()
+  const existing = await querier
+    .select({ artikelId: bestand.artikelId, standortId: bestand.standortId })
+    .from(bestand)
+    .where(
+      and(eq(bestand.artikelId, artikelId), eq(bestand.standortId, standortId)),
+    )
+    .limit(1)
+  if (existing.length === 0) {
+    await querier.insert(bestand).values({ artikelId, standortId, menge, geaendertAm })
+  } else {
+    await querier
+      .update(bestand)
+      .set({ menge, geaendertAm })
+      .where(and(eq(bestand.artikelId, artikelId), eq(bestand.standortId, standortId)))
+  }
 }

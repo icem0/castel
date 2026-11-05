@@ -239,6 +239,13 @@
       "when": 1794000000000,
       "tag": "0033_inventur_tabellen",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794100000000,
+      "tag": "0034_inventur_bestand",
+      "breakpoints": true
     }
   ]
 }

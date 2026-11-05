@@ -102,5 +102,11 @@ export function istAbgeschlossen(
   stichtag: string,
   inventurStichtage: { id: string; stichtag: string; status: string }[],
 ): boolean {
-  return inventurStichtage.some((s) => s.stichtag === stichtag && s.status === 'abgeschlossen')
+  // Der Server speichert den Stichtag als volles Datum (YYYY-MM-DD), das
+  // Setting (und `stichtag`) ist MM-TT. Deshalb auf die letzten 5 Zeichen
+  // vergleichen — funktioniert auch für alte MM-TT-Zeilen.
+  const gesucht = stichtag.slice(-5)
+  return inventurStichtage.some(
+    (s) => s.stichtag.slice(-5) === gesucht && s.status === 'abgeschlossen',
+  )
 }

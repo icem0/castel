@@ -122,6 +122,13 @@ export interface Buchung {
    *  Im Normalfall identisch mit `id` — nur abweichend, wenn Server-Replikation
    *  eine andere ID vergibt (zukünftiges Feature). */
   serverId: string | null
+  /** Client-interner Marker: die Buchung liegt lokal vor, wurde aber noch
+   *  nicht erfolgreich zum Server gepusht. Wird vom Sync-Worker beim
+   *  erfolgreichen Push wieder entfernt. Dient dazu, den materialisierten
+   *  `bestand`-Stand lokal um noch nicht serverseitig eingerechnete
+   *  Änderungen zu korrigieren, bis der Pull den neuen Server-Stand bringt.
+   */
+  pendingSync?: boolean
   /**
    * Local-only marker for a booking that exists in IndexedDB but not on the
    * server (reconcile found it missing). Such a booking is never deleted.
@@ -191,13 +198,27 @@ export interface MindestbestandEreignis {
 }
 
 /**
+ * Materialisierte Bestand-Zeile je (Artikel, Standort) — serverseitig
+ * gepflegt (`bestand`-Tabelle), inkrementell an die PWA ausgeliefert.
+ * Identität ist das Paar `artikelId#standortId`.
+ */
+export interface BestandZeile {
+  artikelId: string
+  standortId: string
+  menge: number
+  geaendertAm: Iso
+}
+
+/**
  * Inventur-Stichtag: ein eingefrorener Bestands-Snapshot für die Buchhaltung.
  * Ein Stichtag ist jährlich wiederkehrend (MM-TT); der abgeschlossene Stand
  * wird in `inventur_positionen` festgehalten.
  */
 export interface InventurStichtag {
   id: string
-  stichtag: string // MM-TT
+  /** MM-TT (der Server speichert intern das gelöste YYYY-MM-DD; das
+   *  Snapshot-Endpoint liefert MM-TT zurück). */
+  stichtag: string
   status: 'offen' | 'abgeschlossen'
   festgehaltenVon: string
   festgehaltenVonName: string | null

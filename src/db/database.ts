@@ -14,6 +14,7 @@ import type {
   Artikel,
   ArtikelStandortMindestbestand,
   AuditLogEintrag,
+  BestandZeile,
   Buchung,
   Einstellung,
   EtikettenBogenLayout,
@@ -73,6 +74,8 @@ export class CastelDb extends Dexie {
   inventurStichtage!: Table<InventurStichtag, string>
   /** Inventur-Positionen: die einzelnen Positionen der Stichtage. */
   inventurPositionen!: Table<InventurPosition, string>
+  /** Materialisierter Bestand je (Artikel, Standort) — identität ist das Paar. */
+  bestand!: Table<BestandZeile, [string, string]>
 
   constructor(name = DB_NAME) {
     super(name)
@@ -500,6 +503,14 @@ export class CastelDb extends Dexie {
     this.version(20).stores({
       inventurStichtage: 'id, stichtag, status, erstelltAm',
       inventurPositionen: 'id, stichtageId, artikelId, erstelltAm',
+    })
+
+    // v21: Materialisierter Bestand (je Artikel/Standort) als Source of
+    //      Truth für den PWA-Bestand nach Einführung des Inventur-Sync-
+    //      Fensters. Wird inkrementell vom Server gepulst; die PWA
+    //      summiert nicht mehr über lokale Buchungen.
+    this.version(21).stores({
+      bestand: '[artikelId+standortId], geaendertAm',
     })
   }
 }

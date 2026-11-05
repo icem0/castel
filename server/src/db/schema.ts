@@ -654,6 +654,31 @@ export const inventurPositionen = pgTable(
   ],
 )
 
+// ---------- Materialisierter Bestand (Sync-Fenster, Phase 2) ----------
+//
+// `bestand` ist der serverseitige Source of Truth für den Bestand je
+// (Artikel, Standort). Er wird vom Rebase-Endpunkt und vom Sync-Resolver
+// bei jeder gepuschten Buchung auf den aktuellen Journal-Stand gebracht.
+// Die PWA bezieht den Bestand aus dieser Tabelle (statt über die Summe
+// lokaler Buchungen), sodass alte Buchungen aus dem Sync-Fenster
+// (`inventur.sichtbarAb`) herausfallen können, ohne den Bestand zu
+// verfälschen.
+
+export const bestand = pgTable(
+  'bestand',
+  {
+    artikelId: text('artikel_id')
+      .notNull()
+      .references(() => artikel.id, { onDelete: 'cascade' }),
+    standortId: text('standort_id')
+      .notNull()
+      .references(() => standorte.id, { onDelete: 'cascade' }),
+    menge: integer('menge').notNull().default(0),
+    geaendertAm: timestamp('geaendert_am', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.artikelId, t.standortId] })]
+)
+
 // ---------- DATANORM / Hersteller-Kataloge ----------
 //
 // DATANORM ist ein Legacy-Stammdatenformat des deutschen Fachgrosshandels

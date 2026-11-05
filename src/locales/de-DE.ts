@@ -448,6 +448,15 @@ export default {
       abschliessen: 'Stichtag abschließen',
       abschliessenLaeuft: 'Speichert …',
       abschlussErfolg: 'Inventur abgeschlossen: {positionen} Positionen eingefroren.',
+      rebase: 'Bestand übernehmen (Inventur-Basislinie)',
+      rebaseHint:
+        'Nimmt den aktuellen Bestand je Artikel/Standort als Basis („Bestand übernehmen“). Für Paare ohne Inventur-Buchung der letzten 10 Tage wird eine Inventur-Basislinie angelegt, der Bestand wird eingefroren und ältere Buchungen gehen ins Archiv (werden nicht mehr an Clients ausgeliefert).',
+      bestandUebernehmen: 'Bestand übernehmen',
+      rebaseLaeuft: 'Verarbeitet …',
+      rebaseBestaetigen:
+        'Wirklich durchführen? Der aktuelle Bestand wird als Inventur-Basislinie eingefroren, für alle Paare ohne Inventur-Buchung der letzten 10 Tage eine Inventur-Buchung erstellt und das Sync-Fenster verschoben. Ältere Buchungen bleiben auf dem Server erhalten, werden aber nicht mehr an Clients ausgeliefert.',
+      rebaseErfolg:
+        'Bestand übernommen: {marker} Basislinien erstellt, {skipped} Paare übersprungen (kürzliche Inventur), {paare} Paare insgesamt.',
       hilfestellung: 'Inventur-Hilfestellung (Artikel ohne Inventur)',
       hilfestellungHint:
         'Listet alle Artikel/Standorte ohne Inventur-Buchung auf und erlaubt das Erfassen der Sollmengen.',

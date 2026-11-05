@@ -9,6 +9,7 @@ import {
   akkuBestellungen,
   akkuNetzteile,
   akkuProjekte,
+  bestand,
   buchungen,
   etikettenBogenLayout,
   einstellungen,
@@ -21,6 +22,7 @@ import {
   standorte,
   syncErrorReports,
 } from '../db/schema.js'
+import { upsertBestandRow } from '../domain/bestand.js'
 import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
 import { leseRestoreEpoch } from '../admin/backup.js'
 import { restoreGesperrt } from '../admin/restore-lock.js'
@@ -37,6 +39,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   standorte: number
   commission: number
   buchungen: number
+  bestand: number
   hersteller: number
   artikelStandortMindestbestand: number
   akkuNetzteile: number
@@ -46,11 +49,12 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
   inventurStichtage: number
   inventurPositionen: number
 }> {
-  const [a, s, p, b, h, m, n, q, ab, ebl, ist, ip] = await Promise.all([
+  const [a, s, p, b, bs, h, m, n, q, ab, ebl, ist, ip] = await Promise.all([
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
     db.select({ c: sql<number>`count(*)::int` }).from(buchungen),
+    db.select({ c: sql<number>`count(*)::int` }).from(bestand),
     db.select({ c: sql<number>`count(*)::int` }).from(hersteller),
     db.select({ c: sql<number>`count(*)::int` }).from(artikelStandortMindestbestaende),
     db.select({ c: sql<number>`count(*)::int` }).from(akkuNetzteile),
@@ -65,6 +69,7 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     standorte: s[0]?.c ?? 0,
     commission: p[0]?.c ?? 0,
     buchungen: b[0]?.c ?? 0,
+    bestand: bs[0]?.c ?? 0,
     hersteller: h[0]?.c ?? 0,
     artikelStandortMindestbestand: m[0]?.c ?? 0,
     akkuNetzteile: n[0]?.c ?? 0,
@@ -111,11 +116,25 @@ export async function syncRoutes(
       const user = req.authUser
       if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
+      // Sync-Fenster: Buchungen, die älter sind als `inventur.sichtbarAb`
+      // (serverseitig gesetzt durch den Rebase-Endpunkt), werden nicht mehr
+      // an Clients ausgeliefert — sie verbleiben im Archiv auf dem Server.
+      // Nicht gesetzt → alles wird ausgeliefert (Vor-Rebase-Zustand).
+      const fensterRow = await db
+        .select({ value: einstellungen.value })
+        .from(einstellungen)
+        .where(
+          and(eq(einstellungen.key, 'inventur.sichtbarAb'), isNull(einstellungen.userId)),
+        )
+        .limit(1)
+      const fensterIso = fensterRow[0]?.value ?? '1970-01-01T00:00:00.000Z'
+
       const [
         artikelRows,
         standortRows,
         projektRows,
         buchungRows,
+        bestandRows,
         einstellungRows,
         eventRows,
         herstellerRows,
@@ -143,7 +162,13 @@ export async function syncRoutes(
         db
           .select()
           .from(buchungen)
-          .where(sql`${buchungen.erstelltAm} > ${sinceIso}`),
+          .where(
+            and(
+              sql`${buchungen.erstelltAm} > ${sinceIso}`,
+              sql`${buchungen.erstelltAm} >= ${fensterIso}`,
+            ),
+          ),
+        db.select().from(bestand).where(sql`${bestand.geaendertAm} > ${sinceIso}`),
         // Einstellungen: alle globalen + die des eingeloggten Users.
         // Server-interne Marker (`sync.*`, `backup.*`, `server.restoreEpoch`)
         // bleiben draußen — sonst wären sie in der IndexedDB der Clients und
@@ -241,6 +266,12 @@ export async function syncRoutes(
         standorte: standortRows,
         commission: projektRows,
         buchungen: buchungRows,
+        bestand: bestandRows.map((r) => ({
+          artikelId: r.artikelId,
+          standortId: r.standortId,
+          menge: r.menge,
+          geaendertAm: r.geaendertAm.toISOString(),
+        })),
         // Der Rabattsatz des Lieferanten ist dieselbe Information wie der
         // Einkaufspreis — nur Admins bekommen ihn (und dann als Zahl).
         hersteller: mappeHerstellerRabattsatz(
@@ -303,7 +334,10 @@ export async function syncRoutes(
         })),
         inventurStichtage: inventurStichtageRows.map((r) => ({
           id: r.id,
-          stichtag: r.stichtag,
+          // Spalte speichert das gelöste Voll-Datum (YYYY-MM-DD), das Client-
+          // Kontrakt ist MM-TT — letzteres daraus ableiten (funktioniert
+          // auch für alte MM-TT-Zeilen).
+          stichtag: r.stichtag.slice(-5),
           status: r.status,
           festgehaltenVon: r.festgehaltenVon,
           festgehaltenVonName: r.festgehaltenVonName,
@@ -697,14 +731,16 @@ export async function syncRoutes(
     const monat = Number.parseInt(parts[0] ?? '', 10)
     const tag = Number.parseInt(parts[1] ?? '', 10)
     const jetzt = new Date()
-    // Stichtag = aktuelles Jahr, UTC-Tagesende 23:59:59.999
+    // Stichtag = aktuelles Jahr (gelöstes Voll-Datum YYYY-MM-DD in der DATE-Spalte),
+    // der Query-Filter läuft bis UTC-Tagesende 23:59:59.999.
+    const stichtagFull = `${String(jetzt.getUTCFullYear()).padStart(4, '0')}-${String(monat).padStart(2, '0')}-${String(tag).padStart(2, '0')}`
     const stichtagBis = new Date(Date.UTC(jetzt.getUTCFullYear(), monat - 1, tag, 23, 59, 59, 999))
 
     const db = getDb()
     const bestehend = await db
       .select({ id: inventurStichtage.id, status: inventurStichtage.status })
       .from(inventurStichtage)
-      .where(eq(inventurStichtage.stichtag, body.stichtag))
+      .where(eq(inventurStichtage.stichtag, stichtagFull))
       .limit(1)
     if (bestehend.length > 0 && bestehend[0]) {
       const posCount = await db
@@ -753,7 +789,7 @@ export async function syncRoutes(
     const now = new Date()
     await db.transaction(async (tx) => {
       await tx.execute(sql`INSERT INTO inventur_stichtage (id, stichtag, status, festgehalten_von, festgehalten_von_name, erstellt_am)
-        VALUES (${stichtageId}, ${body.stichtag!}, 'abgeschlossen', ${user.sub}, NULL, ${now})`)
+        VALUES (${stichtageId}, ${stichtagFull}, 'abgeschlossen', ${user.sub}, NULL, ${now})`)
       for (const row of bestandRows) {
         const art = artikelMap.get(row.artikelId)
         const ve = art?.verpackungseinheit ?? 1
@@ -772,6 +808,118 @@ export async function syncRoutes(
       status: 'abgeschlossen',
       positionen: bestandRows.length,
       bereitsVorhanden: false,
+    })
+  })
+
+  // ---------- POST /api/inventur/rebase ----------
+  // Nimmt den aktuellen Bestand je (Artikel, Standort) als Basis ("Bestand
+  // übernehmen"): legt für Paare ohne nicht-stornierte Inventur-Buchung der
+  // letzten 10 Tage eine Inventur-Marker-Buchung (Menge 0, Basislinie) an,
+  // friert die aktuellen Werte in der materialisierten `bestand`-Tabelle ein
+  // und verschiebt das Sync-Fenster `inventur.sichtbarAb` auf jetzt. Ältere
+  // Buchungen bleiben serverseitig im Archiv und werden nicht mehr an
+  // Clients ausgeliefert (PWA-Datensatz wird nicht aufgebläht).
+  app.post('/api/inventur/rebase', { preHandler: app.requireAuth }, async (req, reply) => {
+    const user = req.authUser
+    if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
+    if (!(await hatBerechtigung(user.rollen, 'inventur.abschliessen'))) {
+      return reply.code(403).send({ code: 'FORBIDDEN', message: 'inventur.abschliessen erforderlich' })
+    }
+
+    const jetzt = new Date()
+    const zehnTageMs = 10 * 24 * 60 * 60 * 1000
+    const db = getDb()
+
+    const [artikelRows, standortRows] = await Promise.all([
+      db.select({ id: artikel.id }).from(artikel),
+      db.select({ id: standorte.id }).from(standorte),
+    ])
+
+    // Aktueller Bestand je Paar aus dem gesamten Journal (nicht storniert).
+    const sumRows = await db
+      .select({
+        artikelId: buchungen.artikelId,
+        standortId: buchungen.standortId,
+        menge: sql<number>`coalesce(sum(${buchungen.menge}), 0)::int`,
+      })
+      .from(buchungen)
+      .where(eq(buchungen.storno, false))
+      .groupBy(buchungen.artikelId, buchungen.standortId)
+    const sumMap = new Map<string, number>()
+    for (const r of sumRows) sumMap.set(`${r.artikelId}#${r.standortId}`, Number(r.menge))
+
+    // Neueste nicht-stornierte Inventur-Buchung je Paar (bestehende Basislinie).
+    const markerRows = await db
+      .select({
+        artikelId: buchungen.artikelId,
+        standortId: buchungen.standortId,
+        latest: sql<Date>`max(${buchungen.erstelltAm})`,
+      })
+      .from(buchungen)
+      .where(and(eq(buchungen.typ, 'inventur'), eq(buchungen.storno, false)))
+      .groupBy(buchungen.artikelId, buchungen.standortId)
+    const latestMarker = new Map<string, Date>()
+    for (const r of markerRows) latestMarker.set(`${r.artikelId}#${r.standortId}`, r.latest!)
+
+    const bestandZeilen: Array<{ artikelId: string; standortId: string; menge: number }> = []
+    let erstellteMarker = 0
+    let uebersprungeneMarker = 0
+
+    for (const a of artikelRows) {
+      for (const s of standortRows) {
+        const menge = sumMap.get(`${a.id}#${s.id}`) ?? 0
+        bestandZeilen.push({ artikelId: a.id, standortId: s.id, menge })
+        const letzte = latestMarker.get(`${a.id}#${s.id}`)
+        if (letzte && jetzt.getTime() - letzte.getTime() <= zehnTageMs) {
+          uebersprungeneMarker += 1
+          continue
+        }
+        // Marker-Buchung mit Menge 0: dokumentiert die Inventur, verändert
+        // den Bestand nicht und wird vom Client als Basislinie gesehen.
+        await db
+          .insert(buchungen)
+          .values({
+            id: randomUUID(),
+            artikelId: a.id,
+            standortId: s.id,
+            standortZielId: null,
+            typ: 'inventur',
+            menge: 0,
+            paarId: null,
+            projekt: null,
+            erstelltAm: jetzt,
+            clientEingabeAm: jetzt,
+            erstelltVon: user.sub,
+            kommentar: null,
+            mitteilungAn: null,
+            stornoVon: null,
+            storno: false,
+            storniertDurch: null,
+          } as never)
+        erstellteMarker += 1
+      }
+    }
+
+    const fensterAb = jetzt.toISOString()
+    await db.transaction(async (tx) => {
+      // Materialisierten Bestand für alle Paare auf den aktuellen Stand bringen.
+      for (const z of bestandZeilen) {
+        await upsertBestandRow(tx, z.artikelId, z.standortId, z.menge)
+      }
+      // Sync-Fenster setzen (server-interner Key, nie an Clients ausgeliefert).
+      await tx.execute(sql`INSERT INTO einstellungen (key, user_id, value, geaendert_am)
+        VALUES ('inventur.sichtbarAb', NULL, ${fensterAb}, ${jetzt})
+        ON CONFLICT (key) WHERE (user_id IS NULL) DO UPDATE SET value = EXCLUDED.value, geaendert_am = EXCLUDED.geaendert_am`)
+      await tx.execute(sql`INSERT INTO audit_log (id, aktion, entitaet, entitaet_id, benutzer_id, daten, zeit)
+        VALUES (${randomUUID()}, 'inventur.rebase', 'bestand', NULL, ${user.sub},
+          ${JSON.stringify({ marker: erstellteMarker, uebersprungen: uebersprungeneMarker, paare: bestandZeilen.length, fensterAb })}, ${jetzt})`)
+    })
+
+    return reply.send({
+      erstellteMarker,
+      uebersprungeneMarker,
+      paare: bestandZeilen.length,
+      fensterAb,
     })
   })
 
