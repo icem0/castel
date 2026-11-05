@@ -332,6 +332,7 @@ async function bestandUebernehmen(): Promise<void> {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       credentials: 'include',
+      body: JSON.stringify({}),
     })
     if (!res.ok) {
       const body = await res.text()

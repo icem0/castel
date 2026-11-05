@@ -48,6 +48,21 @@ async function main() {
     connectionTimeout: config.HTTP_CONNECTION_TIMEOUT_MS,
   })
 
+  // Ein leerer Request-Body mit Content-Type: application/json wird als leeres
+  // Objekt {} behandelt. Das erlaubt Aufrufe von Endpunkten ohne Body-Parameter
+  // (z. B. POST /api/inventur/rebase) auch mit einem explizit leeren JSON-Body,
+  // statt mit FST_ERR_CTP_EMPTY_JSON_BODY zu scheitern. Nicht-leere Bodies
+  // werden weiterhin durch den sicheren Standard-Parser verarbeitet.
+  app.removeContentTypeParser('application/json')
+  const defaultJsonParse = app.getDefaultJsonParser('error', 'error')
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, rawBody, done) => {
+    if (rawBody.length === 0) {
+      done(null, {})
+      return
+    }
+    defaultJsonParse(req, rawBody as string, done)
+  })
+
   // Plugins
   await app.register(fastifyHelmet, { contentSecurityPolicy: false })
   await app.register(fastifyCors, {
