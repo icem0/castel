@@ -164,8 +164,9 @@ async function hilfestellungSpeichern(): Promise<void> {
 // (`VALIDATION: Tag muss zwischen 1 und 31 liegen`), which kept failing the
 // whole outbox.
 // ---------------------------------------------------------------------------
-const stichtagMonat = ref<number | ''>('')
 const stichtagTag = ref<number | ''>('')
+const stichtagMonat = ref<number | ''>('')
+const stichtagJahr = ref<number | ''>('')
 const vorlaufTageFeld = ref<number | ''>('')
 const felderVomUser = ref(false)
 const stichtagFehler = ref('')
@@ -175,8 +176,9 @@ let speicherTimer: ReturnType<typeof setTimeout> | null = null
 
 function felderAusStore(): void {
   const teile = inventurStichtagTeile(stichtag.value)
-  stichtagMonat.value = teile?.monat ?? ''
   stichtagTag.value = teile?.tag ?? ''
+  stichtagMonat.value = teile?.monat ?? ''
+  stichtagJahr.value = teile?.jahr ?? ''
   vorlaufTageFeld.value = vorlaufTage.value
 }
 
@@ -197,7 +199,7 @@ function zeigeSpeicherMeldung(text: string): void {
 async function stichtagAendern(): Promise<void> {
   if (feldLaeuft.value) return
   felderVomUser.value = true
-  const pruefung = stichtagAusTeilen(stichtagMonat.value, stichtagTag.value)
+  const pruefung = stichtagAusTeilen(stichtagTag.value, stichtagMonat.value, stichtagJahr.value)
   if (pruefung.status === 'unvollstaendig') {
     stichtagFehler.value = t('view.inventur.stichtagUnvollstaendig')
     return
@@ -257,6 +259,8 @@ const archivItems = ref<
     kommentar: string | null
     artikelId: string
     standortId: string
+    artikelTitel: string | null
+    standortName: string | null
   }>
 >([])
 const archivTotal = ref(0)
@@ -505,6 +509,19 @@ onBeforeUnmount(() => {
           <span class="label">{{ t('view.inventur.stichtag') }}</span>
           <div class="stichtag-zeile">
             <label class="account-setting">
+              <span class="label">{{ t('view.inventur.stichtagTag') }}</span>
+              <input
+                v-model.number="stichtagTag"
+                type="number"
+                min="1"
+                max="31"
+                step="1"
+                class="zahl"
+                :disabled="feldLaeuft"
+                @change="stichtagAendern"
+              />
+            </label>
+            <label class="account-setting">
               <span class="label">{{ t('view.inventur.stichtagMonat') }}</span>
               <input
                 v-model.number="stichtagMonat"
@@ -518,12 +535,12 @@ onBeforeUnmount(() => {
               />
             </label>
             <label class="account-setting">
-              <span class="label">{{ t('view.inventur.stichtagTag') }}</span>
+              <span class="label">{{ t('view.inventur.stichtagJahr') }}</span>
               <input
-                v-model.number="stichtagTag"
+                v-model.number="stichtagJahr"
                 type="number"
-                min="1"
-                max="31"
+                min="1000"
+                max="9999"
                 step="1"
                 class="zahl"
                 :disabled="feldLaeuft"
@@ -717,8 +734,8 @@ onBeforeUnmount(() => {
             <td>{{ item.erstelltAm.slice(0, 10) }}</td>
             <td>{{ formatTyp(item.typ) }}</td>
             <td>{{ item.menge }}</td>
-            <td>{{ item.artikelId.slice(0, 8) }}…</td>
-            <td>{{ item.standortId.slice(0, 8) }}…</td>
+            <td>{{ item.artikelTitel ?? item.artikelId.slice(0, 8) }}…</td>
+            <td>{{ item.standortName ?? item.standortId.slice(0, 8) }}…</td>
             <td>{{ item.kommentar ?? '' }}</td>
           </tr>
         </tbody>
@@ -748,7 +765,7 @@ onBeforeUnmount(() => {
         </thead>
         <tbody>
           <tr v-for="st in inventurenSortiert" :key="st.id">
-            <td>{{ st.stichtag }}.{{ st.erstelltAm.slice(0, 4) }}</td>
+            <td>{{ st.stichtag }}</td>
             <td>
               <span class="status-badge" :class="st.status">{{
                 t(`view.inventur.status.${st.status}`)

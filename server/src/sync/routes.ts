@@ -332,17 +332,19 @@ export async function syncRoutes(
           stornoVonKuerzel: r.stornoVonKuerzel,
           zeilen: r.zeilen,
         })),
-        inventurStichtage: inventurStichtageRows.map((r) => ({
-          id: r.id,
+        inventurStichtage: inventurStichtageRows.map((r) => {
           // Spalte speichert das gelöste Voll-Datum (YYYY-MM-DD), das Client-
-          // Kontrakt ist MM-TT — letzteres daraus ableiten (funktioniert
-          // auch für alte MM-TT-Zeilen).
-          stichtag: r.stichtag.slice(-5),
-          status: r.status,
-          festgehaltenVon: r.festgehaltenVon,
-          festgehaltenVonName: r.festgehaltenVonName,
-          erstelltAm: r.erstelltAm.toISOString(),
-        })),
+          // Kontrakt ist DD.MM.YYYY — letzteres daraus ableiten.
+          const [j, m, t] = r.stichtag.split('-')
+          return {
+            id: r.id,
+            stichtag: `${t}.${m}.${j}`,
+            status: r.status,
+            festgehaltenVon: r.festgehaltenVon,
+            festgehaltenVonName: r.festgehaltenVonName,
+            erstelltAm: r.erstelltAm.toISOString(),
+          }
+        }),
         inventurPositionen: inventurPositionenRows.map((r) => ({
           id: r.id,
           stichtageId: r.stichtageId,
@@ -724,17 +726,18 @@ export async function syncRoutes(
       return reply.code(403).send({ code: 'FORBIDDEN', message: 'inventur.abschliessen erforderlich' })
     }
     const body = req.body as { stichtag?: string }
-    if (!body.stichtag || !/^\d{2}-\d{2}$/.test(body.stichtag)) {
-      return reply.code(400).send({ code: 'VALIDATION', message: 'stichtag im Format MM-TT erforderlich' })
+    if (!body.stichtag || !/^\d{2}\.\d{2}\.\d{4}$/.test(body.stichtag)) {
+      return reply.code(400).send({ code: 'VALIDATION', message: 'stichtag im Format DD.MM.YYYY erforderlich' })
     }
-    const parts = body.stichtag.split('-')
-    const monat = Number.parseInt(parts[0] ?? '', 10)
-    const tag = Number.parseInt(parts[1] ?? '', 10)
-    const jetzt = new Date()
-    // Stichtag = aktuelles Jahr (gelöstes Voll-Datum YYYY-MM-DD in der DATE-Spalte),
-    // der Query-Filter läuft bis UTC-Tagesende 23:59:59.999.
-    const stichtagFull = `${String(jetzt.getUTCFullYear()).padStart(4, '0')}-${String(monat).padStart(2, '0')}-${String(tag).padStart(2, '0')}`
-    const stichtagBis = new Date(Date.UTC(jetzt.getUTCFullYear(), monat - 1, tag, 23, 59, 59, 999))
+    const parts = body.stichtag.split('.')
+    const tag = Number.parseInt(parts[0] ?? '', 10)
+    const monat = Number.parseInt(parts[1] ?? '', 10)
+    const jahr = Number.parseInt(parts[2] ?? '', 10)
+    // Stichtag = gelöstes Voll-Datum YYYY-MM-DD in der DATE-Spalte (Jahr kommt
+    // aus dem eingegebenen DD.MM.YYYY), der Query-Filter läuft bis
+    // UTC-Tagesende 23:59:59.999.
+    const stichtagFull = `${String(jahr).padStart(4, '0')}-${String(monat).padStart(2, '0')}-${String(tag).padStart(2, '0')}`
+    const stichtagBis = new Date(Date.UTC(jahr, monat - 1, tag, 23, 59, 59, 999))
 
     const db = getDb()
     const bestehend = await db
@@ -964,8 +967,29 @@ export async function syncRoutes(
 
     const [rows, countRow] = await Promise.all([
       db
-        .select()
+        .select({
+          id: buchungen.id,
+          artikelId: buchungen.artikelId,
+          standortId: buchungen.standortId,
+          standortZielId: buchungen.standortZielId,
+          typ: buchungen.typ,
+          menge: buchungen.menge,
+          paarId: buchungen.paarId,
+          projekt: buchungen.projekt,
+          erstelltAm: buchungen.erstelltAm,
+          clientEingabeAm: buchungen.clientEingabeAm,
+          erstelltVon: buchungen.erstelltVon,
+          kommentar: buchungen.kommentar,
+          mitteilungAn: buchungen.mitteilungAn,
+          stornoVon: buchungen.stornoVon,
+          storno: buchungen.storno,
+          storniertDurch: buchungen.storniertDurch,
+          artikelTitel: artikel.titel,
+          standortName: standorte.name,
+        })
         .from(buchungen)
+        .leftJoin(artikel, eq(buchungen.artikelId, artikel.id))
+        .leftJoin(standorte, eq(buchungen.standortId, standorte.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(buchungen.erstelltAm)
         .limit(limit)
@@ -994,6 +1018,8 @@ export async function syncRoutes(
         stornoVon: r.stornoVon,
         storno: r.storno,
         storniertDurch: r.storniertDurch,
+        artikelTitel: r.artikelTitel ?? null,
+        standortName: r.standortName ?? null,
       })),
       limit,
       offset,
