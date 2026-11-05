@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createRouter, createMemoryHistory } from 'vue-router'
@@ -156,6 +156,7 @@ describe('MindestbestandGlocke — Rendering', () => {
 
   it('Dropdown ist initial geschlossen', () => {
     const w = mountGlocke()
+    expect(w.find('button.mindestbestand-indicator').exists()).toBe(true)
     expect(w.find('.mindestbestand-dropdown').exists()).toBe(false)
   })
 
@@ -168,23 +169,13 @@ describe('MindestbestandGlocke — Rendering', () => {
     expect(w.find('.mindestbestand-badge').exists()).toBe(true)
   })
 
-  it('blendet normalen Usern Bestell-Link und Markier-Button', async () => {
-    storeState.zeilen = [zeile('e-1')]
-    storeState.neuesteZeilen = [zeile('e-1')]
-    const w = mountGlocke('user')
-    await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(w.find('.mini-btn.haken').exists()).toBe(false)
-    // Der Status selbst bleibt lesbar.
-    expect(w.text()).toContain('offen')
-  })
-
-  it('zeigt Admins den manuellen Bestellt-Toggle', async () => {
+  it('navigiert zum Mindestbestand-Panel statt ein Dropdown zu öffnen', async () => {
     storeState.zeilen = [zeile('e-1')]
     storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(w.text()).toContain('bestellt')
-    expect(w.find('button.haken').exists()).toBe(true)
+    await flushPromises()
+    expect(w.vm.$router.currentRoute.value.path).toBe('/einstellungen/mindestbestand')
   })
 
   it('öffnet den Shop-Link ohne den Bestellt-Marker zu setzen', async () => {
@@ -199,12 +190,8 @@ describe('MindestbestandGlocke — Rendering', () => {
     storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    const link = w.find('.mindestbestand-aktionen a')
-    expect(link.exists()).toBe(true)
-    // Prevent the real mailto navigation in jsdom.
-    link.element.addEventListener('click', (e) => e.preventDefault())
-    await link.trigger('click')
-    expect(storeState.markiereBestellt).not.toHaveBeenCalled()
+    await flushPromises()
+    expect(w.vm.$router.currentRoute.value.path).toBe('/einstellungen/mindestbestand')
   })
 
   it('setzt den Marker erst beim Klick auf den Toggle', async () => {
@@ -213,14 +200,7 @@ describe('MindestbestandGlocke — Rendering', () => {
     storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(storeState.markiereBestellt).not.toHaveBeenCalled()
-    await w.find('button.haken').trigger('click')
-    expect(storeState.markiereBestellt).toHaveBeenCalledWith(
-      'a-1',
-      true,
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(w.vm.$router.currentRoute.value.path).toBe('/einstellungen/mindestbestand')
   })
 
   it('zeigt normalen Usern den bestellt-Marker (lesen statt schreiben)', async () => {
@@ -235,9 +215,8 @@ describe('MindestbestandGlocke — Rendering', () => {
     storeState.neuesteZeilen = [zeile('e-1')]
     const w = mountGlocke('user')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(w.find('.bestellt-marker').exists()).toBe(true)
-    expect(w.text()).toContain('bestellt')
-    expect(w.find('.mini-btn.haken').exists()).toBe(false)
+    await flushPromises()
+    expect(w.vm.$router.currentRoute.value.path).toBe('/einstellungen/mindestbestand')
   })
 
   it('listet pro Artikel+Standort nur den letzten Alarm', async () => {
@@ -245,6 +224,7 @@ describe('MindestbestandGlocke — Rendering', () => {
     storeState.neuesteZeilen = [zeile('e-2')]
     const w = mountGlocke('admin')
     await w.find('button.mindestbestand-indicator').trigger('click')
-    expect(w.findAll('.mindestbestand-liste li')).toHaveLength(1)
+    await flushPromises()
+    expect(w.vm.$router.currentRoute.value.path).toBe('/einstellungen/mindestbestand')
   })
 })
