@@ -240,3 +240,43 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha,scope=pwa
           cache-to: type=gha,mode=max,scope=pwa
+
+  # ---------- Image-Checks fuer Pull Requests ----------
+  # Bei PRs wird das Image ohne Push gebaut (push: false), damit ein kaputtes
+  # Dockerfile vor dem Merge auffaellt. Kein Login, keine Tags, kein Publish.
+  api-image-check:
+    if: github.event_name == 'pull_request'
+    needs: [version, api-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  pwa-image-check:
+    if: github.event_name == 'pull_request'
+    needs: [version, pwa-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.pwa
+          push: false
+          cache-from: type=gha,scope=pwa
+          cache-to: type=gha,mode=max,scope=pwa
