@@ -25,6 +25,13 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: build-and-push-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Runs auf main werden pro Ref nacheinander abgearbeitet, damit :latest
+  # nie von einem aelteren, spaeter fertigen Lauf ueberschrieben wird. Ein
+  # zwischenzeitig verdrangter Lauf wird nicht gebaut, das ist beabsichtigt.
+
 jobs:
   # ---------- Version ----------
   # Liest die Versionsnummern aus beiden package.json (Root=PWA, server=API)
@@ -48,7 +55,11 @@ jobs:
           echo "::notice title=Build version::PWA v$ROOT_VERSION / API v$SERVER_VERSION"
 
   # ---------- API ----------
-  api:
+  # api-check prueft den Code (Checkout, Node, Install, Lint, Typecheck, Test,
+  # Build). Kein Docker, kein Image-Push. Läuft bei jedem Event.
+  # api-publish baut und pusht das API-Image erst, nachdem BEIDE Check-Jobs
+  # (api-check und pwa-check) gruen sind. Nur ausserhalb von PRs.
+  api-check:
     needs: version
     runs-on: ubuntu-latest
     services:
@@ -73,17 +84,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: server/package-lock.json
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install
         working-directory: server
@@ -118,8 +118,24 @@ jobs:
           DATANORM_DIR: /tmp/castel-ci-datanorm
         run: npm run test:run
 
+  api-publish:
+    needs: [version, api-check, pwa-check]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build image
-        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: ./server
@@ -139,7 +155,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Set package visibility to public
-        if: github.event_name != 'pull_request'
         env:
           # GHCR_ADMIN_TOKEN: klassischer PAT mit scopes 'repo' + 'write:packages'.
           # Der automatische GITHUB_TOKEN darf fuer User-Repos keine Packages flippen
@@ -182,7 +197,11 @@ jobs:
           done
 
   # ---------- PWA ----------
-  pwa:
+  # pwa-check prueft den Code (Checkout, Node, Install, Lint, Typecheck, Test,
+  # Build mit UTF-8-Env). Kein Docker, kein Image-Push. Läuft bei jedem Event.
+  # pwa-publish baut und pusht das PWA-Image erst, nachdem BEIDE Check-Jobs
+  # (api-check und pwa-check) gruen sind. Nur ausserhalb von PRs.
+  pwa-check:
     needs: version
     runs-on: ubuntu-latest
     steps:
@@ -193,17 +212,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install
         run: npm ci --no-audit --no-fund
@@ -225,7 +233,7 @@ jobs:
         # Ohne das transcodiert vite/rollup die mehrbyte-Zeichen
         # (U+23FB, U+2026, Emojis, Umlaute) in der C/POSIX-Default-
         # Locale des ubuntu-latest-Runners, und das Ergebnis im
-        # GHCR-Image zeigt im Browser ÔÅ╗-Mojibake. Dockerfile.pwa
+        # GHCR-Image zeigt im Browser Mojibake. Dockerfile.pwa
         # braucht dasselbe ENV, weil 'npm run build' dort
         # nochmal laeuft (sonst wuerde der Image-eigene Build,
         # z. B. bei manuellem 'docker build', wieder kaputt sein).
@@ -235,8 +243,24 @@ jobs:
           TZ: Europe/Berlin
         run: npm run build
 
+  pwa-publish:
+    needs: [version, api-check, pwa-check]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build image
-        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -256,7 +280,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Set package visibility to public
-        if: github.event_name != 'pull_request'
         env:
           # GHCR_ADMIN_TOKEN: klassischer PAT mit scopes 'repo' + 'write:packages'.
           # Der automatische GITHUB_TOKEN darf fuer User-Repos keine Packages flippen
