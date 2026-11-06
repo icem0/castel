@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
+import { useRouter } from 'vue-router'
 import { jwtLesen } from '../auth/session'
 import { getApiBaseUrl } from '../auth/api'
 import { getDb } from '../db/database'
@@ -19,6 +20,7 @@ import { downloadCsv, downloadPdf } from '../services/inventur/pdf'
 const { t } = useI18n()
 const settings = useSettingsStore()
 const auth = useAuthStore()
+const router = useRouter()
 
 const apiBase = getApiBaseUrl()
 const token = jwtLesen() ?? null
@@ -63,21 +65,6 @@ const gefilterteHilfeItems = computed(() => {
 
 function hilfeKey(artikelId: string, standortId: string): string {
   return `${artikelId}#${standortId}`
-}
-
-/** Archive rows carry the internal booking slug — render the localized label. */
-function formatTyp(typ: string): string {
-  if (
-    typ === 'einlagerung' ||
-    typ === 'entnahme' ||
-    typ === 'umlagerung' ||
-    typ === 'inventur' ||
-    typ === 'kommission' ||
-    typ === 'storno'
-  ) {
-    return t(`view.buchung.form.typen.${typ}`)
-  }
-  return typ
 }
 
 function sollMengeAendern(z: InventurHilfeZeile, event: Event): void {
@@ -248,24 +235,7 @@ const erinnerung = ref<{
 } | null>(null)
 
 const abschlussLaden = ref(false)
-const archivLaden = ref(false)
 const rebaseLaden = ref(false)
-const archivItems = ref<
-  Array<{
-    id: string
-    typ: string
-    menge: number
-    erstelltAm: string
-    kommentar: string | null
-    artikelId: string
-    standortId: string
-    artikelTitel: string | null
-    standortName: string | null
-  }>
->([])
-const archivTotal = ref(0)
-const archivOffset = ref(0)
-const archivLimit = ref(50)
 const fehler = ref<string | null>(null)
 const meldung = ref<string | null>(null)
 
@@ -358,36 +328,6 @@ async function bestandUebernehmen(): Promise<void> {
   }
 }
 
-async function archivLadenFunc(offset: number): Promise<void> {
-  if (!darfLesen.value) return
-  archivLaden.value = true
-  fehler.value = null
-  try {
-    const res = await fetch(`${apiBase}/api/inventur/archiv`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: 'include',
-      body: JSON.stringify({ limit: archivLimit.value, offset }),
-    })
-    if (!res.ok) {
-      const body = await res.text()
-      fehler.value = `${res.status} ${body}`
-      return
-    }
-    const data = await res.json()
-    archivItems.value = offset === 0 ? data.items : [...archivItems.value, ...data.items]
-    archivTotal.value = data.total
-    archivOffset.value = offset
-  } catch (e) {
-    fehler.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    archivLaden.value = false
-  }
-}
-
 async function csvExportieren(): Promise<void> {
   if (!darfExportieren.value) return
   const mitPreise = auth.hat('einkaufspreis')
@@ -450,7 +390,6 @@ async function exporteiereStichtagPdf(st: InventurStichtag): Promise<void> {
 
 onMounted(async () => {
   await ladeLokaleInventur()
-  if (darfLesen.value) await archivLadenFunc(0)
   await ladeHilfestellung()
 })
 
@@ -714,41 +653,16 @@ onBeforeUnmount(() => {
     <div v-if="darfLesen" class="card">
       <h2>{{ t('view.inventur.archiv') }}</h2>
       <p>{{ t('view.inventur.archivHint') }}</p>
-      <button type="button" class="btn" :disabled="archivLaden" @click="archivLadenFunc(0)">
-        {{ archivLaden ? t('view.inventur.laedt') : t('view.inventur.buchungsarchiv') }}
+      <button
+        type="button"
+        class="btn"
+        @click="router.push({ name: 'einstellungen-inventur-archiv' })"
+      >
+        {{ t('view.inventur.buchungsarchiv') }}
       </button>
-      <div v-if="archivLaden" class="hint">{{ t('view.inventur.laedtArchiv') }}</div>
-      <table v-if="archivItems.length > 0" class="archiv-tabelle">
-        <thead>
-          <tr>
-            <th>{{ t('view.inventur.colDatum') }}</th>
-            <th>{{ t('view.inventur.colTyp') }}</th>
-            <th>{{ t('view.inventur.colMenge') }}</th>
-            <th>{{ t('view.inventur.colArtikel') }}</th>
-            <th>{{ t('view.inventur.colStandort') }}</th>
-            <th>{{ t('view.inventur.colKommentar') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in archivItems" :key="item.id">
-            <td>{{ item.erstelltAm.slice(0, 10) }}</td>
-            <td>{{ formatTyp(item.typ) }}</td>
-            <td>{{ item.menge }}</td>
-            <td>{{ item.artikelTitel ?? item.artikelId.slice(0, 8) }}…</td>
-            <td>{{ item.standortName ?? item.standortId.slice(0, 8) }}…</td>
-            <td>{{ item.kommentar ?? '' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div v-if="archivTotal > archivItems.length" class="archiv-mehr">
-        <button
-          type="button"
-          class="btn klein"
-          @click="archivLadenFunc(archivOffset + archivLimit)"
-        >
-          {{ t('view.inventur.mehrLaden') }}
-        </button>
-      </div>
+      <span class="hint">
+        {{ t('view.inventur.archivLinkHint') }}
+      </span>
     </div>
 
     <div v-if="darfLesen" class="card">

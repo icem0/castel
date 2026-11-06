@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { getApiBaseUrl } from '../auth/api'
 import { jwtLesen } from '../auth/session'
+import { exportArchivPdf } from '../services/inventur/archiv-pdf'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -33,7 +34,7 @@ const archivItems = ref<
 >([])
 const archivTotal = ref(0)
 const archivOffset = ref(0)
-const archivLimit = ref(100)
+const archivLimit = ref(20)
 const archivLaden = ref(false)
 const archivFehler = ref<string | null>(null)
 
@@ -41,8 +42,11 @@ const filterVon = ref<string>('')
 const filterBis = ref<string>('')
 const filterTyp = ref<string>('')
 const filterProjekt = ref<string>('')
+const filterArtikel = ref<string>('')
+const filterStandort = ref<string>('')
+const filterErstelltVon = ref<string>('')
 
-const pageSizes = [10, 100, 1000]
+const pageSizes = [20, 50, 100]
 
 async function archivLadenFunc(offset: number): Promise<void> {
   if (!darfLesen.value) return
@@ -62,8 +66,10 @@ async function archivLadenFunc(offset: number): Promise<void> {
         von: filterVon.value || undefined,
         bis: filterBis.value || undefined,
         typ: filterTyp.value || undefined,
-        erstelltVon: undefined,
+        erstelltVon: filterErstelltVon.value || undefined,
         projekt: filterProjekt.value || undefined,
+        artikelId: filterArtikel.value || undefined,
+        standortId: filterStandort.value || undefined,
       }),
     })
     if (!res.ok) {
@@ -82,9 +88,21 @@ async function archivLadenFunc(offset: number): Promise<void> {
   }
 }
 
-watch([filterVon, filterBis, filterTyp, filterProjekt, archivLimit], () => {
-  archivLadenFunc(0)
-})
+watch(
+  [
+    filterVon,
+    filterBis,
+    filterTyp,
+    filterProjekt,
+    filterArtikel,
+    filterStandort,
+    filterErstelltVon,
+    archivLimit,
+  ],
+  () => {
+    archivLadenFunc(0)
+  },
+)
 
 function formatDatum(iso: string): string {
   return iso.slice(0, 10)
@@ -124,8 +142,10 @@ async function exporteiereCsv(): Promise<void> {
         von: filterVon.value || undefined,
         bis: filterBis.value || undefined,
         typ: filterTyp.value || undefined,
-        erstelltVon: undefined,
+        erstelltVon: filterErstelltVon.value || undefined,
         projekt: filterProjekt.value || undefined,
+        artikelId: filterArtikel.value || undefined,
+        standortId: filterStandort.value || undefined,
       }),
     })
     if (!res.ok) {
@@ -142,7 +162,7 @@ async function exporteiereCsv(): Promise<void> {
         'Menge',
         'Artikel',
         'Standort',
-        'Kommission',
+        'Kommission / Projekt',
         'Gebucht von',
         'Kommentar',
         'Storno',
@@ -183,6 +203,44 @@ async function exporteiereCsv(): Promise<void> {
     archivLaden.value = false
   }
 }
+
+async function exporteierePdf(): Promise<void> {
+  if (!darfExportieren.value) return
+  archivLaden.value = true
+  try {
+    const res = await fetch(`${apiBase}/api/inventur/archiv`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        limit: 10000,
+        offset: 0,
+        von: filterVon.value || undefined,
+        bis: filterBis.value || undefined,
+        typ: filterTyp.value || undefined,
+        erstelltVon: filterErstelltVon.value || undefined,
+        projekt: filterProjekt.value || undefined,
+        artikelId: filterArtikel.value || undefined,
+        standortId: filterStandort.value || undefined,
+      }),
+    })
+    if (!res.ok) {
+      const body = await res.text()
+      archivFehler.value = `${res.status} ${body}`
+      return
+    }
+    const data = await res.json()
+    const mitPreise = auth.hat('einkaufspreis')
+    await exportArchivPdf(data.items, mitPreise)
+  } catch (e) {
+    archivFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    archivLaden.value = false
+  }
+}
 </script>
 
 <template>
@@ -211,6 +269,24 @@ async function exporteiereCsv(): Promise<void> {
         type="text"
         :placeholder="t('view.inventurArchiv.filterProjektPh')"
       />
+      <label>{{ t('view.inventurArchiv.filterArtikel') }}:</label>
+      <input
+        v-model="filterArtikel"
+        type="text"
+        :placeholder="t('view.inventurArchiv.filterArtikelPh')"
+      />
+      <label>{{ t('view.inventurArchiv.filterStandort') }}:</label>
+      <input
+        v-model="filterStandort"
+        type="text"
+        :placeholder="t('view.inventurArchiv.filterStandortPh')"
+      />
+      <label>{{ t('view.inventurArchiv.filterErstelltVon') }}:</label>
+      <input
+        v-model="filterErstelltVon"
+        type="text"
+        :placeholder="t('view.inventurArchiv.filterErstelltVonPh')"
+      />
       <span class="separator"></span>
       <label>{{ t('view.inventurArchiv.zeilenProSeite') }}:</label>
       <select v-model="archivLimit">
@@ -227,10 +303,22 @@ async function exporteiereCsv(): Promise<void> {
       >
         {{ t('view.inventurArchiv.exportCsv') }}
       </button>
+      <button
+        type="button"
+        class="btn"
+        :disabled="archivLaden || !darfExportieren"
+        @click="exporteierePdf"
+      >
+        {{ t('view.inventurArchiv.exportPdf') }}
+      </button>
     </div>
 
     <div v-if="archivLaden" class="hint">{{ t('view.inventurArchiv.laedtArchiv') }}</div>
     <div v-if="archivFehler" class="fehler">{{ archivFehler }}</div>
+
+    <div class="archiv-sort">
+      {{ t('view.inventurArchiv.sortiert') }}
+    </div>
 
     <table v-if="archivItems.length > 0" class="archiv-tabelle">
       <thead>
@@ -338,5 +426,11 @@ async function exporteiereCsv(): Promise<void> {
   gap: 8px;
   margin-top: 10px;
   font-size: 0.9em;
+}
+.archiv-sort {
+  font-size: 0.85em;
+  color: #666;
+  margin: 8px 0 4px 0;
+  font-style: italic;
 }
 </style>
