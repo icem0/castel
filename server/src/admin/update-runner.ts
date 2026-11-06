@@ -10,8 +10,12 @@
 // WHAT THE UPDATER CONTAINER MOUNTS
 //   - /var/run/docker.sock : to control the host daemon
 //   - the host project dir : to read the compose files and run scripts/update.sh
-//   The host project dir is read from the compose label
-//   `com.docker.compose.project.working_dir` of the api container itself.
+//   The host project dir comes from the environment variable CASTEL_REPO_DIR.
+//   Set it in your .env file to the absolute path of the Castel checkout,
+//   e.g. CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel.
+//   If CASTEL_REPO_DIR is empty, the label
+//   `com.docker.compose.project.working_dir` of the api container is used as
+//   fallback.
 
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -118,7 +122,7 @@ export async function startUpdater(deps: StartUpdaterDeps = {}): Promise<StartUp
 
   const selfId = deps.selfId ?? selfContainerId()
   let image = deps.image ?? process.env.CASTEL_UPDATE_IMAGE ?? ''
-  let hostDir = deps.hostDir ?? process.env.CASTEL_REPO_DIR ?? ''
+  let hostDir = deps.hostDir ?? process.env.CASTEL_REPO_DIR ?? process.env.REPO_DIR ?? ''
 
   if (!image && selfId) {
     try {

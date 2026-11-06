@@ -3,9 +3,10 @@
 // Ablauf:
 //   1. PWA ruft GET  /api/admin/update/check    -> laufende vs. neueste Version
 //   2. PWA ruft POST /api/admin/update          -> Marker "requested" in die DB
-//      und startet einen kurzlebigen Updater-Container (scripts/update.sh).
-//      Der laeuft NICHT im Compose-Projekt, damit er das Neuerstellen des
-//      api-Containers ueberlebt.
+//      und startet den Updater über scripts/update.sh.
+//      Das Skript liegt unter CASTEL_REPO_DIR/scripts/update.sh auf dem Host.
+//      Setze CASTEL_REPO_DIR in der .env auf den absoluten Pfad des Checkout,
+//      z.B. CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
 //   3. PWA pollt GET /api/admin/update/status   -> Phase, Log, Versionen
 //
 // Die DB ist der Kanal, weil sie den Neustart des API-Containers ueberlebt:

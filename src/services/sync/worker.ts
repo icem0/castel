@@ -2178,39 +2178,43 @@ async function sendSyncErrorReport(
     return
   }
   const sample = failure.sampleErrors?.[0]
-  await fetchWithTimeout(
-    `${apiBase}/api/sync/sync-error-report`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  try {
+    const res = await fetchWithTimeout(
+      `${apiBase}/api/sync/sync-error-report`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          deviceId,
+          occurredAt: jetztIso(),
+          source: failure.source ?? 'network',
+          code: failure.code ?? 'UNKNOWN',
+          message: failure.message,
+          httpStatus: failure.status ?? null,
+          stack: sample?.stack ?? null,
+          payload: sample?.payload ?? null,
+          diagnostics: diagnostics ?? null,
+        }),
       },
-      credentials: 'include',
-      body: JSON.stringify({
-        deviceId,
-        occurredAt: jetztIso(),
-        source: failure.source ?? 'network',
-        code: failure.code ?? 'UNKNOWN',
-        message: failure.message,
-        httpStatus: failure.status ?? null,
-        stack: sample?.stack ?? null,
-        payload: sample?.payload ?? null,
-        diagnostics: diagnostics ?? null,
-      }),
-    },
-    SNAPSHOT_TIMEOUT_MS,
-  )
-    .then(() => {
-      // Der Server hat den Report gespeichert — er muss bei einem wieder
-      // erfolgreichen Sync wieder geloescht werden.
-      setzeFehlerReportOffen(true)
-    })
-    .catch((e) => {
-      // Report-Versand darf den Sync nicht blockieren.
-      console.warn('[sync] Fehler-Report konnte nicht gesendet werden:', e)
-    })
+      SNAPSHOT_TIMEOUT_MS,
+    )
+    if (!res.ok) {
+      // Non-2xx (z. B. 400 VALIDATION) darf nicht als "gemeldet" gelten.
+      console.warn(`[sync] Fehler-Report abgelehnt: HTTP ${res.status}`)
+      return
+    }
+    // Der Server hat den Report gespeichert — er muss bei einem wieder
+    // erfolgreichen Sync wieder geloescht werden.
+    setzeFehlerReportOffen(true)
+  } catch (e) {
+    // Report-Versand darf den Sync nicht blockieren.
+    console.warn('[sync] Fehler-Report konnte nicht gesendet werden:', e)
+  }
 }
 
 /**

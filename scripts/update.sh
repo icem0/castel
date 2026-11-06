@@ -48,7 +48,11 @@
 #   --purge-until X     age filter for "unused" images (default 168h = 7 days)
 #
 # ENVIRONMENT
-#   CASTEL_REPO_DIR            explicit path of the compose checkout
+#   CASTEL_REPO_DIR            absolute path of the Castel checkout on the host
+#                              e.g. CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
+#                              Without it, the script tries to detect the
+#                              project directory from compose labels or the
+#                              current working directory.
 #   CASTEL_PROJECT_NAME        explicit compose project name
 #   CASTEL_PROJECT_DIR         alias for the project directory (fallback)
 #   CASTEL_HEALTH_TIMEOUT_SEC  seconds to wait for a healthy api (default 180)
@@ -312,6 +316,10 @@ detect_containers() {
 detect_repo_dir() {
   if [ -n "${CASTEL_REPO_DIR:-}" ]; then
     printf '%s' "$CASTEL_REPO_DIR"
+    return 0
+  fi
+  if [ -n "${REPO_DIR:-}" ]; then
+    printf '%s' "$REPO_DIR"
     return 0
   fi
   if [ -n "${CASTEL_PROJECT_DIR:-}" ]; then

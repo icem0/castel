@@ -1,6 +1,6 @@
 // Update-Endpunkte (ersetzen den alten Docker-basierten Self-Update aus
 // /api/admin/update/*). Der Server prüft GitHub auf eine neuere Version und
-// löst bei Bedarf einen Deploy-Webhook aus — kein Docker-Socket nötig.
+// löst bei Bedarf einen Deploy-Webhook aus.
 //
 // Endpunkte (beide admin-only):
 //   GET  /api/update/check   → installierte vs. neueste Version + Commits
@@ -8,6 +8,11 @@
 //                              + 5-Minuten-Doppelklick-Schutz
 //
 // Das Token (UPDATE_WEBHOOK_TOKEN) kommt NIE ans Frontend.
+// Der Pfad zum Update-Skript kommt aus CASTEL_REPO_DIR in der .env.
+// Trage dort den absoluten Host-Pfad zum Castel-Checkout ein, z.B.:
+//   CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
+// Das Skript scripts/update.sh wird dann von genau diesem Verzeichnis aus
+// ausgeführt.
 
 import type { FastifyInstance } from 'fastify'
 import { config } from '../config/config.js'

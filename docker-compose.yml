@@ -132,9 +132,13 @@ services:
       # Container ist standardmaessig das eigene; ueberschreibbar, falls noetig.
       CASTEL_UPDATE_IMAGE: ${CASTEL_UPDATE_IMAGE:-}
       CASTEL_UPDATER_CONTAINER: ${CASTEL_UPDATER_CONTAINER:-castel-updater}
-      # Host-Pfad des Compose-Projekts, falls er nicht aus den Labels
-      # ermittelbar ist (Arcane/Portainer setzen die Labels normalerweise).
+      # Host-Pfad zum Castel-Checkout auf dem Server.
+      # Ohne diesen Eintrag versucht die API, den Pfad aus den Compose-Labels
+      # des laufenden Containers zu lesen. In Arcane/Portainer funktioniert das
+      # meist automatisch. Falls nicht, trage hier den exakten Pfad ein, z.B.:
+      #   CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
       CASTEL_REPO_DIR: ${CASTEL_REPO_DIR:-}
+      REPO_DIR: ${REPO_DIR:-}
       # GitHub-Konfiguration für den Versions-Check. Die installierte
       # Version (GIT_COMMIT) wird beim Image-Build als ENV eingebaut und
       # darf hier nicht überschrieben werden, sonst liefert der

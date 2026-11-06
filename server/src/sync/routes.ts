@@ -489,8 +489,11 @@ export async function syncRoutes(
     source: z.string().min(1),
     code: z.string().min(1),
     message: z.string().min(1),
-    httpStatus: z.number().int().optional(),
-    stack: z.string().optional(),
+    // The client sends explicit nulls (e.g. divergence reports have no HTTP
+    // status and no stack). Strict `.optional()` rejected them with 400 and
+    // the report was silently dropped.
+    httpStatus: z.number().int().nullish(),
+    stack: z.string().nullish(),
     payload: z.record(z.string(), z.any()).optional().nullable(),
     diagnostics: z.record(z.string(), z.any()).optional().nullable(),
   })

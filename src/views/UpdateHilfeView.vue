@@ -54,11 +54,21 @@ function zurueck(): void {
       <h2>{{ t('view.update.hilfe.aktivierenTitel') }}</h2>
       <p class="hint">{{ t('view.update.hilfe.aktivierenText') }}</p>
       <pre>
-# .env im Projektordner
-UPDATE_WEBHOOK_TOKEN=IhrLangesZufaelligesToken
-UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/api/admin/update/webhook</pre>
+# 1) Geheimes Token erzeugen (einmalig pro Server, nie ans Frontend senden)
+openssl rand -hex 32
+# Beispiel-Ausgabe: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+# -> Diesen Wert kopieren und unten bei UPDATE_WEBHOOK_TOKEN einfügen.
+
+# 2) In die .env eintragen (im Projektordner, neben docker-compose.yml)
+UPDATE_WEBHOOK_TOKEN=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
+UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/api/admin/update/webhook
+
+# 3) Host-Pfad zum Castel-Checkout (damit das Update-Skript gefunden wird)
+CASTEL_REPO_DIR=/srv/castel
+
+# 4) Stack neu starten, damit die API die neuen Variablen liest
+docker compose up -d</pre>
       <p class="hint">{{ t('view.update.hilfe.aktivierenNeustart') }}</p>
-      <pre>docker compose up -d</pre>
       <p class="hint">{{ t('view.update.hilfe.aktivierenHinweis') }}</p>
     </div>
 
@@ -66,10 +76,26 @@ UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/api/admin/update/webhook</pre>
       <h2>{{ t('view.update.hilfe.webhookTitel') }}</h2>
       <p class="hint">{{ t('view.update.hilfe.webhookText') }}</p>
       <pre>
-curl -X POST https://Ihr-Server/api/admin/update/webhook \
-  -H "X-Deploy-Token: IhrLangesZufaelligesToken" \
+# Aufruf vom Host aus (derselbe Host, auf dem der Stack läuft)
+# Der PWA-Container proxied /api/* an die API (Port 4280 ist freigegeben):
+curl -fsS -X POST http://127.0.0.1:4280/api/admin/update/webhook \
+  -H "X-Deploy-Token: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2" \
   -H "Content-Type: application/json" \
-  -d '{}'</pre>
+  -d '{}'
+
+# Oder direkt an die API im internen Netzwerk (vom Host / aus dem Container):
+curl -fsS -X POST http://127.0.0.1:3000/api/admin/update/webhook \
+  -H "X-Deploy-Token: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Ersetzen Sie den Token-Wert durch den aus Ihrer .env (UPDATE_WEBHOOK_TOKEN).
+# Kein Login / JWT nötig — der Endpunkt wird nur durch X-Deploy-Token geschützt.
+
+# Antwort bei Erfolg:
+# {"requested":true,"started":true,"reason":null,"state":{"phase":"requested",...}}
+# Token fehlt / falsch: HTTP 401 UNAUTHORIZED
+# Update läuft bereits: HTTP 409 UPDATE_RUNNING</pre>
       <h3 class="sub">{{ t('view.update.hilfe.webhookCicdTitel') }}</h3>
       <p class="hint">{{ t('view.update.hilfe.webhookCicdText') }}</p>
       <pre v-pre>
@@ -87,6 +113,11 @@ jobs:
             -H "X-Deploy-Token: ${{ secrets.CASTEL_UPDATE_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{}'</pre>
+      <p class="hint">
+        Secrets im Repository anlegen:
+        `CASTEL_UPDATE_URL=http://127.0.0.1:4280/api/admin/update/webhook` und
+        `CASTEL_UPDATE_TOKEN=(Ihr Token aus .env)`.
+      </p>
     </div>
 
     <div class="card">
