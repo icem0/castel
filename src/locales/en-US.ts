@@ -1264,6 +1264,9 @@ export default {
       bulkTitel: 'Filter & delete transactions',
       bulkHint:
         'Filters transactions on the server, selects all matches and hard-deletes them. Intended for test/development data only.',
+      bulkOffeneSeite: 'Open filter & delete transactions page',
+      bulkOffeneSeiteHint:
+        'The transaction filter & delete page is now a separate page. Click the button to open it.',
       bulkArtikel: 'Item',
       bulkStandort: 'Location',
       bulkTyp: 'Type',

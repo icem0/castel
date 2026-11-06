@@ -1295,6 +1295,9 @@ export default {
       bulkTitel: 'Buchungen filtern & löschen',
       bulkHint:
         'Filtert Buchungen auf dem Server, wählt alle Treffer aus und löscht sie hart. Nur für Test-/Entwicklungsdaten gedacht.',
+      bulkOffeneSeite: 'Buchungen filtern & löschen öffnen',
+      bulkOffeneSeiteHint:
+        'Die Buchungs-Filter- und Löschseite ist jetzt eine eigene Seite. Klicke auf den Button, um sie zu öffnen.',
       bulkArtikel: 'Artikel',
       bulkStandort: 'Standort',
       bulkTyp: 'Typ',

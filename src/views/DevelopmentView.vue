@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
@@ -20,6 +21,7 @@ import {
 } from '../services/sync/reseed-server'
 
 const { t } = useI18n()
+const router = useRouter()
 
 type ResetPhase = 'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'
 
@@ -99,6 +101,14 @@ const geraeteListe = ref<Geraet[]>([])
 const geraeteUserListe = ref<UserDto[]>([])
 const geraeteSelectedUser = ref<string>('')
 
+// Aggregierte Sync-Fehler aller Geräte (Admin-Overblick).
+const syncErrorAllePhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
+const syncErrorAlleFehler = ref<string | null>(null)
+const syncErrorAlleListe = ref<SyncErrorReport[]>([])
+const syncErrorAlleTotal = ref(0)
+const syncErrorAlleLimit = ref(50)
+const syncErrorAlleOffset = ref(0)
+
 // Sync-Fehler-Report Bereich (ausklappbar unter der Geraetetabelle).
 const syncErrorExpandedDeviceId = ref<string>('')
 const syncErrorExpandedDeviceLabel = ref<string>('')
@@ -119,133 +129,7 @@ const syncErrorExpandedReports = ref<
 const syncErrorExpandedPhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
 const syncErrorExpandedFehler = ref<string | null>(null)
 
-type BulkBuchung = {
-  id: string
-  artikelId: string
-  artikelTitel: string | null
-  standortId: string
-  standortName: string | null
-  typ: string
-  menge: number
-  erstelltAm: string
-  storno: boolean
-  projekt: string | null
-}
-
-type BulkFilterOptions = {
-  artikel: { id: string; titel: string }[]
-  standorte: { id: string; name: string }[]
-  typen: string[]
-  projekte: string[]
-}
-
-const bulkFilter = reactive({
-  artikelId: '',
-  standortId: '',
-  typ: '',
-  datumVon: '',
-  datumBis: '',
-  storno: '',
-  projekt: '',
-})
-const bulkBuchungen = ref<BulkBuchung[]>([])
-const bulkOptionen = ref<BulkFilterOptions>({
-  artikel: [],
-  standorte: [],
-  typen: [],
-  projekte: [],
-})
-const bulkAuswahl = ref<string[]>([])
-const bulkLadePhase = ref<'idle' | 'laufend' | 'fertig' | 'fehler'>('idle')
-const bulkLadeFehler = ref<string | null>(null)
-const bulkDeletePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
-const bulkDeleteFehler = ref<string | null>(null)
-const bulkDeleteErfolg = ref<string | null>(null)
-const bulkDeleteAnzahl = ref(0)
-
-const bulkAlleAusgewaehlt = computed(
-  () =>
-    bulkBuchungen.value.length > 0 &&
-    bulkBuchungen.value.every((b) => bulkAuswahl.value.includes(b.id)),
-)
-
-function bulkFilterBody(): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
-  if (bulkFilter.artikelId) body.artikelId = bulkFilter.artikelId
-  if (bulkFilter.standortId) body.standortId = bulkFilter.standortId
-  if (bulkFilter.typ) body.typ = bulkFilter.typ
-  if (bulkFilter.datumVon) body.datumVon = new Date(bulkFilter.datumVon).toISOString()
-  if (bulkFilter.datumBis) body.datumBis = new Date(bulkFilter.datumBis).toISOString()
-  if (bulkFilter.storno !== '') body.storno = bulkFilter.storno === 'true'
-  if (bulkFilter.projekt) body.projekt = bulkFilter.projekt
-  return body
-}
-
-async function bulkLaden(): Promise<void> {
-  bulkLadePhase.value = 'laufend'
-  bulkLadeFehler.value = null
-  try {
-    const res = await apiFetch<{
-      buchungen: BulkBuchung[]
-      filterOptions: BulkFilterOptions
-    }>('/api/admin/buchungen/filter', { method: 'POST', body: bulkFilterBody() })
-    bulkBuchungen.value = res.buchungen
-    bulkOptionen.value = res.filterOptions
-    bulkAuswahl.value = []
-    bulkLadePhase.value = 'fertig'
-  } catch (e) {
-    bulkLadeFehler.value = e instanceof Error ? e.message : String(e)
-    bulkLadePhase.value = 'fehler'
-  }
-}
-
-function bulkAlleUmschalten(): void {
-  bulkAuswahl.value = bulkAlleAusgewaehlt.value ? [] : bulkBuchungen.value.map((b) => b.id)
-}
-
-function bulkLoeschenFrage(): void {
-  if (bulkAuswahl.value.length === 0) return
-  bulkDeleteAnzahl.value = bulkAuswahl.value.length
-  bulkDeletePhase.value = 'bestaetigen'
-  bulkDeleteFehler.value = null
-  bulkDeleteErfolg.value = null
-}
-
-function bulkLoeschenAbbrechen(): void {
-  bulkDeletePhase.value = 'idle'
-  bulkDeleteFehler.value = null
-}
-
-async function bulkLoeschenBestaetigen(): Promise<void> {
-  bulkDeletePhase.value = 'laufend'
-  bulkDeleteFehler.value = null
-  try {
-    const res = await apiFetch<{ deletedCount: number }>('/api/admin/buchungen/bulk-delete', {
-      method: 'POST',
-      body: { ids: bulkAuswahl.value, bestaetigt: true },
-    })
-    bulkDeleteErfolg.value = t('view.development.bulkLoeschErgebnis', {
-      anzahl: res.deletedCount,
-    })
-    bulkAuswahl.value = []
-    bulkDeletePhase.value = 'fertig'
-    await bulkLaden()
-  } catch (e) {
-    bulkDeleteFehler.value = e instanceof Error ? e.message : String(e)
-    bulkDeletePhase.value = 'fehler'
-  }
-}
-
-function bulkTypLabel(typ: string): string {
-  return t(`view.buchung.form.typen.${typ}`)
-}
-
-function formatBulkDatum(iso: string): string {
-  return new Date(iso).toLocaleString()
-}
-
 onMounted(() => {
-  void bulkLaden()
   void ladeGeraete()
   void ladeUserListe()
   void updateCheckLaden()
@@ -368,6 +252,27 @@ async function ladeGeraete(): Promise<void> {
   } catch (e) {
     geraeteFehler.value = e instanceof Error ? e.message : String(e)
     geraetePhase.value = 'fehler'
+  }
+}
+
+async function ladeSyncErrorAlle(): Promise<void> {
+  syncErrorAllePhase.value = 'laufend'
+  syncErrorAlleFehler.value = null
+  try {
+    const data = await apiFetch<{
+      items: SyncErrorReport[]
+      limit: number
+      offset: number
+      total: number
+    }>(
+      `/api/admin/sync-error-reports?limit=${syncErrorAlleLimit.value}&offset=${syncErrorAlleOffset.value}`,
+    )
+    syncErrorAlleListe.value = data.items
+    syncErrorAlleTotal.value = data.total
+    syncErrorAllePhase.value = 'idle'
+  } catch (e) {
+    syncErrorAlleFehler.value = e instanceof Error ? e.message : String(e)
+    syncErrorAllePhase.value = 'fehler'
   }
 }
 
@@ -799,160 +704,16 @@ onBeforeUnmount(() => {
     <h2>{{ t('view.development.bulkTitel') }}</h2>
     <div class="card">
       <p class="hint">{{ t('view.development.bulkHint') }}</p>
-      <div class="filter-bar">
-        <select v-model="bulkFilter.artikelId" :aria-label="t('view.development.bulkArtikel')">
-          <option value="">{{ t('view.development.bulkAlleArtikel') }}</option>
-          <option v-for="a in bulkOptionen.artikel" :key="a.id" :value="a.id">
-            {{ a.titel }}
-          </option>
-        </select>
-        <select v-model="bulkFilter.standortId" :aria-label="t('view.development.bulkStandort')">
-          <option value="">{{ t('view.development.bulkAlleStandorte') }}</option>
-          <option v-for="s in bulkOptionen.standorte" :key="s.id" :value="s.id">
-            {{ s.name }}
-          </option>
-        </select>
-        <select v-model="bulkFilter.typ" :aria-label="t('view.development.bulkTyp')">
-          <option value="">{{ t('view.development.bulkAlleTypen') }}</option>
-          <option v-for="typ in bulkOptionen.typen" :key="typ" :value="typ">
-            {{ bulkTypLabel(typ) }}
-          </option>
-        </select>
-        <select v-model="bulkFilter.storno" :aria-label="t('view.development.bulkStorno')">
-          <option value="">{{ t('view.development.bulkStornoAlle') }}</option>
-          <option value="false">{{ t('view.development.bulkStornoNein') }}</option>
-          <option value="true">{{ t('view.development.bulkStornoJa') }}</option>
-        </select>
-        <select v-model="bulkFilter.projekt" :aria-label="t('view.development.bulkProjekt')">
-          <option value="">{{ t('view.development.bulkAlleProjekte') }}</option>
-          <option v-for="p in bulkOptionen.projekte" :key="p" :value="p">{{ p }}</option>
-        </select>
-        <label class="bulk-datum">
-          <span>{{ t('view.development.bulkVon') }}</span>
-          <input v-model="bulkFilter.datumVon" type="datetime-local" />
-        </label>
-        <label class="bulk-datum">
-          <span>{{ t('view.development.bulkBis') }}</span>
-          <input v-model="bulkFilter.datumBis" type="datetime-local" />
-        </label>
-        <button type="button" :disabled="bulkLadePhase === 'laufend'" @click="bulkLaden">
-          {{
-            bulkLadePhase === 'laufend'
-              ? t('view.development.bulkLaedt')
-              : t('view.development.bulkLaden')
-          }}
+      <div class="actions">
+        <button
+          type="button"
+          class="primary"
+          @click="router.push({ name: 'einstellungen-entwicklung-buchungen-loeschen' })"
+        >
+          {{ t('view.development.bulkOffeneSeite') }}
         </button>
       </div>
-
-      <p v-if="bulkLadeFehler" class="wert-fehler">{{ bulkLadeFehler }}</p>
-      <p v-if="bulkLadePhase === 'fertig' && bulkBuchungen.length === 0" class="hint">
-        {{ t('view.development.bulkKeine') }}
-      </p>
-
-      <template v-if="bulkBuchungen.length > 0">
-        <p class="hint">
-          {{
-            t('view.development.bulkGefunden', {
-              anzahl: bulkBuchungen.length,
-              ausgewaehlt: bulkAuswahl.length,
-            })
-          }}
-        </p>
-        <div class="actions">
-          <button type="button" @click="bulkAlleUmschalten">
-            {{
-              bulkAlleAusgewaehlt
-                ? t('view.development.bulkAuswahlAufheben')
-                : t('view.development.bulkAlleAuswaehlen')
-            }}
-          </button>
-          <button
-            type="button"
-            class="danger"
-            :disabled="bulkAuswahl.length === 0"
-            @click="bulkLoeschenFrage"
-          >
-            {{ t('view.development.bulkLoeschenBtn', { anzahl: bulkAuswahl.length }) }}
-          </button>
-        </div>
-        <div class="bulk-tabelle">
-          <table class="data">
-            <thead>
-              <tr>
-                <th></th>
-                <th>{{ t('view.development.bulkSpalteDatum') }}</th>
-                <th>{{ t('view.development.bulkSpalteArtikel') }}</th>
-                <th>{{ t('view.development.bulkSpalteStandort') }}</th>
-                <th>{{ t('view.development.bulkSpalteTyp') }}</th>
-                <th>{{ t('view.development.bulkSpalteMenge') }}</th>
-                <th>{{ t('view.development.bulkSpalteProjekt') }}</th>
-                <th>{{ t('view.development.bulkSpalteStorno') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="b in bulkBuchungen" :key="b.id">
-                <td>
-                  <input v-model="bulkAuswahl" type="checkbox" :value="b.id" />
-                </td>
-                <td>{{ formatBulkDatum(b.erstelltAm) }}</td>
-                <td>{{ b.artikelTitel ?? b.artikelId }}</td>
-                <td>{{ b.standortName ?? b.standortId }}</td>
-                <td>{{ bulkTypLabel(b.typ) }}</td>
-                <td class="num" :class="b.menge >= 0 ? 'num-plus' : 'num-minus'">
-                  {{ b.menge }}
-                </td>
-                <td>{{ b.projekt ?? '—' }}</td>
-                <td>{{ b.storno ? t('view.development.bulkStornoJa') : '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </template>
-    </div>
-
-    <div v-if="bulkDeletePhase !== 'idle'" class="confirm" role="alertdialog">
-      <template v-if="bulkDeletePhase === 'fertig'">
-        <p class="hint hint-ok">{{ bulkDeleteErfolg }}</p>
-        <p class="hint hint-warn">{{ t('view.development.bulkGeisterWarnung') }}</p>
-        <div class="actions">
-          <button type="button" @click="bulkLoeschenAbbrechen">
-            {{ t('view.development.bulkSchliessen') }}
-          </button>
-        </div>
-      </template>
-      <template v-else>
-        <p>
-          <strong>
-            {{ t('view.development.bulkLoeschFrage', { anzahl: bulkDeleteAnzahl }) }}
-          </strong>
-        </p>
-        <p class="hint">
-          {{ t('view.development.bulkLoeschDetail', { anzahl: bulkDeleteAnzahl }) }}
-        </p>
-        <p class="hint hint-danger">{{ t('view.development.bulkLoeschWarnung') }}</p>
-        <p v-if="bulkDeleteFehler" class="wert-fehler">{{ bulkDeleteFehler }}</p>
-        <div class="actions">
-          <button
-            type="button"
-            class="danger"
-            :disabled="bulkDeletePhase === 'laufend'"
-            @click="bulkLoeschenBestaetigen"
-          >
-            {{
-              bulkDeletePhase === 'laufend'
-                ? t('view.development.bulkLoescht')
-                : t('view.development.bulkLoeschBestaetigen')
-            }}
-          </button>
-          <button
-            type="button"
-            :disabled="bulkDeletePhase === 'laufend'"
-            @click="bulkLoeschenAbbrechen"
-          >
-            {{ t('view.common.abbrechen') }}
-          </button>
-        </div>
-      </template>
+      <p class="hint">{{ t('view.development.bulkOffeneSeiteHint') }}</p>
     </div>
 
     <h2>{{ t('view.development.reseedServer') }}</h2>
@@ -1486,17 +1247,6 @@ onBeforeUnmount(() => {
 .wert-fehler {
   color: var(--danger);
   font-weight: 600;
-}
-.bulk-datum {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  color: var(--text-muted);
-  font-size: 0.78rem;
-}
-.bulk-tabelle {
-  margin-top: 0.75rem;
-  overflow-x: auto;
 }
 .sync-error-card {
   margin-top: 1rem;
