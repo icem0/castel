@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { getApiBaseUrl } from '../auth/api'
@@ -37,6 +37,7 @@ const archivOffset = ref(0)
 const archivLimit = ref(20)
 const archivLaden = ref(false)
 const archivFehler = ref<string | null>(null)
+const optionenLaden = ref(false)
 
 const filterVon = ref<string>('')
 const filterBis = ref<string>('')
@@ -46,7 +47,36 @@ const filterArtikel = ref<string>('')
 const filterStandort = ref<string>('')
 const filterErstelltVon = ref<string>('')
 
+const artikelOptionen = ref<Array<{ id: string; label: string }>>([])
+const standorteOptionen = ref<Array<{ id: string; label: string }>>([])
+const userOptionen = ref<Array<{ id: string; label: string }>>([])
+
 const pageSizes = [20, 50, 100]
+
+async function ladeOptionen(): Promise<void> {
+  optionenLaden.value = true
+  try {
+    const res = await fetch(`${apiBase}/api/inventur/archiv/optionen`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      const body = await res.text()
+      archivFehler.value = `${res.status} ${body}`
+      return
+    }
+    const data = await res.json()
+    artikelOptionen.value = data.artikel ?? []
+    standorteOptionen.value = data.standorte ?? []
+    userOptionen.value = data.user ?? []
+  } catch (e) {
+    archivFehler.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    optionenLaden.value = false
+  }
+}
 
 async function archivLadenFunc(offset: number): Promise<void> {
   if (!darfLesen.value) return
@@ -103,6 +133,11 @@ watch(
     archivLadenFunc(0)
   },
 )
+
+onMounted(() => {
+  ladeOptionen()
+  archivLadenFunc(0)
+})
 
 function formatDatum(iso: string): string {
   return iso.slice(0, 10)
@@ -267,32 +302,39 @@ async function exporteierePdf(): Promise<void> {
       <input
         v-model="filterProjekt"
         type="text"
-        :placeholder="t('view.inventurArchiv.filterProjektPh')"
       />
       <label>{{ t('view.inventurArchiv.filterArtikel') }}:</label>
-      <input
-        v-model="filterArtikel"
-        type="text"
-        :placeholder="t('view.inventurArchiv.filterArtikelPh')"
-      />
+      <select v-model="filterArtikel">
+        <option value="">{{ t('view.inventurArchiv.filterArtikelAlle') }}</option>
+        <option v-for="a in artikelOptionen" :key="a.id" :value="a.id">
+          {{ a.label }}
+        </option>
+      </select>
       <label>{{ t('view.inventurArchiv.filterStandort') }}:</label>
-      <input
-        v-model="filterStandort"
-        type="text"
-        :placeholder="t('view.inventurArchiv.filterStandortPh')"
-      />
+      <select v-model="filterStandort">
+        <option value="">{{ t('view.inventurArchiv.filterStandortAlle') }}</option>
+        <option v-for="s in standorteOptionen" :key="s.id" :value="s.id">
+          {{ s.label }}
+        </option>
+      </select>
       <label>{{ t('view.inventurArchiv.filterErstelltVon') }}:</label>
-      <input
-        v-model="filterErstelltVon"
-        type="text"
-        :placeholder="t('view.inventurArchiv.filterErstelltVonPh')"
-      />
+      <select v-model="filterErstelltVon">
+        <option value="">{{ t('view.inventurArchiv.filterErstelltVonAlle') }}</option>
+        <option v-for="u in userOptionen" :key="u.id" :value="u.id">
+          {{ u.label }}
+        </option>
+      </select>
       <span class="separator"></span>
       <label>{{ t('view.inventurArchiv.zeilenProSeite') }}:</label>
       <select v-model="archivLimit">
         <option v-for="s in pageSizes" :key="s" :value="s">{{ s }}</option>
       </select>
-      <button type="button" class="btn" :disabled="archivLaden" @click="archivLadenFunc(0)">
+      <button
+        type="button"
+        class="btn"
+        :disabled="archivLaden || optionenLaden"
+        @click="archivLadenFunc(0)"
+      >
         {{ t('view.inventurArchiv.aktualisieren') }}
       </button>
       <button
@@ -313,6 +355,7 @@ async function exporteierePdf(): Promise<void> {
       </button>
     </div>
 
+    <div v-if="optionenLaden" class="hint">{{ t('view.inventurArchiv.laedtOptionen') }}</div>
     <div v-if="archivLaden" class="hint">{{ t('view.inventurArchiv.laedtArchiv') }}</div>
     <div v-if="archivFehler" class="fehler">{{ archivFehler }}</div>
 

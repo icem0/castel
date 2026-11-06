@@ -21,6 +21,7 @@ import {
   projekte,
   standorte,
   syncErrorReports,
+  users,
 } from '../db/schema.js'
 import { upsertBestandRow } from '../domain/bestand.js'
 import { pushPayloadSchema, reconcileSchema, snapshotQuerySchema } from '../domain/validierung.js'
@@ -929,6 +930,36 @@ export async function syncRoutes(
       uebersprungeneMarker,
       paare: bestandZeilen.length,
       fensterAb,
+    })
+  })
+
+  // ---------- GET /api/inventur/archiv/optionen ----------
+  // Liefert die Filter-Optionen für das Buchungsarchiv: Artikel, Standorte, User.
+  app.get('/api/inventur/archiv/optionen', { preHandler: app.requireAuth }, async (req, reply) => {
+    const user = req.authUser
+    if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
+    if (!(await hatBerechtigung(user.rollen, 'inventur.lesen'))) {
+      return reply.code(403).send({ code: 'FORBIDDEN', message: 'inventur.lesen erforderlich' })
+    }
+
+    const db = getDb()
+
+    const [artikelListe, standorteListe, userListe] = await Promise.all([
+      db.select({ id: artikel.id, titel: artikel.titel }).from(artikel).orderBy(artikel.titel),
+      db.select({ id: standorte.id, name: standorte.name }).from(standorte).orderBy(standorte.name),
+      db
+        .select({ id: users.id, anzeigename: users.anzeigename, email: users.email })
+        .from(users)
+        .orderBy(users.anzeigename),
+    ])
+
+    return reply.send({
+      artikel: artikelListe.map((a) => ({ id: a.id, label: a.titel ?? a.id })),
+      standorte: standorteListe.map((s) => ({ id: s.id, label: s.name ?? s.id })),
+      user: userListe.map((u) => ({
+        id: u.id,
+        label: u.anzeigename || u.email || u.id,
+      })),
     })
   })
 
