@@ -1,7 +1,7 @@
 // Sync-Routes: GET /api/sync/snapshot, GET /api/sync/status, POST /api/sync/push.
 
 import type { FastifyInstance } from 'fastify'
-import { and, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, notInArray, or, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
   artikel,
@@ -949,6 +949,7 @@ export async function syncRoutes(
       von?: string
       bis?: string
       erstelltVon?: string
+      projekt?: string
       limit?: number
       offset?: number
     }
@@ -961,6 +962,7 @@ export async function syncRoutes(
     if (body.standortId) conditions.push(eq(buchungen.standortId, body.standortId))
     if (body.standortZielId) conditions.push(eq(buchungen.standortZielId, body.standortZielId))
     if (body.typ) conditions.push(sql`${buchungen.typ} = ${body.typ}`)
+    if (body.projekt) conditions.push(sql`${buchungen.projekt} = ${body.projekt}`)
     if (body.erstelltVon) conditions.push(eq(buchungen.erstelltVon, body.erstelltVon))
     if (body.von) conditions.push(sql`${buchungen.erstelltAm} >= ${String(body.von)}`)
     if (body.bis) conditions.push(sql`${buchungen.erstelltAm} <= ${String(body.bis)}`)
@@ -991,7 +993,7 @@ export async function syncRoutes(
         .leftJoin(artikel, eq(buchungen.artikelId, artikel.id))
         .leftJoin(standorte, eq(buchungen.standortId, standorte.id))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
-        .orderBy(buchungen.erstelltAm)
+        .orderBy(desc(buchungen.erstelltAm))
         .limit(limit)
         .offset(offset),
       db
