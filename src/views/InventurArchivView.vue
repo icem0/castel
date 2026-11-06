@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { getApiBaseUrl } from '../auth/api'
 import { jwtLesen } from '../auth/session'
-import { exportArchivPdf } from '../services/inventur/archiv-pdf'
+import { downloadArchivPdf } from '../services/inventur/archiv-pdf'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -269,7 +269,7 @@ async function exporteierePdf(): Promise<void> {
     }
     const data = await res.json()
     const mitPreise = auth.hat('einkaufspreis')
-    await exportArchivPdf(data.items, mitPreise)
+    await downloadArchivPdf(data.items, mitPreise)
   } catch (e) {
     archivFehler.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -299,10 +299,7 @@ async function exporteierePdf(): Promise<void> {
         <option value="umbuchung">{{ t('view.inventurArchiv.typUmbuchung') }}</option>
       </select>
       <label>{{ t('view.inventurArchiv.filterProjekt') }}:</label>
-      <input
-        v-model="filterProjekt"
-        type="text"
-      />
+      <input v-model="filterProjekt" type="text" />
       <label>{{ t('view.inventurArchiv.filterArtikel') }}:</label>
       <select v-model="filterArtikel">
         <option value="">{{ t('view.inventurArchiv.filterArtikelAlle') }}</option>

@@ -24,38 +24,33 @@ function typText(typ: string): string {
   return map[typ] ?? typ
 }
 
-/** Archiv-Einträge als PDF erzeugen (A4, quer nichts, hochformat). */
-export async function exportArchivPdf(
-  items: Array<{
-    id: string
-    typ: string
-    menge: number
-    erstelltAm: string
-    kommentar: string | null
-    artikelId: string
-    standortId: string
-    artikelTitel: string | null
-    standortName: string | null
-    erstelltVon: string | null
-    projekt: string | null
-    storno: boolean
-    storniertDurch: string | null
-  }>,
-  _mitPreise: boolean,
-): Promise<Blob> {
+type ArchivEntry = {
+  id: string
+  typ: string
+  menge: number
+  erstelltAm: string
+  kommentar: string | null
+  artikelId: string
+  standortId: string
+  artikelTitel: string | null
+  standortName: string | null
+  erstelltVon: string | null
+  projekt: string | null
+  storno: boolean
+  storniertDurch: string | null
+}
+
+// Nine columns must fit into the printable width of an A4 portrait sheet (210mm).
+export const archivColWidths = [17, 17, 10, 28, 22, 24, 20, 28, 12]
+export const archivMarginLeft = 15
+export const archivPageWidth = 210
+
+/** Archive rows as PDF (A4, portrait). */
+export async function exportArchivPdf(items: ArchivEntry[], _mitPreise: boolean): Promise<Blob> {
   const { jsPDF } = await import('jspdf')
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const pageHeight = doc.internal.pageSize.height
 
-  let y = 20
-
-  doc.setFontSize(16)
-  doc.text(msg('view.inventurArchiv.pdfTitel'), 15, y)
-  y += 8
-  doc.setFontSize(10)
-  doc.text(msg('view.inventurArchiv.pdfErstellt', { zeit: new Date().toISOString() }), 15, y)
-  y += 6
-
-  const colWidths = [22, 20, 14, 44, 30, 30, 26, 44]
   const headers = [
     msg('view.inventurArchiv.colDatum'),
     msg('view.inventurArchiv.colTyp'),
@@ -65,96 +60,81 @@ export async function exportArchivPdf(
     msg('view.inventurArchiv.colKommission'),
     msg('view.inventurArchiv.colGebuchtVon'),
     msg('view.inventurArchiv.colKommentar'),
+    msg('view.inventurArchiv.colStorno'),
   ]
 
-  // Sticky-ähnlicher Header pro Seite: bei jedem neuen Blatt wiederholen
-  let seite = 1
-  let zeilenAufSeite = 0
+  // Nine columns have to fit into the printable width of an A4 portrait sheet.
+  const colWidths = archivColWidths
+  const left = archivMarginLeft
 
-  function zeichneKopfzeile() {
+  function colX(col: number): number {
+    let x = left
+    for (let i = 0; i < col; i++) x += colWidths[i]!
+    return x
+  }
+
+  // Shrink a cell to its column, so nothing spills beyond the page edge.
+  function clip(text: string, col: number): string {
+    if (!text) return ''
+    const max = colWidths[col]! - 2
+    let out = text
+    while (out.length > 1 && doc.getTextWidth(out) > max) out = out.slice(0, -1)
+    return doc.getTextWidth(out) <= max ? out : ''
+  }
+
+  let y = 20
+
+  doc.setFontSize(16)
+  doc.text(msg('view.inventurArchiv.pdfTitel'), left, y)
+  y += 8
+  doc.setFontSize(10)
+  doc.text(msg('view.inventurArchiv.pdfErstellt', { zeit: new Date().toISOString() }), left, y)
+  y += 7
+
+  // Header repeated on every sheet.
+  function zeichneKopfzeile(): void {
     doc.setFontSize(8)
     doc.setFont('helvetica', 'bold')
-    let x = 15
+    let maxLines = 1
     headers.forEach((h, i) => {
-      doc.text(h, x, y)
-      x += colWidths[i]!
+      const lines = doc.splitTextToSize(h, colWidths[i]! - 2)
+      maxLines = Math.max(maxLines, lines.length)
+      doc.text(lines, colX(i), y)
     })
-    y += 5
+    y += maxLines * 3 + 2
     doc.setFont('helvetica', 'normal')
-    zeilenAufSeite = 0
   }
 
   zeichneKopfzeile()
 
   for (const item of items) {
-    if (zeilenAufSeite >= 38) {
+    if (y > pageHeight - 25) {
       doc.addPage()
-      seite++
       y = 20
       zeichneKopfzeile()
     }
-    const x = 15
-    const datum = item.erstelltAm.slice(0, 10)
-    const artikel = (item.artikelTitel ?? item.artikelId).slice(0, 42)
-    const standort = (item.standortName ?? item.standortId).slice(0, 28)
-    const kommission = (item.projekt ?? '').slice(0, 28)
-    const gebuchtVon = (item.erstelltVon ?? '').slice(0, 24)
-    const kommentar = (item.kommentar ?? '').slice(0, 42)
     const stornoText = item.storno ? (item.storniertDurch ? `S(${item.storniertDurch})` : 'S') : ''
-
-    doc.text(datum, x, y)
-    doc.text(typText(item.typ), x + colWidths[0]!, y)
-    doc.text(String(item.menge), x + colWidths[0]! + colWidths[1]!, y)
-    doc.text(artikel, x + colWidths[0]! + colWidths[1]! + colWidths[2]!, y)
-    doc.text(standort, x + colWidths[0]! + colWidths[1]! + colWidths[2]! + colWidths[3]!, y)
-    doc.text(
-      kommission,
-      x + colWidths[0]! + colWidths[1]! + colWidths[2]! + colWidths[3]! + colWidths[4]!,
-      y,
-    )
-    doc.text(
-      gebuchtVon,
-      x +
-        colWidths[0]! +
-        colWidths[1]! +
-        colWidths[2]! +
-        colWidths[3]! +
-        colWidths[4]! +
-        colWidths[5]!,
-      y,
-    )
-    doc.text(
-      kommentar,
-      x +
-        colWidths[0]! +
-        colWidths[1]! +
-        colWidths[2]! +
-        colWidths[3]! +
-        colWidths[4]! +
-        colWidths[5]! +
-        colWidths[6]!,
-      y,
-    )
-    doc.text(
+    const cells = [
+      item.erstelltAm.slice(0, 10),
+      typText(item.typ),
+      String(item.menge),
+      item.artikelTitel ?? item.artikelId,
+      item.standortName ?? item.standortId,
+      item.projekt ?? '',
+      item.erstelltVon ?? '',
+      item.kommentar ?? '',
       stornoText,
-      x +
-        colWidths[0]! +
-        colWidths[1]! +
-        colWidths[2]! +
-        colWidths[3]! +
-        colWidths[4]! +
-        colWidths[5]! +
-        colWidths[6]! +
-        colWidths[7]!,
-      y,
-    )
+    ]
+    cells.forEach((cell, i) => doc.text(clip(cell, i), colX(i), y))
     y += 4
-    zeilenAufSeite++
   }
 
-  // Fußzeile auf jeder Seite
+  // Footer on every page
   const jetzt = new Date().toISOString()
-  for (let pageNum = 1; pageNum <= seite; pageNum++) {
+  const anzahlSeiten = (
+    doc.internal as unknown as { getNumberOfPages: () => number }
+  ).getNumberOfPages()
+  for (let pageNum = 1; pageNum <= anzahlSeiten; pageNum++) {
     doc.setPage(pageNum)
     doc.setFontSize(8)
     doc.text(
@@ -162,12 +142,29 @@ export async function exportArchivPdf(
         zeit: jetzt,
         version: `v${version}`,
         seite: pageNum,
-        gesamt: seite,
+        gesamt: anzahlSeiten,
       }),
-      15,
-      doc.internal.pageSize.height - 10,
+      left,
+      pageHeight - 10,
     )
   }
 
   return doc.output('blob')
+}
+
+/** Download the archive PDF as a file. */
+export async function downloadArchivPdf(
+  items: ArchivEntry[],
+  mitPreise: boolean,
+  dateiname?: string,
+): Promise<void> {
+  const blob = await exportArchivPdf(items, mitPreise)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = dateiname ?? `buchungsarchiv-${new Date().toISOString().slice(0, 10)}.pdf`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
