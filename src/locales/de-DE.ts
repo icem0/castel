@@ -1445,6 +1445,8 @@ export default {
       syncErrorAlleSpalteHTTP: 'HTTP',
       syncErrorAlleSpalteNachricht: 'Nachricht',
       syncErrorAlleKeine: 'Keine Sync-Fehler vorhanden.',
+      syncErrorKopieren: 'Vollständigen Fehler in die Zwischenablage kopieren',
+      syncErrorKopiert: 'Kopiert',
       bulkSpalteDatum: 'Datum',
       bulkSpalteArtikel: 'Artikel',
       bulkSpalteStandort: 'Standort',

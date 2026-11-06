@@ -294,6 +294,63 @@ async function ladeSyncErrorAlle(): Promise<void> {
   }
 }
 
+/** Id of the sync error row whose copy feedback is currently shown. */
+const syncErrorCopiedId = ref<string>('')
+let syncErrorCopiedTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Full plain-text rendering of one sync error report (for clipboard / bug reports). */
+function formatSyncErrorReport(r: SyncErrorReport): string {
+  const lines: string[] = [
+    `Zeit: ${r.occurredAt ?? '—'}`,
+    `Gerät: ${r.deviceId}`,
+    `Nutzer: ${r.userName ?? r.userEmail ?? r.userId}`,
+    `Quelle: ${r.source}`,
+    `Code: ${r.code}`,
+    `HTTP: ${r.httpStatus ?? '—'}`,
+    `Nachricht: ${r.message}`,
+  ]
+  if (r.stack) lines.push(`Stack:\n${r.stack}`)
+  if (r.payload !== null && r.payload !== undefined) {
+    lines.push(`Payload:\n${JSON.stringify(r.payload, null, 2)}`)
+  }
+  if (r.diagnostics !== null && r.diagnostics !== undefined) {
+    lines.push(`Diagnose:\n${JSON.stringify(r.diagnostics, null, 2)}`)
+  }
+  return lines.join('\n')
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  // Fallback for non-secure contexts (plain http on LAN).
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'absolute'
+  ta.style.left = '-9999px'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(ta)
+  if (!ok) throw new Error('execCommand(copy) fehlgeschlagen')
+}
+
+async function kopiereSyncErrorReport(r: SyncErrorReport): Promise<void> {
+  try {
+    await copyTextToClipboard(formatSyncErrorReport(r))
+    syncErrorCopiedId.value = r.id
+  } catch {
+    syncErrorCopiedId.value = ''
+  } finally {
+    if (syncErrorCopiedTimer !== null) clearTimeout(syncErrorCopiedTimer)
+    syncErrorCopiedTimer = setTimeout(() => {
+      syncErrorCopiedId.value = ''
+    }, 2000)
+  }
+}
+
 async function ladeSyncErrorReports(deviceId: string, deviceLabel: string): Promise<void> {
   // Wenn dasselbe Geraet schon erweitert ist, wieder einklappen.
   if (syncErrorExpandedDeviceId.value === deviceId && syncErrorExpandedReports.value.length > 0) {
@@ -960,6 +1017,7 @@ onBeforeUnmount(() => {
             <th>{{ t('view.development.syncErrorAlleSpalteCode') }}</th>
             <th>{{ t('view.development.syncErrorAlleSpalteHTTP') }}</th>
             <th>{{ t('view.development.syncErrorAlleSpalteNachricht') }}</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -971,16 +1029,51 @@ onBeforeUnmount(() => {
             <td class="hint">{{ r.userName ?? r.userEmail ?? r.userId }}</td>
             <td class="wert-fehler">{{ r.code }}</td>
             <td class="hint">{{ r.httpStatus ?? '—' }}</td>
-            <td
-              class="hint"
-              style="
-                max-width: 40rem;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-              "
-            >
-              {{ r.message }}
+            <td class="hint sync-error-message">{{ r.message }}</td>
+            <td>
+              <button
+                type="button"
+                class="icon-copy"
+                :title="
+                  syncErrorCopiedId === r.id
+                    ? t('view.development.syncErrorKopiert')
+                    : t('view.development.syncErrorKopieren')
+                "
+                :aria-label="t('view.development.syncErrorKopieren')"
+                @click="kopiereSyncErrorReport(r)"
+              >
+                <svg
+                  v-if="syncErrorCopiedId !== r.id"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <svg
+                  v-else
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </button>
             </td>
           </tr>
         </tbody>
@@ -1330,6 +1423,19 @@ onBeforeUnmount(() => {
 .wert-fehler {
   color: var(--danger);
   font-weight: 600;
+}
+.sync-error-message {
+  min-width: 12rem;
+  max-width: 40rem;
+  white-space: normal;
+  word-break: break-word;
+}
+.icon-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  min-width: 0;
 }
 .sync-error-card {
   margin-top: 1rem;
