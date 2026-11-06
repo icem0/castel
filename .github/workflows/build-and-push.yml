@@ -51,6 +51,20 @@ jobs:
   api:
     needs: version
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: castel
+          POSTGRES_PASSWORD: castel
+          POSTGRES_DB: castel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U castel -d castel"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -83,17 +97,23 @@ jobs:
         working-directory: server
         run: npm run typecheck
 
+      - name: Migrate test database
+        working-directory: server
+        env:
+          DATABASE_URL: postgres://castel:castel@127.0.0.1:5432/castel
+        run: npm run db:migrate
+
       - name: Test
         working-directory: server
-        # The server's config module validates required env vars at import
-        # time and calls process.exit(1) when one is missing. Any test that
-        # (transitively) imports it needs these placeholders — they are
-        # never connected to: tests that need a database skip themselves
-        # via describe.skipIf(!process.env.DATABASE_URL). The DB values here
-        # are deliberately unroutable so an accidental real connection fails
-        # loudly instead of hitting a developer's local Postgres.
+        # Datenbank-Integrationstests brauchen eine echte, migrierte Postgres.
+        # Sie melden sich via CASTEL_TEST_DB=1 + DATABASE_URL selbst und
+        # skippen sich ohne beides (describe.skipIf). Die CI liefert hier den
+        # laufenden postgres-Service, damit die DB-Schicht nicht ungetestet
+        # bleibt. JWT_SECRET/DATANORM_DIR sind Platzhalter, die der Config-
+        # Import braucht, ohne eine echte Verbindung aufzubauen.
         env:
-          DATABASE_URL: postgres://castel:castel@127.0.0.1:1/castel
+          DATABASE_URL: postgres://castel:castel@127.0.0.1:5432/castel
+          CASTEL_TEST_DB: '1'
           JWT_SECRET: ci-placeholder-secret-at-least-32-characters
           DATANORM_DIR: /tmp/castel-ci-datanorm
         run: npm run test:run
