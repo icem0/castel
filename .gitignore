@@ -45,3 +45,6 @@ docker-compose.override.yml
 *.njsproj
 *.sln
 *.sw?
+
+# Security-Audit-Ergebnisse (nicht einchecken; offene Findings)
+.security/

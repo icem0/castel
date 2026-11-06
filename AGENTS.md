@@ -552,3 +552,16 @@ verbindliche Reihenfolge:
    Erfolg.
 
 Ein `push` allein ist **nie** ein Erfolgsbeleg.
+
+## Security
+
+- Vor Änderungen an Authentifizierung, Routen, DB-Queries oder
+  Input-Handling `.security/findings.md` lesen (nicht getrackt, in
+  `.gitignore` ausgenommen).
+- Nach solchen Änderungen den SHA des betroffenen Bereichs in der
+  Abdeckungstabelle von `docs/SECURITY-PLAN.md` aktualisieren.
+- Offene Findings nie in Commits, Commit-Messages, Branch-Namen,
+  PR-Titeln oder Work-Package-Titeln schreiben.
+- Einzelne Findings (Fundstelle, Angriffspfad, Empfehlung) ausschließlich
+  in `.security/findings.md`; `docs/SECURITY-PLAN.md` enthält nur
+  Methodik und Stand.
