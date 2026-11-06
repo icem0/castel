@@ -84,9 +84,12 @@ export function csvDatei(opts: ExportOptions): string {
       String(p.menge),
     ]
     if (mitPreise) {
-      const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
+      const ep =
+        p.einkaufspreisCent !== null && p.einkaufspreisCent !== 0
+          ? (p.einkaufspreisCent / 100).toFixed(2)
+          : ''
       const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
-      row.push(ep + ' €', gpWert !== null ? gpWert.toFixed(2) + ' €' : '')
+      row.push(ep ? ep + ' €' : '', gpWert !== null ? gpWert.toFixed(2) + ' €' : '')
     }
     row.push(String(p.negativerBestand))
     lines.push(row.join(';'))
@@ -225,10 +228,13 @@ export async function exportInventurPdf(opts: ExportOptions): Promise<Blob> {
           zeilenEnde,
         )
         if (mitPreise) {
-          const ep = p.einkaufspreisCent !== null ? (p.einkaufspreisCent / 100).toFixed(2) : ''
+          const ep =
+            p.einkaufspreisCent !== null && p.einkaufspreisCent !== 0
+              ? (p.einkaufspreisCent / 100).toFixed(2)
+              : ''
           const gpWert = p.einkaufspreisCent !== null ? (p.menge * p.einkaufspreisCent) / 100 : null
           doc.text(
-            ep + ' €',
+            ep ? ep + ' €' : '',
             KopfX +
               spaltenBreiten[0]! +
               spaltenBreiten[1]! +

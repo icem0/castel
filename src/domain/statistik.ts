@@ -370,7 +370,9 @@ export function berechneKpis({
 
   return {
     aktiveArtikel,
-    bestandGesamt: bestandGesamt(buchungen),
+    bestandGesamt: buchungen
+      .filter((b) => istAktiveBuchung(b) && istImZeitraum(b.erstelltAm, vonMs, bisMs))
+      .reduce((summe, b) => summe + b.menge, 0),
     aktiveStandorte,
     buchungenImZeitraum,
     handlungsbedarfAnzahl: bedarf.anzahl,
