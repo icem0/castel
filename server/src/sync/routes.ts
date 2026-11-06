@@ -705,13 +705,76 @@ export async function syncRoutes(
     }
     const parsed = pushPayloadSchema.safeParse(req.body)
     if (!parsed.success) {
+      app.log.warn(
+        { userId: req.authUser?.sub, issues: parsed.error.issues },
+        '[sync/push] SCHEMA_MISMATCH — ganzer Batch abgelehnt',
+      )
       return reply.code(400).send({ code: 'VALIDATION', issues: parsed.error.issues })
     }
     const user = req.authUser
     if (!user) return reply.code(401).send({ code: 'UNAUTHORIZED' })
 
     const db = getDb()
-    const result = await resolvePush(db, parsed.data.ops, user.sub, user.rollen, notificationGateway)
+    const deviceId = parsed.data.deviceId
+    const result = await resolvePush(db, parsed.data.ops, user.sub, user.rollen, notificationGateway, app.log)
+
+    // Serverseitiges Logging aller per-Op-Fehler und Konflikte — auch wenn
+    // der Client keinen eigenen sync-error-report nachschickt (z. B. weil
+    // er offline ist oder der Report-Versand fehlschlägt).
+    if (result.errors.length > 0 || result.conflicts.length > 0) {
+      app.log.warn(
+        {
+          userId: user.sub,
+          deviceId: deviceId ?? null,
+          errorCount: result.errors.length,
+          conflictCount: result.conflicts.length,
+          errorCodes: result.errors.map((e) => e.code),
+          conflictReasons: result.conflicts.map((c) => c.reason),
+        },
+        `[sync/push] ${result.errors.length} Fehler, ${result.conflicts.length} Konflikte`,
+      )
+
+      // sync_error_reports-Fallback: wenn der Client seine deviceId mitschickt,
+      // schreibt der Server selbst einen Report pro Fehler — damit der Fehler
+      // auch dann im System landet, wenn der Client keinen eigenen Report
+      // absetzt (offline, Report-Versand fehlgeschlagen, etc.).
+      if (deviceId) {
+        const now = new Date()
+        try {
+          for (const err of result.errors) {
+            await db
+              .insert(syncErrorReports)
+              .values({
+                deviceId,
+                userId: user.sub,
+                occurredAt: now,
+                source: 'sync/push',
+                code: err.code,
+                message: err.message,
+                httpStatus: null,
+                stack: err.stack ?? null,
+                payload: err.payload ?? null,
+                diagnostics: null,
+              })
+          }
+          // Retention: pro Endgeraet nur die letzten 20 serverseitigen Reports
+          // behalten (aelteste werden geloescht), damit die Tabelle nicht
+          // unkontrolliert waechst.
+          const all = await db
+            .select({ id: syncErrorReports.id, createdAt: syncErrorReports.createdAt })
+            .from(syncErrorReports)
+            .where(eq(syncErrorReports.deviceId, deviceId))
+            .orderBy(syncErrorReports.createdAt)
+          if (all.length > 20) {
+            const toDelete = all.slice(0, all.length - 20).map((r) => r.id)
+            await db.delete(syncErrorReports).where(inArray(syncErrorReports.id, toDelete))
+          }
+        } catch (e) {
+          // Der Fehler-Report darf den Push-Antwort nicht blockieren.
+          app.log.error({ err: e, deviceId, userId: user.sub }, '[sync/push] sync_error_reports-Fallback fehlgeschlagen')
+        }
+      }
+    }
 
     return reply.send(result)
   })

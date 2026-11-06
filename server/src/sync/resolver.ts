@@ -68,6 +68,13 @@ import type { NotificationGateway } from '../services/notification-gateway.js'
 
 // ---------- Push-Payload-Type (siehe validierung.ts) ----------
 
+/** Minimale Logger-Schnittstelle für den Resolver (kompatibel mit pino). */
+interface SyncLogger {
+  warn(obj: Record<string, unknown>, msg: string): void
+  error(obj: Record<string, unknown>, msg: string): void
+  info(obj: Record<string, unknown>, msg: string): void
+}
+
 export type PushOp = z.infer<typeof pushSchema>
 
 // Schema nur für den Resolver (leichtgewichtige Variante)
@@ -174,6 +181,11 @@ export async function resolvePush(
    * nur die DB-Zeile geschrieben, der Gateway wird nicht aufgerufen.
    */
   gateway?: NotificationGateway,
+  /**
+   * Optionaler Logger für serverseitige Fehlermeldungen. Wenn nicht übergeben,
+   * werden Fehler nur in `result.errors` zurückgegeben (kein serverseitiges Log).
+   */
+  log?: SyncLogger,
 ): Promise<ResolverResult> {
   const rollen = normalisiereRollen(benutzerRollen)
   const result: ResolverResult = { accepted: [], skipped: [], conflicts: [], errors: [] }
@@ -220,7 +232,7 @@ export async function resolvePush(
         }
         events.push(...paar.events)
       } catch (err) {
-        for (const op of list) pushBuchungsError(result, op.payload.id, err, op)
+        for (const op of list) pushBuchungsError(result, op.payload.id, err, op, log, benutzerId)
       }
     }
   }
@@ -315,7 +327,7 @@ export async function resolvePush(
       // Einstellungen `undefined` ergab — der Client hätte den Fehler
       // dann nicht dem Outbox-Item zuordnen können und es endlos neu
       // gepusht bis zur Quarantäne.
-      pushBuchungsError(result, entitaetIdFor(op), err, op)
+      pushBuchungsError(result, entitaetIdFor(op), err, op, log, benutzerId)
     }
   }
 
@@ -359,9 +371,18 @@ function entitaetIdFor(op: PushOp): string {
  * sichtbar macht (sonst steht dort nur eine kryptische `message`,
  * mit der niemand etwas anfangen kann).
  */
-function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?: PushOp): void {
+function pushBuchungsError(
+  result: ResolverResult,
+  id: string,
+  err: unknown,
+  op?: PushOp,
+  log?: SyncLogger,
+  benutzerId?: string,
+): void {
+  const base = { id, entity: op?.entity, op: op?.op, benutzerId }
   if (err instanceof ConflictError) {
     result.conflicts.push({ id, reason: err.message })
+    log?.warn({ ...base, code: 'CONFLICT', message: err.message }, '[sync/push] CONFLICT')
   } else if (err instanceof NegativerBestandError) {
     result.errors.push({
       id,
@@ -369,6 +390,7 @@ function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?
       message: err.message,
       currentBestand: err.aktuellerBestand,
     })
+    log?.warn({ ...base, code: err.code, message: err.message, currentBestand: err.aktuellerBestand }, '[sync/push] NEGATIVER_BESTAND')
   } else if (
     err instanceof UnbekannteReferenzError ||
     err instanceof ValidationError ||
@@ -377,11 +399,13 @@ function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?
     err instanceof NichtLetzteBestellungError ||
     err instanceof BarcodeDuplikatError
   ) {
+    const code = err.code
     result.errors.push({
       id,
-      code: err.code,
+      code,
       message: err.message,
     })
+    log?.warn({ ...base, code, message: err.message }, `[sync/push] ${code}`)
   } else {
     // Unerwarteter Fehler: voll diagnostizieren. Wir loggen den Fehler
     // außerdem serverseitig mit Stack — falls die PWA-Diagnose leer ist,
@@ -389,14 +413,7 @@ function pushBuchungsError(result: ResolverResult, id: string, err: unknown, op?
     // Container-Log beim Eingrenzen.
     const message = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : undefined
-    // eslint-disable-next-line no-console
-    console.error('[sync/push] INTERNAL', {
-      id,
-      entity: op?.entity,
-      op: op?.op,
-      message,
-      stack,
-    })
+    log?.error({ ...base, code: 'INTERNAL', message, stack }, '[sync/push] INTERNAL')
     result.errors.push({
       id,
       code: 'INTERNAL',

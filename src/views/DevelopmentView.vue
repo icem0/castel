@@ -95,6 +95,23 @@ type Geraet = {
   lastSyncErrorMessage: string | null
 }
 
+type SyncErrorReport = {
+  id: string
+  deviceId: string
+  userId: string
+  userEmail: string | null
+  userName: string | null
+  occurredAt: string
+  source: string
+  code: string
+  message: string
+  httpStatus: number | null
+  stack: string | null
+  payload: unknown
+  diagnostics: unknown
+  createdAt: string
+}
+
 const geraetePhase = ref<'idle' | 'laufend' | 'fehler'>('idle')
 const geraeteFehler = ref<string | null>(null)
 const geraeteListe = ref<Geraet[]>([])
@@ -131,6 +148,7 @@ const syncErrorExpandedFehler = ref<string | null>(null)
 
 onMounted(() => {
   void ladeGeraete()
+  void ladeSyncErrorAlle()
   void ladeUserListe()
   void updateCheckLaden()
 })
@@ -905,6 +923,71 @@ onBeforeUnmount(() => {
         </button>
         <p v-if="geraeteFehler" class="wert-fehler">{{ geraeteFehler }}</p>
       </div>
+    </div>
+
+    <h2>{{ t('view.development.syncErrorAlleTitel') }}</h2>
+    <div class="card">
+      <p class="hint">{{ t('view.development.syncErrorAlleHint') }}</p>
+      <div class="actions" style="margin-bottom: 0.8rem; gap: 0.5rem; align-items: start">
+        <button
+          type="button"
+          :disabled="syncErrorAllePhase === 'laufend'"
+          @click="ladeSyncErrorAlle"
+        >
+          {{
+            syncErrorAllePhase === 'laufend'
+              ? t('view.development.syncErrorAlleLaedt')
+              : t('view.development.syncErrorAlleLaden')
+          }}
+        </button>
+        <p v-if="syncErrorAlleFehler" class="wert-fehler">{{ syncErrorAlleFehler }}</p>
+        <p v-if="syncErrorAllePhase === 'idle'" class="hint">
+          {{
+            t('view.development.syncErrorAlleAnzahl', {
+              anzahl: syncErrorAlleListe.length,
+              total: syncErrorAlleTotal,
+            })
+          }}
+        </p>
+      </div>
+
+      <table v-if="syncErrorAlleListe.length > 0" class="tabelle">
+        <thead>
+          <tr>
+            <th>{{ t('view.development.syncErrorAlleSpalteZeit') }}</th>
+            <th>{{ t('view.development.syncErrorAlleSpalteGerät') }}</th>
+            <th>{{ t('view.development.syncErrorAlleSpalteUser') }}</th>
+            <th>{{ t('view.development.syncErrorAlleSpalteCode') }}</th>
+            <th>{{ t('view.development.syncErrorAlleSpalteHTTP') }}</th>
+            <th>{{ t('view.development.syncErrorAlleSpalteNachricht') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in syncErrorAlleListe" :key="r.id">
+            <td class="hint">{{ (r.occurredAt ?? '').slice(0, 16) }}</td>
+            <td class="hint">
+              <code style="font-size: 0.8rem">{{ r.deviceId.slice(0, 8) }}…</code>
+            </td>
+            <td class="hint">{{ r.userName ?? r.userEmail ?? r.userId }}</td>
+            <td class="wert-fehler">{{ r.code }}</td>
+            <td class="hint">{{ r.httpStatus ?? '—' }}</td>
+            <td
+              class="hint"
+              style="
+                max-width: 40rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+              "
+            >
+              {{ r.message }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="syncErrorAllePhase === 'idle' && syncErrorAlleListe.length === 0" class="hint">
+        {{ t('view.development.syncErrorAlleKeine') }}
+      </p>
     </div>
 
     <h2>{{ t('view.development.update') }}</h2>

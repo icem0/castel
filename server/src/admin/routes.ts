@@ -25,7 +25,7 @@
 // auf demselben Marker aufsetzen.
 
 import type { FastifyInstance } from 'fastify'
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen, geraete, syncErrorReports, users } from '../db/schema.js'
 import { bulkBookingRoutes } from './bulk-booking-routes.js'
@@ -248,6 +248,103 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
           diagnostics: r.diagnostics ?? null,
           createdAt: r.createdAt.toISOString(),
         })),
+      })
+    },
+  )
+
+  // ---------- GET /api/admin/sync-error-reports ----------
+  // Aggregierter ueber alle Endgeraete: welche Clients haben Sync-Probleme?
+  // Filterbar nach userId, deviceId, code und Zeitbereich; mit Paging.
+  // Admin-only.
+  app.get(
+    '/api/admin/sync-error-reports',
+    { preHandler: app.requireAdmin },
+    async (req, reply) => {
+      const db = getDb()
+      const q = req.query as {
+        userId?: string
+        deviceId?: string
+        code?: string
+        von?: string
+        bis?: string
+        limit?: string
+        offset?: string
+      }
+      const limit = Math.min(Math.max(Number(q.limit ?? 50), 1), 1000)
+      const offset = Math.max(Number(q.offset ?? 0), 0)
+
+      const conditions: Array<Parameters<typeof and>[0]> = []
+      if (q.userId) conditions.push(eq(syncErrorReports.userId, q.userId))
+      if (q.deviceId) conditions.push(eq(syncErrorReports.deviceId, q.deviceId))
+      if (q.code) conditions.push(eq(syncErrorReports.code, q.code))
+      if (q.von) conditions.push(gte(syncErrorReports.occurredAt, new Date(q.von)))
+      if (q.bis) conditions.push(lte(syncErrorReports.occurredAt, new Date(q.bis)))
+
+      const [rows, countRow] = await Promise.all([
+        db
+          .select({
+            id: syncErrorReports.id,
+            deviceId: syncErrorReports.deviceId,
+            userId: syncErrorReports.userId,
+            occurredAt: syncErrorReports.occurredAt,
+            source: syncErrorReports.source,
+            code: syncErrorReports.code,
+            message: syncErrorReports.message,
+            httpStatus: syncErrorReports.httpStatus,
+            stack: syncErrorReports.stack,
+            payload: syncErrorReports.payload,
+            diagnostics: syncErrorReports.diagnostics,
+            createdAt: syncErrorReports.createdAt,
+          })
+          .from(syncErrorReports)
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(desc(syncErrorReports.createdAt))
+          .limit(limit)
+          .offset(offset),
+        db
+          .select({ c: sql<number>`count(*)::int` })
+          .from(syncErrorReports)
+          .where(conditions.length > 0 ? and(...conditions) : undefined),
+      ])
+
+      // Benutzernamen und E-Mails nachschlagen (aggregiert).
+      const userIds = [...new Set(rows.map((r) => r.userId).filter((u): u is string => !!u))]
+      const deviceIds = [...new Set(rows.map((r) => r.deviceId).filter((d): d is string => !!d))]
+      const [userRows, deviceRows] = await Promise.all([
+        userIds.length > 0
+          ? db.select({ id: users.id, email: users.email, anzeigename: users.anzeigename }).from(users).where(inArray(users.id, userIds))
+          : Promise.resolve([] as Array<{ id: string; email: string | null; anzeigename: string | null }>),
+        deviceIds.length > 0
+          ? db.select({ id: geraete.id, userId: geraete.userId }).from(geraete).where(inArray(geraete.id, deviceIds))
+          : Promise.resolve([] as Array<{ id: string; userId: string }>),
+      ])
+      const userMap = new Map(userRows.map((u) => [u.id, u]))
+      const deviceUserMap = new Map(deviceRows.map((d) => [d.id, d.userId]))
+
+      return reply.send({
+        items: rows.map((r) => {
+          const deviceUserId = deviceUserMap.get(r.deviceId) ?? null
+          const user = userMap.get(r.userId ?? '') ?? userMap.get(deviceUserId ?? '') ?? null
+          return {
+            id: r.id,
+            deviceId: r.deviceId,
+            userId: r.userId,
+            userEmail: user?.email ?? null,
+            userName: user?.anzeigename ?? null,
+            occurredAt: r.occurredAt.toISOString(),
+            source: r.source,
+            code: r.code,
+            message: r.message,
+            httpStatus: r.httpStatus ?? null,
+            stack: r.stack ?? null,
+            payload: r.payload ?? null,
+            diagnostics: r.diagnostics ?? null,
+            createdAt: r.createdAt.toISOString(),
+          }
+        }),
+        limit,
+        offset,
+        total: countRow[0]?.c ?? 0,
       })
     },
   )

@@ -351,6 +351,10 @@ export const pushPayloadSchema = z.object({
       ]),
     )
     .max(500, 'maximal 500 ops pro Push'),
+  // Optionale Client-Geräte-ID. Wenn mitgesendet, schreibt der Server bei
+  // per-Op-Fehlern automatisch einen sync_error_reports-Eintrag (Fallback,
+  // falls der Client keinen eigenen Fehler-Report nachschickt).
+  deviceId: z.string().min(1).max(128).optional(),
 })
 
 /**
