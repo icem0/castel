@@ -757,6 +757,24 @@ export async function syncRoutes(
                 diagnostics: null,
               })
           }
+          // Auch Konflikte (z. B. UNRESOLVED_DIVERGENCE) als Report speichern,
+          // damit der Admin sie im Overblick sieht.
+          for (const conflict of result.conflicts) {
+            await db
+              .insert(syncErrorReports)
+              .values({
+                deviceId,
+                userId: user.sub,
+                occurredAt: now,
+                source: 'sync/push',
+                code: 'CONFLICT',
+                message: conflict.reason,
+                httpStatus: null,
+                stack: null,
+                payload: null,
+                diagnostics: null,
+              })
+          }
           // Retention: pro Endgeraet nur die letzten 20 serverseitigen Reports
           // behalten (aelteste werden geloescht), damit die Tabelle nicht
           // unkontrolliert waechst.

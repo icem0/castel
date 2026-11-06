@@ -756,6 +756,7 @@ async function pushOps(
   apiBase: string,
   token: string | null,
   ops: unknown[],
+  deviceId?: string,
   signal: AbortSignal | null = null,
   timeoutMs: number = PUSH_TIMEOUT_MS,
 ): Promise<PushResult> {
@@ -768,7 +769,7 @@ async function pushOps(
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       credentials: 'include',
-      body: JSON.stringify({ ops }),
+      body: JSON.stringify(deviceId ? { ops, deviceId } : { ops }),
     },
     timeoutMs,
     signal,
@@ -2547,8 +2548,16 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
         ops.push({ op: o.op, entity: o.entity, payload })
       }
       if (ops.length > 0) {
+        let pushDeviceId: string | undefined
         try {
-          const result = await pushOps(apiBase, token, ops, signal)
+          pushDeviceId = leseGerateId()
+        } catch {
+          // Ohne Geräte-ID kann der Server den Fehler nicht einem Endgerät
+          // zuordnen — der Push funktioniert trotzdem, der serverseitige
+          // sync_error_reports-Fallback greift dann nicht.
+        }
+        try {
+          const result = await pushOps(apiBase, token, ops, pushDeviceId, signal)
           if (_runToken !== runToken) return
           const acceptedIds = new Set(result.accepted)
           const skippedIds = new Set((result.skipped ?? []).map((s) => s.id))
