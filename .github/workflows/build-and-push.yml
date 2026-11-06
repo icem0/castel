@@ -151,50 +151,10 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
+          labels:
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Set package visibility to public
-        env:
-          # GHCR_ADMIN_TOKEN: klassischer PAT mit scopes 'repo' + 'write:packages'.
-          # Der automatische GITHUB_TOKEN darf fuer User-Repos keine Packages flippen
-          # (gibt 404). Ohne PAT ueberspringen wir den Flip mit einer Warnung -- das
-          # Image wird trotzdem gepusht, das Paket bleibt dann aber 'private'. Fuer
-          # Server-Pulls reicht das, weil GHCR mit Credentials (oder public-Paket)
-          # immer authentifiziert. Wer das Paket wirklich oeffentlich haben will,
-          # legt den Secret an, der Flip laeuft dann automatisch.
-          TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || '' }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
-        run: |
-          if [ -z "${TOKEN}" ]; then
-            echo "::warning::GHCR_ADMIN_TOKEN nicht gesetzt -- visibility bleibt auf 'private'. Image wird trotzdem gepusht, server-seitige Pulls funktionieren mit ghcr.io-Login. Siehe AGENTS.md."
-            exit 0
-          fi
-          for pkg in castel-api; do
-            for endpoint in \
-              "https://api.github.com/user/packages/container/${pkg}" \
-              "https://api.github.com/users/${OWNER}/packages/container/${pkg}" \
-              "https://api.github.com/repos/${OWNER}/${REPO}/packages/container/${pkg}"; do
-              echo "::group::PATCH ${endpoint}"
-              status=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
-                -X PATCH \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "${endpoint}" \
-                -d '{"visibility":"public"}')
-              echo "status=${status}"
-              cat /tmp/resp.json; echo
-              echo "::endgroup::"
-              if [ "${status}" = "200" ]; then
-                echo "visibility set to public via ${endpoint}"
-                exit 0
-              fi
-            done
-            echo "::warning::could not flip visibility for ${pkg} (alle Endpoints 404) -- Paket bleibt 'private'. GHCR_ADMIN_TOKEN pruefen (PAT mit scopes repo + write:packages)."
-            exit 0
-          done
 
   # ---------- PWA ----------
   # pwa-check prueft den Code (Checkout, Node, Install, Lint, Typecheck, Test,
@@ -276,47 +236,7 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
+          labels:
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Set package visibility to public
-        env:
-          # GHCR_ADMIN_TOKEN: klassischer PAT mit scopes 'repo' + 'write:packages'.
-          # Der automatische GITHUB_TOKEN darf fuer User-Repos keine Packages flippen
-          # (gibt 404). Ohne PAT ueberspringen wir den Flip mit einer Warnung -- das
-          # Image wird trotzdem gepusht, das Paket bleibt dann aber 'private'. Fuer
-          # Server-Pulls reicht das, weil GHCR mit Credentials (oder public-Paket)
-          # immer authentifiziert. Wer das Paket wirklich oeffentlich haben will,
-          # legt den Secret an, der Flip laeuft dann automatisch.
-          TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN || '' }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
-        run: |
-          if [ -z "${TOKEN}" ]; then
-            echo "::warning::GHCR_ADMIN_TOKEN nicht gesetzt -- visibility bleibt auf 'private'. Image wird trotzdem gepusht, server-seitige Pulls funktionieren mit ghcr.io-Login. Siehe AGENTS.md."
-            exit 0
-          fi
-          for pkg in castel-pwa; do
-            for endpoint in \
-              "https://api.github.com/repos/${OWNER}/${REPO}/packages/container/${pkg}" \
-              "https://api.github.com/users/${OWNER}/packages/container/${pkg}" \
-              "https://api.github.com/user/packages/container/${pkg}"; do
-              echo "::group::PATCH ${endpoint}"
-              status=$(curl -sS -o /tmp/resp.json -w "%{http_code}" \
-                -X PATCH \
-                -H "Authorization: Bearer ${TOKEN}" \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "${endpoint}" \
-                -d '{"visibility":"public"}')
-              echo "status=${status}"
-              cat /tmp/resp.json; echo
-              echo "::endgroup::"
-              if [ "${status}" = "200" ]; then
-                echo "visibility set to public via ${endpoint}"
-                exit 0
-              fi
-            done
-            echo "::warning::could not flip visibility for ${pkg} (alle Endpoints 404) -- Paket bleibt 'private'. GHCR_ADMIN_TOKEN pruefen (PAT mit scopes repo + write:packages)."
-            exit 0
-          done
