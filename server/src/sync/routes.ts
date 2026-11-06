@@ -35,7 +35,24 @@ import type { NotificationGateway } from '../services/notification-gateway.js'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 
-async function countRows(db: ReturnType<typeof getDb>): Promise<{
+/**
+ * Liefert den Anfang des Sync-Fensters (`inventur.sichtbarAb`) als ISO-String.
+ * Nicht gesetzt → Epoche (alles ist sichtbar). Snapshot und Zählung müssen
+ * dieselbe Grenze verwenden, sonst meldet der Client falsche Divergenzen.
+ */
+async function leseSyncFensterIso(db: ReturnType<typeof getDb>): Promise<string> {
+  const row = await db
+    .select({ value: einstellungen.value })
+    .from(einstellungen)
+    .where(and(eq(einstellungen.key, 'inventur.sichtbarAb'), isNull(einstellungen.userId)))
+    .limit(1)
+  return row[0]?.value ?? '1970-01-01T00:00:00.000Z'
+}
+
+async function countRows(
+  db: ReturnType<typeof getDb>,
+  fensterIso: string,
+): Promise<{
   artikel: number
   standorte: number
   commission: number
@@ -54,7 +71,12 @@ async function countRows(db: ReturnType<typeof getDb>): Promise<{
     db.select({ c: sql<number>`count(*)::int` }).from(artikel),
     db.select({ c: sql<number>`count(*)::int` }).from(standorte),
     db.select({ c: sql<number>`count(*)::int` }).from(projekte),
-    db.select({ c: sql<number>`count(*)::int` }).from(buchungen),
+    // Buchungen nur ab dem Sync-Fenster — genau wie der Snapshot sie ausliefert.
+    // Aeltere bleiben im Journal, werden aber nicht an Clients gesendet.
+    db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(buchungen)
+      .where(sql`${buchungen.erstelltAm} >= ${fensterIso}`),
     db.select({ c: sql<number>`count(*)::int` }).from(bestand),
     db.select({ c: sql<number>`count(*)::int` }).from(hersteller),
     db.select({ c: sql<number>`count(*)::int` }).from(artikelStandortMindestbestaende),
@@ -121,14 +143,7 @@ export async function syncRoutes(
       // (serverseitig gesetzt durch den Rebase-Endpunkt), werden nicht mehr
       // an Clients ausgeliefert — sie verbleiben im Archiv auf dem Server.
       // Nicht gesetzt → alles wird ausgeliefert (Vor-Rebase-Zustand).
-      const fensterRow = await db
-        .select({ value: einstellungen.value })
-        .from(einstellungen)
-        .where(
-          and(eq(einstellungen.key, 'inventur.sichtbarAb'), isNull(einstellungen.userId)),
-        )
-        .limit(1)
-      const fensterIso = fensterRow[0]?.value ?? '1970-01-01T00:00:00.000Z'
+      const fensterIso = await leseSyncFensterIso(db)
 
       const [
         artikelRows,
@@ -396,7 +411,7 @@ export async function syncRoutes(
   // um die Divergenz zwischen lokaler IndexedDB und Postgres anzuzeigen.
   app.get('/api/sync/status', { preHandler: app.requireAuth }, async (_req, reply) => {
     const db = getDb()
-    const counts = await countRows(db)
+    const counts = await countRows(db, await leseSyncFensterIso(db))
     return reply.send({
       serverTime: new Date().toISOString(),
       counts,
