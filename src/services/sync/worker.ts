@@ -2940,6 +2940,13 @@ export async function runSync(opts: { token: string | null; apiBase: string }): 
           ? syncErrorFingerprint('counts', 'UNRESOLVED_DIVERGENCE', null, divergenceFailure.message)
           : null,
     })
+    // Eine eskalierte Divergenz ist ein echter Sync-Fehler, der auch auf dem
+    // Server landen muss — sonst sieht der Admin ihn nie. Die anderen
+    // Fehlerpfade melden via sendSyncErrorReport; dieser Erfolgs-Pfad tat es
+    // bisher nicht.
+    if (divergenceEscalated && divergenceFailure) {
+      void sendSyncErrorReport(apiBase, token, divergenceFailure, diagnostics)
+    }
     _consecutiveFailures = 0
     // Erfolgreicher Push beweist: Token ist wieder gültig (oder war es die
     // ganze Zeit, z. B. nach manuellem Re-Login). Latch lösen.

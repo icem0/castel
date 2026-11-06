@@ -2045,12 +2045,20 @@ describe('Sync — Divergenz-Diagnose', () => {
     await getDb().artikel.bulkAdd([a1, a2])
 
     let serverArtikel = 0
+    const reportCalls: Array<{ code?: string }> = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === 'string' ? input : input.toString()
         const method = init?.method ?? 'GET'
         if (url.includes('/api/sync/snapshot')) return snapshotResponse()
+        if (url.endsWith('/api/sync/sync-error-report') && method === 'POST') {
+          reportCalls.push(JSON.parse(String(init?.body)) as { code?: string })
+          return new Response(JSON.stringify({ id: 'r1', createdAt: new Date().toISOString() }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
         if (url.endsWith('/api/sync/reconcile') && method === 'POST') {
           const body = JSON.parse(String(init?.body)) as { entity?: string; ids: string[] }
           return new Response(
@@ -2069,9 +2077,12 @@ describe('Sync — Divergenz-Diagnose', () => {
     const { runSync, getSyncStatus } = await import('../worker')
 
     await runSync({ token: null, apiBase: 'http://test.local' })
+    await new Promise((r) => setTimeout(r, 20))
     let st = getSyncStatus()
     // Erster Lauf: Diagnose ist da, aber noch kein harter Fehler.
     expect(st.status).toBe('idle')
+    // Noch nicht eskaliert -> kein Fehler-Report an den Server.
+    expect(reportCalls).toHaveLength(0)
     expect(st.lastFailure?.code).toBe('UNRESOLVED_DIVERGENCE')
     expect(st.lastFailure?.source).toBe('counts')
     expect(st.lastFailure?.divergence?.localOnlyTotal).toBe(2)
@@ -2090,11 +2101,15 @@ describe('Sync — Divergenz-Diagnose', () => {
     expect(getSyncStatus().status).toBe('idle')
 
     await runSync({ token: null, apiBase: 'http://test.local' })
+    await new Promise((r) => setTimeout(r, 20))
     st = getSyncStatus()
     expect(st.status).toBe('error')
     expect(st.lastErrorCode).toBe('UNRESOLVED_DIVERGENCE')
     expect(st.lastFailure?.divergence?.streak).toBe(3)
     expect(st.lastError).toContain('nur lokal vorhanden')
+    // Eskalierte Divergenz muss als Fehler-Report beim Server landen.
+    expect(reportCalls).toHaveLength(1)
+    expect(reportCalls[0]?.code).toBe('UNRESOLVED_DIVERGENCE')
 
     // Sobald der Server die Zeilen doch kennt, verschwindet die Diagnose.
     serverArtikel = 2
