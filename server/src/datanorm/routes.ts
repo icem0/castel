@@ -46,6 +46,15 @@ function suchbegriff(raw: unknown): string {
   return raw.trim().slice(0, 80)
 }
 
+/**
+ * Escaped die ILIKE-Wildcards (`%`, `_`) und den Escape-Zeichen-Backslash
+ * im Suchbegriff. Ohne Escape matcht "%" alles und erzwingt einen
+ * Vollscan des Lieferantenkatalogs (SEC-025).
+ */
+function escapeIlike(raw: string): string {
+  return raw.replace(/[\\%_]/g, (c) => `\\${c}`)
+}
+
 function positiveInt(raw: unknown, fallback: number, max: number): number {
   const n = Number.parseInt(String(raw ?? ''), 10)
   if (!Number.isFinite(n) || n < 1) return fallback
@@ -379,6 +388,10 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
     const begriff = suchbegriff(q.q)
     const ean = suchbegriff(q.ean)
     const matchcode = suchbegriff(q.matchcode)
+    // ILIKE-Wildcards (% und _) im Suchbegriff werden escaped — sonst
+    // erzwingt ein "%" einen Vollscan des Katalogs (SEC-025).
+    const begriffLike = escapeIlike(begriff)
+    const matchcodeLike = escapeIlike(matchcode)
     const limit = positiveInt(q.limit, DEFAULT_PAGE, MAX_PAGE)
     const page = positiveInt(q.page, 1, 10000)
     const mitDeaktivierten = q.inklDeaktivierte === 'true'
@@ -394,7 +407,7 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
       bedingungen.push(or(eq(herstellerArtikel.ean, ean), eq(herstellerArtikel.matchcode, ean))!)
     } else if (matchcode !== '') {
       suchstrategie = 'matchcode'
-      bedingungen.push(or(eq(herstellerArtikel.matchcode, matchcode), ilike(herstellerArtikel.matchcode, `%${matchcode}%`))!)
+      bedingungen.push(or(eq(herstellerArtikel.matchcode, matchcode), ilike(herstellerArtikel.matchcode, `%${matchcodeLike}%`))!)
     } else if (begriff !== '') {
       if (digits.test(begriff)) {
         // EAN-typed search term: match EAN first, then matchcode, then title
@@ -404,16 +417,16 @@ export async function datanormRoutes(app: FastifyInstance): Promise<void> {
           or(
             eq(herstellerArtikel.ean, begriff),
             eq(herstellerArtikel.matchcode, begriff),
-            ilike(herstellerArtikel.titel, `%${begriff}%`),
+            ilike(herstellerArtikel.titel, `%${begriffLike}%`),
           )!,
         )
       } else {
         suchstrategie = 'titel'
         bedingungen.push(
           or(
-            ilike(herstellerArtikel.matchcode, `%${begriff}%`),
-            ilike(herstellerArtikel.titel, `%${begriff}%`),
-            ilike(herstellerArtikel.beschreibung, `%${begriff}%`),
+            ilike(herstellerArtikel.matchcode, `%${begriffLike}%`),
+            ilike(herstellerArtikel.titel, `%${begriffLike}%`),
+            ilike(herstellerArtikel.beschreibung, `%${begriffLike}%`),
           )!,
         )
       }

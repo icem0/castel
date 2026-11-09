@@ -104,6 +104,15 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         patch.rollen = rollen
       }
       if (parsed.data.aktiv !== undefined) patch.aktiv = parsed.data.aktiv
+      // Self-deactivation is blocked: the admin would lock themselves out
+      // (the next request fails with 401 USER_INACTIVE) — the same reasoning
+      // as the blocked self-delete below (SEC-021).
+      if (parsed.data.aktiv === false && req.authUser?.sub === req.params.id) {
+        return reply.code(400).send({
+          code: 'SELF_DEACTIVATE',
+          message: 'Eigenen User nicht deaktivierbar',
+        })
+      }
       if (parsed.data.anzeigename !== undefined) patch.anzeigename = parsed.data.anzeigename
       if (parsed.data.password !== undefined) {
         patch.passwordHash = await argon2.hash(parsed.data.password, { type: argon2.argon2id })

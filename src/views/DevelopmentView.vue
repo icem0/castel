@@ -250,7 +250,7 @@ async function serverDbBestaetigen(): Promise<void> {
   serverDbFehler.value = null
   serverDbErfolg.value = null
   try {
-    await apiFetch('/api/admin/db/clear', { method: 'POST' })
+    await apiFetch('/api/admin/db/clear', { method: 'POST', body: { bestaetigt: true } })
     serverDbPhase.value = 'idle'
     serverDbErfolg.value = t('view.development.serverDbGeloescht')
     setTimeout(() => (serverDbErfolg.value = null), 4000)

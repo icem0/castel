@@ -76,7 +76,18 @@ type TagsResponse = { tags?: string[] }
 function parseNextLink(link: string | null): string | null {
   if (!link) return null
   const match = /<([^>]+)>\s*;\s*rel="?next"?/.exec(link)
-  return match?.[1] ?? null
+  const raw = match?.[1]
+  if (!raw) return null
+  // Only follow pagination links that stay on the registry host — otherwise
+  // the token in the Authorization header would be forwarded to a foreign
+  // host that injected the Link header (SEC-036).
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'https:' || url.hostname !== 'ghcr.io') return null
+    return url.toString()
+  } catch {
+    return null
+  }
 }
 
 const TAGS_PER_PAGE = 1000

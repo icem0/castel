@@ -19,6 +19,7 @@
 
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import DOMPurify from 'dompurify'
 import { useAkkutauschStore } from '../../stores/akkutausch'
 import { useArtikelStore } from '../../stores/artikel'
 import { useAuthStore } from '../../stores/auth'
@@ -285,7 +286,13 @@ function webHref(option: Bestelloption): string | null {
   return bestellWebZiel(kontaktVon(option))?.href ?? null
 }
 
-/** Copies selected rendered HTML for environments without ClipboardItem. */
+/**
+ * Copies the rendered HTML for environments without ClipboardItem.
+ *
+ * The HTML is sanitized with DOMPurify before it is parsed: the order text
+ * contains supplier/article master data and must never be interpreted as
+ * active markup in this origin (XSS, SEC-028).
+ */
 function kopiereHtmlAusDom(html: string): boolean {
   const container = document.createElement('div')
   container.setAttribute('aria-hidden', 'true')
@@ -293,7 +300,11 @@ function kopiereHtmlAusDom(html: string): boolean {
   container.style.left = '-9999px'
   container.style.top = '0'
   container.style.opacity = '0'
-  container.innerHTML = html
+  container.innerHTML = DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover'],
+  })
   document.body.appendChild(container)
 
   const range = document.createRange()

@@ -73,56 +73,84 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
 
     // Atomar: User → Einstellung(sprache) → Standard-Standort → Test-Artikel.
     // Wenn eine der Operationen fehlschlägt, wird nichts persistiert.
-    const bootstrap = await db.transaction(async (tx) => {
-      await tx.insert(users).values({
-        id,
-        email: normalizedEmail,
-        passwordHash,
-        rolle: 'admin',
-        rollen: ['admin'],
-        aktiv: true,
-        erstelltAm: new Date(),
-        letzterLoginAm: null,
-        mustChangePassword: false,
-        anzeigename: anzeigename.trim(),
-      })
-
-      // Pro-User-Spracheinstellung (Cross-Device-Sync). LWW über geaendert_am.
-      await tx.insert(einstellungen).values({
-        key: 'sprache',
-        userId: id,
-        value: sprache,
-        geaendertAm: new Date(),
-      })
-
-      const bootstrapResult = await bootstrapHauptlager(tx, inhalt)
-
-      // Per-User-Standard-Standort auf das (gerade angelegte oder schon
-      // vorhandene) Hauptlager setzen. Sonst steht im Settings-View-Dropdown
-      // nach dem Setup "noch nicht festgelegt", obwohl das Hauptlager schon
-      // als Standort.standard markiert ist. Wenn der Bootstrap uebersprungen
-      // wurde (Hauptlager existierte schon), schlagen wir den aktuellen
-      // Standard-Standort nach und nehmen dessen ID.
-      let hauptlagerId = bootstrapResult.hauptlagerId
-      if (bootstrapResult.uebersprungen) {
-        const existing = await tx
-          .select({ id: standorte.id })
-          .from(standorte)
-          .where(eq(standorte.standard, true))
+    //
+    // Die Existenz-Prüfung ("es gibt schon einen User") läuft MIT in dieser
+    // Transaktion und wird als `Serializable` ausgeführt: zwei parallele
+    // Setup-Aufrufe können so nicht beide einen Admin anlegen (SEC-001).
+    const ergebnis = await db.transaction(
+      async (tx) => {
+        const bestehend = await tx.select({ id: users.id }).from(users).limit(1)
+        if (bestehend.length > 0) {
+          return { konflikt: true as const, bootstrap: null }
+        }
+        const doppelt = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.email, normalizedEmail))
           .limit(1)
-        hauptlagerId = existing[0]?.id
-      }
-      if (hauptlagerId !== undefined) {
+        if (doppelt.length > 0) {
+          return { konflikt: true as const, bootstrap: null }
+        }
+
+        await tx.insert(users).values({
+          id,
+          email: normalizedEmail,
+          passwordHash,
+          rolle: 'admin',
+          rollen: ['admin'],
+          aktiv: true,
+          erstelltAm: new Date(),
+          letzterLoginAm: null,
+          mustChangePassword: false,
+          anzeigename: anzeigename.trim(),
+        })
+
+        // Pro-User-Spracheinstellung (Cross-Device-Sync). LWW über geaendert_am.
         await tx.insert(einstellungen).values({
-          key: 'standardStandortId',
+          key: 'sprache',
           userId: id,
-          value: hauptlagerId,
+          value: sprache,
           geaendertAm: new Date(),
         })
-      }
 
-      return bootstrapResult
-    })
+        const bootstrapResult = await bootstrapHauptlager(tx, inhalt)
+
+        // Per-User-Standard-Standort auf das (gerade angelegte oder schon
+        // vorhandene) Hauptlager setzen. Sonst steht im Settings-View-Dropdown
+        // nach dem Setup "noch nicht festgelegt", obwohl das Hauptlager schon
+        // als Standort.standard markiert ist. Wenn der Bootstrap uebersprungen
+        // wurde (Hauptlager existierte schon), schlagen wir den aktuellen
+        // Standard-Standort nach und nehmen dessen ID.
+        let hauptlagerId = bootstrapResult.hauptlagerId
+        if (bootstrapResult.uebersprungen) {
+          const existing = await tx
+            .select({ id: standorte.id })
+            .from(standorte)
+            .where(eq(standorte.standard, true))
+            .limit(1)
+          hauptlagerId = existing[0]?.id
+        }
+        if (hauptlagerId !== undefined) {
+          await tx.insert(einstellungen).values({
+            key: 'standardStandortId',
+            userId: id,
+            value: hauptlagerId,
+            geaendertAm: new Date(),
+          })
+        }
+
+        return { konflikt: false as const, bootstrap: bootstrapResult }
+      },
+      { isolationLevel: 'serializable' },
+    )
+
+    if (ergebnis.konflikt || !ergebnis.bootstrap) {
+      return reply.code(409).send({
+        code: 'SETUP_DONE',
+        message: 'Es existiert bereits ein User. Bitte direkt anmelden.',
+      })
+    }
+    const bootstrap = ergebnis.bootstrap
 
     return reply.code(201).send({
       id,

@@ -15,6 +15,7 @@
 // ausgeführt.
 
 import type { FastifyInstance } from 'fastify'
+import { timingSafeEqual } from 'node:crypto'
 import { config } from '../config/config.js'
 import {
   buildRequestDocument,
@@ -281,7 +282,16 @@ export async function updateInboundWebhookRoutes(app: FastifyInstance): Promise<
     }
 
     const token = req.headers['x-deploy-token']
-    if (typeof token !== 'string' || token !== config.UPDATE_WEBHOOK_TOKEN) {
+    // Constant-time comparison: a plain `!==` short-circuits at the first
+    // differing byte and leaks information about the secret over the network
+    // (SEC-035).
+    const provided = typeof token === 'string' ? token : ''
+    const expected = config.UPDATE_WEBHOOK_TOKEN
+    const tokenOk =
+      provided.length === expected.length &&
+      provided.length > 0 &&
+      timingSafeEqual(Buffer.from(provided, 'utf8'), Buffer.from(expected, 'utf8'))
+    if (!tokenOk) {
       return reply.code(401).send({
         code: 'UNAUTHORIZED',
         message: 'Ungültiges oder fehlendes X-Deploy-Token.',

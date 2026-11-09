@@ -111,17 +111,6 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const db = getDb()
-    const [countRow] = await db
-      .select({ c: sql<number>`count(*)::int` })
-      .from(apiKeys)
-      .where(and(eq(apiKeys.userId, user.sub), isNull(apiKeys.revokedAt)))
-    if ((countRow?.c ?? 0) >= config.API_KEY_MAX_PER_USER) {
-      return reply.code(409).send({
-        code: 'KEY_LIMIT',
-        message: `Maximal ${config.API_KEY_MAX_PER_USER} aktive Keys pro User`,
-      })
-    }
-
     const generated = generateApiKey()
     const id = crypto.randomUUID()
     const ablaufAm = parsed.data.ablaufAm ? new Date(parsed.data.ablaufAm) : null
@@ -132,19 +121,36 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
-    const [row] = await db
-      .insert(apiKeys)
-      .values({
-        id,
-        userId: user.sub,
-        name: parsed.data.name,
-        keyHash: generated.hash,
-        prefix: generated.prefix,
-        scopes: scopes as ApiKeyScope[],
-        erstelltAm: new Date(),
-        ablaufAm,
+    // Limit check and insert in one transaction — otherwise two concurrent
+    // requests could both pass the check and exceed the maximum (SEC-022).
+    const row = await db.transaction(async (tx) => {
+      const [countRow] = await tx
+        .select({ c: sql<number>`count(*)::int` })
+        .from(apiKeys)
+        .where(and(eq(apiKeys.userId, user.sub), isNull(apiKeys.revokedAt)))
+      if ((countRow?.c ?? 0) >= config.API_KEY_MAX_PER_USER) return null
+      const [inserted] = await tx
+        .insert(apiKeys)
+        .values({
+          id,
+          userId: user.sub,
+          name: parsed.data.name,
+          keyHash: generated.hash,
+          prefix: generated.prefix,
+          scopes: scopes as ApiKeyScope[],
+          erstelltAm: new Date(),
+          ablaufAm,
+        })
+        .returning(KEY_COLUMNS)
+      return inserted
+    })
+
+    if (!row) {
+      return reply.code(409).send({
+        code: 'KEY_LIMIT',
+        message: `Maximal ${config.API_KEY_MAX_PER_USER} aktive Keys pro User`,
       })
-      .returning(KEY_COLUMNS)
+    }
 
     return reply.code(201).send({
       key: generated.plaintext,

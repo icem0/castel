@@ -10,7 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { getDb } from '../db/client.js'
-import { rollen, rollenBerechtigungen } from '../db/schema.js'
+import { rollen, rollenBerechtigungen, users } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 import {
   ladeRollenMatrix,
@@ -167,9 +167,18 @@ export async function rollenRoutes(app: FastifyInstance): Promise<void> {
         })
       }
 
-      // Pruefen ob noch Benutzer diese Rolle bekleiden
-      // TODO: eigentliche Pruefung gegen users-Tabelle (rollen Spalte)
-      // Fuer jetzt: Rolle kann geloescht werden, wenn sie nicht 'admin' ist
+      // Pruefen ob noch Benutzer diese Rolle bekleiden — eine Rolle, die
+      // noch zugewiesen ist, darf nicht geloescht werden (die Nutzer
+      // behaelten sonst dangling Rollen-Referenzen und verlieren ihre
+      // Rechte) (SEC-020).
+      const userZeilen = await db.select({ rollen: users.rollen }).from(users)
+      const inUse = userZeilen.some((u) => (u.rollen ?? []).includes(id))
+      if (inUse) {
+        return reply.code(409).send({
+          code: 'ROLLE_IN_USE',
+          message: 'Die Rolle ist noch Benutzern zugewiesen',
+        })
+      }
 
       await db.delete(rollen).where(eq(rollen.id, id))
       return reply.code(204).send()

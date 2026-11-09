@@ -224,7 +224,7 @@ export async function resolvePush(
         })
     } else {
       try {
-        const paar = await resolveUmlagerungPaar(db, list)
+        const paar = await resolveUmlagerungPaar(db, list, benutzerId)
         result.skipped.push(...paar.skipped)
         const skippedIds = new Set(paar.skipped.map((s) => s.id))
         for (const op of list) {
@@ -287,7 +287,7 @@ export async function resolvePush(
             // and is invisible to any other pooled connection — reading via
             // `db` stored stale values (e.g. 0) in
             // `mindestbestand_ereignisse.bestand_danach`.
-            buchungsEvent = await resolveBuchung(tx, op, tx, rollen, (reason) => {
+            buchungsEvent = await resolveBuchung(tx, op, tx, rollen, benutzerId, (reason) => {
               skipReason = reason
             })
             break
@@ -807,7 +807,7 @@ async function resolveArtikelStandortMindestbestand(
   if (aRes.length === 0) throw new UnbekannteReferenzError('artikel', payload.artikelId)
   if (sRes.length === 0) throw new UnbekannteReferenzError('standort', payload.standortId)
 
-  const incomingGeaendertAm = toDateOrThrow(payload.geaendertAm)
+  const incomingGeaendertAm = toDateOrNow(payload.geaendertAm)
   const existing = await tx
     .select()
     .from(artikelStandortMindestbestaende)
@@ -825,7 +825,7 @@ async function resolveArtikelStandortMindestbestand(
       standortId: payload.standortId,
       mindestbestand: payload.mindestbestand,
       geaendertAm: incomingGeaendertAm,
-      erstelltAm: toDateOrThrow(payload.erstelltAm),
+      erstelltAm: toDateOrNow(payload.erstelltAm),
     })
     return
   }
@@ -855,8 +855,18 @@ async function resolveProjekt(
   rollen: Rolle[],
 ): Promise<void> {
   // Kommissionen duerfen von allen Rollen beigetragen werden — die globale
-  // Liste ist add-only fuer Non-Admins (siehe resolveEinstellung).
+  // Liste ist add-only fuer Non-Admins (siehe resolveEinstellung). Rename
+  // and delete of a commission row stays admin-only (stammdaten.verwalten),
+  // otherwise a plain user could alter the global picker list (SEC-005).
   await pruefeBerechtigung(rollen, 'kommission.beitragen', 'Kommission beitragen')
+  if (op.op === 'update' || op.op === 'delete') {
+    if (!(await hatBerechtigung(rollen, 'stammdaten.verwalten'))) {
+      throw new ValidationError(
+        'kommission',
+        'Renaming or deleting a commission row requires the stammdaten.verwalten permission',
+      )
+    }
+  }
   if (op.op === 'create') {
     const existing = await tx.select().from(projekte).where(eq(projekte.id, op.payload.id)).limit(1)
     if (existing.length > 0) {
@@ -1053,7 +1063,7 @@ async function applyLastWriterWins(
   payload: Record<string, unknown>,
 ): Promise<void> {
   const id = payload['id'] as string
-  const incomingGeaendertAm = toDateOrThrow(payload['geaendertAm'])
+  const incomingGeaendertAm = toDateOrNow(payload['geaendertAm'])
 
   const existing = await tx.select().from(table).where(eq(table.id, id)).limit(1)
   const current = existing[0]
@@ -1101,7 +1111,8 @@ function normalizeTimestampFields(
   for (const key of keys) {
     const v = out[key]
     if (typeof v === 'string') {
-      out[key] = toDateOrThrow(v)
+      // Future timestamps are clamped to the server clock (SEC-009).
+      out[key] = toDateOrNow(v)
     }
   }
   return out
@@ -1181,6 +1192,18 @@ function toDateOrThrow(v: unknown): Date {
     if (!Number.isNaN(d.getTime())) return d
   }
   throw new TypeError(`toDateOrThrow: nicht-erkannter Timestamp-Wert (${typeof v}): ${String(v)}`)
+}
+
+/**
+ * Same as toDateOrThrow but clamps timestamps that lie in the future to
+ * `now`. A future `geaendertAm` would otherwise beat every later write in
+ * the LWW comparison (future-squatting, SEC-009). Clock skew of clients
+ * stays tolerated — we only refuse timestamps ahead of the server clock.
+ */
+function toDateOrNow(v: unknown): Date {
+  const d = toDateOrThrow(v)
+  const now = Date.now()
+  return d.getTime() > now ? new Date(now) : d
 }
 
 // ---------- Buchungs-Resolver ----------
@@ -1408,6 +1431,7 @@ async function resolveBuchung(
   op: Extract<PushOp, { entity: 'buchung' }>,
   bestandQuerier: BestandQuerier,
   rollen: Rolle[],
+  userId: string,
   onSkip?: (reason: string) => void,
 ): Promise<MindestbestandEreignisRow | null> {
   if (op.op !== 'create') {
@@ -1421,7 +1445,14 @@ async function resolveBuchung(
     typ === 'storno' ? 'buchung.storno' : 'buchung.erstellen',
     typ === 'storno' ? 'Buchung stornieren' : 'Buchung anlegen',
   )
-  return resolveBuchungCreate(tx, op.payload as BuchungPayload, bestandQuerier, onSkip)
+  // The server owns attribution: `erstelltVon` is taken from the
+  // authenticated user, never from the payload (SEC-006).
+  return resolveBuchungCreate(
+    tx,
+    { ...(op.payload as BuchungPayload), erstelltVon: userId } as BuchungPayload,
+    bestandQuerier,
+    onSkip,
+  )
 }
 
 /**
@@ -1433,6 +1464,7 @@ async function resolveBuchung(
 async function resolveUmlagerungPaar(
   db: PostgresJsDatabase<typeof schema>,
   ops: ReadonlyArray<Extract<PushOp, { entity: 'buchung' }>>,
+  userId: string,
 ): Promise<{
   events: MindestbestandEreignisRow[]
   skipped: Array<{ id: string; reason: string }>
@@ -1441,9 +1473,16 @@ async function resolveUmlagerungPaar(
   const skipped: Array<{ id: string; reason: string }> = []
   await db.transaction(async (tx) => {
     for (const op of ops) {
-      const ev = await resolveBuchungCreate(tx, op.payload as BuchungPayload, tx, (reason) => {
-        skipped.push({ id: op.payload.id, reason })
-      })
+      // The server owns attribution: `erstelltVon` is taken from the
+      // authenticated user, never from the payload (SEC-006).
+      const ev = await resolveBuchungCreate(
+        tx,
+        { ...(op.payload as BuchungPayload), erstelltVon: userId } as BuchungPayload,
+        tx,
+        (reason) => {
+          skipped.push({ id: op.payload.id, reason })
+        },
+      )
       if (ev) events.push(ev)
     }
   })
@@ -1500,11 +1539,18 @@ async function resolveEinstellung(
   //    eigenen Sync.
   if (istInterneEinstellung(p.key)) return false
 
-  // 1) Rollen-Check: artikelTypen (global) nur mit 'globalEinstellung'
+  // 1) Admin-only keys: Admins only — and those only ever in the global
+  //    slot. Writing them into the own per-user slot would bypass the gate
+  //    for the user's own clients (SEC-007).
+  if (ADMIN_ONLY_KEYS.has(p.key) && p.userId !== null) {
+    throw new ValidationError(
+      'einstellung.userId',
+      `Key "${p.key}" is global and must not have a user slot`,
+    )
+  }
   if (
-    p.userId === null &&
     ADMIN_ONLY_KEYS.has(p.key) &&
-    !await hatBerechtigung(rollen, 'globalEinstellung')
+    !(await hatBerechtigung(rollen, 'globalEinstellung'))
   ) {
     throw new ValidationError(
       'einstellung.userId',
@@ -1536,9 +1582,26 @@ async function resolveEinstellung(
     )
   }
 
-  // 2) Wenn userId gesetzt: muss dem JWT-Sub entsprechen
+  // 2) If userId set: must match the JWT-Sub
   if (p.userId !== null && p.userId !== benutzerId) {
     throw new ValidationError('einstellung.userId', 'Eine fremde User-ID ist nicht erlaubt')
+  }
+
+  // 2b) Global slot (userId NULL): Admins only — unless the key is
+  //     explicitly whitelisted for other roles: add-only commissions
+  //     (`kommissionen`) and keys with a dedicated permission in
+  //     KEY_PERMISSION (SEC-008).
+  if (
+    p.userId === null &&
+    !ADMIN_ONLY_KEYS.has(p.key) &&
+    KEY_PERMISSION[p.key] === undefined &&
+    !ADD_ONLY_KEYS.has(p.key) &&
+    !(await hatBerechtigung(rollen, 'globalEinstellung'))
+  ) {
+    throw new ValidationError(
+      'einstellung.userId',
+      'A global setting requires the globalEinstellung permission',
+    )
   }
 
   // 3) `akkuTypen` ist ein JSON-Array mit den Akku-Groessen. Der Server
@@ -1579,7 +1642,10 @@ async function resolveEinstellung(
   }
 
   // 6) LWW-Upsert auf (key, userId)
-  const incomingGeaendertAm = new Date(p.geaendertAm)
+  const incomingGeaendertAmRoh = new Date(p.geaendertAm)
+  const einstellungNow = Date.now()
+  const incomingGeaendertAm =
+    incomingGeaendertAmRoh.getTime() > einstellungNow ? new Date(einstellungNow) : incomingGeaendertAmRoh
   const where = and(
     eq(einstellungen.key, p.key),
     p.userId === null ? isNull(einstellungen.userId) : eq(einstellungen.userId, p.userId),
@@ -1685,10 +1751,14 @@ async function resolveEtikettenBogenLayout(
     )
   }
 
-  const incomingGeaendertAm = new Date(p.geaendertAm)
-  if (Number.isNaN(incomingGeaendertAm.getTime())) {
+  const incomingGeaendertAmRoh = new Date(p.geaendertAm)
+  if (Number.isNaN(incomingGeaendertAmRoh.getTime())) {
     throw new ValidationError('etiketten_bogen_layout.geaendertAm', 'Ungueltiges Datum')
   }
+  // Clamp future timestamps (SEC-009).
+  const etikettenNow = Date.now()
+  const incomingGeaendertAm =
+    incomingGeaendertAmRoh.getTime() > etikettenNow ? new Date(etikettenNow) : incomingGeaendertAmRoh
   const existing = await tx
     .select()
     .from(etikettenBogenLayout)

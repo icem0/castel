@@ -265,6 +265,14 @@ export async function syncRoutes(
         leseRestoreEpoch(),
       ])
 
+      // Confidentiality of the inventory snapshot: without `inventur.lesen`
+      // the tables stay empty, and the purchase prices and the value
+      // columns (`einkaufreensCent`, `wert`) in `inventurPositionen` are
+      // only delivered with the `einkaufpreis` permission — analogously to
+      // the `artikel` and `hersteller` mapping below (SEC-004).
+      const hatInventurLesen = await hatBerechtigung(user.rollen, 'inventur.lesen')
+      const hatEinkaufpreis = await hatBerechtigung(user.rollen, 'einkaufpreis')
+
       return reply.send({
         serverTime: new Date().toISOString(),
         since: since.toISOString(),
@@ -348,7 +356,7 @@ export async function syncRoutes(
           stornoVonKuerzel: r.stornoVonKuerzel,
           zeilen: r.zeilen,
         })),
-        inventurStichtage: inventurStichtageRows.map((r) => {
+        inventurStichtage: (hatInventurLesen ? inventurStichtageRows : []).map((r) => {
           // Spalte speichert das gelöste Voll-Datum (YYYY-MM-DD), das Client-
           // Kontrakt ist DD.MM.YYYY — letzteres daraus ableiten.
           const [j, m, t] = r.stichtag.split('-')
@@ -361,7 +369,7 @@ export async function syncRoutes(
             erstelltAm: r.erstelltAm.toISOString(),
           }
         }),
-        inventurPositionen: inventurPositionenRows.map((r) => ({
+        inventurPositionen: (hatInventurLesen ? inventurPositionenRows : []).map((r) => ({
           id: r.id,
           stichtageId: r.stichtageId,
           artikelId: r.artikelId,
@@ -370,9 +378,9 @@ export async function syncRoutes(
           typ: r.typ,
           verpackungseinheit: r.verpackungseinheit,
           menge: r.menge,
-          einkaufspreisCent: r.einkaufspreisCent,
+          einkaufspreisCent: hatEinkaufpreis ? r.einkaufspreisCent : null,
           listenpreisCent: r.listenpreisCent,
-          wert: r.wert,
+          wert: hatEinkaufpreis ? r.wert : null,
           inventurGeprueft: r.inventurGeprueft,
           negativerBestand: r.negativerBestand,
           erstelltAm: r.erstelltAm.toISOString(),
@@ -452,6 +460,16 @@ export async function syncRoutes(
       const { deviceId, appVersion, lastAppliedResetAt } = parsed.data
       const userId = req.authUser!.sub
       const db = getDb()
+      // Ownership: the device row follows the user who logs in last (a
+      // shared browser changes the owner — the heartbeat must not fail
+      // there). The admin's reset flag, however, belongs to the device and
+      // is neither delivered to nor cleared by a foreign user (SEC-011).
+      const owner = await db
+        .select({ userId: geraete.userId })
+        .from(geraete)
+        .where(eq(geraete.id, deviceId))
+        .limit(1)
+      const istEigenesGeraet = !owner[0] || owner[0].userId === userId
       const fingerprint = JSON.stringify({
         userAgent: req.headers['user-agent'],
         appVersion,
@@ -478,7 +496,8 @@ export async function syncRoutes(
         .from(geraete)
         .where(eq(geraete.id, deviceId))
         .limit(1)
-      const resetAm = row[0]?.resetAm?.toISOString() ?? null
+      // The reset flag is only handed to the device's own user.
+      const resetAm = istEigenesGeraet ? (row[0]?.resetAm?.toISOString() ?? null) : null
       let needsReset = resetAm !== null && (!lastAppliedResetAt || resetAm > lastAppliedResetAt)
       // Der Client bestaetigt mit lastAppliedResetAt, dass er den Reset fuer den
       // gegebenen Zeitstempel bereits durchgefuehrt hat. Dann wird das
@@ -528,12 +547,33 @@ export async function syncRoutes(
 
       // Geraet muss existieren und dem User gehoeren.
       const device = await db
-        .select({ id: geraete.id })
+        .select({ id: geraete.id, userId: geraete.userId })
         .from(geraete)
         .where(eq(geraete.id, deviceId))
         .limit(1)
       if (!device[0]) {
         return reply.code(404).send({ code: 'DEVICE_NOT_FOUND', message: 'Endgeraet nicht bekannt' })
+      }
+      if (device[0].userId !== userId) {
+        // The device row follows the user who logged in last (shared
+        // browser). Reports of the previous owner stay valid — only a user
+        // who never reported for this device may not plant a report on it
+        // (SEC-010).
+        const eigene = await db
+          .select({ id: syncErrorReports.id })
+          .from(syncErrorReports)
+          .where(
+            and(
+              eq(syncErrorReports.deviceId, deviceId),
+              eq(syncErrorReports.userId, userId),
+            ),
+          )
+          .limit(1)
+        if (eigene.length === 0) {
+          return reply
+            .code(403)
+            .send({ code: 'DEVICE_FOREIGN', message: 'Endgerät gehört einem anderen Benutzer' })
+        }
       }
 
       const inserted = await db
@@ -759,6 +799,20 @@ export async function syncRoutes(
       if (deviceId) {
         const now = new Date()
         try {
+          // Ownership: reports may only be filed for a device of the
+          // calling user (SEC-010).
+          const dev = await db
+            .select({ userId: geraete.userId })
+            .from(geraete)
+            .where(eq(geraete.id, deviceId))
+            .limit(1)
+          if (dev[0] && dev[0].userId !== user.sub) {
+            app.log.warn(
+              { userId: user.sub, deviceId },
+              '[sync/push] sync_error_reports-Fallback uebersprungen (Geraet gehoert einem anderen User)',
+            )
+            return reply.send(result)
+          }
           for (const err of result.errors) {
             await db
               .insert(syncErrorReports)
@@ -833,6 +887,20 @@ export async function syncRoutes(
     const tag = Number.parseInt(parts[0] ?? '', 10)
     const monat = Number.parseInt(parts[1] ?? '', 10)
     const jahr = Number.parseInt(parts[2] ?? '', 10)
+    // Calendar check: the format regex alone accepts dates that do not
+    // exist (31.02.2026) — PostgreSQL would then abort with
+    // "invalid input syntax for type date" (500) (SEC-026).
+    const probe = new Date(Date.UTC(jahr, monat - 1, tag))
+    if (
+      Number.isNaN(probe.getTime()) ||
+      probe.getUTCFullYear() !== jahr ||
+      probe.getUTCMonth() !== monat - 1 ||
+      probe.getUTCDate() !== tag
+    ) {
+      return reply
+        .code(400)
+        .send({ code: 'VALIDATION', message: 'stichtag ist kein gültiges Kalenderdatum' })
+    }
     // Stichtag = gelöstes Voll-Datum YYYY-MM-DD in der DATE-Spalte (Jahr kommt
     // aus dem eingegebenen DD.MM.YYYY), der Query-Filter läuft bis
     // UTC-Tagesende 23:59:59.999.
@@ -1047,7 +1115,7 @@ export async function syncRoutes(
       db.select({ id: artikel.id, titel: artikel.titel }).from(artikel).orderBy(artikel.titel),
       db.select({ id: standorte.id, name: standorte.name }).from(standorte).orderBy(standorte.name),
       db
-        .select({ id: users.id, anzeigename: users.anzeigename, email: users.email })
+        .select({ id: users.id, anzeigename: users.anzeigename })
         .from(users)
         .orderBy(users.anzeigename),
     ])
@@ -1055,9 +1123,10 @@ export async function syncRoutes(
     return reply.send({
       artikel: artikelListe.map((a) => ({ id: a.id, label: a.titel ?? a.id })),
       standorte: standorteListe.map((s) => ({ id: s.id, label: s.name ?? s.id })),
+      // No e-mail address: the filter list is not a user directory (SEC-012).
       user: userListe.map((u) => ({
         id: u.id,
-        label: u.anzeigename || u.email || u.id,
+        label: u.anzeigename || u.id,
       })),
     })
   })
@@ -1084,7 +1153,18 @@ export async function syncRoutes(
       offset?: number
     }
     const limit = Math.min(Math.max(Number(body.limit ?? 50), 1), 10000)
-    const offset = Math.max(Number(body.offset ?? 0), 0)
+    // Offset is capped: a huge offset forces the database to scan (and
+    // discard) the whole journal on every request (SEC-013).
+    const offset = Math.min(Math.max(Number(body.offset ?? 0), 0), 100_000)
+    // Date filters must be ISO dates — otherwise PostgreSQL aborts with
+    // "invalid input syntax" (500) on every request (SEC-013).
+    const isoDatum = /^\d{4}-\d{2}-\d{2}([T ].*)?$/
+    if ((body.von && !isoDatum.test(body.von)) || (body.bis && !isoDatum.test(body.bis))) {
+      return reply.code(400).send({
+        code: 'VALIDATION',
+        message: 'von/bis müssen ISO-Daten sein (YYYY-MM-DD)',
+      })
+    }
 
     const db = getDb()
     const conditions: Array<Parameters<typeof and>[0]> = []

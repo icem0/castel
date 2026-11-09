@@ -110,7 +110,17 @@ export async function adminRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/api/admin/db/clear',
     { preHandler: app.requireAdmin },
-    async (_req, reply) => {
+    async (req, reply) => {
+      // Destructive operation: requires an explicit confirmation, analogous to
+      // the booking bulk-delete (`bestaetigt: true`) and the restore
+      // (`confirm: 'yes'`) (SEC-024).
+      const body = req.body as { bestaetigt?: unknown } | undefined
+      if (!body || body.bestaetigt !== true) {
+        return reply.code(400).send({
+          code: 'VALIDATION',
+          message: 'db/clear benötigt { bestaetigt: true }',
+        })
+      }
       const db = getDb()
 
       // PostgreSQL rejects separate TRUNCATE calls when an FK points from an

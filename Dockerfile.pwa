@@ -34,6 +34,9 @@ FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html
 # nginx-Konfig: SPA-Routing (alles auf index.html), Healthz, Cache-Headers
 COPY nginx-pwa.conf /etc/nginx/conf.d/default.conf
+# Security-Header (CSP, X-Frame-Options, nosniff, Referrer-Policy,
+# Permissions-Policy) als Snippet — nginx-pwa.conf bindet es in jede Location.
+COPY nginx-security-headers.conf /etc/nginx/security-headers.conf
 # Entrypoint generiert beim Container-Start /usr/share/nginx/html/config.js
 # aus der ENV VITE_API_URL (siehe scripts/pwa-entrypoint.sh).
 COPY scripts/pwa-entrypoint.sh /docker-entrypoint.sh

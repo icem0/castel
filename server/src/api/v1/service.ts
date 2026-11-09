@@ -334,8 +334,26 @@ export async function createArtikel(
   auth: ApiAuthContext,
 ): Promise<ArtikelDetail> {
   const now = new Date().toISOString()
+  const id = input.id ?? crypto.randomUUID()
+  // A client-supplied ID must not overwrite an existing article: the
+  // resolver would apply the create as a last-writer-wins update (SEC-016).
+  if (input.id !== undefined) {
+    const db = getDb()
+    const vorhanden = await db
+      .select({ id: artikel.id })
+      .from(artikel)
+      .where(eq(artikel.id, id))
+      .limit(1)
+    if (vorhanden.length > 0) {
+      throw new ApiV1Error(
+        409,
+        'ID_EXISTS',
+        `Artikel ${id} existiert bereits — bitte eine andere ID verwenden`,
+      )
+    }
+  }
   const payload = {
-    id: input.id ?? crypto.randomUUID(),
+    id,
     sharePointId: null,
     titel: input.titel,
     status: input.status,

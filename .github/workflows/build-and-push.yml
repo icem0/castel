@@ -75,6 +75,10 @@ jobs:
         working-directory: server
         run: npm ci --no-audit --no-fund
 
+      - name: Audit (Hinweis, blockiert den Build nicht)
+        working-directory: server
+        run: npm audit --omit=dev || true
+
       - name: Lint
         working-directory: server
         run: npm run lint || true # Server-Lint ist optional, ESLint teilt mit Frontend
@@ -190,6 +194,9 @@ jobs:
 
       - name: Generate version info
         run: npm run version:write
+
+      - name: Audit (Hinweis, blockiert den Build nicht)
+        run: npm audit --omit=dev || true
 
       - name: Lint
         run: npm run lint

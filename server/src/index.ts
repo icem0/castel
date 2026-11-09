@@ -203,9 +203,16 @@ async function main() {
     if (code === 'FST_REQ_FILE_TOO_LARGE') {
       return reply.code(413).send({ code: 'PAYLOAD_TOO_LARGE', message: 'Datei zu groß' })
     }
+    // Nur eigene Fehlercodes (VALIDATION, HAS_DEPENDENCIES, …) tragen eine
+    // sprechende Meldung. Datenbank-/Treiberfehler (numerische Postgres-
+    // Codes wie 22007) oder unbekannte Exceptions werden nicht nach aussen
+    // gespiegelt — sie enthalten SQL-Fragmente und interne Details
+    // (SEC-003).
+    const eigenerCode =
+      typeof e.code === 'string' && /^[A-Z][A-Z0-9_]*$/.test(e.code) && e.code !== 'INTERNAL'
     return reply.code(e.statusCode ?? 500).send({
       code,
-      message: e.message ?? 'Interner Server-Fehler',
+      message: eigenerCode ? (e.message ?? 'Interner Server-Fehler') : 'Interner Server-Fehler',
     })
   })
 
@@ -224,6 +231,16 @@ async function main() {
   try {
     await app.listen({ port: config.PORT, host: config.HOST })
     app.log.info(`castel-server listening on ${config.HOST}:${config.PORT}`)
+    // Sicherheitshinweis: ohne COOKIE_SECURE=true wird das Refresh-Cookie
+    // ohne Secure-Flag ausgeliefert und ist damit im Klartext über HTTP
+    // mitlesbar (SEC-002). In Produktion muss TLS (bzw. eine
+    // Secure-Erzwingung am Reverse-Proxy) aktiv sein.
+    if (!config.COOKIE_SECURE) {
+      app.log.warn(
+        'COOKIE_SECURE=false — das Refresh-Cookie wird ohne Secure-Flag gesetzt. ' +
+          'Nur für lokale Entwicklung ohne HTTPS verwenden.',
+      )
+    }
     // Backup-Voraussetzungen pruefen: ohne pg_dump (postgresql-client)
     // kann kein Backup erstellt werden. Das melden wir sofort beim
     // Start, statt erst wenn der Admin auf "Backup" klickt.
