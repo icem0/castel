@@ -39,24 +39,29 @@ PR-Titeln oder Work-Package-Titeln erscheinen.
 
 ## Abdeckungstabelle
 
-Stand des ersten vollständigen Laufs (Commit `42b01858`, 2026-11-06).
-"offen" zählt die Findings in `.security/findings.md` mit Status `open` für den
-jeweiligen Bereich; "behoben" zählt Status `fixed`.
+Erster vollständiger Lauf: geprüft wurde der Stand `42b01858` (2026-11-06).
+Der anschließende Fix-Lauf (`326cd4d`, 2026-11-06) hat die als `fixed`
+markierten Findings umgesetzt; die Tabelle führt daher beide SHAs.
+"offen" zählt Findings mit Status `open`, "angenommen" mit Status `accepted`
+(bewusste Design-Entscheidung — braucht ggf. ein Work Package),
+"Fehlbefund" mit Status `false-positive`, "behoben" mit Status `fixed`.
+Die Details (Fundstelle, Angriffspfad, Empfehlung) stehen ausschließlich in
+`.security/findings.md`.
 
-| Bereich | zuletzt geprüft (Commit-SHA) | Datum | offen | behoben |
-|---------|------------------------------|-------|-------|---------|
-| A Authentifizierung / Sessions / Tokens | 42b01858 | 2026-11-06 | 4 | 0 |
-| B Autorisierung (Routen einzeln) | 42b01858 | 2026-11-06 | 21 | 0 |
-| C Input-Validierung / Injection | 42b01858 | 2026-11-06 | 2 | 0 |
-| D Frontend (XSS, CSP, lokale Speicherung) | 42b01858 | 2026-11-06 | 5 | 0 |
-| E HTTP-Hardening | 42b01858 | 2026-11-06 | 1 | 0 |
-| F Secrets / Config | 42b01858 | 2026-11-06 | 0 | 0 |
-| G Dateien (Upload / Download / Pfade) | 42b01858 | 2026-11-06 | 1 | 0 |
-| H Abhängigkeiten | 42b01858 | 2026-11-06 | 0 | 0 |
-| I Docker / Compose | 42b01858 | 2026-11-06 | 1 | 0 |
-| J CI / CD | 42b01858 | 2026-11-06 | 2 | 0 |
-| K Logging / personenbezogene Daten | 42b01858 | 2026-11-06 | 1 | 0 |
-| **Gesamt** | 42b01858 | 2026-11-06 | **37** | **0** |
+| Bereich | zuletzt geprüft (Commit-SHA) | Datum | offen | behoben | angenommen | Fehlbefund |
+|---------|------------------------------|-------|-------|---------|------------|------------|
+| A Authentifizierung / Sessions / Tokens | 42b01858 → 326cd4d | 2026-11-06 | 0 | 3 | 0 | 0 |
+| B Autorisierung (Routen einzeln) | 42b01858 → 326cd4d | 2026-11-06 | 0 | 15 | 4 | 2 |
+| C Input-Validierung / Injection | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 0 | 0 |
+| D Frontend (XSS, CSP, lokale Speicherung) | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 3 | 0 |
+| E HTTP-Hardening | 42b01858 → 326cd4d | 2026-11-06 | 0 | 1 | 0 | 0 |
+| F Secrets / Config | 42b01858 → 326cd4d | 2026-11-06 | 0 | 0 | 0 | 0 |
+| G Dateien (Upload / Download / Pfade) | 42b01858 → 326cd4d | 2026-11-06 | 0 | 0 | 1 | 0 |
+| H Abhängigkeiten | 42b01858 → 326cd4d | 2026-11-06 | 0 | 0 | 0 | 0 |
+| I Docker / Compose | 42b01858 → 326cd4d | 2026-11-06 | 0 | 0 | 1 | 0 |
+| J CI / CD | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 0 | 0 |
+| K Logging / personenbezogene Daten | 42b01858 → 326cd4d | 2026-11-06 | 0 | 0 | 1 | 0 |
+| **Gesamt** | 42b01858 → 326cd4d | 2026-11-06 | **0** | **25** | **10** | **2** |
 
 ## Regeln für Wiederholungsläufe
 
