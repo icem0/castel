@@ -1,18 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
 import { holeAktiveUserliste, type UserDto } from '../auth/users'
 import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
-import {
-  checkUpdate,
-  fetchUpdateState,
-  requestUpdate,
-  type UpdateCheck,
-  type UpdateState,
-} from '../services/admin/update'
+import { fetchUpdateState, type UpdateState } from '../services/admin/update'
+import { checkUpdate, startUpdate, type UpdateCheck } from '../services/admin/update-webhook'
 import {
   collectReseedPlan,
   reseedServer,
@@ -48,18 +43,15 @@ const reseedGuardFehler = ref(false)
 
 const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
 const updateFehler = ref<string | null>(null)
+const updateErfolg = ref<string | null>(null)
 const updateState = ref<UpdateState | null>(null)
 /** Der Server ist während des Stack-Neustarts kurz nicht erreichbar. */
 const updateServerAus = ref(false)
 const updateCheck = ref<UpdateCheck | null>(null)
 const updateCheckLaeuft = ref(false)
 const updateCheckFehler = ref<string | null>(null)
-/** Grund, warum der Server das Update nicht selbst starten konnte. */
-const updateStartGrund = ref<string | null>(null)
-const updateFallbackOffen = ref(false)
 /** Zeigt die Webhook-Info-Karte (externes System kann Update ausloesen). */
 const updateWebhookInfo = ref(false)
-let updateTimer: ReturnType<typeof setInterval> | null = null
 
 /** API-Basis-URL fuer den Webhook-Endpunkt. */
 const apiBaseUrl = computed(() => getApiBaseUrl())
@@ -494,81 +486,46 @@ async function updateCheckLaden(): Promise<void> {
 async function updateFrageStarten(): Promise<void> {
   updatePhase.value = 'bestaetigen'
   updateFehler.value = null
+  updateErfolg.value = null
   updateServerAus.value = false
-  updateStartGrund.value = null
 }
 function updateAbbrechen(): void {
   updatePhase.value = 'idle'
   updateFehler.value = null
+  updateErfolg.value = null
   updateServerAus.value = false
-  updateStartGrund.value = null
-  updatePollingStoppen()
-}
-function updatePollingStoppen(): void {
-  if (updateTimer !== null) {
-    clearInterval(updateTimer)
-    updateTimer = null
-  }
 }
 async function updateBestaetigen(): Promise<void> {
   updatePhase.value = 'laufend'
   updateFehler.value = null
+  updateErfolg.value = null
   updateServerAus.value = false
-  updateStartGrund.value = null
   try {
-    const result = await requestUpdate()
-    updateState.value = result.state
+    const result = await startUpdate()
     if (!result.started) {
-      // Der Server konnte den Updater nicht starten (z. B. kein Docker-Socket).
-      // Der Marker steht trotzdem - der Befehl unten bleibt als Fallback.
-      updateStartGrund.value = result.reason ?? 'UNKNOWN'
-      updateFallbackOffen.value = true
       updatePhase.value = 'fehler'
-      updateFehler.value = t('view.development.updateStartFehler')
+      updateFehler.value = result.message ?? t('view.development.updateStartFehler')
       return
     }
+    updateErfolg.value = result.message ?? null
+    updatePhase.value = 'fertig'
+    // Read-only diagnostics snapshot of what scripts/update.sh wrote.
+    void updateStatusLaden()
   } catch (e) {
     updateFehler.value = e instanceof Error ? e.message : String(e)
     updatePhase.value = 'fehler'
-    return
   }
-  await updateStatusLaden()
-  updatePollingStarten()
-}
-function updatePollingStarten(): void {
-  updatePollingStoppen()
-  updateTimer = setInterval(() => {
-    void updateStatusLaden()
-  }, 3000)
 }
 async function updateStatusLaden(): Promise<void> {
   try {
     const state = await fetchUpdateState()
     updateState.value = state
     updateServerAus.value = false
-    if (state.phase === 'done') {
-      updatePhase.value = 'fertig'
-      updatePollingStoppen()
-    } else if (state.phase === 'failed') {
-      updatePhase.value = 'fehler'
-      updateFehler.value = state.message
-      updatePollingStoppen()
-    } else {
-      updatePhase.value = 'laufend'
-    }
-  } catch (e) {
-    // Waehrend des Neustarts ist der API-Container kurz weg. Das ist kein
-    // Fehler - der Poller wartet einfach weiter.
+  } catch {
+    // Waehrend des Neustarts ist der API-Container kurz weg.
     updateServerAus.value = true
-    if (updatePhase.value === 'laufend') return
-    updateFehler.value = e instanceof Error ? e.message : String(e)
-    updatePhase.value = 'fehler'
   }
 }
-
-onBeforeUnmount(() => {
-  updatePollingStoppen()
-})
 </script>
 
 <template>
@@ -1118,15 +1075,26 @@ onBeforeUnmount(() => {
           <p v-if="updateCheck.error" class="hint">
             {{ t('view.development.updateCheckFehler', { error: updateCheck.error }) }}
           </p>
-          <p v-if="updateCheck.canSelfUpdate === false" class="hint hint-danger">
-            {{ t('view.development.updateNoSelfUpdate') }}
-            <span v-if="updateCheck.selfUpdateReason">
-              ({{
-                t('view.development.updateNoSelfUpdateGrund', {
-                  grund: updateCheck.selfUpdateReason,
-                })
-              }})
-            </span>
+          <p v-if="updateCheck.webhook.selfCall" class="hint hint-danger">
+            {{ t('view.development.updateWebhookSelfCall') }}
+          </p>
+          <p v-else-if="!updateCheck.webhook.configured" class="hint hint-danger">
+            {{ t('view.development.updateWebhookNichtKonfiguriert') }}
+          </p>
+          <p v-else-if="!updateCheck.webhook.reachable" class="hint hint-danger">
+            {{
+              t('view.development.updateWebhookNichtErreichbar', {
+                target: updateCheck.webhook.target ?? '?',
+                grund: updateCheck.webhook.reason ?? '?',
+              })
+            }}
+          </p>
+          <p v-else class="hint hint-ok">
+            {{
+              t('view.development.updateWebhookErreichbar', {
+                target: updateCheck.webhook.target ?? '?',
+              })
+            }}
           </p>
         </template>
         <p v-if="updateCheckFehler" class="wert-fehler">{{ updateCheckFehler }}</p>
@@ -1186,16 +1154,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Fallback: nur wenn der Server das Update nicht selbst starten kann -->
-    <div v-if="updateFallbackOffen" class="card update-anleitung">
-      <h3>{{ t('view.development.updateFallbackTitel') }}</h3>
-      <p class="hint">{{ t('view.development.updateFallbackText') }}</p>
-      <pre>{{ t('view.development.updateAnleitungBefehl') }}</pre>
-      <p v-if="updateStartGrund" class="hint">
-        {{ t('view.development.updateStartGrund', { grund: updateStartGrund }) }}
-      </p>
-    </div>
-
     <!-- Webhook-Info: externes System kann Update auf diesem Server ausloesen -->
     <div v-if="updateWebhookInfo" class="card update-anleitung">
       <h3>{{ t('view.development.updateWebhookTitel') }}</h3>
@@ -1211,7 +1169,7 @@ onBeforeUnmount(() => {
 
     <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
       <template v-if="updatePhase === 'fertig'">
-        <p class="hint hint-ok">{{ t('view.development.updateFertigText') }}</p>
+        <p class="hint hint-ok">{{ updateErfolg || t('view.development.updateFertigText') }}</p>
         <p class="hint">{{ t('view.development.updateNachHinweis') }}</p>
         <div class="actions">
           <button type="button" @click="updateAbbrechen">

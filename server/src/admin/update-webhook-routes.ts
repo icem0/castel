@@ -1,21 +1,27 @@
-// Update-Endpunkte (ersetzen den alten Docker-basierten Self-Update aus
-// /api/admin/update/*). Der Server prüft GitHub auf eine neuere Version und
-// löst bei Bedarf einen Deploy-Webhook aus.
+// Update endpoints (replace the former Docker-based self-update from
+// /api/admin/update/*). The server checks GitHub for a newer version and, when
+// requested, calls an external update webhook with a shared token.
 //
-// Endpunkte (beide admin-only):
-//   GET  /api/update/check   → installierte vs. neueste Version + Commits
-//   POST /api/update/start   → POST an UPDATE_WEBHOOK_URL (X-Deploy-Token)
-//                              + 5-Minuten-Doppelklick-Schutz
+// Endpoints:
+//   GET  /api/update/check   → installed vs. latest version + commits + webhook status
+//   POST /api/update/start   → POST to UPDATE_WEBHOOK_URL and report the real result
+//   POST /api/admin/update/webhook (inbound, token-only)
+//                            → marks an update request in the DB; the actual
+//                              update is executed by an external host-side
+//                              runner (scripts/update.sh). No sidecar container.
 //
-// Das Token (UPDATE_WEBHOOK_TOKEN) kommt NIE ans Frontend.
-// Der Pfad zum Update-Skript kommt aus CASTEL_REPO_DIR in der .env.
-// Trage dort den absoluten Host-Pfad zum Castel-Checkout ein, z.B.:
-//   CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
-// Das Skript scripts/update.sh wird dann von genau diesem Verzeichnis aus
-// ausgeführt.
+// The token (UPDATE_WEBHOOK_TOKEN) is NEVER sent to the frontend.
+//
+// IMPORTANT (container networking): `127.0.0.1` inside the API container is the
+// API itself, not the host. An external update daemon on the host must therefore
+// be addressed via `http://host.docker.internal:3000/...` (mapped by
+// `extra_hosts` in docker-compose.yml). A self-call URL is rejected with
+// WEBHOOK_SELF_CALL because, without the removed updater sidecar, the API cannot
+// execute a host update on its own.
 
 import type { FastifyInstance } from 'fastify'
 import { timingSafeEqual } from 'node:crypto'
+import { connect } from 'node:net'
 import { config } from '../config/config.js'
 import {
   buildRequestDocument,
@@ -23,15 +29,29 @@ import {
   readUpdateState,
   writeUpdateState,
 } from './update-routes.js'
-import { startUpdater } from './update-runner.js'
 
 const CHECK_CACHE_TTL_MS = 60_000
 const START_COOLDOWN_MS = 5 * 60_000
+const WEBHOOK_TIMEOUT_MS = 8_000
+const WEBHOOK_PROBE_TIMEOUT_MS = 1_500
 
 type CommitInfo = {
   sha: string
   message: string
   date: string | null
+}
+
+export type WebhookStatus = {
+  /** UPDATE_WEBHOOK_URL is set. */
+  configured: boolean
+  /** Protocol + host + port of the target (never contains the token). */
+  target: string | null
+  /** A TCP connection to the target succeeded. */
+  reachable: boolean
+  /** Machine-readable diagnosis when reachable is false (or selfCall). */
+  reason: string | null
+  /** The URL points at the API container itself (no host executor). */
+  selfCall: boolean
 }
 
 export type CheckResult = {
@@ -43,6 +63,7 @@ export type CheckResult = {
   checkedAt: string
   /** Fehlermeldung, wenn der Check fehlgeschlagen ist (GitHub nicht erreichbar, Rate-Limit, ...). */
   error?: string
+  webhook: WebhookStatus
 }
 
 export type CheckDeps = {
@@ -51,11 +72,13 @@ export type CheckDeps = {
   branch?: string
   token?: string
   current?: string | null
+  webhookUrl?: string
+  webhookProbe?: (url: string) => Promise<WebhookStatus>
 }
 
 type CheckCache = {
   key: string
-  data: CheckResult
+  data: Omit<CheckResult, 'webhook'>
   fetchedAt: number
 }
 
@@ -65,6 +88,11 @@ let lastStartAt = 0
 /** Leert den Check-Cache (Tests / manuelles Neuladen). */
 export function resetUpdateCache(): void {
   checkCache = null
+}
+
+/** Resets the in-process start cooldown (tests). */
+export function resetUpdateCooldown(): void {
+  lastStartAt = 0
 }
 
 function githubHeaders(token: string): Record<string, string> {
@@ -97,16 +125,191 @@ function datum(commit: unknown): string | null {
   return c?.commit?.committer?.date ?? null
 }
 
+// ---------------------------------------------------------------------------
+// Webhook reachability + dispatch
+// ---------------------------------------------------------------------------
+
+/** Protocol + host + port of a webhook URL, without credentials or path. */
+export function webhookTarget(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.protocol}//${parsed.host}`
+  } catch {
+    return null
+  }
+}
+
 /**
- * Prüft GitHub auf eine neuere Version als die installierte (GIT_COMMIT).
- * Ergebnis wird 60 Sekunden gecacht; Fehler werden nicht gecacht.
- *
- * Wirft NIE: ein fehlgeschlagener Check liefert ein Ergebnis mit gesetztem
- * `error`-Feld. So bleibt `current` (die installierte Version) immer
- * sichtbar — der Admin sieht, was installiert ist, und zusätzlich, warum
- * der Vergleich nicht klappte.
+ * True when the URL points at this very API container (loopback + own port).
+ * Such a self-call cannot start a host update without the removed sidecar.
  */
-export async function checkLatestVersion(deps: CheckDeps = {}): Promise<CheckResult> {
+export function isSelfCallUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
+    if (!loopback) return false
+    const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80
+    const ownPort = Number(process.env.PORT ?? 3000)
+    return port === ownPort
+  } catch {
+    return false
+  }
+}
+
+function tcpProbe(host: string, port: number, timeoutMs: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false
+    const socket = connect({ host, port })
+    const finish = (reason: string | null): void => {
+      if (settled) return
+      settled = true
+      socket.destroy()
+      resolve(reason)
+    }
+    socket.setTimeout(timeoutMs)
+    socket.once('connect', () => finish(null))
+    socket.once('timeout', () => finish('TIMEOUT'))
+    socket.once('error', (error: NodeJS.ErrnoException) => finish(error.code ?? 'UNREACHABLE'))
+  })
+}
+
+/**
+ * Side-effect-free reachability check: opens a TCP connection to the webhook
+ * target but never sends the request. Used by the version panel to show an
+ * offline update daemon before the admin clicks the button.
+ */
+export async function probeWebhook(
+  url: string,
+  timeoutMs = WEBHOOK_PROBE_TIMEOUT_MS,
+): Promise<WebhookStatus> {
+  if (!url) {
+    return { configured: false, target: null, reachable: false, reason: 'NOT_CONFIGURED', selfCall: false }
+  }
+  const target = webhookTarget(url)
+  if (!target) {
+    return { configured: true, target: null, reachable: false, reason: 'INVALID_URL', selfCall: false }
+  }
+  const selfCall = isSelfCallUrl(url)
+  if (selfCall) {
+    return { configured: true, target, reachable: false, reason: 'SELF_CALL', selfCall: true }
+  }
+  try {
+    const parsed = new URL(url)
+    const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80
+    const reason = await tcpProbe(parsed.hostname, port, timeoutMs)
+    return { configured: true, target, reachable: reason === null, reason, selfCall: false }
+  } catch {
+    return { configured: true, target, reachable: false, reason: 'INVALID_URL', selfCall: false }
+  }
+}
+
+export type WebhookFireResult = {
+  ok: boolean
+  status: number | null
+  /** Parsed JSON response body, if the receiver returned one. */
+  body: unknown
+  /** Machine-readable reason when ok is false. */
+  reason: string | null
+  message: string | null
+}
+
+function bodyField(body: unknown, key: string): unknown {
+  if (!body || typeof body !== 'object') return undefined
+  return (body as Record<string, unknown>)[key]
+}
+
+/**
+ * POSTs to the update webhook and waits for the real result. A receiver that
+ * answers non-2xx, is unreachable, times out, or returns `started:false` /
+ * `requested:false` is reported as a failure — never swallowed.
+ */
+export async function fireUpdateWebhook(
+  url: string,
+  token: string,
+  payload: Record<string, unknown>,
+  deps: { fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+): Promise<WebhookFireResult> {
+  if (!url) {
+    return { ok: false, status: null, body: null, reason: 'NOT_CONFIGURED', message: 'UPDATE_WEBHOOK_URL ist nicht konfiguriert.' }
+  }
+  if (isSelfCallUrl(url)) {
+    return {
+      ok: false,
+      status: null,
+      body: null,
+      reason: 'SELF_CALL',
+      message:
+        'UPDATE_WEBHOOK_URL zeigt auf die API selbst (127.0.0.1/localhost). Nutze die Host-Adresse des Update-Dienstes, z.B. http://host.docker.internal:3000/…',
+    }
+  }
+
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const timeoutMs = deps.timeoutMs ?? WEBHOOK_TIMEOUT_MS
+
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Deploy-Token': token,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+
+    let body: unknown = null
+    try {
+      body = await res.json()
+    } catch {
+      // Receiver may answer with an empty/non-JSON body.
+    }
+
+    if (!res.ok) {
+      const message = bodyField(body, 'message')
+      return {
+        ok: false,
+        status: res.status,
+        body,
+        reason: `HTTP_${res.status}`,
+        message: typeof message === 'string' ? message : `Der Update-Dienst antwortete mit HTTP ${res.status}.`,
+      }
+    }
+
+    if (bodyField(body, 'started') === false || bodyField(body, 'requested') === false) {
+      const reason = bodyField(body, 'reason')
+      const message = bodyField(body, 'message')
+      return {
+        ok: false,
+        status: res.status,
+        body,
+        reason: typeof reason === 'string' ? reason : 'REJECTED',
+        message: typeof message === 'string' ? message : 'Der Update-Dienst hat die Anforderung abgelehnt.',
+      }
+    }
+
+    return { ok: true, status: res.status, body, reason: null, message: null }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error))
+    const timedOut = err.name === 'TimeoutError' || err.name === 'AbortError'
+    return {
+      ok: false,
+      status: null,
+      body: null,
+      reason: timedOut ? 'TIMEOUT' : 'UNREACHABLE',
+      message: timedOut
+        ? `Der Update-Dienst antwortete nicht innerhalb von ${Math.round(timeoutMs / 1000)} s.`
+        : `Der Update-Dienst ist nicht erreichbar: ${err.message}`,
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GitHub version check
+// ---------------------------------------------------------------------------
+
+async function resolveGithub(deps: CheckDeps): Promise<Omit<CheckResult, 'webhook'>> {
   const fetchImpl = deps.fetchImpl ?? fetch
   const repo = deps.repo ?? config.GITHUB_REPO
   const branch = deps.branch ?? config.GITHUB_BRANCH
@@ -131,7 +334,6 @@ export async function checkLatestVersion(deps: CheckDeps = {}): Promise<CheckRes
     }
   }
 
-  // Cache hit (nur erfolgreiche Ergebnisse, pro Repo+Branch+Version)
   const cacheKey = `${repo}@${branch}#${current ?? 'unknown'}`
   const now = Date.now()
   if (checkCache && checkCache.key === cacheKey && now - checkCache.fetchedAt < CHECK_CACHE_TTL_MS) {
@@ -167,16 +369,15 @@ export async function checkLatestVersion(deps: CheckDeps = {}): Promise<CheckRes
             commits.push({ sha: (c as { sha: string }).sha, message: betreff(c), date: datum(c) })
           }
         } catch {
-          // Compare fehlgeschlagen — Update trotzdem melden, Commits bleiben leer
+          // Compare failed — still report the update, commits stay empty.
         }
       }
     } else {
-      // Keine installierte Version bekannt → nur den HEAD-Commit anzeigen.
-      // Die erste Antwort IST der Commit — kein zweiter Request nötig.
+      // No installed version known → show only the HEAD commit.
       commits.push({ sha: latestSha, message: betreff(latest), date: datum(latest) })
     }
 
-    const result: CheckResult = {
+    const result: Omit<CheckResult, 'webhook'> = {
       current,
       latest: latestSha,
       updateAvailable,
@@ -199,11 +400,22 @@ export async function checkLatestVersion(deps: CheckDeps = {}): Promise<CheckRes
   }
 }
 
+/**
+ * Checks GitHub for a newer version than the installed one and probes the
+ * update webhook. Never throws: a failed check yields an `error` field, and the
+ * webhook status is always present so the UI can show an offline daemon.
+ */
+export async function checkLatestVersion(deps: CheckDeps = {}): Promise<CheckResult> {
+  const webhookUrl = deps.webhookUrl ?? config.UPDATE_WEBHOOK_URL
+  const webhook = await (deps.webhookProbe ?? probeWebhook)(webhookUrl)
+  const github = await resolveGithub(deps)
+  return { ...github, webhook }
+}
+
 export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
   // ---------- GET /api/update/check ----------
-  // Antwortet IMMER mit 200 und einem vollständigen Ergebnis: die installierte
-  // Version bleibt sichtbar, ein fehlgeschlagener Vergleich steht im
-  // `error`-Feld. Ein 5xx würde die Response-Form im Frontend brechen.
+  // Always 200 with a complete result: the installed version stays visible and
+  // a failed comparison is reported in the `error` field.
   app.get('/api/update/check', { preHandler: app.requireAdmin }, async (_req, reply) => {
     const result = await checkLatestVersion()
     return reply.send(result)
@@ -211,7 +423,8 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
 
   // ---------- POST /api/update/start ----------
   app.post('/api/update/start', { preHandler: app.requireAdmin }, async (_req, reply) => {
-    // Doppelklick-Schutz: kein zweiter Start innerhalb von 5 Minuten
+    // Double-click guard: no second start within 5 minutes. Only a *successful*
+    // dispatch starts the cooldown, so a failed attempt can be retried at once.
     const now = Date.now()
     if (now - lastStartAt < START_COOLDOWN_MS) {
       const reste = Math.ceil((START_COOLDOWN_MS - (now - lastStartAt)) / 1000)
@@ -221,7 +434,7 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
-    // Nochmal serverseitig prüfen, ob ein Update verfügbar ist
+    // Re-check server-side whether an update is available.
     const check = await checkLatestVersion()
     if (check.error) {
       return reply.code(502).send({ code: 'UPDATE_CHECK_FAILED', message: check.error })
@@ -232,46 +445,46 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
         message: 'Kein Update verfügbar.',
       })
     }
-
     if (!config.UPDATE_WEBHOOK_URL) {
       return reply.code(500).send({
         code: 'UPDATE_NO_WEBHOOK',
-        message: 'UPDATE_WEBHOOK_URL nicht konfiguriert.',
+        message:
+          'UPDATE_WEBHOOK_URL ist nicht konfiguriert. Setze die Adresse des Update-Dienstes in der .env.',
+      })
+    }
+
+    // Wait for the real webhook result instead of fire-and-forget. The admin
+    // gets a definitive success/failure answer.
+    const fired = await fireUpdateWebhook(config.UPDATE_WEBHOOK_URL, config.UPDATE_WEBHOOK_TOKEN, {
+      triggeredAt: new Date().toISOString(),
+      current: check.current,
+      latest: check.latest,
+    })
+
+    if (!fired.ok) {
+      return reply.code(502).send({
+        code: 'UPDATE_WEBHOOK_FAILED',
+        reason: fired.reason,
+        status: fired.status,
+        message: fired.message ?? 'Der Update-Dienst konnte nicht erreicht werden.',
       })
     }
 
     lastStartAt = now
-
-    // Webhook auslösen (nicht auf Antwort warten — die App startet selbst neu)
-    void (async () => {
-      try {
-        await fetch(config.UPDATE_WEBHOOK_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Deploy-Token': config.UPDATE_WEBHOOK_TOKEN,
-          },
-          body: JSON.stringify({
-            triggeredAt: new Date().toISOString(),
-            current: check.current,
-            latest: check.latest,
-          }),
-        })
-      } catch {
-        // Webhook-Fehler wird nicht zurückgemeldet; der Start wurde akzeptiert
-      }
-    })()
-
-    return reply.send({ started: true })
+    return reply.send({
+      started: true,
+      webhookStatus: fired.status,
+      message: 'Update beim Update-Dienst ausgelöst.',
+    })
   })
 }
 
 // ---------- POST /api/admin/update/webhook (inbound) ----------
-// Externes System (CI/CD, Orchestrator, Portainer, ...)
-// kann ein Update auf dem Server ausloesen.
-// Geschuetzt nur durch X-Deploy-Token (UPDATE_WEBHOOK_TOKEN), kein JWT noetig.
-// Fuehrt denselben Ablauf aus wie POST /api/admin/update:
-// Marker server.updateState in die DB + kurzlebigen Updater-Container starten.
+// External systems (CI/CD, orchestrator, ...) can request an update on this
+// server. Protected only by X-Deploy-Token (no JWT). This endpoint writes the
+// `server.updateState` marker; the actual execution is done by an external
+// host-side runner (scripts/update.sh --if-requested). No updater container is
+// started from inside the API.
 export async function updateInboundWebhookRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/admin/update/webhook', async (req, reply) => {
     if (!config.UPDATE_WEBHOOK_TOKEN) {
@@ -311,11 +524,12 @@ export async function updateInboundWebhookRoutes(app: FastifyInstance): Promise<
     const requestedDocument = buildRequestDocument(now)
     await writeUpdateState(requestedDocument)
 
-    const updater = await startUpdater()
     return reply.send({
       requested: true,
-      started: updater.started,
-      reason: updater.reason ?? null,
+      executed: false,
+      reason: 'EXTERNAL_RUNNER_REQUIRED',
+      message:
+        'Update angefordert. Die Ausführung übernimmt der externe Update-Dienst (scripts/update.sh).',
       state: parseUpdateState(requestedDocument),
     })
   })

@@ -94,6 +94,7 @@ const updateCheckLaeuft = ref(false)
 const updateCheckFehler = ref<string | null>(null)
 const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
 const updateFehler = ref<string | null>(null)
+const updateErfolg = ref<string | null>(null)
 
 // ---------------------------------------------------------------------------
 // Inventur-Stichtag-Countdown im Menü (nur für inventur.erstellen).
@@ -180,16 +181,25 @@ function updateFehlerText(e: unknown): string {
 function updateFrageStarten(): void {
   updatePhase.value = 'bestaetigen'
   updateFehler.value = null
+  updateErfolg.value = null
 }
 function updateAbbrechen(): void {
   updatePhase.value = 'idle'
   updateFehler.value = null
+  updateErfolg.value = null
 }
 async function updateBestaetigen(): Promise<void> {
   updatePhase.value = 'laufend'
   updateFehler.value = null
+  updateErfolg.value = null
   try {
-    await startUpdate()
+    const res = await startUpdate()
+    if (!res.started) {
+      updateFehler.value = res.message ?? t('view.update.startFehlgeschlagen')
+      updatePhase.value = 'fehler'
+      return
+    }
+    updateErfolg.value = res.message ?? null
     updatePhase.value = 'fertig'
   } catch (e) {
     updateFehler.value = updateFehlerText(e)
@@ -1109,6 +1119,7 @@ function formatRelativ(iso: string | null): string {
         :check-fehler="updateCheckFehler"
         :phase="updatePhase"
         :fehler="updateFehler"
+        :erfolg="updateErfolg"
         @pruefen="updatePruefen"
         @start="updateFrageStarten"
         @bestaetigen="updateBestaetigen"

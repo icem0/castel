@@ -30,6 +30,8 @@ const props = defineProps<{
   phase: UpdatePhase
   /** Fehlermeldung des Update-Starts. */
   fehler: string | null
+  /** Erfolgsmeldung des Update-Starts (vom Server). */
+  erfolg?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -67,6 +69,38 @@ const { t } = useI18n()
       <p v-else-if="props.check.updateAvailable === false" class="hint hint-ok">
         {{ t('view.update.aktuellVersion') }}
       </p>
+
+      <!-- Update-Dienst-Status: der Button kann nur funktionieren, wenn der
+           externe Webhook konfiguriert und erreichbar ist. -->
+      <p
+        v-if="props.check.webhook.selfCall"
+        class="wert-fehler"
+        data-test="update-webhook-selfcall"
+      >
+        {{ t('view.update.webhookSelfCall') }}
+      </p>
+      <p
+        v-else-if="!props.check.webhook.configured"
+        class="wert-fehler"
+        data-test="update-webhook-nicht-konfiguriert"
+      >
+        {{ t('view.update.webhookNichtKonfiguriert') }}
+      </p>
+      <p
+        v-else-if="!props.check.webhook.reachable"
+        class="wert-fehler"
+        data-test="update-webhook-nicht-erreichbar"
+      >
+        {{
+          t('view.update.webhookNichtErreichbar', {
+            target: props.check.webhook.target ?? '?',
+            grund: props.check.webhook.reason ?? '?',
+          })
+        }}
+      </p>
+      <p v-else class="hint hint-ok" data-test="update-webhook-erreichbar">
+        {{ t('view.update.webhookErreichbar', { target: props.check.webhook.target ?? '?' }) }}
+      </p>
     </template>
 
     <!-- Der Button bleibt immer sichtbar — auch waehrend und nach dem Check. -->
@@ -94,7 +128,7 @@ const { t } = useI18n()
     <!-- Update-Bestaetigung / Status -->
     <div v-if="props.phase !== 'idle'" class="confirm" role="alertdialog" data-test="update-dialog">
       <template v-if="props.phase === 'fertig'">
-        <p class="hint hint-ok">{{ t('view.update.startErfolg') }}</p>
+        <p class="hint hint-ok">{{ props.erfolg || t('view.update.startErfolg') }}</p>
         <div class="actions">
           <button type="button" @click.stop="emit('schliessen')">
             {{ t('view.common.schliessen') }}

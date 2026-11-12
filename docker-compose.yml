@@ -88,11 +88,6 @@ services:
 
   api:
     image: ghcr.io/icem0/castel-api:${IMAGE_TAG:-latest}
-    # Self-update needs the Docker socket. The API image itself runs as the
-    # unprivileged `castel` user; root is required here so the updater sidecar
-    # can start (`docker compose up -d`) regardless of the host socket GID.
-    # This is the same access model as the StoerDesk update agent.
-    user: "0:0"
     restart: unless-stopped
     depends_on:
       db:
@@ -127,18 +122,8 @@ services:
       DATANORM_MAX_FEHLER_ABSOLUT: ${DATANORM_MAX_FEHLER_ABSOLUT:-100000}
       DATANORM_CLEANUP_TAGE: ${DATANORM_CLEANUP_TAGE:-730}
       PORT: "3000"
-      # Update: Die API startet einen kurzlebigen Updater-Container
-      # (scripts/update.sh) ueber den Docker-Socket. Das Image fuer diesen
-      # Container ist standardmaessig das eigene; ueberschreibbar, falls noetig.
-      CASTEL_UPDATE_IMAGE: ${CASTEL_UPDATE_IMAGE:-}
-      CASTEL_UPDATER_CONTAINER: ${CASTEL_UPDATER_CONTAINER:-castel-updater}
-      # Host-Pfad zum Castel-Checkout auf dem Server.
-      # Ohne diesen Eintrag versucht die API, den Pfad aus den Compose-Labels
-      # des laufenden Containers zu lesen. In Arcane/Portainer funktioniert das
-      # meist automatisch. Falls nicht, trage hier den exakten Pfad ein, z.B.:
-      #   CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
-      CASTEL_REPO_DIR: ${CASTEL_REPO_DIR:-}
-      REPO_DIR: ${REPO_DIR:-}
+      # Update: Die API ruft den externen Update-Dienst (Host) per Webhook auf.
+      # Der Dienst fuehrt scripts/update.sh aus; es gibt keinen Sidecar-Container.
       # GitHub-Konfiguration für den Versions-Check. Die installierte
       # Version (GIT_COMMIT) wird beim Image-Build als ENV eingebaut und
       # darf hier nicht überschrieben werden, sonst liefert der
@@ -170,12 +155,6 @@ services:
       - fotos-data:/var/lib/castel/fotos
       - backups-data:/var/lib/castel/backups
       - datanorm-data:/var/lib/castel/datanorm
-      # Self-update: die API braucht Zugriff auf den Docker-Socket, um den
-      # kurzlebigen Updater-Container zu starten. Der api-Service laeuft
-      # deshalb als root (siehe `user:` oben) — damit ist kein GID-Abgleich
-      # noetig. Ohne Socket-Mount bleibt der manuelle Weg
-      # (scripts/update.sh) als Fallback.
-      - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:

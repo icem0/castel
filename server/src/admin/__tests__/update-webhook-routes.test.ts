@@ -6,7 +6,15 @@
 // war der Bug, der das Frontend wie "nichts passiert" wirken liess.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { checkLatestVersion, resetUpdateCache } from '../update-webhook-routes.js'
+import {
+  checkLatestVersion,
+  fireUpdateWebhook,
+  isSelfCallUrl,
+  probeWebhook,
+  resetUpdateCache,
+  resetUpdateCooldown,
+  webhookTarget,
+} from '../update-webhook-routes.js'
 
 type FetchCall = { url: string }
 
@@ -169,5 +177,153 @@ describe('checkLatestVersion', () => {
     expect(res.commits[0]?.message).toBe('HEAD-Commit')
     // Kein zweiter Request fuer denselben Commit.
     expect(calls).toHaveLength(1)
+  })
+})
+
+describe('webhookTarget / isSelfCallUrl', () => {
+  it('liefert nur Protokoll, Host und Port', () => {
+    expect(webhookTarget('http://host.docker.internal:3000/hooks/deploy?x=1')).toBe(
+      'http://host.docker.internal:3000',
+    )
+    expect(webhookTarget('kein-url')).toBeNull()
+  })
+
+  it('erkennt einen Self-Call auf die eigene API', async () => {
+    vi.stubEnv('PORT', '3000')
+    expect(isSelfCallUrl('http://127.0.0.1:3000/api/admin/update/webhook')).toBe(true)
+    expect(isSelfCallUrl('http://localhost:3000/x')).toBe(true)
+    expect(isSelfCallUrl('http://host.docker.internal:3000/x')).toBe(false)
+    expect(isSelfCallUrl('http://127.0.0.1:9000/x')).toBe(false)
+    vi.unstubAllEnvs()
+  })
+})
+
+describe('probeWebhook', () => {
+  it('meldet eine fehlende Konfiguration ohne Netzwerkzugriff', async () => {
+    await expect(probeWebhook('')).resolves.toEqual({
+      configured: false,
+      target: null,
+      reachable: false,
+      reason: 'NOT_CONFIGURED',
+      selfCall: false,
+    })
+  })
+
+  it('meldet einen Self-Call als nicht ausführbar', async () => {
+    vi.stubEnv('PORT', '3000')
+    const result = await probeWebhook('http://127.0.0.1:3000/api/admin/update/webhook')
+    expect(result.selfCall).toBe(true)
+    expect(result.reachable).toBe(false)
+    expect(result.reason).toBe('SELF_CALL')
+    vi.unstubAllEnvs()
+  })
+
+  it('meldet eine ungueltige URL', async () => {
+    const result = await probeWebhook('kein-url')
+    expect(result.configured).toBe(true)
+    expect(result.reason).toBe('INVALID_URL')
+  })
+})
+
+describe('fireUpdateWebhook', () => {
+  it('meldet Erfolg bei HTTP 2xx', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ started: true }), { status: 200 }))
+    const result = await fireUpdateWebhook('http://host:3000/hook', 'tok', { a: 1 }, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe(200)
+  })
+
+  it('meldet einen HTTP-Fehler mit Servermeldung', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ message: 'kaputt' }), { status: 500 }),
+    )
+    const result = await fireUpdateWebhook('http://host:3000/hook', 'tok', {}, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('HTTP_500')
+    expect(result.message).toBe('kaputt')
+  })
+
+  it('meldet eine abgelehnte Anforderung (started:false)', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ started: false, reason: 'NO_SOCKET', message: 'kein socket' }), {
+          status: 200,
+        }),
+    )
+    const result = await fireUpdateWebhook('http://host:3000/hook', 'tok', {}, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('NO_SOCKET')
+    expect(result.message).toBe('kein socket')
+  })
+
+  it('meldet einen nicht erreichbaren Dienst', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('fetch failed')
+    })
+    const result = await fireUpdateWebhook('http://host:3000/hook', 'tok', {}, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('UNREACHABLE')
+    expect(result.message).toContain('fetch failed')
+  })
+
+  it('meldet einen Timeout', async () => {
+    const fetchImpl = vi.fn(async () => {
+      const error = new Error('timed out')
+      error.name = 'TimeoutError'
+      throw error
+    })
+    const result = await fireUpdateWebhook('http://host:3000/hook', 'tok', {}, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    expect(result.reason).toBe('TIMEOUT')
+  })
+
+  it('rejected einen Self-Call, ohne zu fetchen', async () => {
+    vi.stubEnv('PORT', '3000')
+    const fetchImpl = vi.fn()
+    const result = await fireUpdateWebhook('http://127.0.0.1:3000/x', 'tok', {}, {
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe('SELF_CALL')
+    expect(fetchImpl).not.toHaveBeenCalled()
+    vi.unstubAllEnvs()
+  })
+
+  it('meldet eine fehlende URL', async () => {
+    const result = await fireUpdateWebhook('', 'tok', {})
+    expect(result.reason).toBe('NOT_CONFIGURED')
+  })
+})
+
+describe('checkLatestVersion webhook status', () => {
+  beforeEach(() => {
+    resetUpdateCache()
+    resetUpdateCooldown()
+  })
+
+  it('liefert den Webhook-Status zusaetzlich zum GitHub-Check', async () => {
+    const { impl } = fetchStub({ latestSha: 'gleich789' })
+    const result = await checkLatestVersion({
+      fetchImpl: impl,
+      repo: 'r',
+      current: 'gleich789',
+      webhookProbe: async () => ({
+        configured: true,
+        target: 'http://host:3000',
+        reachable: true,
+        reason: null,
+        selfCall: false,
+      }),
+    })
+    expect(result.webhook.reachable).toBe(true)
   })
 })

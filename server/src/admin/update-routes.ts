@@ -1,25 +1,18 @@
-// Update-Endpunkte fuer den Entwicklungs-View.
+// Update state document (scripts/update.sh <-> API).
 //
-// Ablauf:
-//   1. PWA ruft GET  /api/admin/update/check    -> laufende vs. neueste Version
-//   2. PWA ruft POST /api/admin/update          -> Marker "requested" in die DB
-//      und startet den Updater über scripts/update.sh.
-//      Das Skript liegt unter CASTEL_REPO_DIR/scripts/update.sh auf dem Host.
-//      Setze CASTEL_REPO_DIR in der .env auf den absoluten Pfad des Checkout,
-//      z.B. CASTEL_REPO_DIR=/var/lib/docker/volumes/arcane_arcane-data/_data/projects/castel
-//   3. PWA pollt GET /api/admin/update/status   -> Phase, Log, Versionen
+// The update itself is executed by an external host-side runner (see
+// scripts/update.sh). The API only:
+//   - writes the "requested" marker (server.updateState) when an update is
+//     requested through the inbound webhook, and
+//   - serves the status document written back by update.sh.
 //
-// Die DB ist der Kanal, weil sie den Neustart des API-Containers ueberlebt:
-// alles im Prozessspeicher waere danach weg. Ohne Docker-Socket (oder ohne
-// Rechte daran) wird nur der Marker gesetzt; die PWA zeigt dann den manuellen
-// Befehl als Fallback.
+// There is no updater sidecar container any more. The DB is the channel because
+// it survives the API container restart during an update.
 
 import type { FastifyInstance } from 'fastify'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen } from '../db/schema.js'
-import { startUpdater } from './update-runner.js'
-import { checkLatestVersion } from './update-check.js'
 
 /** Marker-Key in `einstellungen` (globale Zeile, user_id IS NULL). */
 export const UPDATE_STATE_KEY = 'server.updateState'
@@ -180,53 +173,9 @@ export function buildRequestDocument(now: string): string {
 }
 
 export async function updateRoutes(app: FastifyInstance): Promise<void> {
-  // ---------- GET /api/admin/update/check ----------
-  // Admin-only. Vergleicht die laufende Version mit dem neuesten GHCR-Tag.
-  app.get('/api/admin/update/check', { preHandler: app.requireAdmin }, async (_req, reply) => {
-    const result = await checkLatestVersion()
-    return reply.send(result)
-  })
-
-  // ---------- POST /api/admin/update ----------
-  // Admin-only. Setzt den Marker und startet den Updater-Container.
-  app.post('/api/admin/update', { preHandler: app.requireAdmin }, async (_req, reply) => {
-    const current = await readUpdateState()
-    if (current.phase === 'running') {
-      return reply.code(409).send({
-        code: 'UPDATE_RUNNING',
-        message: 'Ein Update läuft bereits.',
-        state: current,
-      })
-    }
-    if (current.phase === 'requested') {
-      // Schon angefordert - Start trotzdem versuchen (der Marker allein macht
-      // noch nichts).
-      const updater = await startUpdater()
-      return reply.send({
-        requested: true,
-        alreadyRequested: true,
-        started: updater.started,
-        reason: updater.reason ?? null,
-        state: current,
-      })
-    }
-
-    const now = new Date().toISOString()
-    const requestedDocument = buildRequestDocument(now)
-    await writeUpdateState(requestedDocument)
-
-    const updater = await startUpdater()
-    return reply.send({
-      requested: true,
-      alreadyRequested: false,
-      started: updater.started,
-      reason: updater.reason ?? null,
-      state: parseUpdateState(requestedDocument),
-    })
-  })
-
   // ---------- GET /api/admin/update/status ----------
-  // Admin-only. Liefert Phase, Protokoll und Versionen des Update-Laufs.
+  // Admin-only. Read-only diagnostics: phase, log and versions of the last
+  // update run, written by scripts/update.sh.
   app.get('/api/admin/update/status', { preHandler: app.requireAdmin }, async (_req, reply) => {
     const state = await readUpdateState()
     return reply.send({ state })

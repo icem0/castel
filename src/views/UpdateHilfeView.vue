@@ -61,12 +61,11 @@ openssl rand -hex 32
 
 # 2) In die .env eintragen (im Projektordner, neben docker-compose.yml)
 UPDATE_WEBHOOK_TOKEN=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
-UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/api/admin/update/webhook
+# Adresse des Update-Dienstes auf dem HOST. 127.0.0.1 ist im Container die API
+# selbst - nutze host.docker.internal (oder die Host-IP des Servers):
+UPDATE_WEBHOOK_URL=http://host.docker.internal:3000/hooks/castel-update
 
-# 3) Host-Pfad zum Castel-Checkout (damit das Update-Skript gefunden wird)
-CASTEL_REPO_DIR=/srv/castel
-
-# 4) Stack neu starten, damit die API die neuen Variablen liest
+# 3) Stack neu starten, damit die API die neuen Variablen liest
 docker compose up -d</pre>
       <p class="hint">{{ t('view.update.hilfe.aktivierenNeustart') }}</p>
       <p class="hint">{{ t('view.update.hilfe.aktivierenHinweis') }}</p>
@@ -93,7 +92,9 @@ curl -fsS -X POST http://127.0.0.1:3000/api/admin/update/webhook \
 # Kein Login / JWT nötig — der Endpunkt wird nur durch X-Deploy-Token geschützt.
 
 # Antwort bei Erfolg:
-# {"requested":true,"started":true,"reason":null,"state":{"phase":"requested",...}}
+# {"requested":true,"executed":false,"reason":"EXTERNAL_RUNNER_REQUIRED",...}
+# Der Endpunkt markiert nur die Anforderung in der DB; die Ausführung
+# übernimmt der externe Update-Dienst auf dem Host.
 # Token fehlt / falsch: HTTP 401 UNAUTHORIZED
 # Update läuft bereits: HTTP 409 UPDATE_RUNNING</pre>
       <h3 class="sub">{{ t('view.update.hilfe.webhookCicdTitel') }}</h3>

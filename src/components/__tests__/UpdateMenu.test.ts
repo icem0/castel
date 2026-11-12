@@ -33,6 +33,13 @@ function check(overrides: Partial<UpdateCheck> = {}): UpdateCheck {
     commitsBehind: 2,
     commits: [],
     checkedAt: '2026-01-01T00:00:00.000Z',
+    webhook: {
+      configured: true,
+      target: 'http://host.docker.internal:3000',
+      reachable: true,
+      reason: null,
+      selfCall: false,
+    },
     ...overrides,
   }
 }
@@ -43,6 +50,7 @@ type Props = {
   checkFehler?: string | null
   phase?: 'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'
   fehler?: string | null
+  erfolg?: string | null
 }
 
 function mountMit(props: Props = {}) {
@@ -53,6 +61,7 @@ function mountMit(props: Props = {}) {
       checkFehler: null,
       phase: 'idle',
       fehler: null,
+      erfolg: null,
       ...props,
     },
     global: { plugins: [i18n] },
@@ -112,5 +121,62 @@ describe('UpdateMenu', () => {
     const wrapper = mountMit({ check: check(), phase: 'fehler', fehler: 'Kein Update verfügbar.' })
     expect(wrapper.get('[data-test="update-dialog"]').text()).toContain('Kein Update verfügbar.')
     wrapper.get('[data-test="update-dialog"]')
+  })
+
+  it('zeigt die Erfolgsmeldung des Servers', () => {
+    const wrapper = mountMit({
+      check: check(),
+      phase: 'fertig',
+      erfolg: 'Update beim Update-Dienst ausgelöst.',
+    })
+    expect(wrapper.get('[data-test="update-dialog"]').text()).toContain(
+      'Update beim Update-Dienst ausgelöst.',
+    )
+  })
+
+  it('warnt, wenn der Update-Dienst nicht konfiguriert ist', () => {
+    const wrapper = mountMit({
+      check: check({
+        webhook: {
+          configured: false,
+          target: null,
+          reachable: false,
+          reason: 'NOT_CONFIGURED',
+          selfCall: false,
+        },
+      }),
+    })
+    wrapper.get('[data-test="update-webhook-nicht-konfiguriert"]')
+  })
+
+  it('warnt, wenn der Update-Dienst nicht erreichbar ist', () => {
+    const wrapper = mountMit({
+      check: check({
+        webhook: {
+          configured: true,
+          target: 'http://host.docker.internal:3000',
+          reachable: false,
+          reason: 'ECONNREFUSED',
+          selfCall: false,
+        },
+      }),
+    })
+    const warnung = wrapper.get('[data-test="update-webhook-nicht-erreichbar"]')
+    expect(warnung.text()).toContain('ECONNREFUSED')
+  })
+
+  it('warnt bei einem Self-Call auf die API selbst', () => {
+    const wrapper = mountMit({
+      check: check({
+        webhook: {
+          configured: true,
+          target: 'http://127.0.0.1:3000',
+          reachable: false,
+          reason: 'SELF_CALL',
+          selfCall: true,
+        },
+      }),
+    })
+    wrapper.get('[data-test="update-webhook-selfcall"]')
   })
 })

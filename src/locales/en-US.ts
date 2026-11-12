@@ -1341,7 +1341,14 @@ export default {
       updateNachHinweis:
         'The stack has been restarted. Please reload the page so the new PWA version is loaded.',
       updateServerAus:
-        'The server is not responding right now — that is normal while the stack restarts. The display refreshes automatically.',
+        'The server is not responding right now — that is normal while the stack restarts.',
+      updateWebhookSelfCall:
+        'UPDATE_WEBHOOK_URL points at the API itself (127.0.0.1/localhost). Use the host address of the update service, e.g. http://host.docker.internal:3000/…',
+      updateWebhookNichtKonfiguriert:
+        'UPDATE_WEBHOOK_URL is not configured. Without an update service no update can be started.',
+      updateWebhookNichtErreichbar:
+        'Update service unreachable ({target}): {grund}. Is the service running on the host?',
+      updateWebhookErreichbar: 'Update service reachable: {target}',
       updateHost: 'Host: {host}',
       updateVersion: 'Version: {before} → {after}',
       updateLog: 'Show log',
@@ -1366,18 +1373,18 @@ export default {
       updateWebhookInfo: 'Webhook info',
       updateWebhookTitel: 'Inbound webhook: trigger an update from outside the PWA',
       updateWebhookText:
-        'You start it: `curl` from any shell (SSH from a deploy PC, systemd-cron, an alias) or an external system (CI/CD, adnanh/webhook, Portainer, ...). The endpoint `POST /api/admin/update/webhook` lives directly in the API container — no external webhook receiver is needed. It writes the `server.updateState` marker and starts the short-lived updater container (same as the "Start update" button).',
+        'The admin button calls POST /api/update/start; the API then calls UPDATE_WEBHOOK_URL and waits for the reply. An external service on the host must accept the request and run scripts/update.sh. No sidecar container is started.',
       updateWebhookHeader: 'Header: X-Deploy-Token: <TOKEN from .env>',
       updateWebhookHinweis:
-        'Token flow: Pick a secret ONCE (`openssl rand -hex 32`), put it in your `.env` (via `docker-compose.yml:149 UPDATE_WEBHOOK_TOKEN: ${UPDATE_WEBHOOK_TOKEN}`). On every request send THE SAME string in the `X-Deploy-Token` header. The route compares header == `config.UPDATE_WEBHOOK_TOKEN`.',
+        'Token flow: Pick a secret ONCE (`openssl rand -hex 32`), put it in your `.env` (via `docker-compose.yml UPDATE_WEBHOOK_TOKEN: ${UPDATE_WEBHOOK_TOKEN}`). On every request send THE SAME string in the `X-Deploy-Token` header. The route compares header == `config.UPDATE_WEBHOOK_TOKEN`.',
       updateWebhookFlow:
-        'The token never reaches the frontend. Both sides must carry the SAME value — nothing is "transmitted" to a separate webhook server, this endpoint IS the API server.',
+        'The token never reaches the frontend. Both sides must carry the SAME value — nothing is "transmitted" to a separate webhook server; this endpoint marks the request in the DB.',
       updateWebhookErrors:
         'Empty `UPDATE_WEBHOOK_TOKEN` in `.env` → HTTP 500 `UPDATE_NO_WEBHOOK_TOKEN`. Missing or wrong `X-Deploy-Token` → HTTP 401 `UNAUTHORIZED`. Update already running → HTTP 409 `UPDATE_RUNNING` (with current state).',
       updateWebhookSelf:
-        'Self-call: `UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/api/admin/update/webhook` → the "Start update" button hits the same endpoint on itself, no external webhook service. No `extra_hosts` needed (same container).',
+        'No sidecar: `UPDATE_WEBHOOK_URL=http://127.0.0.1:3000/...` would hit the API itself and is rejected. Address the host update daemon via `http://host.docker.internal:3000/...` instead.',
       updateWebhookExternal:
-        'External receiver: `UPDATE_WEBHOOK_URL=http://host.docker.internal:9000/hooks/deploy` (adnanh/webhook) — `docker-compose.yml:176 extra_hosts: ["host.docker.internal:host-gateway"]` lets the API container resolve the name. The receiver must itself verify `X-Deploy-Token` against the same secret.',
+        'External receiver: `UPDATE_WEBHOOK_URL=http://host.docker.internal:9000/hooks/deploy` (adnanh/webhook) — `extra_hosts: ["host.docker.internal:host-gateway"]` lets the API container resolve the name. The receiver must itself verify `X-Deploy-Token` against the same secret.',
       geräteAlle: 'All devices of a user',
       geräteAlleHint:
         'Sets (or clears) the reset flag for all devices of the selected user at once.',
@@ -1438,6 +1445,14 @@ export default {
       startFrage: 'Update to version {latest}?',
       startDetail: 'The server triggers the rollout via a webhook. The app restarts afterwards.',
       startErfolg: 'Update triggered.',
+      startFehlgeschlagen: 'The update could not be triggered.',
+      webhookSelfCall:
+        'UPDATE_WEBHOOK_URL points at the API itself (127.0.0.1/localhost). Set the host address of the update service, e.g. http://host.docker.internal:3000/…',
+      webhookNichtKonfiguriert:
+        'UPDATE_WEBHOOK_URL is not configured. Without an update service the button cannot start an update.',
+      webhookNichtErreichbar:
+        'Update service unreachable ({target}): {grund}. Is the service running on the host?',
+      webhookErreichbar: 'Update service reachable: {target}',
       fehlgeschlagen: 'Version check failed: {error}',
       hilfeLink: 'Guide: enable updates on the server',
       hilfe: {
@@ -1449,26 +1464,26 @@ export default {
         ablaufS1:
           'An admin clicks “Check for updates” in the version menu. The server compares the installed version with the newest commit on GitHub.',
         ablaufS2:
-          'When an update is available, the server calls the configured webhook URL (UPDATE_WEBHOOK_URL).',
+          'When an update is available, the server calls the configured webhook URL (UPDATE_WEBHOOK_URL) and waits for the update service to reply.',
         ablaufS3:
-          'The webhook starts scripts/update.sh on the host — the same path the built-in self-update uses.',
+          'The external update service on the host runs scripts/update.sh. No extra container (no sidecar) is started.',
         ablaufS4:
           'The script runs in order: git pull --ff-only, docker compose pull, docker compose up -d, health check and docker image prune (remove old images).',
         ablaufS5:
-          'After the restart the PWA loads the new version. Progress and log are shown under Settings → Development → Update.',
+          'After the restart the PWA loads the new version. Log and state are shown under Settings → Development → Update.',
         voraussetzungenTitel: 'Requirements',
         voraussetzungSocket:
-          'The API container can reach the Docker socket (/var/run/docker.sock). The bundled docker-compose.yml mounts it and runs the api service as root.',
+          'An update service runs on the host (webhook receiver, systemd unit or cron) that executes scripts/update.sh. The API container itself does not need a Docker socket.',
         voraussetzungCheckout:
           'A git checkout of the project exists on the host (e.g. /srv/castel). Without a checkout the script only updates the images.',
         voraussetzungToken:
-          'UPDATE_WEBHOOK_TOKEN and UPDATE_WEBHOOK_URL are set in .env. Restart the stack with docker compose up -d after changes.',
+          'UPDATE_WEBHOOK_TOKEN and UPDATE_WEBHOOK_URL are set in .env. The URL must reach the service from the container (host.docker.internal), not 127.0.0.1. Restart the stack with docker compose up -d after changes.',
         aktivierenTitel: 'Activate the update function',
         aktivierenText:
-          'Add a long random token and the internal webhook address to the .env in the project folder. With this, the button in the version menu triggers the built-in update flow without an external service.',
+          'Add a long random token and the address of the host update service to the .env in the project folder. The version menu button then shows immediately whether the service is reachable and whether the call succeeded.',
         aktivierenNeustart: 'Then recreate the containers so the API reads the new variables:',
         aktivierenHinweis:
-          'Note: 127.0.0.1:3000 is the API inside the container. The address stays internal, the token is never sent to the browser.',
+          'Note: 127.0.0.1:3000 is the API inside the container. A service on the host is reachable via http://host.docker.internal:3000/…. The token is never sent to the browser.',
         webhookTitel: 'Connect an external system',
         webhookText:
           'The same update can be triggered from outside — from a CI/CD pipeline, an orchestrator or another script. The endpoint is protected by the token and does not need a login.',
@@ -1478,15 +1493,16 @@ export default {
         tokenTitel: 'Generate a secure token',
         tokenText:
           'The token is a password for the update endpoint. It must be long and random and must never land in the repository. An example:',
-        selbstupdateTitel: 'Without a webhook: built-in self-update',
+        selbstupdateTitel: 'Run without a webhook',
         selbstupdateText:
-          'The admin area Settings → Development → Update starts the updater container directly, without an external webhook URL. The script can also be run manually on the host at any time:',
+          'The update script can be run manually on the host at any time — without the PWA or a webhook:',
         fehlerTitel: 'When the start fails',
-        fehlerText: 'The PWA shows the reason as a diagnosis. The most common causes:',
+        fehlerText:
+          'The PWA shows the update service reply as a diagnosis. The most common causes:',
         fehlerSocket:
-          'DOCKER_CLI_MISSING / SOCKET_MISSING / SOCKET_PERMISSION: the Docker CLI or socket is missing in the API container, or the service has no permission.',
+          'Update service unreachable: the host service is not running or UPDATE_WEBHOOK_URL points at the wrong address (127.0.0.1 is the API itself inside the container).',
         fehlerProjekt:
-          'PROJECT_DIR_UNKNOWN / IMAGE_UNKNOWN: the host project folder was not found. Set CASTEL_REPO_DIR in .env.',
+          'HTTP error from the service: scripts/update.sh could not be executed (check git checkout, Docker permissions or the compose file).',
         fehlerToken:
           '401 UNAUTHORIZED: X-Deploy-Token is missing or does not match UPDATE_WEBHOOK_TOKEN.',
         zurueck: 'Back',
