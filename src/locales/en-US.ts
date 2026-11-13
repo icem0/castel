@@ -1483,7 +1483,20 @@ export default {
           'Add a long random token and the address of the host update service to the .env in the project folder. The version menu button then shows immediately whether the service is reachable and whether the call succeeded.',
         aktivierenNeustart: 'Then recreate the containers so the API reads the new variables:',
         aktivierenHinweis:
-          'Note: 127.0.0.1:3000 is the API inside the container. A service on the host is reachable via http://host.docker.internal:3000/…. The token is never sent to the browser.',
+          'Note: 127.0.0.1:3000 is the API inside the container. A service on the host is reachable via http://host.docker.internal:… (PWA proxy: 4280, dedicated webhook service: 9000). The token is never sent to the browser.',
+        dienstTitel: 'Start the update service on the host',
+        dienstText:
+          'No update can run without a service on the host: the PWA only marks a request, while scripts/update.sh executes it on the server. Pick one of the two variants — the token from .env is used by both.',
+        dienstTimerTitel: 'Variant A — systemd timer (no dedicated HTTP service)',
+        dienstTimerText:
+          'The timer calls scripts/update.sh --if-requested every minute. When no request is stored in the database the script exits immediately. In this variant the PWA button calls the inbound endpoint (UPDATE_WEBHOOK_URL from the card above), which only writes the marker; the timer runs the update at most a minute later.',
+        dienstTimerHinweis:
+          'The service needs access to docker compose and the git checkout. The script detects the project folder from the compose labels; set CASTEL_REPO_DIR=/srv/castel if needed (see .env.example).',
+        dienstWebhookTitel: 'Variant B — adnanh/webhook as HTTP receiver',
+        dienstWebhookText:
+          'The receiver validates the X-Deploy-Token and answers immediately; the actual update keeps running in the background. Set UPDATE_WEBHOOK_URL to http://host.docker.internal:9000/hooks/castel-update. docker-compose.yml maps host.docker.internal to the host address via extra_hosts.',
+        dienstWebhookHinweis:
+          'The API waits only 8 seconds for the reply. The receiver must therefore not wait for scripts/update.sh to finish — the scripts/update-hook.sh wrapper starts it via nohup and reports started:true right away.',
         webhookTitel: 'Connect an external system',
         webhookText:
           'The same update can be triggered from outside — from a CI/CD pipeline, an orchestrator or another script. The endpoint is protected by the token and does not need a login.',

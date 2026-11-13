@@ -1516,7 +1516,20 @@ export default {
         aktivierenNeustart:
           'Anschließend die Container neu erstellen, damit die API die neuen Variablen liest:',
         aktivierenHinweis:
-          'Hinweis: 127.0.0.1:3000 ist die API innerhalb des Containers. Ein Dienst auf dem Host ist über http://host.docker.internal:3000/… erreichbar. Das Token wird nie an den Browser gesendet.',
+          'Hinweis: 127.0.0.1:3000 ist die API innerhalb des Containers. Ein Dienst auf dem Host ist über http://host.docker.internal:… erreichbar (PWA-Proxy: 4280, eigener Webhook-Dienst: 9000). Das Token wird nie an den Browser gesendet.',
+        dienstTitel: 'Update-Dienst auf dem Host starten',
+        dienstText:
+          'Ohne einen Dienst auf dem Host kann kein Update laufen: Die PWA markiert nur eine Anforderung, ausgeführt wird scripts/update.sh auf dem Server. Wähle eine der beiden Varianten — das Token aus der .env gilt für beide.',
+        dienstTimerTitel: 'Variante A — systemd-Timer (kein eigener HTTP-Dienst)',
+        dienstTimerText:
+          'Der Timer ruft jede Minute scripts/update.sh --if-requested auf. Liegt keine Anforderung in der Datenbank, beendet sich das Skript sofort. Der Button in der PWA spricht in dieser Variante den Inbound-Endpunkt an (UPDATE_WEBHOOK_URL aus der Karte oben), der nur den Marker setzt; der Timer führt das Update spätestens eine Minute später aus.',
+        dienstTimerHinweis:
+          'Der Dienst braucht Zugriff auf docker compose und den Git-Checkout. Den Projektordner erkennt das Skript aus den Compose-Labels; bei Bedarf CASTEL_REPO_DIR=/srv/castel setzen (siehe .env.example).',
+        dienstWebhookTitel: 'Variante B — adnanh/webhook als HTTP-Empfänger',
+        dienstWebhookText:
+          'Der Empfänger prüft das X-Deploy-Token und antwortet sofort; das eigentliche Update läuft im Hintergrund weiter. Setze UPDATE_WEBHOOK_URL dafür auf http://host.docker.internal:9000/hooks/castel-update. Den Namen host.docker.internal löst docker-compose.yml per extra_hosts auf die Host-Adresse auf.',
+        dienstWebhookHinweis:
+          'Die API wartet nur 8 Sekunden auf die Antwort. Deshalb darf der Empfänger nicht auf das Ende von scripts/update.sh warten — der Wrapper scripts/update-hook.sh startet es per nohup und meldet sofort started:true.',
         webhookTitel: 'Externes System anbinden',
         webhookText:
           'Dasselbe Update lässt sich von außen auslösen — etwa aus einer CI/CD-Pipeline, einem Orchestrator oder einem zweiten Skript. Der Endpunkt ist durch das Token geschützt und braucht keinen Login.',
