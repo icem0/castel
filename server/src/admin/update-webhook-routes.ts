@@ -13,11 +13,12 @@
 // The token (UPDATE_WEBHOOK_TOKEN) is NEVER sent to the frontend.
 //
 // IMPORTANT (container networking): `127.0.0.1` inside the API container is the
-// API itself, not the host. An external update daemon on the host must therefore
-// be addressed via `http://host.docker.internal:3000/...` (mapped by
-// `extra_hosts` in docker-compose.yml). A self-call URL is rejected with
-// WEBHOOK_SELF_CALL because, without the removed updater sidecar, the API cannot
-// execute a host update on its own.
+// API itself, not the host. An update daemon on the host must therefore be
+// addressed via `http://host.docker.internal:HOST_PORT/...`, where HOST_PORT is
+// the published port of the PWA (default 4280) - its nginx forwards /api/* to
+// this API. Leaving UPDATE_WEBHOOK_URL empty derives exactly that from PWA_PORT
+// (see config/webhook-url.ts). A loopback URL is rejected with WEBHOOK_SELF_CALL,
+// because without an updater container the API cannot run a host update itself.
 
 import type { FastifyInstance } from 'fastify'
 import { timingSafeEqual } from 'node:crypto'
@@ -241,7 +242,7 @@ export async function fireUpdateWebhook(
       body: null,
       reason: 'SELF_CALL',
       message:
-        'UPDATE_WEBHOOK_URL zeigt auf die API selbst (127.0.0.1/localhost). Nutze die Host-Adresse des Update-Dienstes, z.B. http://host.docker.internal:3000/…',
+        'UPDATE_WEBHOOK_URL shows the API itself (127.0.0.1/localhost). The API cannot update itself, because there is no updater container. Use the host port of the PWA, e.g. http://host.docker.internal:4280/api/admin/update/webhook - an empty UPDATE_WEBHOOK_URL derives exactly that.',
     }
   }
 
