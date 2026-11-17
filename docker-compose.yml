@@ -124,6 +124,11 @@ services:
       PORT: "3000"
       # Update: Die API ruft den externen Update-Dienst (Host) per Webhook auf.
       # Der Dienst fuehrt scripts/update.sh aus; es gibt keinen Sidecar-Container.
+      # Host-Port of the PWA (nginx proxies /api/* back to this API). Used only
+      # to derive UPDATE_WEBHOOK_URL when the .env leaves it empty - inside the
+      # api container "localhost" is the api itself, the reachable address of an
+      # external runner is the host port (host.docker.internal:<PWA_PORT>).
+      PWA_PORT: ${PWA_PORT:-4280}
       # GitHub-Konfiguration für den Versions-Check. Die installierte
       # Version (GIT_COMMIT) wird beim Image-Build als ENV eingebaut und
       # darf hier nicht überschrieben werden, sonst liefert der
@@ -131,7 +136,9 @@ services:
       GITHUB_REPO: ${GITHUB_REPO}
       GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
       GITHUB_TOKEN: ${GITHUB_TOKEN}
-      UPDATE_WEBHOOK_URL: ${UPDATE_WEBHOOK_URL}
+      # Optional: leer = derived automatically from PWA_PORT
+      # (http://host.docker.internal:<PWA_PORT>/api/admin/update/webhook).
+      UPDATE_WEBHOOK_URL: ${UPDATE_WEBHOOK_URL-}
       # Token fuer den Update-Webhook (ausgehend als X-Deploy-Token, eingehend
       # zur Pruefung). Ohne diesen Durchgriff koennte die API den Wert aus der
       # .env nicht lesen und der Inbound-Webhook wuerde mit 500 antworten.
@@ -196,6 +203,16 @@ services:
       # fehlen SubtleCrypto (PBKDF2) und der Service Worker — der Login
       # braucht dann diese Freigabe. Default: false (HTTPS ist Pflicht).
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
+      # http -> https 301 + HSTS, so dass ein bare Domain in die Address-Bar
+      # (Browser fragt http) nicht laeuft die PWA in unsicherem Kontext
+      # sondern get umgleitet. 'auto' = on solange ALLOW_INSECURE_HTTP=false.
+      # Never fires for localhost/IP-Hosts and not under Cloudflare Flexible
+      # SSL (301-Loop). See scripts/pwa-entrypoint.sh + nginx-pwa.conf.
+      FORCE_HTTPS: ${FORCE_HTTPS:-auto}
+      HTTPS_REDIRECT_PORT: ${HTTPS_REDIRECT_PORT:-}
+      HSTS_MAX_AGE_SECONDS: ${HSTS_MAX_AGE_SECONDS:-auto}
+      HSTS_SUBDOMAINS: ${HSTS_SUBDOMAINS:-false}
+      HSTS_PRELOAD: ${HSTS_PRELOAD:-false}
     ports:
       - "${PWA_PORT:-4280}:3000"
     networks: [internal]

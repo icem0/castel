@@ -313,6 +313,20 @@ Die wichtigsten Variablen aus `.env` (vollständige Liste in `.env.example`):
 
 TLS und eine eigene Domain stellt man extern vor den Stack (nginx, Caddy, Traefik, Cloudflare Tunnel). Der `pwa`-Service ist der einzige öffentlich erreichbare Port; `/api/*` und `/fotos/*` werden intern an die API proxied. Wer die API direkt am Host braucht, aktiviert den auskommentierten `ports:`-Block am `api`-Service (`API_PORT`, Default `4242`).
 
+### http → https (bare Domain in die Address-Bar)
+
+Tippes du den Domainname **ohne Protocol** in de Address-Bar, de Browser first `http://` asks — without something umgleitet die PWA then run in an insecure browser context and den Login refuses ("runs without HTTPS"). The `pwa`-Container him self already sends a 301 `http → https`, per `.env` configurable:
+
+```bash
+FORCE_HTTPS=auto               # default: on as long as ALLOW_INSECURE_HTTP=false
+HSTS_MAX_AGE_SECONDS=auto      # one year -> the browser itself rewrites http://
+HSTS_SUBDOMAINS=false
+HSTS_PRELOAD=false             # one-way, globally cached — only knowingly set
+# HTTPS_REDIRECT_PORT=         # only when https does NOT listen on 443
+```
+
+The redirect is **never** issued for localhost/IP hosts (LAN) and also not while Cloudflare **Flexible SSL** speaks plain http to the origin — there the 301 would loop forever. Den umgleiten only helps when den something actually **answers** at `https://<domain>`: Cloudflare SSL-Modus `Full`/`Fixed Origin` and `Always use HTTPS`, Caddy `redirects`, own nginx `if ($scheme = http) { return 301 ... }`. With `ALLOW_INSECURE_HTTP=true` den 301 stays off (`FORCE_HTTPS=false` is implied) und HSTS den cleared.
+
 ### Betriebshinweise
 
 - **Postgres-Logging:** `PG_LOG_LEVEL=debug*`/`info` aktiviert zusätzlich `log_statement=all` — nur kurzfristig zum Debuggen setzen, danach wieder auf `warning`/`error`.
