@@ -77,6 +77,8 @@ services:
     image: castel-api
   db:
     image: castel-db
+  update-runner:
+    image: castel-api
 YML
   printf 'IMAGE_TAG=latest\n' >"$WORK_DIR/checkout/.env"
   printf '{\n  "name": "castel",\n  "version": "1.2.3"\n}\n' >"$WORK_DIR/checkout/package.json"
@@ -201,6 +203,26 @@ setup_env
 export CASTEL_REPO_DIR="$WORK_DIR/checkout"
 run_update --skip-git --skip-purge
 check_contains "CASTEL_REPO_DIR wird verwendet" "--project-directory $WORK_DIR/checkout" "$RUN_OUT"
+
+# ---------- 2b. The in-stack update-receiver must not be recreated ----------
+echo "- compose up -d excludes the update-receiver service"
+setup_env
+run_update --skip-git --skip-purge
+check_contains "up -d gets an explicit service list" "up -d --remove-orphans api db" "$RUN_OUT"
+check_not_contains "update-runner stays out of the list" "up -d --remove-orphans api db update-runner" "$RUN_OUT"
+
+setup_env
+export CASTEL_COMPOSE_SKIP=db
+run_update --skip-git --skip-purge
+check_contains "custom skip list is honoured" "up -d --remove-orphans api update-runner" "$RUN_OUT"
+unset CASTEL_COMPOSE_SKIP
+
+setup_env
+export CASTEL_COMPOSE_SKIP=
+run_update --skip-git --skip-purge
+check "empty skip list falls back to all services" "0" "$RUN_RC"
+check_not_contains "empty skip list: no explicit list used" "Neustart: api" "$RUN_OUT"
+unset CASTEL_COMPOSE_SKIP
 
 # ---------- 3. Preflight ----------
 echo "- Preflight"

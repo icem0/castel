@@ -59,6 +59,12 @@
 #   CASTEL_PULL_RETRIES        attempts for `docker compose pull` (default 3)
 #   CASTEL_PULL_RETRY_DELAY    seconds between pull attempts (default 5)
 #   CASTEL_PURGE_UNTIL         age filter for unused images (default 168h)
+#   CASTEL_COMPOSE_SKIP        services that `docker compose up -d` must not
+#                              recreate (default: "update-runner update-receiver").
+#                              The in-stack runner/receiver service runs this very
+#                              script through the mounted socket - recreating it
+#                              during the update would kill the running update.
+#                              Leer = all services get recreated (old behaviour).
 #
 set -Eeuo pipefail
 
@@ -72,6 +78,7 @@ PURGE_UNTIL="${CASTEL_PURGE_UNTIL:-168h}"
 PULL_RETRIES="${CASTEL_PULL_RETRIES:-3}"
 PULL_RETRY_DELAY="${CASTEL_PULL_RETRY_DELAY:-5}"
 LOCK_FILE="${CASTEL_UPDATE_LOCK:-/tmp/castel-update.lock}"
+COMPOSE_SKIP="${CASTEL_COMPOSE_SKIP-update-runner update-receiver}"
 
 # ---------- Runtime state ----------
 
@@ -105,7 +112,7 @@ ALLOW_DIRTY=0
 PURGE_BUILDER=1
 
 usage() {
-  sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'
+  awk 'NR == 1 { next } /^set -Eeuo/ { exit } { sub(/^# ?/, ""); print }' "$0"
 }
 
 parse_args() {
@@ -611,10 +618,65 @@ compose_pull() {
   done
 }
 
+# Service names from the compose files (indent-2 keys under `services:`). Used
+# to keep services listed in COMPOSE_SKIP out of `up -d`: the in-stack update
+# receiver runs this script itself, so recreating it mid-update would kill the
+# update. Returns nothing when the files cannot be read -> up -d without list.
+list_services() {
+  local files=()
+  local f
+  if [ "${#COMPOSE_FILES[@]}" -gt 0 ]; then
+    files=("${COMPOSE_FILES[@]}")
+  elif [ -n "$REPO_DIR" ]; then
+    for f in docker-compose.yml compose.yml docker-compose.yaml compose.yaml; do
+      [ -f "$REPO_DIR/$f" ] && files+=("$REPO_DIR/$f")
+    done
+  fi
+  for f in "${files[@]}"; do
+    awk '
+      /^services[[:space:]]*:/ { inside = 1; next }
+      inside && /^[^[:space:]#]/ { inside = 0 }
+      inside && /^  [A-Za-z0-9_.-]+:/ {
+        line = $0
+        gsub(/[^A-Za-z0-9_.-]/, "", line)
+        print line
+      }
+    ' "$f" 2>/dev/null
+  done | sed '/^[[:space:]]*$/d' | sort -u
+}
+
 compose_up() {
   STEP="compose-up"
   log_line "==> docker compose up -d (Projekt: ${PROJECT_NAME})"
-  compose up -d --remove-orphans
+
+  local all keep s t skipme
+  all="$(list_services)"
+  if [ -z "$all" ] || [ -z "$COMPOSE_SKIP" ]; then
+    compose up -d --remove-orphans
+    return
+  fi
+
+  keep=""
+  for s in $all; do
+    skipme=0
+    for t in $COMPOSE_SKIP; do
+      [ "$s" = "$t" ] && skipme=1
+    done
+    if [ "$skipme" = 0 ]; then
+      keep="$keep $s"
+    fi
+  done
+  keep="$(printf '%s' "$keep" | sed 's/^ //')"
+
+  if [ -z "$keep" ]; then
+    log_line "    alle Services in CASTEL_COMPOSE_SKIP - up -d übersprungen"
+    return
+  fi
+  if [ "$keep" != "$(printf '%s' "$all" | tr '\n' ' ' | sed 's/ $//')" ]; then
+    log_line "    Neustart: $keep (skipped: $COMPOSE_SKIP)"
+  fi
+  # shellcheck disable=SC2086
+  compose up -d --remove-orphans $keep
 }
 
 # Entfernt alle Images der castel-Repositories, die nicht das aktuell
