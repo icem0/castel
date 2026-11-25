@@ -365,6 +365,7 @@ onBeforeUnmount(() => {
 .quick-links a,
 .quick-links button {
   display: inline-flex;
+  align-items: center;
   padding: 0.4rem 0;
   font-weight: 500;
   width: max-content;

@@ -958,7 +958,6 @@ function formatRelativ(iso: string | null): string {
         }}</strong>
       </div>
       <nav>
-        <span class="nav-group-label">{{ t('app.nav.groupBestand') }}</span>
         <RouterLink to="/"> <AppIcon name="dashboard" />{{ t('app.nav.dashboard') }} </RouterLink>
         <RouterLink to="/artikel">
           <AppIcon name="artikel" />{{ t('app.nav.artikel') }}
@@ -969,7 +968,6 @@ function formatRelativ(iso: string | null): string {
         <RouterLink to="/scan" class="scan-link">
           <AppIcon name="scan" />{{ t('app.nav.scan') }}
         </RouterLink>
-        <span class="nav-group-label">{{ t('app.nav.groupAnalyse') }}</span>
         <RouterLink to="/einstellungen/mindestbestand">
           <AppIcon name="mindestbestand" />{{ t('app.nav.mindestbestand') }}
         </RouterLink>
@@ -988,9 +986,6 @@ function formatRelativ(iso: string | null): string {
             {{ t('app.nav.inventurCountdown', { tage: inventurCountdown.tage }) }}
           </span>
         </RouterLink>
-        <span v-if="settings.settings.akkutauschAktiv" class="nav-group-label">{{
-          t('app.nav.groupTools')
-        }}</span>
         <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">
           <AppIcon name="akkutausch" />{{ t('app.nav.akkutausch') }}
         </RouterLink>
@@ -1672,6 +1667,8 @@ function formatRelativ(iso: string | null): string {
   font-weight: 500;
   font-size: 0.92rem;
   text-decoration: none;
+  display: inline-flex;
+  align-items: center;
   transition:
     background 0.15s,
     color 0.15s;
@@ -2536,7 +2533,7 @@ main {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.15rem;
+  gap: 0.35rem;
   text-decoration: none;
   color: var(--text-muted);
   border-radius: var(--radius-sm);
@@ -2555,6 +2552,7 @@ main {
 :root[data-layout='mobile'] .bottom-nav a .app-icon {
   width: 1.25rem;
   height: 1.25rem;
+  margin: 0;
 }
 :root[data-layout='mobile'] .bottom-nav a.bn-fab {
   background: var(--accent);
@@ -2568,6 +2566,7 @@ main {
 :root[data-layout='mobile'] .bottom-nav a.bn-fab .app-icon {
   width: 1.65rem;
   height: 1.65rem;
+  margin: 0;
   stroke: white;
 }
 :root[data-layout='mobile'] .bottom-nav a.bn-fab:hover {

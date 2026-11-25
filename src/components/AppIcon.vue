@@ -34,5 +34,6 @@ defineProps<{
   height: 1.15em;
   vertical-align: -0.2em;
   flex: none;
+  margin-right: 0.45rem;
 }
 </style>
