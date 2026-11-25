@@ -42,6 +42,17 @@ function zurueck(): void {
     </div>
 
     <div class="card">
+      <h2>{{ t('view.update.hilfe.assistantTitel') }}</h2>
+      <p class="hint">{{ t('view.update.hilfe.assistantText') }}</p>
+      <pre>
+# Projectfolder (beside docker-compose.yml), run as root/deployer. The Script
+# asks where the stack runs; flags (--variant timer|webhook|container, --repo-
+# dir, ...) skip the prompts. Nothing gets deleted, --dry-run only prints.
+sudo ./scripts/webhook-setup.sh
+sudo ./scripts/webhook-setup.sh --variant timer --repo-dir /srv/castel --dry-run</pre>
+    </div>
+
+    <div class="card">
       <h2>{{ t('view.update.hilfe.voraussetzungenTitel') }}</h2>
       <ul class="bullets">
         <li>{{ t('view.update.hilfe.voraussetzungSocket') }}</li>
@@ -54,20 +65,20 @@ function zurueck(): void {
       <h2>{{ t('view.update.hilfe.aktivierenTitel') }}</h2>
       <p class="hint">{{ t('view.update.hilfe.aktivierenText') }}</p>
       <pre>
-# Projectordner (beside docker-compose.yml), run as root/deployer.
+# Projectfolder (beside docker-compose.yml), run as root/deployer.
 
-# 1) Token: generated once, then written into .env. This is the only thing
-#    that is mandatory - the endpoint is protected by this token.
+# 1) Token: generated once, then written into .env. This is the only one that
+#    must be set - the endpunkt is protected by it.
 TOKEN=$(openssl rand -hex 32)
 grep -qm '^UPDATE_WEBHOOK_TOKEN=' .env || printf 'UPDATE_WEBHOOK_TOKEN=\n' >>.env
 sed -i "s|^UPDATE_WEBHOOK_TOKEN=.*|UPDATE_WEBHOOK_TOKEN=$TOKEN|" .env
 
-# 2) UPDATE_WEBHOOK_URL stays empty / unset. The server derives the address
-#    from PWA_PORT: http://host.docker.internal:PORT/api/admin/update/webhook
-#    where PORT is the published port of the PWA (default 4280). Inside the
-#    api-container localhost WOULD be the api itself - and the api cannot
-#    update itself, it has no Docker socket. The host port of the PWA is the
-#    way to reach the same endpoint from the host.
+# 2) UPDATE_WEBHOOK_URL stays leer / unset: the server derives the address
+#    from the published PWA port PWA_PORT: http://host.docker.internal:PORT/api/admin/update/webhook
+#    with PORT = the published PWA port (default 4280). localhost inside the
+#    api-container the api itself IS - the api cannot update itself because it
+#    has no Docker socket. From the host the host port of the PWA the same
+#    endpunkt reaches again.
 docker compose up -d api</pre>
       <p class="hint">{{ t('view.update.hilfe.aktivierenNeustart') }}</p>
       <p class="hint">{{ t('view.update.hilfe.aktivierenHinweis') }}</p>
@@ -77,10 +88,10 @@ docker compose up -d api</pre>
       <h2>{{ t('view.update.hilfe.setupTitel') }}</h2>
       <p class="hint">{{ t('view.update.hilfe.setupText') }}</p>
       <pre>
-# Paste the whole block into a root shell in the project folder (the folder
-# that holds docker-compose.yml). Idempotent: an existing token is kept.
+# The block entirely paste into a root shell in the project folder (the folder that
+# docker-compose.yml lies in). Idempotent: an already existing token is kept.
 
-# 1) Token into .env (generated only when the value is still empty)
+# 1) Token into .env (generated only when the value is still leer)
 TOKEN=$(grep -m1 '^UPDATE_WEBHOOK_TOKEN=' .env | cut -d= -f2-)
 if [ -z "$TOKEN" ]; then
   TOKEN=$(openssl rand -hex 32)
@@ -88,8 +99,8 @@ if [ -z "$TOKEN" ]; then
   sed -i "s|^UPDATE_WEBHOOK_TOKEN=.*|UPDATE_WEBHOOK_TOKEN=$TOKEN|" .env
 fi
 
-# 2) The runner on the host: a systemd-Timer that runs scripts/update.sh
-#    once a minute. Without a pending request the script exits immediately.
+# 2) The runner on the host: a systemd-Timer that scripts/update.sh
+#    calls once a minute. Without a pending request the script immediately exits.
 sudo tee /etc/systemd/system/castel-update.service >/dev/null &lt;&lt;EOF
 [Unit]
 Description=Castel update runner
@@ -100,7 +111,7 @@ ExecStart=$PWD/scripts/update.sh --if-requested
 EOF
 sudo tee /etc/systemd/system/castel-update.timer >/dev/null &lt;&lt;EOF
 [Unit]
-Description=Run a pending Castel update once a minute
+Description=Castel-Update: pending update once a minute runs
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=1min
@@ -110,18 +121,18 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now castel-update.timer
 
-# 3) The api reads the token from .env (the URL stays unset, see above)
+# 3) The api reads the token from .env (the URL stays leer, see above)
 docker compose up -d api
 
-# 4) Request an update. The token is read from .env here, too - nothing to
-#    type. The Timer picks the request up within one minute.
+# 4) Update request. The token is read from .env here, too - nothing has to be
+#    typed in. The Timer picks up the request latest after one minute.
 PWA=$(grep -m1 '^PWA_PORT=' .env | cut -d= -f2-)
 curl -fsS -X POST "http://127.0.0.1:${PWA:-4280}/api/admin/update/webhook" \
   -H "X-Deploy-Token: $(grep -m1 '^UPDATE_WEBHOOK_TOKEN=' .env | cut -d= -f2-)" \
   -H "Content-Type: application/json" \
   --data-raw '{}'
 
-# Want it without waiting for the Timer?
+# Without waiting for the Timer?
 sudo systemctl start castel-update.service</pre>
       <p class="hint">{{ t('view.update.hilfe.setupHinweis') }}</p>
     </div>
@@ -210,31 +221,31 @@ sudo systemctl status castel-update-webhook --no-pager</pre>
       <h2>{{ t('view.update.hilfe.webhookTitel') }}</h2>
       <p class="hint">{{ t('view.update.hilfe.webhookText') }}</p>
       <pre>
-# From the HOST: 127.0.0.1:PORT with PORT = the published port of the PWA
-# (default 4280). That nginx proxies /api/* straight through to the api, so
-# this curl reaches the same endpoint the server calls. The token is grepped
-# from the .env - the command works without any copy&paste of the secret.
+# From the HOST: 127.0.0.1:PORT with PORT = the published PWA port
+# (default 4280). The nginx proxies /api/* directly to the api, so the
+# curl reaches the same endpunkt the server calls. The token is grepped
+# from the .env - the command works without copy&paste of the secret.
 PWA=$(grep -m1 '^PWA_PORT=' .env | cut -d= -f2-)
 curl -fsS -X POST "http://127.0.0.1:${PWA:-4280}/api/admin/update/webhook" \
   -H "X-Deploy-Token: $(grep -m1 '^UPDATE_WEBHOOK_TOKEN=' .env | cut -d= -f2-)" \
   -H "Content-Type: application/json" \
   --data-raw '{}'
 
-# Same endpoint, LAN address of the server (e.g. from a second machine):
+# Same endpunkt, LAN address of the server (e.g. from a second machine):
 curl -fsS -X POST "http://10.0.0.5:4280/api/admin/update/webhook" \
   -H "X-Deploy-Token: $(grep -m1 '^UPDATE_WEBHOOK_TOKEN=' .env | cut -d= -f2-)" \
   --data-raw '{}'
 
-# From INSIDE the api-container (what UPDATE_WEBHOOK_URL has to point at):
-# there 127.0.0.1 is the api itself and cannot run a host update - use
-# http://host.docker.internal:4280/api/admin/update/webhook instead, the
-# address the server also derives when UPDATE_WEBHOOK_URL is unset.
+# From INSIDE the api-container (where UPDATE_WEBHOOK_URL has to point to):
+# there 127.0.0.1 the api itself IS and cannot run a host update - instead
+# http://host.docker.internal:4280/api/admin/update/webhook use, the
+# address the server also derives when UPDATE_WEBHOOK_URL is leer.
 
 # Answer:  {"requested":true,"executed":false,"reason":"EXTERNAL_RUNNER_REQUIRED"}
-# The endpoint only sets the request in the DB; the host-side runner
-# (scripts/update.sh --if-requested) does the actual work.
+# The endpunkt only marks the request in the DB; the host-side runner
+# (scripts/update.sh --if-requested) the actual work does.
 # 401 UNAUTHORIZED  - X-Deploy-Token missing / does not match the .env
-# 409 UPDATE_RUNNING - an update is already running
+# 409 UPDATE_RUNNING - already an update running
 # 500 UPDATE_NO_WEBHOOK_TOKEN - UPDATE_WEBHOOK_TOKEN not set in the .env</pre>
       <h3 class="sub">{{ t('view.update.hilfe.webhookCicdTitel') }}</h3>
       <p class="hint">{{ t('view.update.hilfe.webhookCicdText') }}</p>
@@ -255,7 +266,7 @@ jobs:
             -d '{}'</pre>
       <p class="hint">
         Secrets im Repository anlegen:
-        <code>CASTEL_UPDATE_URL</code> (URL of the server, reachable from the CI machine - e.g.
+        <code>CASTEL_UPDATE_URL</code> (the URL of the server, reachable from the CI machine - e.g.
         <code>https://castel.example.com/api/admin/update/webhook</code>, never
         <code>127.0.0.1</code> unless the runner sits on the server itself) und
         <code>CASTEL_UPDATE_TOKEN</code> (Token from the <code>.env</code>).

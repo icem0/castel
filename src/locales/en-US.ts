@@ -1478,6 +1478,9 @@ export default {
           'The script runs in order: git pull --ff-only, docker compose pull, docker compose up -d, health check and docker image prune (remove old images).',
         ablaufS5:
           'After the restart the PWA loads the new version. Log and state are shown under Settings → Development → Update.',
+        assistantTitel: 'Interactive installer (user-friendly)',
+        assistantText:
+          'The script asks where the stack runs (bare Debian host, a Docker container whose name you give, or over SSH to another machine), installs the runner where it belongs, writes the token into the .env and patches the compose file when the published port or extra_hosts is missing. What still must be done by hand gets printed. It is idempotent; --dry-run shows the plan without changing.',
         voraussetzungenTitel: 'Requirements',
         voraussetzungSocket:
           'An update service runs on the host (webhook receiver, systemd unit or cron) that executes scripts/update.sh. The API container itself does not need a Docker socket.',
