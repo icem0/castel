@@ -1408,7 +1408,11 @@ export default {
         'Führe diesen Befehl auf dem Server aus, um das Update durchzuführen (der angeforderte Zustand steht bereits in der Datenbank):',
       updateAnleitungBefehl: 'cd /srv/castel && ./scripts/update.sh --if-requested',
       updateUnbekannt: 'unbekannt',
-      updateWebhookInfo: 'Webhook-Info',
+      updateWebhookInfo: 'Externe Auslöser (CI/CD)',
+      updateHowto:
+        'Einmalig einrichten: UPDATE_RUNNER=true in die .env, dann docker compose up -d. Danach reicht der Button „Jetzt aktualisieren" — Details in der Update-Hilfe.',
+      updateWartetAufDienst:
+        'Die Anforderung wartet auf den Update-Dienst. Bleibt sie länger als eine Minute stehen, läuft der Dienst nicht: UPDATE_RUNNER=true in der .env prüfen (Update-Hilfe).',
       updateWebhookTitel: 'Inbound-Webhook: update request from outside the PWA',
       updateWebhookText:
         'Der Admin-Button ruft POST /api/admin/update/request auf: die API schreibt die Anforderung direkt in die DB (Marker server.updateState) - kein Webhook, kein Token im Browser. Der Update-Dienst auf dem Host (scripts/update.sh, systemd-Timer oder der compose-Service update-runner) startet das Update im naechsten Intervall. UPDATE_WEBHOOK_URL und UPDATE_WEBHOOK_TOKEN brauchst du nur fuer externe Ausloeser (CI/CD, andere Maschine).',
@@ -1495,77 +1499,72 @@ export default {
       fehlgeschlagen: 'Versionsprüfung fehlgeschlagen: {error}',
       hilfeLink: 'Anleitung: Update auf dem Server aktivieren',
       hilfe: {
-        h1: 'Update auf dem Server aktivieren',
+        h1: 'Update — so funktioniert es',
         untertitel:
-          'So verbindest du die Update-Funktion der PWA mit dem Update-Skript auf dem Server. Der Server zieht die aktuellen Images, startet den Stack neu und räumt alte Images auf.',
-        ablaufTitel: 'So funktioniert der Ablauf',
-        ablaufText: 'Die Update-Funktion ist zweistufig: Die PWA löst aus, der Server führt aus.',
+          'Eine Zeile in der .env, ein docker compose, dann der Button in der PWA. Mehr braucht es nicht.',
+        ablaufTitel: 'So funktioniert es',
+        ablaufText:
+          'Die PWA meldet nur die Anforderung. Ausgeführt wird sie von einem Update-Dienst auf dem Server: der zieht die neuen Images, startet den Stack neu und räumt alte Images weg. Die Datenbank bleibt unangetastet.',
         ablaufS1:
-          'Ein Admin klickt im Versionsmenü auf „Auf Updates prüfen“. Der Server vergleicht die installierte Version mit dem neuesten Commit auf GitHub.',
+          'In der .env eine Zeile setzen: UPDATE_RUNNER=true — der Dienst prüft die Anforderung jede Minute.',
         ablaufS2:
-          'Bei verfügbarem Update ruft the Server the address of the update service on the Host to (UPDATE_WEBHOOK_URL from the .env, leer = derived from PWA_PORT) und the answer of the service waits for.',
+          'Einmal neu starten: docker compose up -d. Erst beim Start liest die API die .env.',
         ablaufS3:
-          'Der externe Update-Dienst auf dem Host führt das Skript scripts/update.sh aus. Es wird kein zusätzlicher Container (kein Sidecar) gestartet.',
+          'In der PWA unter Einstellungen → Entwicklung → Update auf „Jetzt aktualisieren" klicken. Der Dienst startet das Update, die PWA zeigt Fortschritt und Protokoll.',
         ablaufS4:
-          'Das Skript führt nacheinander aus: git pull --ff-only, docker compose pull, docker compose up -d, Health-Check und docker image prune (alte Images entfernen).',
-        ablaufS5:
-          'Nach dem Neustart lädt die PWA die neue Version. Protokoll und Zustand stehen unter Einstellungen → Entwicklung → Update.',
-        assistantTitel: 'Helper-Installer (benutzerfriendly)',
-        assistantText:
-          'The Script first asks where the stack runs (bare Debian Host, Docker container with a Name you give, or over SSH to another Machine). Then installs the runner where it belongs, writes the Token into the .env and patches the compose file when the published Port or the extra_hosts is missing. What still must be done by hand gets printed. Idempotent; --dry-run shows the plan without changing.',
+          'Fertig: der Stack läuft auf der neuen Version, ungenutzte alte Images werden entfernt.',
         voraussetzungenTitel: 'Voraussetzungen',
         voraussetzungSocket:
-          'Auf dem Host läuft ein Update-Dienst (Webhook-Receiver, systemd-Unit oder Cron), der scripts/update.sh ausführt. Die API-Container selbst braucht keinen Docker-Socket.',
+          'Der Update-Dienst braucht den Docker-Socket und die docker-CLI des Hosts — beides wird in docker-compose.yml gemountet.',
         voraussetzungCheckout:
-          'Auf dem Host liegt ein Git-Checkout des Projekts (z. B. /srv/castel). Ohne Checkout aktualisiert das Skript nur die Images.',
+          'Der Projektordner mit scripts/update.sh wird gebunden (/work). Bei einem normalen Checkout passt der Default.',
         voraussetzungToken:
-          'In the .env of the project folder only UPDATE_WEBHOOK_TOKEN needs to be set. UPDATE_WEBHOOK_URL can stay leer: the server derives the address from the published PWA port (PWA_PORT, default 4280). After changes the stack must be restarted with docker compose up -d api, so that the API reads the new values.',
-        aktivierenTitel: 'Update-Funktion aktivieren',
-        aktivierenText:
-          'Only the Token is mandatory: the address of the update endpunkt does not get typed in anymore, the server derives it from the published PWA port. The whole activation is the block below - the card after it does everything at once.',
-        aktivierenNeustart:
-          'The API reads the variables at startup. Without restart the container still carries the old (leer) values - thus docker compose up -d api after each change of the .env.',
-        aktivierenHinweis:
-          'Why not 127.0.0.1/localhost? Inside the api-container that the API itself IS - and it cannot update itself (no Docker-Socket) - the server such a URL WEBHOOK_SELF_CALL refuses. The host port of the PWA reaches the same endpunkt again, because the nginx of the PWA forwards /api/* to the API. host.docker.internal gets mapped to the host by docker-compose.yml (extra_hosts: host-gateway). The Token the browser never gets sent to.',
-        setupTitel: 'Setup completely - one command block',
-        setupText:
-          'The block entirely paste into a root shell in the project folder (the folder that docker-compose.yml holds): the Token gets generated and written into the .env, a systemd-Timer the actual update work on the host runs, the API restarts and at the end one curl the update requests. Every value is read from the .env - nothing has to be typed in.',
+          'Kein Token nötig: der Button schreibt die Anforderung direkt in die Datenbank. UPDATE_WEBHOOK_TOKEN wird nur für externe Auslöser (CI/CD, andere Maschine) gebraucht.',
+        setupTitel: 'Einmalig einrichten',
+        setupText: 'In der .env im Projektordner genügt eine Zeile:',
         setupHinweis:
-          'The curl only the request in the DB marks; the Timer the update latest one minute later does. The last line (systemctl start) it immediately instead does. The progress appears under Einstellungen → Entwicklung → Update.',
-        dienstTitel: 'Update-Dienst auf dem Host starten',
+          'Danach einmal docker compose up -d — die API liest die .env erst beim Start. Ab dann reicht der Button in der PWA.',
+        statusTitel: 'Prüfen, ob der Dienst läuft',
+        statusText:
+          'Nach dem Klick steht die Anforderung in der Datenbank. Bleibt der Status auf „Update angefordert" stehen, hat der Dienst sie nicht abgeholt — dann läuft er nicht (oder er findet den Projektordner nicht).',
+        statusBefehl:
+          'docker compose ps update-runner\ndocker compose logs --tail 50 update-runner',
+        assistantTitel: 'Installer für die Host-Varianten',
+        assistantText:
+          'Das Script fragt ab, wo der Stack läuft (Debian-Host, Docker-Container mit Namen oder per SSH auf einer anderen Maschine), und richtet die passende Variante ein: Token in die .env, fehlende Ports im Compose-File ergänzen, Dienst starten. Idempotent; --dry-run zeigt den Plan, ohne etwas zu ändern.',
+        dienstTitel: 'Variante ohne Docker-Socket im Stack',
         dienstText:
-          'Ohne einen Dienst auf dem Host kann kein Update laufen: Die PWA markiert nur eine Anforderung, ausgeführt wird scripts/update.sh auf dem Server. Wähle eine der beiden Varianten — das Token aus der .env gilt für beide.',
-        dienstTimerTitel: 'Variante A — systemd-Timer (kein eigener HTTP-Dienst)',
+          'Wer den Socket nicht in den Stack mounten will, lässt den Update-Dienst auf dem Host laufen (systemd-Timer, jede Minute). Der Installer macht das in einem Durchgang:',
+        dienstTimerTitel: 'Variante A — systemd-Timer auf dem Host',
         dienstTimerText:
-          'Der Timer ruft jede Minute scripts/update.sh --if-requested auf. Liegt keine Anforderung in der Datenbank, beendet sich das Skript sofort. Der Button in der PWA spricht in dieser Variante den Inbound-Endpunkt an (UPDATE_WEBHOOK_URL aus der Karte oben), der nur den Marker setzt; der Timer führt das Update spätestens eine Minute später aus.',
+          'Der Timer ruft jede Minute scripts/update.sh --if-requested auf. Liegt keine Anforderung in der Datenbank, beendet sich das Skript sofort. Der Button in der PWA schreibt die Anforderung — der Timer startet das Update spätestens eine Minute später.',
         dienstTimerHinweis:
-          'Der Dienst braucht Zugriff auf docker compose und den Git-Checkout. Den Projektordner erkennt das Skript aus den Compose-Labels; bei Bedarf CASTEL_REPO_DIR=/srv/castel setzen (siehe .env.example).',
-        dienstWebhookTitel: 'Variante B — adnanh/webhook als HTTP-Empfänger',
+          'Einrichtung: sudo ./scripts/webhook-setup.sh --variant timer --repo-dir /srv/castel',
+        dienstWebhookTitel: 'Variante B — eigener Empfänger auf dem Host',
         dienstWebhookText:
-          'Der Empfänger prüft das X-Deploy-Token und antwortet sofort; das eigentliche Update läuft im Hintergrund weiter. Setze UPDATE_WEBHOOK_URL dafür auf http://host.docker.internal:9000/hooks/castel-update. Den Namen host.docker.internal löst docker-compose.yml per extra_hosts auf die Host-Adresse auf.',
+          'Wer den Update-Dienst als HTTP-Dienst haben will (z. B. weil ein Orchestrator ihn anpingt), installiert adnanh/webhook auf dem Host. Der Empfänger prüft das X-Deploy-Token und startet scripts/update.sh im Hintergrund.',
         dienstWebhookHinweis:
-          'Die API wartet nur 8 Sekunden auf die Antwort. Deshalb darf der Empfänger nicht auf das Ende von scripts/update.sh warten — der Wrapper scripts/update-hook.sh startet es per nohup und meldet sofort started:true.',
-        webhookTitel: 'Externes System anbinden',
+          'Einrichtung: sudo ./scripts/webhook-setup.sh --variant webhook --repo-dir /srv/castel — das Script lädt den Empfänger, legt die Unit an und schreibt UPDATE_WEBHOOK_URL in die .env.',
+        webhookTitel: 'Externes System anbinden (optional)',
         webhookText:
-          'Dasselbe Update lässt sich von außen auslösen — etwa aus einer CI/CD-Pipeline, einem Orchestrator oder einem zweiten Skript. Der Endpunkt ist durch das Token geschützt und braucht keinen Login.',
+          'Updates lassen sich auch von aussen auslösen — aus einer CI/CD-Pipeline, einem Orchestrator oder einem zweiten Skript. Dafür braucht es UPDATE_WEBHOOK_TOKEN in der .env (ein Passwort für den Endpunkt). Der Button in der PWA braucht das nicht.',
         webhookCicdTitel: 'Beispiel: GitHub Actions',
         webhookCicdText:
           'Ein Push auf main startet das Update auf dem Server. Die URL und das Token als Repository-Secrets hinterlegen (CASTEL_UPDATE_URL, CASTEL_UPDATE_TOKEN).',
-        tokenTitel: 'Token sicher erzeugen',
+        tokenTitel: 'Token (nur für externe Auslöser)',
         tokenText:
           'Das Token ist ein Passwort für den Update-Endpunkt. Es muss lang und zufällig sein und darf nicht im Repository landen. Ein Beispiel zum Erzeugen:',
-        selbstupdateTitel: 'Ohne Webhook ausführen',
+        selbstupdateTitel: 'Update von Hand starten',
         selbstupdateText:
-          'Das Update-Skript lässt sich jederzeit manuell auf dem Host ausführen — auch ohne PWA oder Webhook:',
-        fehlerTitel: 'Wenn der Start nicht klappt',
-        fehlerText:
-          'Die PWA zeigt die Antwort des Update-Dienstes als Diagnose an. Die häufigsten Ursachen:',
+          'Das Update-Skript lässt sich jederzeit manuell auf dem Host ausführen — auch ohne PWA oder Dienst:',
+        fehlerTitel: 'Wenn es nicht klappt',
+        fehlerText: 'Die häufigsten Ursachen:',
         fehlerSocket:
-          'Update-Service not reachable: no runner (systemd-Timer, Webhook-Empfänger or Cron) runs on the host, or UPDATE_WEBHOOK_URL points to a wrong address. 127.0.0.1 inside the api-container the API itself IS and must not be used; from the container host.docker.internal the host reaches.',
+          'Der Status bleibt auf „Update angefordert": kein Update-Dienst aktiv oder falscher Pfad. Prüfen: docker compose ps update-runner, docker compose logs --tail 50 update-runner. UPDATE_RUNNER=true in der .env nicht vergessen.',
         fehlerProjekt:
-          'HTTP-Fehler vom Dienst: Das Skript scripts/update.sh konnte nicht ausgeführt werden (Git-Checkout, Docker-Rechte oder Compose-Datei prüfen).',
+          'Der Dienst startet nicht: der Projektordner mit scripts/update.sh wird nicht gefunden (CASTEL_REPO_DIR) oder die docker-CLI fehlt im Container (CASTEL_HOST_DOCKER_CLI / CASTEL_HOST_COMPOSE_CLI).',
         fehlerToken:
-          '401 UNAUTHORIZED: X-Deploy-Token fehlt oder passt nicht zu UPDATE_WEBHOOK_TOKEN.',
+          '401 UNAUTHORIZED: nur bei externen Auslösern — X-Deploy-Token fehlt oder passt nicht zu UPDATE_WEBHOOK_TOKEN.',
         zurueck: 'Zurück',
       },
     },

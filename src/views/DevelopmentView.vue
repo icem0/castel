@@ -1051,6 +1051,7 @@ async function updateStatusLaden(): Promise<void> {
     </button>
     <div class="card">
       <p class="hint">{{ t('view.development.updateHint') }}</p>
+      <p class="hint hint-ok">{{ t('view.development.updateHowto') }}</p>
 
       <!-- Versions-Check gegen GHCR -->
       <div class="update-check">
@@ -1145,6 +1146,9 @@ async function updateStatusLaden(): Promise<void> {
           }}
         </p>
         <p v-if="updateState.message" class="hint">{{ updateState.message }}</p>
+        <p v-if="updateState.phase === 'requested'" class="hint">
+          {{ t('view.development.updateWartetAufDienst') }}
+        </p>
         <p v-if="updateServerAus" class="hint">{{ t('view.development.updateServerAus') }}</p>
         <p v-if="updateFehler" class="wert-fehler">{{ updateFehler }}</p>
         <details v-if="updateState.log" class="update-log">
