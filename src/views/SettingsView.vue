@@ -6,6 +6,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useStandortStore } from '../stores/standort'
 import { useAuthStore } from '../stores/auth'
 import MindestbestandBenachrichtigungen from './components/MindestbestandBenachrichtigungen.vue'
+import AppIcon from '../components/AppIcon.vue'
 import type { BarcodeTyp } from '../stores/settings'
 
 const { t } = useI18n()
@@ -162,12 +163,11 @@ onBeforeUnmount(() => {
       </form>
     </div>
 
-    <h2>{{ t('view.settings.informationen') }}</h2>
-    <div class="card quick-links">
-      <RouterLink to="/info">{{ t('view.settings.ersteSchritte') }}</RouterLink>
-    </div>
-
-    <h2>{{ t('view.settings.account') }}</h2>
+    <!-- ===== Account ===== -->
+    <h2>
+      <AppIcon name="account" />
+      {{ t('view.settings.account') }}
+    </h2>
     <div class="card quick-links">
       <div class="readonly">
         <span class="label">{{ t('view.settings.benutzer') }}</span>
@@ -198,7 +198,12 @@ onBeforeUnmount(() => {
         </select>
         <small class="hint">{{ t('view.settings.themeHint') }}</small>
       </label>
-      <RouterLink to="/passwort-aendern">{{ t('view.settings.passwortAendern') }}</RouterLink>
+      <RouterLink to="/info">
+        <AppIcon name="info" />{{ t('view.settings.ersteSchritte') }}
+      </RouterLink>
+      <RouterLink to="/passwort-aendern">
+        <AppIcon name="account" />{{ t('view.settings.passwortAendern') }}
+      </RouterLink>
       <button type="button" class="danger" @click="abmelden">
         {{ t('view.settings.abmelden') }}
       </button>
@@ -207,82 +212,146 @@ onBeforeUnmount(() => {
     <!-- Notification tracking is not admin-only: every role may follow its
          minimum-stock alarms and enable the signal itself (off by default
          for non-admins, see `alarmDefaultFuerRolle`). -->
-    <h2>{{ t('view.settings.benachrichtigungen') }}</h2>
+    <h2>
+      <AppIcon name="notifications" />
+      {{ t('view.settings.benachrichtigungen') }}
+    </h2>
     <div class="card">
       <MindestbestandBenachrichtigungen />
     </div>
 
-    <h2 v-if="auth.hat('benutzer.verwalten') || auth.hat('entwicklung')">
-      {{ t('view.settings.administration') }}
+    <!-- ===== Lager / Bestand ===== -->
+    <h2>
+      <AppIcon name="dashboard" />
+      {{ t('view.settings.lager') }}
     </h2>
-    <div v-if="auth.hat('benutzer.verwalten') || auth.hat('entwicklung')" class="card quick-links">
-      <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/user">{{
-        t('view.settings.benutzerVerwaltung')
-      }}</RouterLink>
-      <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/rollen">{{
-        t('view.settings.rollenVerwaltung')
-      }}</RouterLink>
-      <RouterLink v-if="auth.hat('entwicklung')" to="/einstellungen/entwicklung">{{
-        t('view.settings.entwicklung')
-      }}</RouterLink>
-    </div>
-
-    <h2 v-if="auth.hat('globalEinstellung')">{{ t('view.settings.werkzeuge') }}</h2>
-    <div v-if="auth.hat('globalEinstellung')" class="card">
-      <label class="account-setting">
-        <span class="label">{{ t('view.settings.akkutauschAktiv') }}</span>
-        <input
-          type="checkbox"
-          :checked="settings.settings.akkutauschAktiv"
-          @change="akkutauschAendern"
-        />
-        <small class="hint">{{ t('view.settings.akkutauschAktivHint') }}</small>
-      </label>
-    </div>
-
-    <h2>{{ t('view.settings.daten') }}</h2>
     <div class="card quick-links">
-      <RouterLink to="/einstellungen/geraet">{{ t('view.settings.geraet') }}</RouterLink>
-      <RouterLink v-if="auth.hat('import.fuehren')" to="/import">{{
-        t('view.settings.csvImport')
-      }}</RouterLink>
-      <RouterLink v-if="auth.hat('backup.verwalten')" to="/einstellungen/backup">{{
-        t('view.settings.backup')
-      }}</RouterLink>
-      <RouterLink v-if="auth.hat('apiKey.verwalten')" to="/einstellungen/api-keys">{{
-        t('view.settings.apiKeys')
-      }}</RouterLink>
+      <RouterLink v-if="auth.hat('standort.schreiben')" to="/standorte">
+        <AppIcon name="standorte" />{{ t('view.standort.h1') }}
+      </RouterLink>
+      <RouterLink to="/einstellungen/mindestbestand">
+        <AppIcon name="mindestbestand" />{{ t('view.settings.mindestbestandPanel') }}
+      </RouterLink>
     </div>
 
-    <h2>{{ t('view.settings.stammdaten') }}</h2>
+    <!-- ===== Analyse / Inventur ===== -->
+    <h2>
+      <AppIcon name="inventur" />
+      {{ t('view.settings.analyse') }}
+    </h2>
     <div class="card quick-links">
-      <RouterLink v-if="auth.hat('standort.schreiben')" to="/standorte">{{
-        t('view.standort.h1')
-      }}</RouterLink>
-      <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
-        t('view.akkutausch.h1')
-      }}</RouterLink>
-      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/artikel-typen">{{
-        t('view.artikelTypen.h1')
-      }}</RouterLink>
+      <RouterLink v-if="auth.hat('inventur.lesen')" to="/einstellungen/inventur">
+        <AppIcon name="inventur" />{{ t('view.inventur.h1') }}
+      </RouterLink>
+      <RouterLink v-if="auth.hat('inventur.lesen')" to="/einstellungen/inventur/archiv">
+        <AppIcon name="inventur" />{{ t('view.settings.inventurArchiv') }}
+      </RouterLink>
+    </div>
+
+    <!-- ===== Werkzeuge / Tools ===== -->
+    <h2>
+      <AppIcon name="tools" />
+      {{ t('view.settings.werkzeuge') }}
+    </h2>
+    <div class="card quick-links">
+      <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">
+        <AppIcon name="akkutausch" />{{ t('view.akkutausch.h1') }}
+      </RouterLink>
+      <RouterLink to="/etiketten">
+        <AppIcon name="etiketten" />{{ t('view.barcode.h1') }}
+      </RouterLink>
+      <RouterLink v-if="auth.hat('import.fuehren')" to="/import">
+        <AppIcon name="tools" />{{ t('view.settings.csvImport') }}
+      </RouterLink>
+    </div>
+
+    <!-- ===== Stammdaten ===== -->
+    <h2>
+      <AppIcon name="stammdaten" />
+      {{ t('view.settings.stammdaten') }}
+    </h2>
+    <div class="card quick-links">
+      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/artikel-typen">
+        <AppIcon name="stammdaten" />{{ t('view.artikelTypen.h1') }}
+      </RouterLink>
       <RouterLink
         v-if="auth.hat('stammdaten.verwalten') && settings.settings.akkutauschAktiv"
         to="/einstellungen/akku-typen"
-        >{{ t('view.akkuTypen.h1') }}</RouterLink
       >
-      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/kommissionen">{{
-        t('view.kommissionen.h1')
-      }}</RouterLink>
-      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/hersteller">{{
-        t('view.hersteller.h1')
-      }}</RouterLink>
-      <RouterLink to="/einstellungen/artikel-kataloge">{{
-        t('view.settings.artikelKataloge')
-      }}</RouterLink>
-      <RouterLink to="/etiketten">{{ t('view.barcode.h1') }}</RouterLink>
-      <RouterLink v-if="auth.hat('inventur.lesen')" to="/einstellungen/inventur">{{
-        t('view.inventur.h1')
-      }}</RouterLink>
+        <AppIcon name="stammdaten" />{{ t('view.akkuTypen.h1') }}
+      </RouterLink>
+      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/kommissionen">
+        <AppIcon name="stammdaten" />{{ t('view.kommissionen.h1') }}
+      </RouterLink>
+      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/hersteller">
+        <AppIcon name="stammdaten" />{{ t('view.hersteller.h1') }}
+      </RouterLink>
+      <RouterLink to="/einstellungen/artikel-kataloge">
+        <AppIcon name="stammdaten" />{{ t('view.settings.artikelKataloge') }}
+      </RouterLink>
+    </div>
+
+    <!-- ===== Administration ===== -->
+    <h2
+      v-if="
+        auth.hat('globalEinstellung') ||
+        auth.hat('benutzer.verwalten') ||
+        auth.hat('backup.verwalten') ||
+        auth.hat('apiKey.verwalten') ||
+        auth.hat('entwicklung')
+      "
+    >
+      <AppIcon name="administration" />
+      {{ t('view.settings.administration') }}
+    </h2>
+    <div
+      v-if="
+        auth.hat('globalEinstellung') ||
+        auth.hat('benutzer.verwalten') ||
+        auth.hat('backup.verwalten') ||
+        auth.hat('apiKey.verwalten') ||
+        auth.hat('entwicklung')
+      "
+      class="card"
+    >
+      <div v-if="auth.hat('globalEinstellung')" class="akkutausch-toggle">
+        <label class="account-setting">
+          <span class="label">{{ t('view.settings.akkutauschAktiv') }}</span>
+          <input
+            type="checkbox"
+            :checked="settings.settings.akkutauschAktiv"
+            @change="akkutauschAendern"
+          />
+          <small class="hint">{{ t('view.settings.akkutauschAktivHint') }}</small>
+        </label>
+      </div>
+      <div v-if="auth.hat('benutzer.verwalten') || auth.hat('entwicklung')" class="quick-links">
+        <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/user">
+          <AppIcon name="administration" />{{ t('view.settings.benutzerVerwaltung') }}
+        </RouterLink>
+        <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/rollen">
+          <AppIcon name="administration" />{{ t('view.settings.rollenVerwaltung') }}
+        </RouterLink>
+        <RouterLink v-if="auth.hat('entwicklung')" to="/einstellungen/entwicklung">
+          <AppIcon name="administration" />{{ t('view.settings.entwicklung') }}
+        </RouterLink>
+      </div>
+    </div>
+
+    <h2>
+      <AppIcon name="daten" />
+      {{ t('view.settings.daten') }}
+    </h2>
+    <div class="card quick-links">
+      <RouterLink to="/einstellungen/geraet">
+        <AppIcon name="daten" />{{ t('view.settings.geraet') }}
+      </RouterLink>
+      <RouterLink v-if="auth.hat('backup.verwalten')" to="/einstellungen/backup">
+        <AppIcon name="daten" />{{ t('view.settings.backup') }}
+      </RouterLink>
+      <RouterLink v-if="auth.hat('apiKey.verwalten')" to="/einstellungen/api-keys">
+        <AppIcon name="daten" />{{ t('view.settings.apiKeys') }}
+      </RouterLink>
     </div>
   </section>
 </template>

@@ -15,6 +15,9 @@ export default {
       scan: 'Scan',
       standorte: 'Standorte',
       einstellungen: 'Einstellungen',
+      groupBestand: 'Bestand',
+      groupAnalyse: 'Analyse',
+      groupTools: 'Tools',
     },
     sync: {
       bannerTitel: 'Synchronisierung',
@@ -405,6 +408,8 @@ export default {
       abmelden: 'Abmelden',
       benachrichtigungen: 'Benachrichtigungen',
       administration: 'Administration',
+      lager: 'Lager & Bestand',
+      analyse: 'Analyse & Inventur',
       benutzerVerwaltung: 'Benutzer-Verwaltung',
       rollenVerwaltung: 'Rollen & Berechtigungen',
       entwicklung: 'Entwicklung',
@@ -419,6 +424,8 @@ export default {
       apiKeys: 'API-Keys',
       stammdaten: 'Stammdaten',
       artikelKataloge: 'Artikelkataloge',
+      mindestbestandPanel: 'Mindestbestand-Panel',
+      inventurArchiv: 'Buchung-Archiv',
     },
     inventur: {
       h1: 'Inventur',

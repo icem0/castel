@@ -245,10 +245,10 @@ describe('SettingsView — Benachrichtigungen (Admin)', () => {
     expect(link?.textContent).toContain('Alle Ereignisse anzeigen')
   })
 
-  it('zeigt Admins den Akkutausch-Schalter in der Kategorie "Werkzeuge"', () => {
+  it('zeigt Admins den Akkutausch-Schalter in der Kategorie "Administration"', () => {
     const { w } = mountSettings()
 
-    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Werkzeuge')
+    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Administration')
     expect(ueberschrift).toBeDefined()
 
     const karte = ueberschrift!.element.nextElementSibling as HTMLElement
@@ -270,5 +270,37 @@ describe('SettingsView — Benachrichtigungen (Admin)', () => {
     expect(links).toContain('/einstellungen/backup')
     expect(links).toContain('/einstellungen/api-keys')
     expect(links).toContain('/standorte')
+  })
+
+  it('shows the new 6-category taxonomy (Account, Lager, Analyse, Tools, Stammdaten, Administration)', () => {
+    const { w } = mountSettings()
+    const h2Texts = w.findAll('h2').map((h) => h.text().trim())
+    for (const expected of [
+      'Account',
+      'Lager',
+      'Analyse',
+      'Werkzeuge',
+      'Stammdaten',
+      'Administration',
+    ]) {
+      expect(h2Texts.some((t) => t.startsWith(expected))).toBe(true)
+    }
+  })
+
+  it('every h2 header renders an app-icon SVG', () => {
+    const { w } = mountSettings()
+    const h2s = w.findAll('h2')
+    expect(h2s.length).toBeGreaterThan(0)
+    for (const h of h2s) {
+      expect(h.element.outerHTML).toContain('app-icon')
+    }
+  })
+
+  it('quick-links carry a decorative icon when inside a category card', () => {
+    const { w } = mountSettings()
+    const links = w.findAll('a[href="/einstellungen/mindestbestand"]')
+    const target = links[links.length - 1]
+    expect(target).not.toBeNull()
+    expect(target!.element.outerHTML).toContain('app-icon')
   })
 })

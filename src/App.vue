@@ -28,6 +28,7 @@ import OnboardingTutorial from './components/OnboardingTutorial.vue'
 import AppToast from './components/AppToast.vue'
 import SyncDiagnostics from './components/SyncDiagnostics.vue'
 import MindestbestandGlocke from './views/components/MindestbestandGlocke.vue'
+import AppIcon from './components/AppIcon.vue'
 
 // Responsive Layout-Umschaltung: <html data-layout="mobile|desktop">.
 // CSS nutzt das, um Bottom-Nav, FAB und Mobile-spezifische Helfer zu zeigen/verbergen.
@@ -957,18 +958,28 @@ function formatRelativ(iso: string | null): string {
         }}</strong>
       </div>
       <nav>
-        <RouterLink to="/">{{ t('app.nav.dashboard') }}</RouterLink>
-        <RouterLink to="/artikel">{{ t('app.nav.artikel') }}</RouterLink>
-        <RouterLink to="/buchungen">{{ t('app.nav.buchungen') }}</RouterLink>
-        <RouterLink to="/einstellungen/mindestbestand">{{
-          t('app.nav.mindestbestand')
-        }}</RouterLink>
+        <span class="nav-group-label">{{ t('app.nav.groupBestand') }}</span>
+        <RouterLink to="/"> <AppIcon name="dashboard" />{{ t('app.nav.dashboard') }} </RouterLink>
+        <RouterLink to="/artikel">
+          <AppIcon name="artikel" />{{ t('app.nav.artikel') }}
+        </RouterLink>
+        <RouterLink to="/buchungen">
+          <AppIcon name="buchungen" />{{ t('app.nav.buchungen') }}
+        </RouterLink>
+        <RouterLink to="/scan" class="scan-link">
+          <AppIcon name="scan" />{{ t('app.nav.scan') }}
+        </RouterLink>
+        <span class="nav-group-label">{{ t('app.nav.groupAnalyse') }}</span>
+        <RouterLink to="/einstellungen/mindestbestand">
+          <AppIcon name="mindestbestand" />{{ t('app.nav.mindestbestand') }}
+        </RouterLink>
         <RouterLink
           v-if="auth.hat('inventur.erstellen')"
           to="/einstellungen/inventur"
           class="inventur-countdown-link"
           :class="{ aktiv: inventurCountdown.aktiv }"
         >
+          <AppIcon name="inventur" />
           {{ t('app.nav.inventur') }}
           <span
             v-if="inventurCountdown.aktiv && inventurCountdown.tage != null"
@@ -977,10 +988,12 @@ function formatRelativ(iso: string | null): string {
             {{ t('app.nav.inventurCountdown', { tage: inventurCountdown.tage }) }}
           </span>
         </RouterLink>
-        <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">{{
-          t('app.nav.akkutausch')
-        }}</RouterLink>
-        <RouterLink to="/scan" class="scan-link">{{ t('app.nav.scan') }}</RouterLink>
+        <span v-if="settings.settings.akkutauschAktiv" class="nav-group-label">{{
+          t('app.nav.groupTools')
+        }}</span>
+        <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">
+          <AppIcon name="akkutausch" />{{ t('app.nav.akkutausch') }}
+        </RouterLink>
       </nav>
       <div class="header-right">
         <RouterLink
@@ -1056,37 +1069,23 @@ function formatRelativ(iso: string | null): string {
          Erscheint nur, wenn data-layout="mobile" gesetzt ist (siehe CSS). -->
     <nav v-if="auth.istAngemeldet" class="bottom-nav" aria-label="Hauptnavigation">
       <RouterLink to="/" exact-active-class="active">
-        <span class="bn-icon" aria-hidden="true">⌂</span>
+        <AppIcon name="dashboard" />
         <span class="bn-label">{{ t('app.nav.dashboard') }}</span>
       </RouterLink>
       <RouterLink to="/artikel" active-class="active">
-        <span class="bn-icon" aria-hidden="true">▦</span>
+        <AppIcon name="artikel" />
         <span class="bn-label">{{ t('app.nav.artikel') }}</span>
       </RouterLink>
       <RouterLink to="/scan" class="bn-fab" aria-label="Barcode-Scanner öffnen">
-        <span class="bn-fab-icon" aria-hidden="true">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
-            ></path>
-            <circle cx="12" cy="13" r="4"></circle>
-          </svg>
-        </span>
+        <AppIcon name="scan" />
         <span class="bn-label">Scan</span>
       </RouterLink>
       <RouterLink to="/buchungen" active-class="active">
-        <span class="bn-icon" aria-hidden="true">⇄</span>
+        <AppIcon name="buchungen" />
         <span class="bn-label">{{ t('app.nav.buchungen') }}</span>
       </RouterLink>
       <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch" active-class="active">
-        <span class="bn-icon" aria-hidden="true">⚡</span>
+        <AppIcon name="akkutausch" />
         <span class="bn-label">{{ t('app.nav.akkutausch') }}</span>
       </RouterLink>
     </nav>
@@ -1687,6 +1686,18 @@ function formatRelativ(iso: string | null): string {
 .app-header nav a.router-link-active {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.app-header nav .nav-group-label {
+  align-self: center;
+  color: var(--text-muted);
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.6rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  pointer-events: none;
 }
 
 .app-header nav a.scan-link {
@@ -2541,6 +2552,10 @@ main {
   font-size: 1.15rem;
   line-height: 1;
 }
+:root[data-layout='mobile'] .bottom-nav a .app-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
 :root[data-layout='mobile'] .bottom-nav a.bn-fab {
   background: var(--accent);
   color: white;
@@ -2550,18 +2565,10 @@ main {
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
   position: relative;
 }
-:root[data-layout='mobile'] .bottom-nav a.bn-fab .bn-fab-icon {
+:root[data-layout='mobile'] .bottom-nav a.bn-fab .app-icon {
   width: 1.65rem;
   height: 1.65rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-:root[data-layout='mobile'] .bottom-nav a.bn-fab svg {
-  width: 100%;
-  height: 100%;
   stroke: white;
-  fill: none;
 }
 :root[data-layout='mobile'] .bottom-nav a.bn-fab:hover {
   background: var(--accent-hover);
