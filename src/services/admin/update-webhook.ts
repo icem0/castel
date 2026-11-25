@@ -1,4 +1,4 @@
-import { apiFetch } from '../../auth/api'
+import { ApiError, apiFetch } from '../../auth/api'
 
 export type CommitInfo = {
   sha: string
@@ -32,6 +32,8 @@ export type UpdateCheck = {
 
 export type UpdateStartResult = {
   started: boolean
+  /** The server wrote the "requested" marker (new path). */
+  requested?: boolean
   webhookStatus?: number | null
   message?: string
 }
@@ -41,7 +43,20 @@ export async function checkUpdate(): Promise<UpdateCheck> {
   return await apiFetch<UpdateCheck>('/api/update/check')
 }
 
-/** Löst den Update-Webhook aus und liefert das echte Ergebnis zurück. */
+/**
+ * Fordert ein Update an. Der Button schreibt die Anforderung direkt in die DB
+ * (Marker `server.updateState`) — kein Webhook, kein Token im Browser. Der
+ * Update-Dienst auf dem Host (scripts/update.sh) startet das Update im nächsten
+ * Intervall. Aeltere Server ohne /api/admin/update/request fallen auf
+ * /api/update/start zurueck (dort wird der ausgehende Webhook gefeuert).
+ */
 export async function startUpdate(): Promise<UpdateStartResult> {
-  return await apiFetch<UpdateStartResult>('/api/update/start', { method: 'POST' })
+  try {
+    return await apiFetch<UpdateStartResult>('/api/admin/update/request', { method: 'POST' })
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return await apiFetch<UpdateStartResult>('/api/update/start', { method: 'POST' })
+    }
+    throw err
+  }
 }

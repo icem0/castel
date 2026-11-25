@@ -1383,7 +1383,7 @@ export default {
       updateWebhookSelfCall:
         'UPDATE_WEBHOOK_URL the API itself points to (127.0.0.1/localhost). The API cannot update itself anymore — there is no updater-Container. Use the host port of the PWA: http://host.docker.internal:4280/api/admin/update/webhook — a leer UPDATE_WEBHOOK_URL derives exactly that.',
       updateWebhookNichtKonfiguriert:
-        'UPDATE_WEBHOOK_URL ist nicht konfiguriert. Ohne Update-Dienst kann kein Update gestartet werden.',
+        'UPDATE_WEBHOOK_URL ist nicht gesetzt - fuer den Button nicht noetig: er schreibt die Anforderung direkt in die DB. Die Variable brauchst du nur fuer externe Ausloeser (CI/CD, andere Maschine).',
       updateWebhookNichtErreichbar:
         'Update-Dienst nicht erreichbar ({target}): {grund}. Läuft der Dienst auf dem Host?',
       updateWebhookErreichbar: 'Update-Dienst erreichbar: {target}',
@@ -1411,7 +1411,7 @@ export default {
       updateWebhookInfo: 'Webhook-Info',
       updateWebhookTitel: 'Inbound-Webhook: update request from outside the PWA',
       updateWebhookText:
-        'Der Admin-Button ruft POST /api/update/start auf; die API ruft damit UPDATE_WEBHOOK_URL auf und wartet auf die Antwort. Ein externer Dienst auf dem Host muss die Anfrage annehmen und scripts/update.sh ausführen. Es wird kein Sidecar-Container gestartet.',
+        'Der Admin-Button ruft POST /api/admin/update/request auf: die API schreibt die Anforderung direkt in die DB (Marker server.updateState) - kein Webhook, kein Token im Browser. Der Update-Dienst auf dem Host (scripts/update.sh, systemd-Timer oder der compose-Service update-runner) startet das Update im naechsten Intervall. UPDATE_WEBHOOK_URL und UPDATE_WEBHOOK_TOKEN brauchst du nur fuer externe Ausloeser (CI/CD, andere Maschine).',
       updateWebhookHeader: 'Header: X-Deploy-Token: <Token from the .env>',
       updateWebhookHinweis:
         'Token-Flow: generate a secret exactly once (`openssl rand -hex 32`), then write it into the `.env` (via `docker-compose.yml UPDATE_WEBHOOK_TOKEN: ${UPDATE_WEBHOOK_TOKEN}`). At every request the same string in the `X-Deploy-Token` header send — the Route compares the Header with `config.UPDATE_WEBHOOK_TOKEN`.',

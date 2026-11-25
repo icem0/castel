@@ -1352,7 +1352,7 @@ export default {
       updateWebhookSelfCall:
         'UPDATE_WEBHOOK_URL points at the API itself (127.0.0.1/localhost). The API cannot update itself (no updater container). Use the host port of the PWA, e.g. http://host.docker.internal:4280/api/admin/update/webhook - an empty UPDATE_WEBHOOK_URL derives exactly that.',
       updateWebhookNichtKonfiguriert:
-        'UPDATE_WEBHOOK_URL is not configured. Without an update service no update can be started.',
+        'UPDATE_WEBHOOK_URL is not set - the button does not need it: it writes the request straight into the DB. You only need the variable for external triggers (CI/CD, another machine).',
       updateWebhookNichtErreichbar:
         'Update service unreachable ({target}): {grund}. Is the service running on the host?',
       updateWebhookErreichbar: 'Update service reachable: {target}',
@@ -1380,7 +1380,7 @@ export default {
       updateWebhookInfo: 'Webhook info',
       updateWebhookTitel: 'Inbound webhook: trigger an update from outside the PWA',
       updateWebhookText:
-        'The admin button calls POST /api/update/start; the API then calls UPDATE_WEBHOOK_URL and waits for the reply. An external service on the host must accept the request and run scripts/update.sh. No sidecar container is started.',
+        'The admin button calls POST /api/admin/update/request: the API writes the request straight into the DB (marker server.updateState) - no webhook, no token in the browser. The update service on the host (scripts/update.sh, a systemd timer or the compose service update-runner) starts the update in the next interval. UPDATE_WEBHOOK_URL and UPDATE_WEBHOOK_TOKEN are only needed for external triggers (CI/CD, another machine).',
       updateWebhookHeader: 'Header: X-Deploy-Token: <TOKEN from .env>',
       updateWebhookHinweis:
         'Token flow: Pick a secret ONCE (`openssl rand -hex 32`), put it in your `.env` (via `docker-compose.yml UPDATE_WEBHOOK_TOKEN: ${UPDATE_WEBHOOK_TOKEN}`). On every request send THE SAME string in the `X-Deploy-Token` header. The route compares header == `config.UPDATE_WEBHOOK_TOKEN`.',

@@ -5,10 +5,18 @@
 // Endpoints:
 //   GET  /api/update/check   → installed vs. latest version + commits + webhook status
 //   POST /api/update/start   → POST to UPDATE_WEBHOOK_URL and report the real result
+//   POST /api/admin/update/request (admin JWT, no token)
+//                            → writes the "requested" marker directly. This is
+//                              the path of the admin button: no webhook, no
+//                              secret in the frontend. UPDATE_WEBHOOK_URL and
+//                              UPDATE_WEBHOOK_TOKEN stay optional and are only
+//                              needed for external triggers (CI/CD, another
+//                              machine).
 //   POST /api/admin/update/webhook (inbound, token-only)
 //                            → marks an update request in the DB; the actual
 //                              update is executed by an external host-side
-//                              runner (scripts/update.sh). No sidecar container.
+//                              runner (scripts/update.sh --if-requested). No
+//                              sidecar container.
 //
 // The token (UPDATE_WEBHOOK_TOKEN) is NEVER sent to the frontend.
 //
@@ -476,6 +484,56 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
       started: true,
       webhookStatus: fired.status,
       message: 'Update beim Update-Dienst ausgelöst.',
+    })
+  })
+
+  // ---------- POST /api/admin/update/request ----------
+  // The admin button needs NO webhook: it writes the "requested" marker
+  // directly (same as the inbound webhook does) and the runner picks it up.
+  // UPDATE_WEBHOOK_URL/UPDATE_WEBHOOK_TOKEN stay optional - they are only
+  // needed for external triggers (CI/CD, another machine). The token is never
+  // sent to the frontend, so this route is the only way the PWA can trigger an
+  // update without one.
+  app.post('/api/admin/update/request', { preHandler: app.requireAdmin }, async (_req, reply) => {
+    const now = Date.now()
+    if (now - lastStartAt < START_COOLDOWN_MS) {
+      const reste = Math.ceil((START_COOLDOWN_MS - (now - lastStartAt)) / 1000)
+      return reply.code(409).send({
+        code: 'UPDATE_COOLDOWN',
+        message: `Bitte ${reste}s warten, bevor ein weiteres Update gestartet wird.`,
+      })
+    }
+
+    // Re-check server-side whether an update is available.
+    const check = await checkLatestVersion()
+    if (check.error) {
+      return reply.code(502).send({ code: 'UPDATE_CHECK_FAILED', message: check.error })
+    }
+    if (check.updateAvailable !== true) {
+      return reply.code(409).send({
+        code: 'UPDATE_NOT_AVAILABLE',
+        message: 'Kein Update verfügbar.',
+      })
+    }
+
+    const current = await readUpdateState()
+    if (current.phase === 'running') {
+      return reply.code(409).send({
+        code: 'UPDATE_RUNNING',
+        message: 'Ein Update läuft bereits.',
+        state: current,
+      })
+    }
+
+    const requestedDocument = buildRequestDocument(new Date().toISOString())
+    await writeUpdateState(requestedDocument)
+    lastStartAt = now
+    return reply.send({
+      requested: true,
+      started: true,
+      message:
+        'Update angefordert. Der Update-Dienst (scripts/update.sh) startet es spätestens im nächsten Intervall.',
+      state: parseUpdateState(requestedDocument),
     })
   })
 }

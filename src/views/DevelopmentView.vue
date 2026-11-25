@@ -1078,7 +1078,7 @@ async function updateStatusLaden(): Promise<void> {
           <p v-if="updateCheck.webhook.selfCall" class="hint hint-danger">
             {{ t('view.development.updateWebhookSelfCall') }}
           </p>
-          <p v-else-if="!updateCheck.webhook.configured" class="hint hint-danger">
+          <p v-else-if="!updateCheck.webhook.configured" class="hint">
             {{ t('view.development.updateWebhookNichtKonfiguriert') }}
           </p>
           <p v-else-if="!updateCheck.webhook.reachable" class="hint hint-danger">
