@@ -51,7 +51,7 @@ Die Details (Fundstelle, Angriffspfad, Empfehlung) stehen ausschließlich in
 | Bereich | zuletzt geprüft (Commit-SHA) | Datum | offen | behoben | angenommen | Fehlbefund |
 |---------|------------------------------|-------|-------|---------|------------|------------|
 | A Authentifizierung / Sessions / Tokens | 42b01858 → 326cd4d | 2026-11-06 | 0 | 3 | 0 | 0 |
-| B Autorisierung (Routen einzeln) | 42b01858 → 326cd4d | 2026-11-06 | 0 | 15 | 4 | 2 |
+| B Autorisierung (Routen einzeln) | 42b01858 → 326cd4d → 8d77c82 | 2026-11-26 | 0 | 15 | 4 | 2 |
 | C Input-Validierung / Injection | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 0 | 0 |
 | D Frontend (XSS, CSP, lokale Speicherung) | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 3 | 0 |
 | E HTTP-Hardening | 42b01858 → 326cd4d | 2026-11-06 | 0 | 1 | 0 | 0 |
@@ -62,6 +62,12 @@ Die Details (Fundstelle, Angriffspfad, Empfehlung) stehen ausschließlich in
 | J CI / CD | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 0 | 0 |
 | K Logging / personenbezogene Daten | 42b01858 → 326cd4d | 2026-11-06 | 0 | 0 | 1 | 0 |
 | **Gesamt** | 42b01858 → 326cd4d | 2026-11-06 | **0** | **25** | **10** | **2** |
+
+Route-recheck 2026-11-26 (`8d77c82`): The settings menu was redesigned — new
+routes `/einstungen/account` and `/einstungen/benachrichtigengs` (open to every
+signed-in role by design, only per-user settings) and `/einstungen/general`
+(gated with `globalEinstung`). The client-side visibility in the menu mirrors
+the router gates. No new findings.
 
 ## Regeln für Wiederholungsläufe
 
