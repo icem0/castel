@@ -32,6 +32,7 @@ import type { FastifyInstance } from 'fastify'
 import { timingSafeEqual } from 'node:crypto'
 import { connect } from 'node:net'
 import { config } from '../config/config.js'
+import { isLanOrigin } from '../config/origin.js'
 import {
   buildRequestDocument,
   parseUpdateState,
@@ -61,6 +62,13 @@ export type WebhookStatus = {
   reason: string | null
   /** The URL points at the API container itself (no host executor). */
   selfCall: boolean
+  /** Public address of the inbound endpunkt (CORS_ORIGIN) - what an
+   *  external system (CI/CD) would call. */
+  publicTarget: string | null
+  /** The public address answered. */
+  publicReachable: boolean
+  /** Diagnosis for the public address (null when reachable). */
+  publicReason: string | null
 }
 
 export type CheckResult = {
@@ -189,28 +197,113 @@ function tcpProbe(host: string, port: number, timeoutMs: number): Promise<string
  * target but never sends the request. Used by the version panel to show an
  * offline update daemon before the admin clicks the button.
  */
+/**
+ * Public address of the inbound update endpunkt, derived from CORS_ORIGIN.
+ * LAN/dev origins (localhost, IP) have no public address and return null -
+ * showing them as "public" would be misleading.
+ */
+export function publicWebhookTarget(origin: string = String(config.CORS_ORIGIN ?? '')): string | null {
+  const trimmed = origin.trim()
+  if (!trimmed || isLanOrigin(trimmed)) return null
+  try {
+    const parsed = new URL(trimmed)
+    return `${parsed.protocol}//${parsed.host}/api/admin/update/webhook`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Probes the public address (the one an external system would call). The
+ * internal target (host.docker.internal) says nothing about the public
+ * endpunkt, so both are reported separately.
+ */
+export async function probePublicTarget(
+  timeoutMs = WEBHOOK_PROBE_TIMEOUT_MS,
+  origin?: string,
+): Promise<{ target: string | null; reachable: boolean; reason: string | null }> {
+  const target = publicWebhookTarget(origin ?? String(config.CORS_ORIGIN ?? ''))
+  if (!target) return { target: null, reachable: false, reason: null }
+  try {
+    const parsed = new URL(target)
+    const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80
+    const reason = await tcpProbe(parsed.hostname, port, timeoutMs)
+    return { target, reachable: reason === null, reason }
+  } catch {
+    return { target, reachable: false, reason: 'INVALID_URL' }
+  }
+}
+
+export type ProbeDeps = {
+  /** Override for the public-address probe (tests, no network access). */
+  publicProbe?: (
+    timeoutMs?: number,
+  ) => Promise<{ target: string | null; reachable: boolean; reason: string | null }>
+}
+
 export async function probeWebhook(
   url: string,
   timeoutMs = WEBHOOK_PROBE_TIMEOUT_MS,
+  deps: ProbeDeps = {},
 ): Promise<WebhookStatus> {
+  const publicInfo = await (deps.publicProbe ?? probePublicTarget)(timeoutMs)
+  const withPublic = (
+    status: Omit<WebhookStatus, 'publicTarget' | 'publicReachable' | 'publicReason'>,
+  ): WebhookStatus => ({
+    ...status,
+    publicTarget: publicInfo.target,
+    publicReachable: publicInfo.reachable,
+    publicReason: publicInfo.reason,
+  })
+
   if (!url) {
-    return { configured: false, target: null, reachable: false, reason: 'NOT_CONFIGURED', selfCall: false }
+    return withPublic({
+      configured: false,
+      target: null,
+      reachable: false,
+      reason: 'NOT_CONFIGURED',
+      selfCall: false,
+    })
   }
   const target = webhookTarget(url)
   if (!target) {
-    return { configured: true, target: null, reachable: false, reason: 'INVALID_URL', selfCall: false }
+    return withPublic({
+      configured: true,
+      target: null,
+      reachable: false,
+      reason: 'INVALID_URL',
+      selfCall: false,
+    })
   }
   const selfCall = isSelfCallUrl(url)
   if (selfCall) {
-    return { configured: true, target, reachable: false, reason: 'SELF_CALL', selfCall: true }
+    return withPublic({
+      configured: true,
+      target,
+      reachable: false,
+      reason: 'SELF_CALL',
+      selfCall: true,
+    })
   }
   try {
     const parsed = new URL(url)
     const port = parsed.port ? Number(parsed.port) : parsed.protocol === 'https:' ? 443 : 80
     const reason = await tcpProbe(parsed.hostname, port, timeoutMs)
-    return { configured: true, target, reachable: reason === null, reason, selfCall: false }
+    return withPublic({
+      configured: true,
+      target,
+      reachable: reason === null,
+      reason,
+      selfCall: false,
+    })
   } catch {
-    return { configured: true, target, reachable: false, reason: 'INVALID_URL', selfCall: false }
+    return withPublic({
+      configured: true,
+      target,
+      reachable: false,
+      reason: 'INVALID_URL',
+      selfCall: false,
+    })
   }
 }
 

@@ -11,6 +11,7 @@ import {
   fireUpdateWebhook,
   isSelfCallUrl,
   probeWebhook,
+  publicWebhookTarget,
   resetUpdateCache,
   resetUpdateCooldown,
   webhookTarget,
@@ -198,15 +199,47 @@ describe('webhookTarget / isSelfCallUrl', () => {
   })
 })
 
+describe('publicWebhookTarget', () => {
+  it('baut den oeffentlichen Endpunkt aus dem Origin', () => {
+    expect(publicWebhookTarget('https://castel.sa-ma.online')).toBe(
+      'https://castel.sa-ma.online/api/admin/update/webhook',
+    )
+  })
+
+  it('liefert fuer LAN/Localhost nichts (kein oeffentlicher Endpunkt)', () => {
+    expect(publicWebhookTarget('http://localhost:5173')).toBeNull()
+    expect(publicWebhookTarget('http://192.168.1.10:4280')).toBeNull()
+    expect(publicWebhookTarget('')).toBeNull()
+  })
+})
+
 describe('probeWebhook', () => {
   it('meldet eine fehlende Konfiguration ohne Netzwerkzugriff', async () => {
-    await expect(probeWebhook('')).resolves.toEqual({
+    const result = await probeWebhook('', 50, {
+      publicProbe: async () => ({ target: null, reachable: false, reason: null }),
+    })
+    expect(result).toMatchObject({
       configured: false,
       target: null,
       reachable: false,
       reason: 'NOT_CONFIGURED',
       selfCall: false,
+      publicTarget: null,
     })
+  })
+
+  it('liefert den oeffentlichen Endpunkt mit (fuer externe Ausloeser)', async () => {
+    const result = await probeWebhook('http://host.docker.internal:4280/api/admin/update/webhook', 100, {
+      publicProbe: async () => ({
+        target: 'https://castel.sa-ma.online/api/admin/update/webhook',
+        reachable: true,
+        reason: null,
+      }),
+    })
+    expect(result.publicTarget).toBe('https://castel.sa-ma.online/api/admin/update/webhook')
+    expect(result.publicReachable).toBe(true)
+    // Die interne Adresse bleibt intern - sie ist kein Nachweis fuer die Erreichbarkeit von aussen.
+    expect(result.target).toBe('http://host.docker.internal:4280')
   })
 
   it('meldet einen Self-Call als nicht ausführbar', async () => {

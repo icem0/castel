@@ -80,8 +80,24 @@ const { t } = useI18n()
         {{ t('view.update.webhookSelfCall') }}
       </p>
       <p
+        v-else-if="props.check.webhook.publicTarget"
+        :class="props.check.webhook.publicReachable ? 'hint hint-ok' : 'wert-fehler'"
+        data-test="update-webhook-oeffentlich"
+      >
+        {{
+          props.check.webhook.publicReachable
+            ? t('view.update.webhookPublicErreichbar', {
+                target: props.check.webhook.publicTarget,
+              })
+            : t('view.update.webhookPublicNichtErreichbar', {
+                target: props.check.webhook.publicTarget,
+                grund: props.check.webhook.publicReason ?? '?',
+              })
+        }}
+      </p>
+      <p
         v-else-if="!props.check.webhook.configured"
-        class="wert-fehler"
+        class="hint"
         data-test="update-webhook-nicht-konfiguriert"
       >
         {{ t('view.update.webhookNichtKonfiguriert') }}
@@ -98,7 +114,7 @@ const { t } = useI18n()
           })
         }}
       </p>
-      <p v-else class="hint hint-ok" data-test="update-webhook-erreichbar">
+      <p v-else class="hint" data-test="update-webhook-erreichbar">
         {{ t('view.update.webhookErreichbar', { target: props.check.webhook.target ?? '?' }) }}
       </p>
     </template>

@@ -1355,7 +1355,10 @@ export default {
         'UPDATE_WEBHOOK_URL is not set - the button does not need it: it writes the request straight into the DB. You only need the variable for external triggers (CI/CD, another machine).',
       updateWebhookNichtErreichbar:
         'Update service unreachable ({target}): {grund}. Is the service running on the host?',
-      updateWebhookErreichbar: 'Update service reachable: {target}',
+      updateWebhookErreichbar: 'Update service reachable (internal): {target}',
+      updateWebhookPublicErreichbar: 'Public update endpoint reachable: {target}',
+      updateWebhookPublicNichtErreichbar:
+        'Public update endpoint not reachable: {target} ({grund}). Check from the outside (firewall/proxy/DNS).',
       updateHost: 'Host: {host}',
       updateVersion: 'Version: {before} → {after}',
       updateLog: 'Show log',
@@ -1463,7 +1466,10 @@ export default {
         'UPDATE_WEBHOOK_URL is not configured. Without an update service the button cannot start an update.',
       webhookNichtErreichbar:
         'Update service unreachable ({target}): {grund}. Is the service running on the host?',
-      webhookErreichbar: 'Update service reachable: {target}',
+      webhookErreichbar: 'Update service reachable (internal): {target}',
+      webhookPublicErreichbar: 'Public update endpoint reachable: {target}',
+      webhookPublicNichtErreichbar:
+        'Public update endpoint not reachable: {target} ({grund}). Check from the outside (firewall/proxy/DNS).',
       fehlgeschlagen: 'Version check failed: {error}',
       hilfeLink: 'Guide: enable updates on the server',
       hilfe: {

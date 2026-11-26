@@ -17,6 +17,13 @@ export type WebhookStatus = {
   reason: string | null
   /** The URL points at the API container itself (no host executor). */
   selfCall: boolean
+  /** Public address of the inbound endpunkt (CORS_ORIGIN) - what an
+   *  external system would call. */
+  publicTarget: string | null
+  /** The public address answered. */
+  publicReachable: boolean
+  /** Diagnosis for the public address (null when reachable). */
+  publicReason: string | null
 }
 
 export type UpdateCheck = {

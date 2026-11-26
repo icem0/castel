@@ -39,6 +39,9 @@ function check(overrides: Partial<UpdateCheck> = {}): UpdateCheck {
       reachable: true,
       reason: null,
       selfCall: false,
+      publicTarget: null,
+      publicReachable: false,
+      publicReason: null,
     },
     ...overrides,
   }
@@ -143,6 +146,9 @@ describe('UpdateMenu', () => {
           reachable: false,
           reason: 'NOT_CONFIGURED',
           selfCall: false,
+          publicTarget: null,
+          publicReachable: false,
+          publicReason: null,
         },
       }),
     })
@@ -158,11 +164,34 @@ describe('UpdateMenu', () => {
           reachable: false,
           reason: 'ECONNREFUSED',
           selfCall: false,
+          publicTarget: null,
+          publicReachable: false,
+          publicReason: null,
         },
       }),
     })
     const warnung = wrapper.get('[data-test="update-webhook-nicht-erreichbar"]')
     expect(warnung.text()).toContain('ECONNREFUSED')
+  })
+
+  it('zeigt den oeffentlichen Endpunkt statt der internen Adresse', () => {
+    const wrapper = mountMit({
+      check: check({
+        webhook: {
+          configured: true,
+          target: 'http://host.docker.internal:4280',
+          reachable: true,
+          reason: null,
+          selfCall: false,
+          publicTarget: 'https://castel.sa-ma.online/api/admin/update/webhook',
+          publicReachable: true,
+          publicReason: null,
+        },
+      }),
+    })
+    const oeffentlich = wrapper.get('[data-test="update-webhook-oeffentlich"]')
+    expect(oeffentlich.text()).toContain('https://castel.sa-ma.online/api/admin/update/webhook')
+    expect(oeffentlich.text()).not.toContain('host.docker.internal')
   })
 
   it('warnt bei einem Self-Call auf die API selbst', () => {
@@ -174,6 +203,9 @@ describe('UpdateMenu', () => {
           reachable: false,
           reason: 'SELF_CALL',
           selfCall: true,
+          publicTarget: null,
+          publicReachable: false,
+          publicReason: null,
         },
       }),
     })

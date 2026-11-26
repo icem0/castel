@@ -1386,7 +1386,10 @@ export default {
         'UPDATE_WEBHOOK_URL ist nicht gesetzt - fuer den Button nicht noetig: er schreibt die Anforderung direkt in die DB. Die Variable brauchst du nur fuer externe Ausloeser (CI/CD, andere Maschine).',
       updateWebhookNichtErreichbar:
         'Update-Dienst nicht erreichbar ({target}): {grund}. Läuft der Dienst auf dem Host?',
-      updateWebhookErreichbar: 'Update-Dienst erreichbar: {target}',
+      updateWebhookErreichbar: 'Update-Dienst erreichbar (intern): {target}',
+      updateWebhookPublicErreichbar: 'Öffentlicher Update-Endpunkt erreichbar: {target}',
+      updateWebhookPublicNichtErreichbar:
+        'Öffentlicher Update-Endpunkt nicht erreichbar: {target} ({grund}). Von aussen prüfen (Firewall/Proxy/DNS).',
       updateHost: 'Host: {host}',
       updateVersion: 'Version: {before} → {after}',
       updateLog: 'Protokoll anzeigen',
@@ -1495,7 +1498,10 @@ export default {
         'UPDATE_WEBHOOK_URL ist nicht konfiguriert. Ohne Update-Dienst kann der Button kein Update starten.',
       webhookNichtErreichbar:
         'Update-Dienst nicht erreichbar ({target}): {grund}. Läuft der Dienst auf dem Host?',
-      webhookErreichbar: 'Update-Dienst erreichbar: {target}',
+      webhookErreichbar: 'Update-Dienst erreichbar (intern): {target}',
+      webhookPublicErreichbar: 'Öffentlicher Update-Endpunkt erreichbar: {target}',
+      webhookPublicNichtErreichbar:
+        'Öffentlicher Update-Endpunkt nicht erreichbar: {target} ({grund}). Von aussen prüfen (Firewall/Proxy/DNS).',
       fehlgeschlagen: 'Versionsprüfung fehlgeschlagen: {error}',
       hilfeLink: 'Anleitung: Update auf dem Server aktivieren',
       hilfe: {

@@ -1079,6 +1079,21 @@ async function updateStatusLaden(): Promise<void> {
           <p v-if="updateCheck.webhook.selfCall" class="hint hint-danger">
             {{ t('view.development.updateWebhookSelfCall') }}
           </p>
+          <p
+            v-else-if="updateCheck.webhook.publicTarget"
+            :class="updateCheck.webhook.publicReachable ? 'hint hint-ok' : 'hint hint-danger'"
+          >
+            {{
+              updateCheck.webhook.publicReachable
+                ? t('view.development.updateWebhookPublicErreichbar', {
+                    target: updateCheck.webhook.publicTarget,
+                  })
+                : t('view.development.updateWebhookPublicNichtErreichbar', {
+                    target: updateCheck.webhook.publicTarget,
+                    grund: updateCheck.webhook.publicReason ?? '?',
+                  })
+            }}
+          </p>
           <p v-else-if="!updateCheck.webhook.configured" class="hint">
             {{ t('view.development.updateWebhookNichtKonfiguriert') }}
           </p>
@@ -1090,7 +1105,7 @@ async function updateStatusLaden(): Promise<void> {
               })
             }}
           </p>
-          <p v-else class="hint hint-ok">
+          <p v-else class="hint">
             {{
               t('view.development.updateWebhookErreichbar', {
                 target: updateCheck.webhook.target ?? '?',
