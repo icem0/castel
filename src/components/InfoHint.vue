@@ -50,17 +50,17 @@ function toggle(): void {
 }
 .info-tip {
   position: absolute;
-  left: 50%;
-  bottom: 1.7em;
-  transform: translateX(-50%);
-  max-width: min(26rem, 90vw);
-  padding: 0.5rem 0.7rem;
+  right: 0;
+  bottom: 1.8em;
+  max-width: min(36rem, 94vw);
+  width: auto;
+  padding: 0.6rem 0.9rem;
   background: var(--bg-card, #fff);
   border: 1px solid var(--border, #ccc);
-  border-radius: 0.45rem;
+  border-radius: 0.5rem;
   box-shadow: var(--shadow-card, 0 2px 6px rgba(0, 0, 0, 0.18));
-  font-size: 0.85em;
-  line-height: 1.35;
+  font-size: 0.92em;
+  line-height: 1.45;
   text-align: left;
   white-space: normal;
   opacity: 0;
