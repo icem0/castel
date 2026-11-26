@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -185,6 +186,7 @@ const leer = computed(
   <section class="view dashboard">
     <header class="view-head dashboard-head">
       <h1>{{ t('view.dashboard.h1') }}</h1>
+      <InfoHint :text="t('view.dashboard.be')" />
       <div class="zeitraum-switch" role="group" :aria-label="t('view.dashboard.zeitraum.aria')">
         <button
           v-for="option in zeitraumOptionen"

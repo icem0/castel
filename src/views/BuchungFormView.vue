@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -270,6 +271,7 @@ function typIcon(wert: BuchungsTyp): string {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.buchung.form.h1') }}</h1>
+      <InfoHint :text="t('view.buchung.form.be')" />
       <RouterLink to="/buchungen" class="btn desktop-only">
         {{ t('view.buchung.form.abbrechen') }}
       </RouterLink>

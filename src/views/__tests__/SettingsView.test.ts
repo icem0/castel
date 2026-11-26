@@ -1,19 +1,20 @@
-// Tests für die Sprach-Auswahl in der Sektion "Account" der Einstellungen.
+// Tests für den Einstellings-Menü (directory-only, keine inline forms mehr).
 //
-// Erwartetes Verhalten:
-//   - Der Sprach-Umschalter steht in der Kategorie "Account", nicht mehr
-//     im allgemeinen Einstellungs-Formular.
-//   - Die Auswahl wirkt sofort: der Wert landet in der lokalen DB
-//     (IndexedDB) und die i18n-Locale wechselt ohne "Speichern"-Klick.
-//   - Die Einstellung ist an den eingeloggten User gebunden (per-User-Key).
+// Expectations:
+//   - Every menu point links to its own page — no inline Account/Benachricht-
+//     ings forms left in the hub.
+//   - Permission visibility stays client-side: normal users do not see admin
+//     points, admins see all.
+//   - The live filter at the top narrows the menu points (initialQuery prop is
+//     the test hook; typing works the same at runtime).
+//   - Every menu point carries an InfoHint badge to its right.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import SettingsView from '../SettingsView.vue'
-import { i18n, bindSpracheAnLocale } from '../../i18n'
-import { useSettingsStore } from '../../stores/settings'
+import { i18n } from '../../i18n'
 import { getDb, resetDbForTests, setDb } from '../../db/database'
 import { jetztIso } from '../../domain/ids'
 import { sessionSchreiben } from '../../auth/session'
@@ -25,6 +26,9 @@ const router = createRouter({
   routes: [
     { path: '/', component: { template: '<div />' } },
     { path: '/einstellungen', component: { template: '<div />' } },
+    { path: '/einstellungen/account', component: { template: '<div />' } },
+    { path: '/einstellungen/benachrichtigengs', component: { template: '<div />' } },
+    { path: '/einstellungen/general', component: { template: '<div />' } },
     { path: '/einstellungen/user', component: { template: '<div />' } },
     { path: '/einstellungen/entwicklung', component: { template: '<div />' } },
     { path: '/einstellungen/artikel-typen', component: { template: '<div />' } },
@@ -34,6 +38,11 @@ const router = createRouter({
     { path: '/einstellungen/backup', component: { template: '<div />' } },
     { path: '/einstellungen/api-keys', component: { template: '<div />' } },
     { path: '/einstellungen/geraet', component: { template: '<div />' } },
+    { path: '/einstellungen/rollen', component: { template: '<div />' } },
+    { path: '/einstellungen/akku-typen', component: { template: '<div />' } },
+    { path: '/einstellungen/hersteller', component: { template: '<div />' } },
+    { path: '/einstellungen/inventur', component: { template: '<div />' } },
+    { path: '/einstellungen/inventur/archiv', component: { template: '<div />' } },
     { path: '/akkutausch', component: { template: '<div />' } },
     { path: '/passwort-aendern', component: { template: '<div />' } },
     { path: '/info', component: { template: '<div />' } },
@@ -43,16 +52,17 @@ const router = createRouter({
   ],
 })
 
-function mountSettings() {
+function mountSettings(props: { initialQuery?: string } = {}) {
   const pinia = createPinia()
   setActivePinia(pinia)
   const w = mount(SettingsView, {
+    props,
     global: { plugins: [pinia, i18n, router] },
   })
   return { w, pinia }
 }
 
-describe('SettingsView — Sprache in der Kategorie "Account"', () => {
+describe('SettingsView — normal User', () => {
   beforeEach(() => {
     resetDbForTests()
     setDb(getDb())
@@ -73,140 +83,68 @@ describe('SettingsView — Sprache in der Kategorie "Account"', () => {
     localStorage.removeItem(LS_SESSION)
   })
 
-  it('zeigt den Sprach-Umschalter in der Account-Sektion, nicht im oberen Formular', () => {
+  it('shows the own points and hides all admin points', () => {
     const { w } = mountSettings()
-
-    const selects = w.findAll('select')
-    expect(selects.length).toBeGreaterThan(0)
-
-    // Der Sprach-Umschalter ist der einzige Select mit den Sprach-Optionen.
-    const sprachSelect = selects.find((s) =>
-      s.findAll('option').some((o) => o.attributes('value') === 'en'),
-    )
-    expect(sprachSelect).toBeDefined()
-
-    // Er steht in der Card unter der Ueberschrift "Account".
-    const accountCard = w.findAll('h2').find((h) => h.text() === 'Account')
-      ?.element?.nextElementSibling
-    expect(accountCard).toBeDefined()
-    expect((accountCard as HTMLElement).querySelector('select')).not.toBeNull()
-
-    // Und nicht mehr im oberen Einstellungs-Formular (dort gibt es nur
-    // noch den Standard-Standort- und den Barcode-Select).
-    const form = w.find('form')
-    const sprachSelectImForm = form
-      .findAll('select')
-      .find((s) => s.findAll('option').some((o) => o.attributes('value') === 'en'))
-    expect(sprachSelectImForm).toBeUndefined()
+    const links = w.findAll('a').map((a) => a.attributes('href'))
+    expect(links).toContain('/einstellungen/account')
+    expect(links).toContain('/einstellungen/benachrichtigengs')
+    expect(links).toContain('/passwort-aendern')
+    expect(links).toContain('/info')
+    expect(links).toContain('/einstellungen/mindestbestand')
+    expect(links).toContain('/etiketten')
+    expect(links).toContain('/einstellungen/artikel-kataloge')
+    expect(links).toContain('/einstellungen/geraet')
+    // Admin-only points must not be visible.
+    for (const hidden of [
+      '/standorte',
+      '/einstellungen/inventur',
+      '/einstellungen/inventur/archiv',
+      '/einstellungen/general',
+      '/einstellungen/user',
+      '/einstellungen/rollen',
+      '/einstellungen/entwicklung',
+      '/einstellungen/backup',
+      '/einstellungen/api-keys',
+      '/import',
+    ]) {
+      expect(links).not.toContain(hidden)
+    }
+    // The Akkutausch is opt-in and off by default.
+    expect(links).not.toContain('/akkutausch')
   })
 
-  it('zeigt den Theme-Umschalter in der Account-Sektion und speichert per User', async () => {
-    const { w, pinia } = mountSettings()
-    const store = useSettingsStore(pinia)
-    store.start()
-
-    const accountCard = w.findAll('h2').find((h) => h.text() === 'Account')?.element
-      ?.nextElementSibling as HTMLElement | undefined
-    expect(accountCard).toBeDefined()
-
-    const themeSelect = Array.from(accountCard!.querySelectorAll('select')).find((s) =>
-      Array.from(s.options).some((o) => o.value === 'auto'),
-    )
-    expect(themeSelect).toBeDefined()
-
-    themeSelect!.value = 'light'
-    themeSelect!.dispatchEvent(new Event('change'))
-    await new Promise<void>((r) => setTimeout(r, 50))
-
-    const row = await getDb().einstellungen.get(['theme', 'user-acc'])
-    expect(row?.value).toBe('light')
-    expect(await getDb().einstellungen.get(['theme', ''])).toBeUndefined()
-    expect(store.settings.theme).toBe('light')
-
-    store.stop()
-  })
-
-  it('zeigt normalen Usern die Benachrichtigungen — Alarm standardmäßig aus', () => {
+  it('has no inline forms and no inline notification block anymore', () => {
     const { w } = mountSettings()
-
-    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Benachrichtigungen')
-    expect(ueberschrift).toBeDefined()
-
-    const karte = ueberschrift!.element.nextElementSibling as HTMLElement
-    expect(karte).not.toBeNull()
-    expect(karte.textContent).toContain('Alarm bei neuen Ereignissen')
-
-    const checkbox = karte.querySelector('input[type="checkbox"]') as HTMLInputElement | null
-    expect(checkbox).not.toBeNull()
-    // Rollenabhängiger Default: User starten still und schalten selbst an.
-    expect(checkbox!.checked).toBe(false)
-    // Lautstärke und Wiederholung hängen am Master-Switch.
-    expect(karte.querySelector('input[type="range"]')).toBeNull()
-
-    // Tracking bleibt offen: Link zur vollständigen Ereignisliste.
-    expect(karte.querySelector('a[href="/einstellungen/mindestbestand"]')).not.toBeNull()
-  })
-
-  it('zeigt den Akkutausch-Schalter nicht für normale User', () => {
-    const { w } = mountSettings()
-    expect(w.text()).not.toContain('Akkutausch-Tool aktivieren')
-  })
-
-  it('zeigt normalen Usern kein Standard-Standort-Feld', () => {
-    const { w } = mountSettings()
-    const form = w.find('form')
-    expect(form.find('select').exists()).toBe(false)
+    expect(w.element.querySelector('form')).toBeNull()
+    // The Account/Benachrichtigengs content lives on its own page now — the
+    // hub only carries the menu point.
+    expect(w.text()).not.toContain('Alarm bei neuen Ereignissen')
     expect(w.text()).not.toContain('Standard-Standort')
   })
 
-  it('versteckt normalen Usern CSV-Import, Backup und API-Keys', () => {
+  it('renders the live search input at the top', () => {
     const { w } = mountSettings()
-    const links = w.findAll('a').map((a) => a.attributes('href'))
-    expect(links).not.toContain('/import')
-    expect(links).not.toContain('/einstellungen/backup')
-    expect(links).not.toContain('/einstellungen/api-keys')
-    // Der Geräte-Reset bleibt für jede Rolle erreichbar.
-    expect(links).toContain('/einstellungen/geraet')
+    const input = w.element.querySelector('input[type="search"]')
+    expect(input).not.toBeNull()
+    expect(input!.placeholder).toContain('Find menu')
   })
 
-  it('versteckt normalen Usern den Standort-Link im Stammdaten-Block', () => {
+  it('every menu point carries an InfoHint badge', () => {
     const { w } = mountSettings()
     const links = w.findAll('a').map((a) => a.attributes('href'))
-    expect(links).not.toContain('/standorte')
-    // Nicht-Stammdaten-Punkte bleiben offen.
-    expect(links).toContain('/einstellungen/artikel-kataloge')
-    expect(links).toContain('/etiketten')
+    const badges = w.element.querySelectorAll('.info-hint')
+    expect(badges.length).toBe(links.length)
+    expect(badges.length).toBeGreaterThan(0)
   })
 
-  it('wendet die neue Sprache sofort an (lokal + i18n-Locale, ohne "Speichern")', async () => {
-    const { w, pinia } = mountSettings()
-    const store = useSettingsStore(pinia)
-    store.start()
-    bindSpracheAnLocale(() => store.settings.sprache)
-
-    const sprachSelect = w
-      .findAll('select')
-      .find((s) => s.findAll('option').some((o) => o.attributes('value') === 'en'))
-    expect(sprachSelect).toBeDefined()
-
-    await sprachSelect!.setValue('en')
-    // Der Store aktualisiert sich per liveQuery (asynchron) — kurz warten.
-    await new Promise<void>((r) => setTimeout(r, 50))
-
-    // 1) Lokal persistiert, an den eingeloggten User gebunden.
-    const row = await getDb().einstellungen.get(['sprache', 'user-acc'])
-    expect(row?.value).toBe('en')
-    expect(await getDb().einstellungen.get(['sprache', ''])).toBeUndefined()
-
-    // 2) Die i18n-Locale ist umgeschaltet — die UI zeigt ab sofort Englisch.
-    expect(i18n.global.locale.value).toBe('en-US')
-    expect(store.settings.sprache).toBe('en')
-
-    store.stop()
+  it('menu links stay decorated with an app icon', () => {
+    const { w } = mountSettings()
+    const target = w.element.querySelector('a[href="/einstellungen/geraet"]')
+    expect(target?.outerHTML).toContain('app-icon')
   })
 })
 
-describe('SettingsView — Benachrichtigungen (Admin)', () => {
+describe('SettingsView — Admin', () => {
   beforeEach(() => {
     resetDbForTests()
     setDb(getDb())
@@ -227,80 +165,47 @@ describe('SettingsView — Benachrichtigungen (Admin)', () => {
     localStorage.removeItem(LS_SESSION)
   })
 
-  it('zeigt die Mindestbestand-Benachrichtigungen samt Link zur Ereignisliste', () => {
+  it('shows all points to an admin', () => {
     const { w } = mountSettings()
-
-    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Benachrichtigungen')
-    expect(ueberschrift).toBeDefined()
-
-    const karte = ueberschrift!.element.nextElementSibling as HTMLElement
-    expect(karte).not.toBeNull()
-    expect(karte.textContent).toContain('Alarm bei neuen Ereignissen')
-    expect(karte.querySelector('input[type="checkbox"]')).not.toBeNull()
-    // Admin-Default: Alarm an → Lautstärke-Steller sichtbar.
-    expect(karte.querySelector('input[type="range"]')).not.toBeNull()
-
-    const link = karte.querySelector('a[href="/einstellungen/mindestbestand"]')
-    expect(link).not.toBeNull()
-    expect(link?.textContent).toContain('Alle Ereignisse anzeigen')
-  })
-
-  it('zeigt Admins den Akkutausch-Schalter in der Kategorie "Administration"', () => {
-    const { w } = mountSettings()
-
-    const ueberschrift = w.findAll('h2').find((h) => h.text() === 'Administration')
-    expect(ueberschrift).toBeDefined()
-
-    const karte = ueberschrift!.element.nextElementSibling as HTMLElement
-    expect(karte).not.toBeNull()
-    expect(karte.textContent).toContain('Akkutausch-Tool aktivieren')
-    expect(karte.querySelector('input[type="checkbox"]')).not.toBeNull()
-    // The tool is opt-in: the default checkbox state is unchecked.
-    expect((karte.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false)
-  })
-
-  it('zeigt Admins das Standard-Standort-Feld und die Admin-Links', () => {
-    const { w } = mountSettings()
-
-    const form = w.find('form')
-    expect(form.find('select').exists()).toBe(true)
-
     const links = w.findAll('a').map((a) => a.attributes('href'))
-    expect(links).toContain('/import')
-    expect(links).toContain('/einstellungen/backup')
-    expect(links).toContain('/einstellungen/api-keys')
-    expect(links).toContain('/standorte')
-  })
-
-  it('shows the new 6-category taxonomy (Account, Lager, Analyse, Tools, Stammdaten, Administration)', () => {
-    const { w } = mountSettings()
-    const h2Texts = w.findAll('h2').map((h) => h.text().trim())
     for (const expected of [
-      'Account',
-      'Lager',
-      'Analyse',
-      'Werkzeuge',
-      'Stammdaten',
-      'Administration',
+      '/standorte',
+      '/einstellungen/inventur',
+      '/einstellungen/inventur/archiv',
+      '/einstellungen/general',
+      '/einstellungen/user',
+      '/einstellungen/rollen',
+      '/einstellungen/entwicklung',
+      '/einstellungen/backup',
+      '/einstellungen/api-keys',
+      '/import',
     ]) {
-      expect(h2Texts.some((t) => t.startsWith(expected))).toBe(true)
+      expect(links).toContain(expected)
     }
   })
 
-  it('every h2 header renders an app-icon SVG', () => {
+  it('categories render with an icon and every point with an info badge', () => {
     const { w } = mountSettings()
     const h2s = w.findAll('h2')
     expect(h2s.length).toBeGreaterThan(0)
     for (const h of h2s) {
       expect(h.element.outerHTML).toContain('app-icon')
     }
+    const links = w.findAll('a')
+    expect(links.length).toBeGreaterThan(0)
+    const badges = w.element.querySelectorAll('.info-hint')
+    expect(badges.length).toBe(links.length)
   })
 
-  it('quick-links carry a decorative icon when inside a category card', () => {
-    const { w } = mountSettings()
-    const links = w.findAll('a[href="/einstellungen/mindestbestand"]')
-    const target = links[links.length - 1]
-    expect(target).not.toBeNull()
-    expect(target!.element.outerHTML).toContain('app-icon')
+  it('the live filter narrows the menu points (backup matches)', () => {
+    const { w } = mountSettings({ initialQuery: 'backup' })
+    const links = w.findAll('a').map((a) => a.attributes('href'))
+    expect(links).toStrictEqual(['/einstellungen/backup'])
+  })
+
+  it('the live filter hides everything without a match', () => {
+    const { w } = mountSettings({ initialQuery: 'qqzzx' })
+    expect(w.findAll('a')).toHaveLength(0)
+    expect(w.text()).toContain('No menu point matched')
   })
 })

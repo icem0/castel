@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // Admin-View: Backup & Restore.
 //
 // Funktionen:
@@ -456,7 +457,7 @@ const settingsDirty = ref(false)
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.backup.h1') }}</h1>
-      <p class="hint">{{ t('view.backup.intro') }}</p>
+      <InfoHint :text="t('view.backup.intro')" />
     </header>
 
     <div v-if="fehler" class="card error" role="alert">

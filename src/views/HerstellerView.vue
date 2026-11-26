@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // Hersteller-Verwaltung (Admin-only).
 //
 // Hersteller sind Stammdaten mit Bestellkontakt. Der Mindestbestandsalarm
@@ -146,9 +147,8 @@ function webHref(web: string): string {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.hersteller.h1') }}</h1>
+      <InfoHint :text="t('view.hersteller.hint')" />
     </header>
-
-    <p class="hint">{{ t('view.hersteller.hint') }}</p>
 
     <div class="card">
       <form class="neu-form" @submit.prevent="hinzufuegen">

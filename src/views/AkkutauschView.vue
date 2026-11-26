@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // Akkutausch-Tool: Austauschplanung fuer Akkus.
 //
 // Drei Reiter:
@@ -50,6 +51,7 @@ onMounted(() => {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.akkutausch.h1') }}</h1>
+      <InfoHint :text="t('view.akkutausch.be')" />
       <div class="tabs" role="tablist">
         <button
           type="button"

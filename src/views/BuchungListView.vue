@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -146,6 +147,7 @@ async function stornoAufheben(s: Buchung): Promise<void> {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.buchung.h1') }}</h1>
+      <InfoHint :text="t('view.buchung.be')" />
       <RouterLink to="/buchung/neu" class="btn primary">{{ t('view.common.neu') }}</RouterLink>
     </header>
 

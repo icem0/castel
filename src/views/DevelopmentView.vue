@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -532,7 +533,7 @@ async function updateStatusLaden(): Promise<void> {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.development.h1') }}</h1>
-      <p class="hint">{{ t('view.development.intro') }}</p>
+      <InfoHint :text="t('view.development.intro')" />
     </header>
 
     <h2>{{ t('view.development.lokalerCache') }}</h2>

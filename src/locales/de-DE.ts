@@ -45,6 +45,7 @@ export default {
   view: {
     dashboard: {
       h1: 'Dashboard',
+      be: 'Kurzübersicht from stock and activity: key figures, charts, minimum-stock alarms and the recent transactions.',
       leer: 'Noch keine Daten. Lege im Menü "Standorte" und "Artikel" etwas an.',
       zeitraum: {
         aria: 'Zeitraum wählen',
@@ -164,6 +165,7 @@ export default {
     },
     artikel: {
       h1: 'Artikel',
+      be: 'The item catalog: browse, search and filter all items — also by barcode or order number.',
       neu: 'Neuer Artikel',
       suche: 'Suche (Titel, Typ, Bestellnummer)',
       filter: {
@@ -254,6 +256,7 @@ export default {
     },
     buchung: {
       h1: 'Buchungen',
+      be: 'The transaction overview: the complete booking journal with filters for item, location and time.',
       leer: 'Noch keine Buchungen.',
       filterArtikel: 'Artikel filtern…',
       stornoAktion: 'Storno',
@@ -274,6 +277,7 @@ export default {
       },
       form: {
         h1: 'Neue Buchung',
+        be: 'Create a new booking: item, quantity and location — every quantity change is a booking.',
         typ: 'Typ',
         typen: {
           einlagerung: 'Einlagerung',
@@ -350,6 +354,7 @@ export default {
     },
     standort: {
       h1: 'Standorte',
+      be: 'The locations: create new locations, rename and archive them. Deletion is admin-only.',
       neu: 'Neuer Standort',
       spalten: {
         name: 'Name',
@@ -426,6 +431,69 @@ export default {
       artikelKataloge: 'Artikelkataloge',
       mindestbestandPanel: 'Mindestbestand-Panel',
       inventurArchiv: 'Buchung-Archiv',
+      personal: 'Personal',
+      general: 'Allgemeine',
+      benachConfig: 'Notification Settings',
+      menu: {
+        suche: 'Find menu point — start typing',
+        leer: 'No menu point matched — try different wording.',
+        info: {
+          account:
+            'Your personal account: display name, language and design. Takes effect immediately, only for you.',
+          passwortAendern: 'Change the password of your own account.',
+          ersteSchritte:
+            'Help & first steps: how the app works, installing it as an app and what to do in case of problems.',
+          benach:
+            'The minimum-stock alarm for this device: sound, volume, repetition and a test signal.',
+          mindestbestandPanel:
+            'Overview of the alarm log: which items are below their minimum at which location, orderable via "mark as ordered".',
+          standorte: 'The locations: create, rename and archive locations.',
+          inventur:
+            'Inventory: reference date and lead days, snapshots for accounting and current stock.',
+          inventurArchiv:
+            'The booking archive: the complete booking history on the server, with time filter and CSV export.',
+          akkutausch:
+            'The battery exchange planning: demand, planning table, project batteries and order archive.',
+          etiquetters: 'The print form: barcode labels for items, series and sheets.',
+          csvImport:
+            'CSV import: upload a file, map the fields, validate and import item master data.',
+          artikelTypen: 'The global item types: create, rename and delete (admin-only).',
+          akkuTypen: 'The battery sizes for the planning table: capacity classes and their names.',
+          kommissionen:
+            'The commission/project list: the global list plus the additions of other users.',
+          hersteller: 'The suppliers: supplier master data, their items and the discount.',
+          artikelKataloge: 'The supplier catalog (DATANORM): upload and browsing.',
+          general:
+            'App-wide settings: standard location, company name, barcode format and the battery exchange toggle. Admin-only.',
+          benutzerVerwaltung: 'The users of the app: create, change and deactivate users.',
+          rollenVerwaltung: 'Roles and their permissions — the base of all permission checks.',
+          entwicklung: 'The development menu: cache & sync state, devices and database tools.',
+          geraet: 'The local storage of this device: rebuild your own IndexedDB from the server.',
+          backup: 'Backup & Restore: create, download and restore server backups.',
+          apiKeys: 'The API keys for external access to the API.',
+        },
+      },
+    },
+    account: {
+      h1: 'Account',
+      be: 'Personal settings of your account: display name, language and design. All only for you, effective immediately.',
+    },
+    benach: {
+      h1: 'Notification Settings',
+      be: 'The minimum-stock alarm of this device: signal on/off, sound, volume, repetition and test. Every role can follow its alarms.',
+    },
+    general: {
+      h1: 'Allgemeine',
+      be: 'App-wide settings for all users: standard location, company name, barcode format and the battery exchange toggle. All writes are saved globally and synced.',
+    },
+    user: {
+      be: 'Here you manage the users: create new users, change the display name and password and activate or deactivate users.',
+    },
+    rollen: {
+      be: 'Here you manage roles and their permissions. The permissions decide which menu points and functions are available to which user.',
+    },
+    import: {
+      be: 'Import of item master data from a CSV file: select file, map fields, validate, import. Bookings are never imported.',
     },
     inventur: {
       h1: 'Inventur',
@@ -636,6 +704,7 @@ export default {
     },
     akkutausch: {
       h1: 'Akkutausch',
+      be: 'The battery exchange: demand from the net list plus project batteries, the planning table and the order archive.',
       tabPlanung: 'Planung',
       tabNetzteile: 'Netzteile',
       tabProjektakkus: 'Projektakkus',
@@ -812,6 +881,7 @@ export default {
     },
     artikelKataloge: {
       h1: 'Artikelkataloge',
+      be: 'The supplier catalog (DATANORM): upload the catalog files and browse supplier items for catalog pickup.',
       throughsuche: 'Katalog durchsuchen',
       lieferant: 'Lieferant',
       lieferantWaehlen: '— Lieferant wählen —',
@@ -886,6 +956,7 @@ export default {
     },
     barcode: {
       h1: 'Barcode-Etiketten',
+      be: 'Generate print labels or barcodes for items: series, sheets and single barcodes.',
       artikel: 'Artikel',
       artikelWaehlen: '– Artikel wählen –',
       wert: 'Barcode-Wert',
@@ -1146,6 +1217,7 @@ export default {
     },
     mindestbestand: {
       title: 'Mindestbestand',
+      be: 'Panel for minimum stock: which items are below their minimum at which location and the alarm event log.',
       hint: 'Hier siehst du alle Buchungen, die einen Artikel unter seinen Mindestbestand gedrückt haben. Die Liste wird vom Server gefüllt und ist für jede Rolle lesbar — als bestellt markieren bleibt Admins vorbehalten. Der Bestand wird live aus den Buchungen berechnet — ein Alarm gilt als erledigt, sobald der Bestand wieder über dem Mindestbestand liegt.',
       back: 'Zurück',
       empty: 'Keine Ereignisse im gewählten Zeitraum.',

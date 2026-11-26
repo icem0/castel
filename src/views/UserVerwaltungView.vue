@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { ref, onMounted, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
@@ -6,6 +7,9 @@ import { useUserStore } from '../stores/users'
 import { useRollenStore } from '../stores/rollen'
 import { MIN_PASSWORT_LAENGE, generiereEinmalpasswort } from '../auth/policy'
 import { ROLLEN, type Rolle } from '../domain/rollen'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const auth = useAuthStore()
 const userStore = useUserStore()
@@ -230,6 +234,7 @@ function formatDatum(iso: string | null): string {
   <section class="view">
     <header class="view-head">
       <h1>Benutzer-Verwaltung</h1>
+      <InfoHint :text="t('view.user.be')" />
       <div class="head-actions">
         <RouterLink to="/einstellungen/rollen" class="btn">Rollen &amp; Berechtigungen</RouterLink>
         <button type="button" class="primary" @click="formularOffen = !formularOffen">

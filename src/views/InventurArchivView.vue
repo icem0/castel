@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
@@ -281,6 +282,7 @@ async function exporteierePdf(): Promise<void> {
 <template>
   <div v-if="darfLesen" class="card">
     <h2>{{ t('view.inventurArchiv.archivTitel') }}</h2>
+    <InfoHint :text="t('view.inventurArchiv.be')" />
     <p>{{ t('view.inventurArchiv.archivHint') }}</p>
 
     <div class="archiv-filter">

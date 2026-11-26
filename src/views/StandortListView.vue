@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { StandortHatBuchungenError, useStandortStore } from '../stores/standort'
@@ -152,6 +153,7 @@ const istLeer = computed(() => sichtbareStandorte.value.length === 0 && !formula
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.standort.h1') }}</h1>
+      <InfoHint :text="t('view.standort.be')" />
       <button type="button" class="primary" @click="formularOffen = !formularOffen">
         {{ formularOffen ? t('view.common.abbrechen') : t('view.standort.neu') }}
       </button>

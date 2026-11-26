@@ -18,6 +18,10 @@ import {
 } from '../services/import/validierung'
 import { ImportValidierungError } from '../domain/errors'
 import { importArtikelAusCsv, type ImportBericht } from '../services/import/import'
+import { useI18n } from 'vue-i18n'
+import InfoHint from '../components/InfoHint.vue'
+
+const { t } = useI18n()
 
 // Schritt 1
 const datei = ref<File | null>(null)
@@ -137,7 +141,7 @@ async function importAusfuehren(): Promise<void> {
 <template>
   <section class="view">
     <h1>Daten-Import</h1>
-    <p>Import von Artikel-Stammdaten aus einer CSV-Datei.</p>
+    <InfoHint :text="t('view.import.be')" />
 
     <h2>1. Datei wählen</h2>
     <div class="row">

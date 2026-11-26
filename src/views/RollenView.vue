@@ -1,8 +1,12 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
 import { apiFetch } from '../auth/api'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -179,6 +183,7 @@ onMounted(ladeDaten)
   <section class="view">
     <header class="view-head">
       <h1>Rollen &amp; Berechtigungen</h1>
+      <InfoHint :text="t('view.rollen.be')" />
     </header>
 
     <div v-if="fehler" class="fehler" role="alert">{{ fehler }}</div>

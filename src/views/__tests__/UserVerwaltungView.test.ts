@@ -10,6 +10,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import UserVerwaltungView from '../UserVerwaltungView.vue'
+import { i18n } from '../../i18n'
 import { useAuthStore } from '../../stores/auth'
 import { sessionSchreiben } from '../../auth/session'
 
@@ -81,7 +82,7 @@ async function setupView() {
   const pinia = createPinia()
   setActivePinia(pinia)
   adminSession()
-  const wrapper = mount(UserVerwaltungView, { global: { plugins: [pinia, router] } })
+  const wrapper = mount(UserVerwaltungView, { global: { plugins: [pinia, i18n, router] } })
   await flushPromises()
   return { wrapper, pinia }
 }

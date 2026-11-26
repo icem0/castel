@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -205,9 +206,8 @@ async function typEntfernen(typ: AkkuTyp): Promise<void> {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.akkuTypen.h1') }}</h1>
+      <InfoHint :text="t('view.akkuTypen.hint')" />
     </header>
-
-    <p class="hint">{{ t('view.akkuTypen.hint') }}</p>
 
     <div v-if="!hauptlager" class="card fehler">
       {{ t('view.akkuTypen.keinHauptlager') }}

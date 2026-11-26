@@ -37,6 +37,9 @@ import BuchungFormView from '../views/BuchungFormView.vue'
 import KommissionView from '../views/KommissionView.vue'
 import StandortListView from '../views/StandortListView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import AccountView from '../views/AccountView.vue'
+import BenachrichtigengView from '../views/BenachrichtigengView.vue'
+import GeneralView from '../views/GeneralView.vue'
 import DevelopmentView from '../views/DevelopmentView.vue'
 import BuchungenLoeschenView from '../views/BuchungenLoeschenView.vue'
 import UpdateHilfeView from '../views/UpdateHilfeView.vue'
@@ -100,6 +103,28 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresPermission: ['standort.schreiben'] },
   },
   { path: '/einstellungen', name: 'einstellungen', component: SettingsView },
+  {
+    // Personal, per-user settings (language, theme, sign-out) — every signed-in
+    // role may manage its own account.
+    path: '/einstellungen/account',
+    name: 'einstellungen-account',
+    component: AccountView,
+  },
+  {
+    // Alarm tracking is not admin-only: every role may follow its minimum-stock
+    // alarms and enable the signal itself (role-based default off for users).
+    path: '/einstellungen/benachrichtigengs',
+    name: 'einstellungen-benachrichtigengs',
+    component: BenachrichtigengView,
+  },
+  {
+    // Global (app-wide) admin settings: standard location, company name,
+    // barcode format, Akkutausch toggle.
+    path: '/einstellungen/general',
+    name: 'einstellungen-general',
+    component: GeneralView,
+    meta: { requiresPermission: ['globalEinstellung'] },
+  },
   {
     path: '/einstellungen/api-keys',
     name: 'einstellungen-api-keys',

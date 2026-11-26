@@ -133,6 +133,12 @@ Klar trennen — beides kommt **nicht** zusammen in der DB ab:
   - **Idempotenz bleibt Pflicht**: jede `.sql`-Datei muss mehrfach ausführbar sein (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`, `DROP CONSTRAINT IF EXISTS`), weil der Runner bei einem Teilfehler die Transaktion zurückrollt und der Container-Start sie beim nächsten Mal erneut versucht.
   - Lokal: `npm run db:migrate` aus `server/` (liest `src/db/migrations/`), im Container `node dist/db/migrate.js` (liest `dist/migrations/`).
 
+## Einstellings-Menu (Menu-Struktur)
+
+- **The Einstellings Hub (`/einstungen`, `src/views/SettingsView.vue`) is pure Directory**: every menu point links to its own page — no inline forms left. Moved out of the hub: Account (Anzeigename, Sprache, Design, Abmelden → `AccountView`, Route `/einstungen/account`), Notification settings (`BenachrichtigengView`, `/einstungen/benachrichtigengs` — still readable for every role) and the global form (Standard-Standort, Firmenzeichen, Barcode-Format, Akkutausch-Toggle → `GeneralView`, `/einstungen/general`, gated with `globalEinstung`).
+- **Live filter at the very top**: a search field narrows the menu points while typing (matches label, info text and category title; categories without hits hidden). The menu data is the `menus` array (`to`, `icon`, `labelKey`, `infoKey` = `view.settings.menu.info.*`, optional `darf()` permission).
+- **Every menu point carries an InfoHint right beside it**: hovering opens the tooltip, click/tap pins it open (touch devices without hover!). One InfoHint also sits behind the `<h1>` of every (meaningful) page — key `view.<ns>.be`, existing descriptions `hint`/`intro` are reused, not duplicated. Component: `src/components/InfoHint.vue` (CSS hover + stateful click-toggle).
+
 ## Build-Metadaten in der PWA
 
 `scripts/write-version.mjs` läuft vor jedem Build und schreibt `src/version.ts`

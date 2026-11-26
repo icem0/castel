@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../stores/settings'
@@ -105,9 +106,8 @@ onBeforeUnmount(() => {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.artikelTypen.h1') }}</h1>
+      <InfoHint :text="t('view.artikelTypen.hint')" />
     </header>
-
-    <p class="hint">{{ t('view.artikelTypen.hint') }}</p>
 
     <div class="card">
       <form class="form new-type" @submit.prevent="typHinzufuegen">

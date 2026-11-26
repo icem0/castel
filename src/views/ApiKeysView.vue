@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
@@ -121,9 +122,8 @@ onMounted(() => {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.apiKeys.h1') }}</h1>
+      <InfoHint :text="t('view.apiKeys.hint')" />
     </header>
-
-    <p class="hint">{{ t('view.apiKeys.hint') }}</p>
     <div class="card endpoints">
       <div><strong>REST:</strong> <code>/api/v1</code></div>
       <div><strong>MCP:</strong> <code>/api/mcp</code></div>

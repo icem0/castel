@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // Device storage: local mirror counts + a hard reset for every role.
 //
 // The local IndexedDB is a disposable mirror of the server (AGENTS.md: the
@@ -114,8 +115,8 @@ async function zuruecksetzenBestaetigen(): Promise<void> {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.geraet.h1') }}</h1>
+      <InfoHint :text="t('view.geraet.intro')" />
     </header>
-    <p class="intro">{{ t('view.geraet.intro') }}</p>
 
     <h2>{{ t('view.geraet.uebersicht') }}</h2>
     <div class="card">

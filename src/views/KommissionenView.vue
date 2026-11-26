@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // Kommissionen-Verwaltung (Admin-only).
 //
 // Quelle: `einstellungen.kommissionen` (JSON-Array, konfigurierbar) +
@@ -144,9 +145,8 @@ onBeforeUnmount(() => {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.kommissionen.h1') }}</h1>
+      <InfoHint :text="t('view.kommissionen.hint')" />
     </header>
-
-    <p class="hint">{{ t('view.kommissionen.hint') }}</p>
 
     <div class="card">
       <form class="form new-kommission" @submit.prevent="hinzufuegen">

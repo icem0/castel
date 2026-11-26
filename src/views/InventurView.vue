@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../stores/settings'
@@ -428,12 +429,11 @@ onBeforeUnmount(() => {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.inventur.h1') }}</h1>
+      <InfoHint :text="t('view.inventur.hint')" />
       <RouterLink to="/einstellungen" class="btn desktop-only">{{
         t('view.inventur.zurueck')
       }}</RouterLink>
     </header>
-
-    <p class="hint">{{ t('view.inventur.hint') }}</p>
 
     <!-- Erinnerung -->
     <div

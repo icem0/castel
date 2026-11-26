@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // Hersteller-Kataloge (DATANORM) unter Einstellungen → Stammdaten.
 //
 // Drei Bereiche:
@@ -463,6 +464,7 @@ onBeforeUnmount(schliesseEventSource)
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.artikelKataloge.h1') }}</h1>
+      <InfoHint :text="t('view.artikelKataloge.be')" />
     </header>
 
     <div class="card">

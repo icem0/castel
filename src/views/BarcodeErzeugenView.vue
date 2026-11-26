@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { onMounted, ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -363,6 +364,7 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.barcode.h1') }}</h1>
+      <InfoHint :text="t('view.barcode.be')" />
       <div class="tabs" role="tablist">
         <button
           type="button"

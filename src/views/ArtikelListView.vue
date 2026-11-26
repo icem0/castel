@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -174,6 +175,7 @@ const statusOptionen: { value: 'alle' | ArtikelStatus; labelKey: string }[] = [
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.artikel.h1') }}</h1>
+      <InfoHint :text="t('view.artikel.be')" />
       <div class="head-actions">
         <RouterLink to="/etiketten" class="btn">{{ t('view.barcode.h1') }}</RouterLink>
         <RouterLink v-if="auth.hat('artikel.schreiben')" to="/artikel/neu" class="btn primary">{{

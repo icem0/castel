@@ -1,119 +1,271 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+// The settings hub is now a pure directory: every menu point links to its own
+// page (inline forms moved to Account / Benachrichtigeng / General pages).
+//
+// Two navigation aids are built in:
+//   - A live filter at the very top: typing narrows the menu points in real
+//     time (label, explanation and category title are searched).
+//   - Every menu point carries an InfoHint badge to its right: hover shows the
+//     page's explanation, click/tap pins it open (touch devices, no hover).
+//
+// Permission visibility stays client-side (`auth.hat`); the router gate keeps
+// direct calls safe, the menu just does not show points the user cannot open.
+
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import { useSettingsStore } from '../stores/settings'
-import { useStandortStore } from '../stores/standort'
 import { useAuthStore } from '../stores/auth'
-import MindestbestandBenachrichtigungen from './components/MindestbestandBenachrichtigungen.vue'
 import AppIcon from '../components/AppIcon.vue'
-import type { BarcodeTyp } from '../stores/settings'
+import InfoHint from '../components/InfoHint.vue'
 
 const { t } = useI18n()
-const router = useRouter()
 const settings = useSettingsStore()
-const standort = useStandortStore()
 const auth = useAuthStore()
 
-const standardId = ref<string>(settings.settings.standardStandortId ?? '')
-const firmaName = ref<string>(settings.settings.companyName ?? '')
-const firmaNameVomUser = ref(false)
-const barcodeTyp = ref<BarcodeTyp>(settings.settings.barcodeTyp)
-const barcodeTypVomUser = ref(false)
+// Test hook: a mounted SettingsView can be seeded with an initial search
+// query; typing into the input afterwards works as usual in the app.
+const props = defineProps<{
+  initialQuery?: string
+}>()
 
-const barcodeFormate = [
-  { wert: 'CODE128' as BarcodeTyp, label: t('view.barcode.formatCode128') },
-  { wert: 'EAN13' as BarcodeTyp, label: t('view.barcode.formatEAN13') },
-  { wert: 'CODE39' as BarcodeTyp, label: t('view.barcode.formatCode39') },
+type MenuItem = {
+  to: string
+  icon: string
+  labelKey: string
+  infoKey: string
+  darf?: () => boolean
+}
+
+const menus: Array<{ titleKey: string; icon: string; items: MenuItem[] }> = [
+  {
+    titleKey: 'view.settings.personal',
+    icon: 'account',
+    items: [
+      {
+        to: '/einstellungen/account',
+        icon: 'account',
+        labelKey: 'view.settings.account',
+        infoKey: 'view.settings.menu.info.account',
+      },
+      {
+        to: '/passwort-aendern',
+        icon: 'account',
+        labelKey: 'view.settings.passwortAendern',
+        infoKey: 'view.settings.menu.info.passwortAendern',
+      },
+      {
+        to: '/info',
+        icon: 'info',
+        labelKey: 'view.settings.ersteSchritte',
+        infoKey: 'view.settings.menu.info.ersteSchritte',
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.benachrichtigengs',
+    icon: 'notifications',
+    items: [
+      {
+        to: '/einstellungen/benachrichtigengs',
+        icon: 'notifications',
+        labelKey: 'view.settings.benachConfig',
+        infoKey: 'view.settings.menu.info.benach',
+      },
+      {
+        to: '/einstellungen/mindestbestand',
+        icon: 'mindestbestand',
+        labelKey: 'view.settings.mindestbestandPanel',
+        infoKey: 'view.settings.menu.info.mindestbestandPanel',
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.lager',
+    icon: 'dashboard',
+    items: [
+      {
+        to: '/standorte',
+        icon: 'standorte',
+        labelKey: 'view.standort.h1',
+        infoKey: 'view.settings.menu.info.standorte',
+        darf: () => auth.hat('standort.schreiben'),
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.analyse',
+    icon: 'inventur',
+    items: [
+      {
+        to: '/einstellungen/inventur',
+        icon: 'inventur',
+        labelKey: 'view.inventur.h1',
+        infoKey: 'view.settings.menu.info.inventur',
+        darf: () => auth.hat('inventur.lesen'),
+      },
+      {
+        to: '/einstellungen/inventur/archiv',
+        icon: 'inventur',
+        labelKey: 'view.settings.inventurArchiv',
+        infoKey: 'view.settings.menu.info.inventurArchiv',
+        darf: () => auth.hat('inventur.lesen'),
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.werkzeuge',
+    icon: 'tools',
+    items: [
+      {
+        to: '/akkutausch',
+        icon: 'akkutausch',
+        labelKey: 'view.akkutausch.h1',
+        infoKey: 'view.settings.menu.info.akkutausch',
+        darf: () => settings.settings.akkutauschAktiv,
+      },
+      {
+        to: '/etiketten',
+        icon: 'etiketten',
+        labelKey: 'view.barcode.h1',
+        infoKey: 'view.settings.menu.info.etiketters',
+      },
+      {
+        to: '/import',
+        icon: 'tools',
+        labelKey: 'view.settings.csvImport',
+        infoKey: 'view.settings.menu.info.csvImport',
+        darf: () => auth.hat('import.fuehren'),
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.stammdaten',
+    icon: 'stammdaten',
+    items: [
+      {
+        to: '/einstellungen/artikel-typen',
+        icon: 'stammdaten',
+        labelKey: 'view.artikelTypen.h1',
+        infoKey: 'view.settings.menu.info.artikelTypen',
+        darf: () => auth.hat('stammdaten.verwalten'),
+      },
+      {
+        to: '/einstellungen/akku-typen',
+        icon: 'stammdaten',
+        labelKey: 'view.akkuTypen.h1',
+        infoKey: 'view.settings.menu.info.akkuTypen',
+        darf: () => auth.hat('stammdaten.verwalten') && settings.settings.akkutauschAktiv,
+      },
+      {
+        to: '/einstellungen/kommissionen',
+        icon: 'stammdaten',
+        labelKey: 'view.kommissionen.h1',
+        infoKey: 'view.settings.menu.info.kommissionen',
+        darf: () => auth.hat('stammdaten.verwalten'),
+      },
+      {
+        to: '/einstellungen/hersteller',
+        icon: 'stammdaten',
+        labelKey: 'view.hersteller.h1',
+        infoKey: 'view.settings.menu.info.hersteller',
+        darf: () => auth.hat('stammdaten.verwalten'),
+      },
+      {
+        to: '/einstellungen/artikel-kataloge',
+        icon: 'stammdaten',
+        labelKey: 'view.settings.artikelKataloge',
+        infoKey: 'view.settings.menu.info.artikelKataloge',
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.administration',
+    icon: 'administration',
+    items: [
+      {
+        to: '/einstellungen/general',
+        icon: 'administration',
+        labelKey: 'view.settings.general',
+        infoKey: 'view.settings.menu.info.general',
+        darf: () => auth.hat('globalEinstellung'),
+      },
+      {
+        to: '/einstellungen/user',
+        icon: 'administration',
+        labelKey: 'view.settings.benutzerVerwaltung',
+        infoKey: 'view.settings.menu.info.benutzerVerwaltung',
+        darf: () => auth.hat('benutzer.verwalten'),
+      },
+      {
+        to: '/einstellungen/rollen',
+        icon: 'administration',
+        labelKey: 'view.settings.rollenVerwaltung',
+        infoKey: 'view.settings.menu.info.rollenVerwaltung',
+        darf: () => auth.hat('benutzer.verwalten'),
+      },
+      {
+        to: '/einstellungen/entwicklung',
+        icon: 'administration',
+        labelKey: 'view.settings.entwicklung',
+        infoKey: 'view.settings.menu.info.entwicklung',
+        darf: () => auth.hat('entwicklung'),
+      },
+    ],
+  },
+  {
+    titleKey: 'view.settings.daten',
+    icon: 'daten',
+    items: [
+      {
+        to: '/einstellungen/geraet',
+        icon: 'daten',
+        labelKey: 'view.settings.geraet',
+        infoKey: 'view.settings.menu.info.geraet',
+      },
+      {
+        to: '/einstellungen/backup',
+        icon: 'daten',
+        labelKey: 'view.settings.backup',
+        infoKey: 'view.settings.menu.info.backup',
+        darf: () => auth.hat('backup.verwalten'),
+      },
+      {
+        to: '/einstellungen/api-keys',
+        icon: 'daten',
+        labelKey: 'view.settings.apiKeys',
+        infoKey: 'view.settings.menu.info.apiKeys',
+        darf: () => auth.hat('apiKey.verwalten'),
+      },
+    ],
+  },
 ]
 
-watch(
-  () => settings.settings,
-  (s) => {
-    standardId.value = s.standardStandortId ?? ''
-    if (!firmaNameVomUser.value) {
-      firmaName.value = s.companyName ?? ''
-    }
-    if (!barcodeTypVomUser.value) {
-      barcodeTyp.value = s.barcodeTyp
-    }
-  },
-)
+function darfs(menu: MenuItem): boolean {
+  return menu.darf?.() ?? true
+}
 
-const standorte = computed(() => standort.aktive)
-const statusmeldung = ref('')
-const laufend = ref(false)
-let statusTimer: ReturnType<typeof setTimeout> | null = null
+function matches(menu: MenuItem, sectionTitleKey: string, query: string): boolean {
+  const haystack = [t(menu.labelKey), t(menu.infoKey), t(sectionTitleKey)].join(' ').toLowerCase()
+  return haystack.includes(query)
+}
 
-async function speichern(): Promise<void> {
-  if (laufend.value) return
-  laufend.value = true
-  try {
-    if (auth.hat('globalEinstellung')) {
-      await settings.setStandardStandort(standardId.value || null)
-      await settings.setKey('companyName', firmaName.value)
-      await settings.setBarcodeTyp(barcodeTyp.value)
-      barcodeTypVomUser.value = false
+const menuQuery = ref(props.initialQuery ?? '')
+
+const angeigt = computed(() => {
+  const q = menuQuery.value.trim().toLowerCase()
+  const out: Array<{ titleKey: string; icon: string; items: MenuItem[] }> = []
+  for (const s of menus) {
+    const visible = s.items.filter(darfs)
+    if (visible.length === 0) continue
+    if (q === '' || t(s.titleKey).toLowerCase().includes(q)) {
+      out.push({ titleKey: s.titleKey, icon: s.icon, items: visible })
+      continue
     }
-    statusmeldung.value = t('view.settings.gespeichert')
-    if (statusTimer !== null) clearTimeout(statusTimer)
-    statusTimer = setTimeout(() => {
-      statusmeldung.value = ''
-      statusTimer = null
-    }, 1500)
-  } finally {
-    laufend.value = false
+    const hits = visible.filter((m) => matches(m, s.titleKey, q))
+    if (hits.length > 0) out.push({ titleKey: s.titleKey, icon: s.icon, items: hits })
   }
-}
-
-function abmelden(): void {
-  auth.abmelden()
-  void router.push('/login')
-}
-
-/**
- * Apply the language immediately — without the "Save" button.
- *
- * `setSprache` writes to the local IndexedDB first; the settings store is
- * refreshed via liveQuery and `main.ts` mirrors the value into the i18n
- * locale. The whole UI therefore switches language right away — offline
- * as well. The server is not in the critical path: the setting is synced
- * asynchronously via the outbox.
- */
-async function spracheAendern(e: Event): Promise<void> {
-  const ziel = (e.target as HTMLSelectElement).value
-  if (ziel !== 'de' && ziel !== 'en') return
-  if (ziel === settings.settings.sprache) return
-  await settings.setSprache(ziel)
-}
-
-/**
- * Apply the theme immediately — same pattern as the language: the local
- * IndexedDB write refreshes the store via liveQuery and the root watcher
- * in `App.vue` updates `data-theme` right away.
- */
-async function themeAendern(e: Event): Promise<void> {
-  const ziel = (e.target as HTMLSelectElement).value
-  if (ziel !== 'dark' && ziel !== 'light' && ziel !== 'auto') return
-  if (ziel === settings.settings.theme) return
-  await settings.setTheme(ziel)
-}
-
-/**
- * Enables/disables the Akkutausch tool for everyone. The store write is
- * local-first; the sync worker pushes the global (admin-only) setting.
- */
-async function akkutauschAendern(e: Event): Promise<void> {
-  const aktiv = (e.target as HTMLInputElement).checked
-  if (aktiv === settings.settings.akkutauschAktiv) return
-  await settings.setAkkutauschAktiv(aktiv)
-}
-
-onBeforeUnmount(() => {
-  if (statusTimer !== null) {
-    clearTimeout(statusTimer)
-    statusTimer = null
-  }
+  return out
 })
 </script>
 
@@ -123,236 +275,29 @@ onBeforeUnmount(() => {
       <h1>{{ t('view.settings.h1') }}</h1>
     </header>
 
-    <div class="card">
-      <form class="form" :aria-busy="laufend || undefined" @submit.prevent="speichern">
-        <label v-if="auth.hat('globalEinstellung')">
-          <span>{{ t('view.settings.standardStandort') }}</span>
-          <select v-model="standardId" :disabled="laufend">
-            <option value="">— {{ t('view.settings.nichtGelegt') }} —</option>
-            <option v-for="s in standorte" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </label>
-        <label v-if="auth.hat('globalEinstellung')">
-          <span>{{ t('view.settings.companyName') }}</span>
-          <input
-            v-model="firmaName"
-            type="text"
-            :disabled="laufend"
-            :placeholder="t('view.settings.companyNameHint')"
-            @input="firmaNameVomUser = true"
-          />
-        </label>
-        <label v-if="auth.hat('globalEinstellung')">
-          <span>{{ t('view.settings.barcodeTyp') }}</span>
-          <select v-model="barcodeTyp" :disabled="laufend" @input="barcodeTypVomUser = true">
-            <option v-for="f in barcodeFormate" :key="f.wert" :value="f.wert">
-              {{ f.label }}
-            </option>
-          </select>
-          <small class="hint">{{ t('view.settings.barcodeTypHint') }}</small>
-        </label>
+    <label class="menu-search">
+      <input
+        v-model="menuQuery"
+        type="search"
+        :aria-label="t('view.settings.menu.suche')"
+        :placeholder="t('view.settings.menu.suche')"
+      />
+    </label>
 
-        <div class="form-actions">
-          <button type="submit" class="primary" :disabled="laufend">
-            {{ laufend ? '…' : t('view.settings.speichern') }}
-          </button>
-          <span v-if="statusmeldung" class="hint hint-ok" role="status" aria-live="polite">{{
-            statusmeldung
-          }}</span>
+    <p v-if="angeigt.length === 0" class="hint">{{ t('view.settings.menu.leer') }}</p>
+
+    <template v-for="s in angeigt" :key="s.titleKey">
+      <h2>
+        <AppIcon :name="s.icon" />
+        {{ t(s.titleKey) }}
+      </h2>
+      <div class="card quick-links">
+        <div v-for="m in s.items" :key="m.to" class="menu-row">
+          <RouterLink :to="m.to"> <AppIcon :name="m.icon" />{{ t(m.labelKey) }} </RouterLink>
+          <InfoHint :text="t(m.infoKey)" />
         </div>
-      </form>
-    </div>
-
-    <!-- ===== Account ===== -->
-    <h2>
-      <AppIcon name="account" />
-      {{ t('view.settings.account') }}
-    </h2>
-    <div class="card quick-links">
-      <div class="readonly">
-        <span class="label">{{ t('view.settings.benutzer') }}</span>
-        <span class="value">{{ auth.anzeigename || '—' }}</span>
       </div>
-      <label class="account-setting">
-        <span class="label">{{ t('view.settings.sprache') }}</span>
-        <select
-          :value="settings.settings.sprache"
-          :aria-label="t('view.settings.sprache')"
-          @change="spracheAendern"
-        >
-          <option value="de">{{ t('view.settings.sprachen.de') }}</option>
-          <option value="en">{{ t('view.settings.sprachen.en') }}</option>
-        </select>
-        <small class="hint">{{ t('view.settings.spracheHint') }}</small>
-      </label>
-      <label class="account-setting">
-        <span class="label">{{ t('view.settings.theme') }}</span>
-        <select
-          :value="settings.settings.theme"
-          :aria-label="t('view.settings.theme')"
-          @change="themeAendern"
-        >
-          <option value="dark">{{ t('view.settings.themes.dark') }}</option>
-          <option value="light">{{ t('view.settings.themes.light') }}</option>
-          <option value="auto">{{ t('view.settings.themes.auto') }}</option>
-        </select>
-        <small class="hint">{{ t('view.settings.themeHint') }}</small>
-      </label>
-      <RouterLink to="/info">
-        <AppIcon name="info" />{{ t('view.settings.ersteSchritte') }}
-      </RouterLink>
-      <RouterLink to="/passwort-aendern">
-        <AppIcon name="account" />{{ t('view.settings.passwortAendern') }}
-      </RouterLink>
-      <button type="button" class="danger" @click="abmelden">
-        {{ t('view.settings.abmelden') }}
-      </button>
-    </div>
-
-    <!-- Notification tracking is not admin-only: every role may follow its
-         minimum-stock alarms and enable the signal itself (off by default
-         for non-admins, see `alarmDefaultFuerRolle`). -->
-    <h2>
-      <AppIcon name="notifications" />
-      {{ t('view.settings.benachrichtigungen') }}
-    </h2>
-    <div class="card">
-      <MindestbestandBenachrichtigungen />
-    </div>
-
-    <!-- ===== Lager / Bestand ===== -->
-    <h2>
-      <AppIcon name="dashboard" />
-      {{ t('view.settings.lager') }}
-    </h2>
-    <div class="card quick-links">
-      <RouterLink v-if="auth.hat('standort.schreiben')" to="/standorte">
-        <AppIcon name="standorte" />{{ t('view.standort.h1') }}
-      </RouterLink>
-      <RouterLink to="/einstellungen/mindestbestand">
-        <AppIcon name="mindestbestand" />{{ t('view.settings.mindestbestandPanel') }}
-      </RouterLink>
-    </div>
-
-    <!-- ===== Analyse / Inventur ===== -->
-    <h2>
-      <AppIcon name="inventur" />
-      {{ t('view.settings.analyse') }}
-    </h2>
-    <div class="card quick-links">
-      <RouterLink v-if="auth.hat('inventur.lesen')" to="/einstellungen/inventur">
-        <AppIcon name="inventur" />{{ t('view.inventur.h1') }}
-      </RouterLink>
-      <RouterLink v-if="auth.hat('inventur.lesen')" to="/einstellungen/inventur/archiv">
-        <AppIcon name="inventur" />{{ t('view.settings.inventurArchiv') }}
-      </RouterLink>
-    </div>
-
-    <!-- ===== Werkzeuge / Tools ===== -->
-    <h2>
-      <AppIcon name="tools" />
-      {{ t('view.settings.werkzeuge') }}
-    </h2>
-    <div class="card quick-links">
-      <RouterLink v-if="settings.settings.akkutauschAktiv" to="/akkutausch">
-        <AppIcon name="akkutausch" />{{ t('view.akkutausch.h1') }}
-      </RouterLink>
-      <RouterLink to="/etiketten">
-        <AppIcon name="etiketten" />{{ t('view.barcode.h1') }}
-      </RouterLink>
-      <RouterLink v-if="auth.hat('import.fuehren')" to="/import">
-        <AppIcon name="tools" />{{ t('view.settings.csvImport') }}
-      </RouterLink>
-    </div>
-
-    <!-- ===== Stammdaten ===== -->
-    <h2>
-      <AppIcon name="stammdaten" />
-      {{ t('view.settings.stammdaten') }}
-    </h2>
-    <div class="card quick-links">
-      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/artikel-typen">
-        <AppIcon name="stammdaten" />{{ t('view.artikelTypen.h1') }}
-      </RouterLink>
-      <RouterLink
-        v-if="auth.hat('stammdaten.verwalten') && settings.settings.akkutauschAktiv"
-        to="/einstellungen/akku-typen"
-      >
-        <AppIcon name="stammdaten" />{{ t('view.akkuTypen.h1') }}
-      </RouterLink>
-      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/kommissionen">
-        <AppIcon name="stammdaten" />{{ t('view.kommissionen.h1') }}
-      </RouterLink>
-      <RouterLink v-if="auth.hat('stammdaten.verwalten')" to="/einstellungen/hersteller">
-        <AppIcon name="stammdaten" />{{ t('view.hersteller.h1') }}
-      </RouterLink>
-      <RouterLink to="/einstellungen/artikel-kataloge">
-        <AppIcon name="stammdaten" />{{ t('view.settings.artikelKataloge') }}
-      </RouterLink>
-    </div>
-
-    <!-- ===== Administration ===== -->
-    <h2
-      v-if="
-        auth.hat('globalEinstellung') ||
-        auth.hat('benutzer.verwalten') ||
-        auth.hat('backup.verwalten') ||
-        auth.hat('apiKey.verwalten') ||
-        auth.hat('entwicklung')
-      "
-    >
-      <AppIcon name="administration" />
-      {{ t('view.settings.administration') }}
-    </h2>
-    <div
-      v-if="
-        auth.hat('globalEinstellung') ||
-        auth.hat('benutzer.verwalten') ||
-        auth.hat('backup.verwalten') ||
-        auth.hat('apiKey.verwalten') ||
-        auth.hat('entwicklung')
-      "
-      class="card"
-    >
-      <div v-if="auth.hat('globalEinstellung')" class="akkutausch-toggle">
-        <label class="account-setting">
-          <span class="label">{{ t('view.settings.akkutauschAktiv') }}</span>
-          <input
-            type="checkbox"
-            :checked="settings.settings.akkutauschAktiv"
-            @change="akkutauschAendern"
-          />
-          <small class="hint">{{ t('view.settings.akkutauschAktivHint') }}</small>
-        </label>
-      </div>
-      <div v-if="auth.hat('benutzer.verwalten') || auth.hat('entwicklung')" class="quick-links">
-        <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/user">
-          <AppIcon name="administration" />{{ t('view.settings.benutzerVerwaltung') }}
-        </RouterLink>
-        <RouterLink v-if="auth.hat('benutzer.verwalten')" to="/einstellungen/rollen">
-          <AppIcon name="administration" />{{ t('view.settings.rollenVerwaltung') }}
-        </RouterLink>
-        <RouterLink v-if="auth.hat('entwicklung')" to="/einstellungen/entwicklung">
-          <AppIcon name="administration" />{{ t('view.settings.entwicklung') }}
-        </RouterLink>
-      </div>
-    </div>
-
-    <h2>
-      <AppIcon name="daten" />
-      {{ t('view.settings.daten') }}
-    </h2>
-    <div class="card quick-links">
-      <RouterLink to="/einstellungen/geraet">
-        <AppIcon name="daten" />{{ t('view.settings.geraet') }}
-      </RouterLink>
-      <RouterLink v-if="auth.hat('backup.verwalten')" to="/einstellungen/backup">
-        <AppIcon name="daten" />{{ t('view.settings.backup') }}
-      </RouterLink>
-      <RouterLink v-if="auth.hat('apiKey.verwalten')" to="/einstellungen/api-keys">
-        <AppIcon name="daten" />{{ t('view.settings.apiKeys') }}
-      </RouterLink>
-    </div>
+    </template>
   </section>
 </template>
 
@@ -362,37 +307,26 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 0.5rem;
 }
-.quick-links a,
-.quick-links button {
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.menu-row a,
+.menu-row button {
   display: inline-flex;
   align-items: center;
   padding: 0.4rem 0;
   font-weight: 500;
   width: max-content;
 }
-.readonly {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+.menu-search {
+  display: block;
+  margin-bottom: 0.75rem;
 }
-.readonly .label {
-  font-size: 0.85em;
-  color: var(--text-muted, #666);
-}
-.readonly .value {
-  font-weight: 500;
-}
-.account-setting {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-.account-setting .label {
-  font-size: 0.85em;
-  color: var(--text-muted, #666);
-}
-.account-setting select {
-  width: max-content;
-  min-width: 12rem;
+.menu-search input {
+  width: 100%;
+  max-width: 24rem;
+  box-sizing: border-box;
 }
 </style>

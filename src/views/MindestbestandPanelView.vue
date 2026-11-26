@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InfoHint from '../components/InfoHint.vue'
 // MindestbestandPanelView: Liste der offenen/erledigten Alarme,
 // sortiert nach `erstelltAm` (neueste zuerst). Pro (Artikel, Standort)
 // erscheint nur der NEUESTE Alarm — ältere Ereignisse desselben Paares
@@ -92,6 +93,7 @@ function formatDatum(iso: string): string {
   <section class="view">
     <header class="view-head">
       <h1>{{ t('view.mindestbestand.title') }}</h1>
+      <InfoHint :text="t('view.mindestbestand.be')" />
       <RouterLink to="/einstellungen" class="btn desktop-only">
         {{ t('view.mindestbestand.back') }}
       </RouterLink>
