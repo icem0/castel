@@ -45,11 +45,11 @@ function zurueck(): void {
       <h2>{{ t('view.update.hilfe.setupTitel') }}</h2>
       <p class="hint">{{ t('view.update.hilfe.setupText') }}</p>
       <pre>
-# .env im Projektordner (neben docker-compose.yml)
-UPDATE_RUNNER=true
-UPDATE_RUNNER_INTERVAL_SEC=60
+# .env im Projektordner (neben docker-compose.yml) - optional, nur wenn die
+# Gruppe des Docker-Sockets nicht der Default 999 ist:
+# DOCKER_SOCKET_GID=999
 
-# einmal neu starten, damit die API die .env liest
+# einmal neu starten, damit der API-Container den Socket sieht
 docker compose up -d</pre>
       <p class="hint">{{ t('view.update.hilfe.setupHinweis') }}</p>
     </div>

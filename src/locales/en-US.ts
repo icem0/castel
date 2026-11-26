@@ -1473,40 +1473,40 @@ export default {
       fehlgeschlagen: 'Version check failed: {error}',
       hilfeLink: 'Guide: enable updates on the server',
       hilfe: {
-        h1: 'Update — this is how it works',
+        h1: 'Update — the server updates itself',
         untertitel:
-          'One line in the .env, one docker compose, then the button in the PWA. Nothing more is needed.',
+          'One click in the PWA. The API container pulls the new images, replaces the PWA container and itself — no sidecar, no service on the host.',
         ablaufTitel: 'This is how it works',
         ablaufText:
-          'The PWA only reports the request. An update service on the server executes it: it pulls the new images, restarts the stack and removes the old images. The database stays untouched.',
+          'The update runs inside the existing API container: it pulls the new images through the Docker socket, starts the new containers and removes the old images. The database stays untouched.',
         ablaufS1:
-          'Set one line in the .env: UPDATE_RUNNER=true — the service checks for a request every minute.',
-        ablaufS2: 'Restart once: docker compose up -d. The API reads the .env at start.',
+          'The admin clicks „Jetzt aktualisieren" in the PWA under Settings → Development → Update.',
+        ablaufS2:
+          'The API container pulls the new API and PWA image and starts the new PWA container.',
         ablaufS3:
-          'In the PWA open Settings → Development → Update and click „Jetzt aktualisieren“. The service starts the update, the PWA shows progress and log.',
-        ablaufS4: 'Done: the stack runs on the new version, unused old images get removed.',
+          'The API container replaces itself. The new API container takes over: health check, remove old images, write „Update abgeschlossen" into the DB.',
+        ablaufS4: 'Done: the PWA loads the new version, the database stays intact.',
         voraussetzungenTitel: 'Requirements',
         voraussetzungSocket:
-          'The update service needs the Docker socket and the docker CLI of the host — both are mounted in docker-compose.yml.',
+          'The Docker socket must be visible in the API container (/var/run/docker.sock) — it is mounted in docker-compose.yml. The socket group belongs to the container (DOCKER_SOCKET_GID, default 999 = docker group on Debian).',
         voraussetzungCheckout:
-          'The project folder with scripts/update.sh is bind-mounted (/work). For a normal checkout the default fits.',
+          'No checkout and no docker CLI needed: the API container talks to the Docker API directly.',
         voraussetzungToken:
-          'No token needed: the button writes the request straight into the DB. UPDATE_WEBHOOK_TOKEN is only used for external triggers (CI/CD, another machine).',
+          'No token and no UPDATE_WEBHOOK_URL needed — you only need them for external triggers (CI/CD, another machine).',
         setupTitel: 'Set it up once',
-        setupText: 'One line in the .env of the project folder is enough:',
+        setupText: 'Only check the group of the Docker socket (in the .env, optional):',
         setupHinweis:
-          'Then restart once with docker compose up -d — the API reads the .env at start. From then on the button in the PWA is all you need.',
-        statusTitel: 'Check that the service runs',
+          'Then restart once with docker compose up -d so the API container sees the socket. Without the socket the API reports "Self-Update nicht möglich" — then you need the variant below (service on the host).',
+        statusTitel: 'Check that the run was picked up',
         statusText:
-          'After the click the request stands in the DB. If the status stays on "Update angefordert", the service did not pick it up — then it is not running (or it does not find the project folder).',
-        statusBefehl:
-          'docker compose ps update-runner\ndocker compose logs --tail 50 update-runner',
+          'After the click the progress stands in the DB. If it stays on "Update angefordert", the API container did not pick it up (socket missing or permissions).',
+        statusBefehl: 'docker compose ps\ndocker compose logs --tail 50 api',
         assistantTitel: 'Installer for the host variants',
         assistantText:
-          'The script asks where the stack runs (Debian host, a Docker container with a name, or via SSH on another machine) and sets up the matching variant: token into the .env, missing compose ports, service start. Idempotent; --dry-run shows the plan without changing anything.',
-        dienstTitel: 'Variant without the Docker socket in the stack',
+          'Only if the Docker socket may not be mounted into the container: the script sets up the update service on the host (systemd timer or own receiver) and asks first where the stack runs.',
+        dienstTitel: 'Variant without the Docker socket in the container',
         dienstText:
-          'If you do not want the socket in the stack, let the update service run on the host (systemd timer, every minute). The installer does that in one go:',
+          'If you do not want to mount the socket, let the update service run on the host (systemd timer, every minute). The installer does that in one go:',
         dienstTimerTitel: 'Variant A — systemd timer on the host',
         dienstTimerText:
           'The timer calls scripts/update.sh --if-requested every minute. Without a pending request the script exits immediately. The button in the PWA writes the request — the timer starts the update at the latest one minute later.',
@@ -1528,13 +1528,13 @@ export default {
           'The token is a password for the update endpoint. It has to be long and random and must not end up in the repository. One example how to create it:',
         selbstupdateTitel: 'Start the update by hand',
         selbstupdateText:
-          'The update script can be executed on the host at any time — also without PWA or service:',
+          'Inside the API container that works without the PWA as well — the endpoint /api/admin/update/request (with admin login) starts the run. On the host additionally possible:',
         fehlerTitel: 'If it does not work',
         fehlerText: 'The most common causes:',
         fehlerSocket:
-          'The status stays on "Update angefordert": no update service active or wrong path. Check: docker compose ps update-runner, docker compose logs --tail 50 update-runner. Do not forget UPDATE_RUNNER=true in the .env.',
+          'The API reports "Self-Update nicht möglich": the Docker socket is not visible in the container or the group does not match. Check: docker compose ps (is the mount there?), DOCKER_SOCKET_GID in the .env (group of the socket on the host: stat -c %g /var/run/docker.sock).',
         fehlerProjekt:
-          'The service does not start: the project folder with scripts/update.sh is not found (CASTEL_REPO_DIR) or the docker CLI is missing in the container (CASTEL_HOST_DOCKER_CLI / CASTEL_HOST_COMPOSE_CLI).',
+          'The run stays on "Update angefordert": the API container did not pick up the marker. Logs: docker compose logs --tail 50 api.',
         fehlerToken:
           '401 UNAUTHORIZED: only with external triggers — X-Deploy-Token is missing or does not match UPDATE_WEBHOOK_TOKEN.',
         zurueck: 'Back',
@@ -1542,6 +1542,7 @@ export default {
     },
     inventurArchiv: {
       archivTitel: 'Booking archive',
+      be: 'The booking archive: search the complete booking history on the server with a time filter and paging.',
       archivHint: 'Old bookings are kept fully on the server and can be queried here.',
       filterVon: 'From',
       filterBis: 'To',

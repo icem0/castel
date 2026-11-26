@@ -60,7 +60,7 @@
 #   CASTEL_PULL_RETRY_DELAY    seconds between pull attempts (default 5)
 #   CASTEL_PURGE_UNTIL         age filter for unused images (default 168h)
 #   CASTEL_COMPOSE_SKIP        services that `docker compose up -d` must not
-#                              recreate (default: "update-runner update-receiver").
+#                              recreate (default: "update-receiver").
 #                              The in-stack runner/receiver service runs this very
 #                              script through the mounted socket - recreating it
 #                              during the update would kill the running update.
@@ -78,7 +78,7 @@ PURGE_UNTIL="${CASTEL_PURGE_UNTIL:-168h}"
 PULL_RETRIES="${CASTEL_PULL_RETRIES:-3}"
 PULL_RETRY_DELAY="${CASTEL_PULL_RETRY_DELAY:-5}"
 LOCK_FILE="${CASTEL_UPDATE_LOCK:-/tmp/castel-update.lock}"
-COMPOSE_SKIP="${CASTEL_COMPOSE_SKIP-update-runner update-receiver}"
+COMPOSE_SKIP="${CASTEL_COMPOSE_SKIP-update-receiver}"
 
 # ---------- Runtime state ----------
 

@@ -162,6 +162,13 @@ services:
       - fotos-data:/var/lib/castel/fotos
       - backups-data:/var/lib/castel/backups
       - datanorm-data:/var/lib/castel/datanorm
+      # Docker-Socket fuer das Self-Update: der API-Container zieht die neuen
+      # Images und ersetzt sich selbst - kein Sidecar, kein Update-Dienst auf
+      # dem Host, kein Webhook. Die Gruppe des Sockets kommt ueber group_add
+      # dazu (DOCKER_SOCKET_GID, Default 999 = docker-Gruppe auf Debian).
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_SOCKET_GID:-999}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -215,44 +222,6 @@ services:
       HSTS_PRELOAD: ${HSTS_PRELOAD:-false}
     ports:
       - "${PWA_PORT:-4280}:3000"
-    networks: [internal]
-
-  # Optional: Update-Runner inside the Stack — NO separate image, NO listener,
-  # no extra port and no extra Secret. The api container can never run the
-  # update itself (recreating the container that runs it would kill the update
-  # mid-way, see AGENTS.md), but the PWA-Button and the inbound webhook IN THE
-  # API already write the Marker `server.updateState` into the DB. This Service
-  # reuses the api image and just watches that Marker every minute, i.e. it is
-  # the systemd-Timer variant moved into the Stack: no Host installation at all.
-  # It needs the Host docker-CLI + the compose plugin (Debian paths) plus the
-  # Socket and the Checkout mounted. Idle while UPDATE_RUNNER is not true.
-  # update.sh keeps this Service out of `docker compose up -d`
-  # (CASTEL_COMPOSE_SKIP) - otherwise its own Neustart would kill the run.
-  update-runner:
-    image: ghcr.io/icem0/castel-api:${IMAGE_TAG:-latest}
-    restart: unless-stopped
-    depends_on: [db]
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${CASTEL_HOST_DOCKER_CLI:-/usr/bin/docker}:/usr/bin/docker:ro
-      - ${CASTEL_HOST_COMPOSE_CLI:-/usr/bin/docker-compose}:/usr/bin/docker-compose:ro
-      - ${CASTEL_REPO_DIR:-.}:/work
-    environment:
-      UPDATE_RUNNER: ${UPDATE_RUNNER:-false}
-      UPDATE_RUNNER_INTERVAL_SEC: ${UPDATE_RUNNER_INTERVAL_SEC:-60}
-      # Inside the Service the Checkout always stands at /work.
-      CASTEL_REPO_DIR: /work
-      CASTEL_COMPOSE_SKIP: update-runner
-    entrypoint:
-      - sh
-      - -c
-      - |
-        while :; do
-          if [ "$UPDATE_RUNNER" = true ]; then
-            /work/scripts/update.sh --if-requested || true
-          fi
-          sleep "$UPDATE_RUNNER_INTERVAL_SEC"
-        done
     networks: [internal]
 
   # Einmaliger Job: Migration ausfuehren.

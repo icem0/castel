@@ -14,11 +14,7 @@
 #   variant container adnanh/webhook receiver inside a small container
 #                     (docker run with socket + checkout mounts, the port
 #                     published so host.docker.internal reaches it).
-#   variant stack     nothing gets installed here - the compose-Service
-#                     `update-runner` (same api image, no extra image!) does
-#                     the job: it watches the DB-Marker that the PWA-Button and
-#                     the inbound webhook in the api already write. The script
-#                     only switches it on (UPDATE_RUNNER=true).
+
 #
 # Idempotent: an existing UPDATE_WEBHOOK_TOKEN is kept, the compose file only
 # gets touched when something is missing, and --dry-run prints every action
@@ -31,7 +27,7 @@
 #   ./scripts/webhook-setup.sh --variant timer --repo-dir /srv/castel --dry-run
 #
 # OPTIONS
-#   --variant timer|webhook|container|stack  runner to switch on (default: timer)
+#   --variant timer|webhook|container  runner to install (default: timer)
 #   --repo-dir PATH                    checkout that holds docker-compose.yml
 #   --container-name NAME              api container name (default: detected)
 #   --project-name NAME                compose project name (default: detected)
@@ -96,8 +92,8 @@ while (($#)); do
 done
 
 case "$VARIANT" in
-  timer | webhook | container | stack) ;;
-  *) printf 'unknown variant: %s (timer|webhook|container|stack)\n' "$VARIANT"; exit 2 ;;
+  timer | webhook | container) ;;
+  *) printf 'unknown variant: %s (timer|webhook|container)\n' "$VARIANT"; exit 2 ;;
 esac
 
 # ---------- Helpers ----------
@@ -310,8 +306,8 @@ if [ -z "$TOKEN" ]; then
   fi
 fi
 
-ask_choice VARIANT 'Update-Service variant' "$VARIANT" timer webhook container stack
-say "Variant: $VARIANT (timer = systemd-Timer, webhook = host receiver, container = receiver in a container, stack = compose-Service update-runner)"
+ask_choice VARIANT 'Update-Service variant' "$VARIANT" timer webhook container
+say "Variant: $VARIANT (timer = systemd-Timer, webhook = host receiver, container = receiver in a container)"
 if [ "$PATCH_COMPOSE" = 0 ]; then
   if confirm 'Patch docker-compose.yml when something is missing?' n; then
     PATCH_COMPOSE=1
@@ -447,7 +443,6 @@ else
     timer) install_timer ;;
     webhook) install_webhook_host ;;
     container) install_container_webhook ;;
-    stack) say_i '[stack-variant] the compose-Service update-runner (same api image) does the work - nothing gets installed here' ;;
   esac
 fi
 
@@ -457,10 +452,6 @@ if [ -f "${ENV_FILE:-}" ]; then
   env_set UPDATE_WEBHOOK_TOKEN "$TOKEN"
   case "$VARIANT" in
     timer) say_i 'UPDATE_WEBHOOK_URL stays leer - the server derives it from PWA_PORT' ;;
-    stack)
-      env_set UPDATE_RUNNER true
-      say_i 'UPDATE_WEBHOOK_URL not needed - the Service in the stack watches the DB-Marker'
-      ;;
     webhook | container)
       env_set UPDATE_WEBHOOK_URL "http://host.docker.internal:${WEBHOOK_PORT}/hooks/castel-update"
       ;;
@@ -570,7 +561,6 @@ case "$VARIANT" in
   timer) say '  systemd-Timer (each minute) -> scripts/update.sh --if-requested' ;;
   webhook) say "  webhook receiver on port $WEBHOOK_PORT -> scripts/update-hook.sh" ;;
   container) say "  receiver container on port $WEBHOOK_PORT -> scripts/update-hook.sh" ;;
-  stack) say '  compose-Service update-runner in the stack (each interval) -> scripts/update.sh --if-requested' ;;
 esac
 say '  -> new images pulled, stack restarted, old images pruned.'
 say

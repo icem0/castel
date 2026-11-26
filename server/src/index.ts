@@ -25,6 +25,7 @@ import { userRoutes } from './users/routes.js'
 import { rollenRoutes } from './auth/rollen-routes.js'
 import { adminRoutes } from './admin/routes.js'
 import { updateWebhookRoutes, updateInboundWebhookRoutes } from './admin/update-webhook-routes.js'
+import { selfUpdateAbschliessen, selfUpdateMoeglich } from './admin/self-update.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
 import { pgDumpMajor, serverVersionMajor } from './admin/backup.js'
@@ -266,6 +267,12 @@ async function main() {
     starteBackupCron(app.log)
     starteDatanormCron(app.log)
     await pruefeDatanormAblage(app.log)
+
+    // Self-Update fortsetzen: der neue API-Container hat den alten ersetzt
+    // und macht jetzt Health-Check, Image-Purge und den Status "done".
+    if (selfUpdateMoeglich()) {
+      await selfUpdateAbschliessen()
+    }
   } catch (err) {
     app.log.error(err)
     process.exit(1)

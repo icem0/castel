@@ -77,7 +77,7 @@ services:
     image: castel-api
   db:
     image: castel-db
-  update-runner:
+  update-receiver:
     image: castel-api
 YML
   printf 'IMAGE_TAG=latest\n' >"$WORK_DIR/checkout/.env"
@@ -209,12 +209,12 @@ echo "- compose up -d excludes the update-receiver service"
 setup_env
 run_update --skip-git --skip-purge
 check_contains "up -d gets an explicit service list" "up -d --remove-orphans api db" "$RUN_OUT"
-check_not_contains "update-runner stays out of the list" "up -d --remove-orphans api db update-runner" "$RUN_OUT"
+check_not_contains "update-receiver stays out of the list" "up -d --remove-orphans api db update-receiver" "$RUN_OUT"
 
 setup_env
 export CASTEL_COMPOSE_SKIP=db
 run_update --skip-git --skip-purge
-check_contains "custom skip list is honoured" "up -d --remove-orphans api update-runner" "$RUN_OUT"
+check_contains "custom skip list is honoured" "up -d --remove-orphans api update-receiver" "$RUN_OUT"
 unset CASTEL_COMPOSE_SKIP
 
 setup_env

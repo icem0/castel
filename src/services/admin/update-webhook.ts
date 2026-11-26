@@ -41,6 +41,9 @@ export type UpdateStartResult = {
   started: boolean
   /** The server wrote the "requested" marker (new path). */
   requested?: boolean
+  /** "self-update" = the api container replaced itself, "marker" = an
+   *  external update service picks the request up. */
+  mode?: 'self-update' | 'marker'
   webhookStatus?: number | null
   message?: string
 }

@@ -39,6 +39,7 @@ import {
   readUpdateState,
   writeUpdateState,
 } from './update-routes.js'
+import { selfUpdateMoeglich, selfUpdateStarten } from './self-update.js'
 
 const CHECK_CACHE_TTL_MS = 60_000
 const START_COOLDOWN_MS = 5 * 60_000
@@ -618,12 +619,32 @@ export async function updateWebhookRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
+    // Self-Update: der API-Container zieht die Images und ersetzt sich selbst.
+    // Kein Sidecar, kein Webhook, kein Dienst auf dem Host.
+    if (selfUpdateMoeglich()) {
+      lastStartAt = now
+      const ergebnis = await selfUpdateStarten()
+      if (ergebnis.ok) {
+        return reply.send({
+          requested: true,
+          started: true,
+          mode: 'self-update',
+          message: ergebnis.message,
+        })
+      }
+      return reply.code(500).send({
+        code: 'UPDATE_SELF_FAILED',
+        message: ergebnis.message,
+      })
+    }
+
     const requestedDocument = buildRequestDocument(new Date().toISOString())
     await writeUpdateState(requestedDocument)
     lastStartAt = now
     return reply.send({
       requested: true,
       started: true,
+      mode: 'marker',
       message:
         'Update angefordert. Der Update-Dienst (scripts/update.sh) startet es spätestens im nächsten Intervall.',
       state: parseUpdateState(requestedDocument),
