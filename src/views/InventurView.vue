@@ -162,11 +162,21 @@ const feldLaeuft = ref(false)
 let speicherTimer: ReturnType<typeof setTimeout> | null = null
 
 function felderAusStore(): void {
-  const teile = inventurStichtagTeile(stichtag.value)
+  felderSetzen(stichtag.value)
+  vorlaufTageFeld.value = vorlaufTage.value
+}
+
+/**
+ * Fuellt die Datumsfelder aus einem Wert. Nach dem Speichern wird der
+ * gerade geschriebene Wert genommen, nicht der Store-Stand: der Store
+ * aktualisiert sich per liveQuery erst einen Tick spaeter — sonst sprang das
+ * Formular auf den alten Wert zurueck und der User verlor seine Eingabe.
+ */
+function felderSetzen(wert: string | null): void {
+  const teile = inventurStichtagTeile(wert)
   stichtagTag.value = teile?.tag ?? ''
   stichtagMonat.value = teile?.monat ?? ''
   stichtagJahr.value = teile?.jahr ?? ''
-  vorlaufTageFeld.value = vorlaufTage.value
 }
 
 function zeigeSpeicherMeldung(text: string): void {
@@ -200,7 +210,8 @@ async function stichtagAendern(): Promise<void> {
   try {
     await settings.setInventurStichtag(pruefung.wert)
     felderVomUser.value = false
-    felderAusStore()
+    // Aus dem gerade geschriebenen Wert fuellen (der Store-Stand ist noch alt).
+    felderSetzen(pruefung.wert)
     zeigeSpeicherMeldung(
       pruefung.status === 'leer'
         ? t('view.inventur.stichtagGeloescht')
@@ -457,6 +468,7 @@ onBeforeUnmount(() => {
                 step="1"
                 class="zahl"
                 :disabled="feldLaeuft"
+                @input="felderVomUser = true"
                 @change="stichtagAendern"
               />
             </label>
@@ -470,6 +482,7 @@ onBeforeUnmount(() => {
                 step="1"
                 class="zahl"
                 :disabled="feldLaeuft"
+                @input="felderVomUser = true"
                 @change="stichtagAendern"
               />
             </label>
@@ -483,6 +496,7 @@ onBeforeUnmount(() => {
                 step="1"
                 class="zahl"
                 :disabled="feldLaeuft"
+                @input="felderVomUser = true"
                 @change="stichtagAendern"
               />
             </label>
@@ -503,6 +517,7 @@ onBeforeUnmount(() => {
             step="1"
             class="zahl"
             :disabled="feldLaeuft"
+            @input="felderVomUser = true"
             @change="vorlaufAendern"
           />
           <small class="hint">{{ t('view.inventur.vorlaufTageHint') }}</small>

@@ -5,7 +5,7 @@
 // day left empty produced `11-00`. The server answered `VALIDATION: Tag muss
 // zwischen 1 und 31 liegen` on every push and the outbox kept failing.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
@@ -137,15 +137,24 @@ describe('InventurView — Stichtag-Formular', () => {
     await monat.trigger('change')
     await jahr.setValue('2026')
     await jahr.trigger('change')
-    await new Promise<void>((r) => setTimeout(r, 30))
 
-    const ops = await offeneEinstellungsOps()
-    expect(ops).toHaveLength(1)
-    expect(JSON.parse(ops[0]!.payload)).toMatchObject({
-      key: 'inventur.stichtag',
-      value: '15.11.2026',
+    // Das Speichern laeuft asynchron (IndexedDB + Outbox) - auf das Ergebnis
+    // warten statt auf eine feste Zeit (auf langsamen Maschinen war der Op
+    // noch nicht geschrieben und der Test schlug fehl).
+    await vi.waitFor(
+      async () => {
+        const ops = await offeneEinstellungsOps()
+        expect(ops).toHaveLength(1)
+        expect(JSON.parse(ops[0]!.payload)).toMatchObject({
+          key: 'inventur.stichtag',
+          value: '15.11.2026',
+        })
+      },
+      { timeout: 3000, interval: 25 },
+    )
+    await vi.waitFor(() => {
+      expect(store.settings.inventurStichtag).toBe('15.11.2026')
     })
-    expect(store.settings.inventurStichtag).toBe('15.11.2026')
     expect(w.text()).toContain('Inventur-Stichtag gespeichert')
 
     store.stop()
@@ -171,7 +180,12 @@ describe('InventurView — Stichtag-Formular', () => {
 
   it('rendert den Suchplatzhalter übersetzt, nicht als wörtliches {{ t() }}', async () => {
     const w = mount(InventurView, { global: { plugins: [createPinia(), i18n, router] } })
-    await new Promise<void>((r) => setTimeout(r, 30))
+    // Der Suchfilter erscheint erst nach dem Laden der Hilfe-Liste - der Test
+    // wartet auf das Element statt auf eine feste Zeit (auf langsamen
+    // Maschinen war der Filter noch nicht da und der Test schlug fehl).
+    await vi.waitFor(() => {
+      expect(w.find('input[type="text"]').exists()).toBe(true)
+    })
     const feld = w.get('input[type="text"]')
     expect(feld.attributes('placeholder')).toBe('Artikel oder Standort …')
     expect(feld.attributes('placeholder')).not.toContain('{{')
@@ -198,12 +212,18 @@ describe('InventurView — Stichtag-Formular', () => {
     await monat.trigger('change')
     await jahr.setValue('')
     await jahr.trigger('change')
-    await new Promise<void>((r) => setTimeout(r, 30))
 
-    const ops = await offeneEinstellungsOps()
-    expect(ops).toHaveLength(1)
-    expect(JSON.parse(ops[0]!.payload).value).toBe('')
-    expect(store.settings.inventurStichtag).toBeNull()
+    await vi.waitFor(
+      async () => {
+        const ops = await offeneEinstellungsOps()
+        expect(ops).toHaveLength(1)
+        expect(JSON.parse(ops[0]!.payload).value).toBe('')
+      },
+      { timeout: 3000, interval: 25 },
+    )
+    await vi.waitFor(() => {
+      expect(store.settings.inventurStichtag).toBeNull()
+    })
 
     store.stop()
     w.unmount()
