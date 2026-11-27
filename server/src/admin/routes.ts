@@ -29,7 +29,6 @@ import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { einstellungen, geraete, syncErrorReports, users } from '../db/schema.js'
 import { bulkBookingRoutes } from './bulk-booking-routes.js'
-import { updateRoutes } from './update-routes.js'
 import { normalisiereRollen } from '../domain/rollen.js'
 import { z } from 'zod'
 
@@ -56,7 +55,6 @@ const CLEARED_DOMAIN_TABLES = [
 
 export async function adminRoutes(app: FastifyInstance): Promise<void> {
   await bulkBookingRoutes(app)
-  await updateRoutes(app)
 
   // POST /api/admin/sync/all
   // Admin-only. Setzt den globalen `sync.forceAt`-Marker auf die aktuelle
