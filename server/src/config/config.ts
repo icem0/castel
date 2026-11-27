@@ -4,6 +4,7 @@
 import 'dotenv/config'
 import { z } from 'zod'
 import { isLanOrigin, normaliseOrigin } from './origin.js'
+import { isSelfCallWebhookUrl, resolveUpdateWebhookUrl } from './webhook-url.js'
 
 const schema = z.object({
   // Postgres
@@ -170,7 +171,23 @@ if (!parsed.success) {
   process.exit(1)
 }
 
-export const config = { ...parsed.data }
+const updateWebhookUrl = resolveUpdateWebhookUrl(parsed.data.UPDATE_WEBHOOK_URL, parsed.data.PWA_PORT)
+if (isSelfCallWebhookUrl(updateWebhookUrl, parsed.data.PORT)) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `castel-update: UPDATE_WEBHOOK_URL "${updateWebhookUrl}" addresses the API itself - ` +
+      'no host update can run. Use the published host port of the PWA, e.g. http://host.docker.internal:4280/api/admin/update/webhook.',
+  )
+}
+if (String(parsed.data.UPDATE_WEBHOOK_URL).trim() === '') {
+  // eslint-disable-next-line no-console
+  console.info(
+    `castel-update: UPDATE_WEBHOOK_URL is unset, using the derived default ${updateWebhookUrl}. ` +
+      'The host-side runner (scripts/update.sh) still has to exist; see the update help page.',
+  )
+}
+
+export const config = { ...parsed.data, UPDATE_WEBHOOK_URL: updateWebhookUrl }
 export type AppConfig = typeof config
 
 // Contradicting .env combinations are warned about but never fatal: a running
