@@ -10,13 +10,14 @@
 //   * der Fehler wird IMMER angezeigt (auch ohne Ergebnis)
 //   * ein Klick loest 'pruefen' aus und propagiert NICHT zum Dokument
 //     (sonst schliesst das Panel)
+//   * es gibt keinen Start-Button: das Update laeuft auf dem Server
 
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import UpdateMenu from '../UpdateMenu.vue'
 import de from '../../locales/de-DE'
-import type { UpdateCheck } from '../../services/admin/update-webhook'
+import type { UpdateCheck } from '../../services/admin/update-check'
 
 const i18n = createI18n({
   legacy: false,
@@ -33,16 +34,6 @@ function check(overrides: Partial<UpdateCheck> = {}): UpdateCheck {
     commitsBehind: 2,
     commits: [],
     checkedAt: '2026-01-01T00:00:00.000Z',
-    webhook: {
-      configured: true,
-      target: 'http://host.docker.internal:3000',
-      reachable: true,
-      reason: null,
-      selfCall: false,
-      publicTarget: null,
-      publicReachable: false,
-      publicReason: null,
-    },
     ...overrides,
   }
 }
@@ -51,9 +42,6 @@ type Props = {
   check?: UpdateCheck | null
   checkLaeuft?: boolean
   checkFehler?: string | null
-  phase?: 'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'
-  fehler?: string | null
-  erfolg?: string | null
 }
 
 function mountMit(props: Props = {}) {
@@ -62,9 +50,6 @@ function mountMit(props: Props = {}) {
       check: null,
       checkLaeuft: false,
       checkFehler: null,
-      phase: 'idle',
-      fehler: null,
-      erfolg: null,
       ...props,
     },
     global: { plugins: [i18n] },
@@ -101,114 +86,24 @@ describe('UpdateMenu', () => {
     expect(stopPropagation).toHaveBeenCalled()
   })
 
-  it('zeigt Versionen und Update-Button bei verfuegbarem Update', () => {
+  it('zeigt Versionen und den Hinweis auf das Server-Update bei verfuegbarem Update', () => {
     const wrapper = mountMit({ check: check() })
     expect(wrapper.get('[data-test="update-versionen"]').text()).toContain('abc1234')
     expect(wrapper.get('[data-test="update-versionen"]').text()).toContain('def5678')
-    wrapper.get('[data-test="update-start"]')
+    wrapper.get('[data-test="update-verfuegbar"]')
+    expect(wrapper.get('[data-test="update-manuell"]').text()).toContain('scripts/update.sh')
   })
 
-  it('zeigt KEINEN Update-Button, wenn kein Update verfuegbar ist', () => {
-    const wrapper = mountMit({ check: check({ updateAvailable: false }) })
+  it('bietet keinen Start-Button und keinen Bestaetigungsdialog an', () => {
+    const wrapper = mountMit({ check: check() })
     expect(wrapper.find('[data-test="update-start"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="update-dialog"]').exists()).toBe(false)
+    expect(wrapper.findAll('button')).toHaveLength(1)
   })
 
-  it('zeigt die Bestaetigung erst nach "start" und loest sie aus', async () => {
-    const wrapper = mountMit({ check: check(), phase: 'bestaetigen' })
-    wrapper.get('[data-test="update-dialog"]')
-    await wrapper.get('[data-test="update-bestaetigen"]').trigger('click')
-    expect(wrapper.emitted('bestaetigen')).toHaveLength(1)
-  })
-
-  it('zeigt im Fehlerfall die Fehlermeldung des Starts', () => {
-    const wrapper = mountMit({ check: check(), phase: 'fehler', fehler: 'Kein Update verfügbar.' })
-    expect(wrapper.get('[data-test="update-dialog"]').text()).toContain('Kein Update verfügbar.')
-    wrapper.get('[data-test="update-dialog"]')
-  })
-
-  it('zeigt die Erfolgsmeldung des Servers', () => {
-    const wrapper = mountMit({
-      check: check(),
-      phase: 'fertig',
-      erfolg: 'Update beim Update-Dienst ausgelöst.',
-    })
-    expect(wrapper.get('[data-test="update-dialog"]').text()).toContain(
-      'Update beim Update-Dienst ausgelöst.',
-    )
-  })
-
-  it('warnt, wenn der Update-Dienst nicht konfiguriert ist', () => {
-    const wrapper = mountMit({
-      check: check({
-        webhook: {
-          configured: false,
-          target: null,
-          reachable: false,
-          reason: 'NOT_CONFIGURED',
-          selfCall: false,
-          publicTarget: null,
-          publicReachable: false,
-          publicReason: null,
-        },
-      }),
-    })
-    wrapper.get('[data-test="update-webhook-nicht-konfiguriert"]')
-  })
-
-  it('warnt, wenn der Update-Dienst nicht erreichbar ist', () => {
-    const wrapper = mountMit({
-      check: check({
-        webhook: {
-          configured: true,
-          target: 'http://host.docker.internal:3000',
-          reachable: false,
-          reason: 'ECONNREFUSED',
-          selfCall: false,
-          publicTarget: null,
-          publicReachable: false,
-          publicReason: null,
-        },
-      }),
-    })
-    const warnung = wrapper.get('[data-test="update-webhook-nicht-erreichbar"]')
-    expect(warnung.text()).toContain('ECONNREFUSED')
-  })
-
-  it('zeigt den oeffentlichen Endpunkt statt der internen Adresse', () => {
-    const wrapper = mountMit({
-      check: check({
-        webhook: {
-          configured: true,
-          target: 'http://host.docker.internal:4280',
-          reachable: true,
-          reason: null,
-          selfCall: false,
-          publicTarget: 'https://castel.sa-ma.online/api/admin/update/webhook',
-          publicReachable: true,
-          publicReason: null,
-        },
-      }),
-    })
-    const oeffentlich = wrapper.get('[data-test="update-webhook-oeffentlich"]')
-    expect(oeffentlich.text()).toContain('https://castel.sa-ma.online/api/admin/update/webhook')
-    expect(oeffentlich.text()).not.toContain('host.docker.internal')
-  })
-
-  it('warnt bei einem Self-Call auf die API selbst', () => {
-    const wrapper = mountMit({
-      check: check({
-        webhook: {
-          configured: true,
-          target: 'http://127.0.0.1:3000',
-          reachable: false,
-          reason: 'SELF_CALL',
-          selfCall: true,
-          publicTarget: null,
-          publicReachable: false,
-          publicReason: null,
-        },
-      }),
-    })
-    wrapper.get('[data-test="update-webhook-selfcall"]')
+  it('zeigt keinen Server-Hinweis, wenn kein Update verfuegbar ist', () => {
+    const wrapper = mountMit({ check: check({ updateAvailable: false }) })
+    expect(wrapper.find('[data-test="update-verfuegbar"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="update-manuell"]').exists()).toBe(false)
   })
 })

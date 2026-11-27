@@ -27,9 +27,7 @@ import { adminRoutes } from './admin/routes.js'
 import { backupRoutes } from './admin/backup-routes.js'
 import { starteBackupCron, stoppeBackupCron } from './admin/backup-cron.js'
 import { pgDumpMajor, serverVersionMajor } from './admin/backup.js'
-import { updateRoutes } from './admin/update-routes.js'
-import { updateWebhookRoutes, updateInboundWebhookRoutes } from './admin/update-webhook-routes.js'
-import { selfUpdateAbschliessen, selfUpdateMoeglich } from './admin/self-update.js'
+import { updateCheckRoutes } from './admin/update-check.js'
 
 import { datanormRoutes } from './datanorm/routes.js'
 import { pruefeDatanormAblage } from './datanorm/import-service.js'
@@ -157,15 +155,7 @@ async function main() {
     await rollenRoutes(instance)
     await fotoRoutes(instance)
     await adminRoutes(instance)
-    await updateRoutes(instance)
-    await updateWebhookRoutes(instance)
-  })
-
-  // Inbound-Update-Webhook: externes System kann ein Update ausloesen.
-  // Geschuetzt nur durch X-Deploy-Token (kein JWT), deshalb ausserhalb des
-  // requireAuth-Blocks registriert.
-  await app.register(async (instance) => {
-    await updateInboundWebhookRoutes(instance)
+    await updateCheckRoutes(instance)
   })
 
   // Backup-Routes in einem eigenen Block: sie brauchen ein eigenes
@@ -269,12 +259,6 @@ async function main() {
     starteBackupCron(app.log)
     starteDatanormCron(app.log)
     await pruefeDatanormAblage(app.log)
-
-    // Self-Update fortsetzen: der neue API-Container hat den alten ersetzt
-    // und macht jetzt Health-Check, Image-Purge und den Status "done".
-    if (selfUpdateMoeglich()) {
-      await selfUpdateAbschliessen()
-    }
   } catch (err) {
     app.log.error(err)
     process.exit(1)

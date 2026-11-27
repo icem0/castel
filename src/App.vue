@@ -22,7 +22,7 @@ import { applyTheme } from './theme'
 import { discardQuarantine, releaseQuarantine, zaehleAbweichungen } from './services/sync/worker'
 import { istMobilLayout, MOBILE_LAYOUT_QUERY } from './services/layout'
 import { version, commit, branch, buildDate } from './version'
-import { checkUpdate, startUpdate, type UpdateCheck } from './services/admin/update-webhook'
+import { checkUpdate, type UpdateCheck } from './services/admin/update-check'
 import UpdateMenu from './components/UpdateMenu.vue'
 import OnboardingTutorial from './components/OnboardingTutorial.vue'
 import AppToast from './components/AppToast.vue'
@@ -93,9 +93,6 @@ const versionOffen = ref(false)
 const updateCheck = ref<UpdateCheck | null>(null)
 const updateCheckLaeuft = ref(false)
 const updateCheckFehler = ref<string | null>(null)
-const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
-const updateFehler = ref<string | null>(null)
-const updateErfolg = ref<string | null>(null)
 
 // ---------------------------------------------------------------------------
 // Inventur-Stichtag-Countdown im Menü (nur für inventur.erstellen).
@@ -177,35 +174,6 @@ async function updatePruefen(): Promise<void> {
 function updateFehlerText(e: unknown): string {
   if (e instanceof ApiError) return serverMeldung(e) ?? e.message
   return e instanceof Error ? e.message : String(e)
-}
-
-function updateFrageStarten(): void {
-  updatePhase.value = 'bestaetigen'
-  updateFehler.value = null
-  updateErfolg.value = null
-}
-function updateAbbrechen(): void {
-  updatePhase.value = 'idle'
-  updateFehler.value = null
-  updateErfolg.value = null
-}
-async function updateBestaetigen(): Promise<void> {
-  updatePhase.value = 'laufend'
-  updateFehler.value = null
-  updateErfolg.value = null
-  try {
-    const res = await startUpdate()
-    if (!res.started) {
-      updateFehler.value = res.message ?? t('view.update.startFehlgeschlagen')
-      updatePhase.value = 'fehler'
-      return
-    }
-    updateErfolg.value = res.message ?? null
-    updatePhase.value = 'fertig'
-  } catch (e) {
-    updateFehler.value = updateFehlerText(e)
-    updatePhase.value = 'fehler'
-  }
 }
 
 function onDocumentClick(e: MouseEvent): void {
@@ -1111,14 +1079,7 @@ function formatRelativ(iso: string | null): string {
         :check="updateCheck"
         :check-laeuft="updateCheckLaeuft"
         :check-fehler="updateCheckFehler"
-        :phase="updatePhase"
-        :fehler="updateFehler"
-        :erfolg="updateErfolg"
         @pruefen="updatePruefen"
-        @start="updateFrageStarten"
-        @bestaetigen="updateBestaetigen"
-        @abbrechen="updateAbbrechen"
-        @schliessen="updatePhase = 'idle'"
       />
 
       <RouterLink
