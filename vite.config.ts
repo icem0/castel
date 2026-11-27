@@ -2,8 +2,19 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Optional /api proxy for `vite` and `vite preview`. Production puts nginx in
+// front of the PWA (same origin); the E2E suite (e2e/) and local development
+// against a separately started API set CASTEL_API_PROXY=http://127.0.0.1:3000
+// to get the same same-origin behaviour without nginx.
+const apiProxyTarget = process.env.CASTEL_API_PROXY
+const apiProxy = apiProxyTarget
+  ? { '/api': { target: apiProxyTarget, changeOrigin: false } }
+  : undefined
+
 // https://vite.dev/config/
 export default defineConfig({
+  server: { proxy: apiProxy },
+  preview: { proxy: apiProxy },
   build: {
     // Top-level await in main.ts (DEV_MODE-Bootstrap) braucht ES2022.
     // Default ist 'modules' (= ES2020 ohne TLA), das bricht den Build.

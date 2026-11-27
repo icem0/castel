@@ -158,6 +158,7 @@ auf `unknown` und der Update-Endpunkt zeigt "Installiert: unbekannt".
   - `npm run lint`
   - `npm run test:run` (einmalig; `npm test` startet Vitest im Watch-Mode und blockiert)
   - API-Seitig: `npm run test:run` und `npm run typecheck` in `server/`
+  - Bei Änderungen an Sync, Outbox, Auth oder den betroffenen Views zusätzlich die E2E-Suite: `npm run test:e2e` (Playwright, braucht ein lokales Postgres mit einer Datenbank, deren Name auf `_e2e` endet; Default `postgres://castel:castel@127.0.0.1:5432/castel_e2e`, Override `E2E_DATABASE_URL`). Die Datenbank wird bei jedem Lauf geleert. Läuft im CI als Job `e2e`.
 - Build muss sauber durchlaufen: `npm run build`.
 
 ## Todo-Liste (Pflicht, keine Ausnahme)
