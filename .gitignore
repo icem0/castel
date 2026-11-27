@@ -48,3 +48,7 @@ docker-compose.override.yml
 
 # Security-Audit-Ergebnisse (nicht einchecken; offene Findings)
 .security/
+
+# Playwright (npm run test:e2e)
+test-results/
+playwright-report/
