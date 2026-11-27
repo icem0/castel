@@ -305,28 +305,50 @@ const angeigt = computed(() => {
 .quick-links {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.1rem;
+  padding: 0.4rem 0.5rem;
 }
 .menu-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  padding-right: 0.35rem;
+  border-radius: var(--radius-sm, 6px);
+  transition: background-color 0.15s ease-out;
+}
+.menu-row:hover {
+  background: var(--accent-bg, rgba(99, 102, 241, 0.08));
 }
 .menu-row a,
 .menu-row button {
+  flex: 1;
   display: inline-flex;
   align-items: center;
-  padding: 0.4rem 0;
+  padding: 0.65rem 0.7rem;
   font-weight: 500;
-  width: max-content;
+  color: var(--text-strong, inherit);
+  border-radius: inherit;
+}
+.menu-row .info-hint {
+  margin-left: auto;
+  flex: none;
 }
 .menu-search {
   display: block;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
 }
 .menu-search input {
   width: 100%;
-  max-width: 24rem;
+  max-width: 26rem;
   box-sizing: border-box;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius, 8px);
+  background: var(--bg-input, transparent);
+  border: 1px solid var(--border, #ccc);
+  transition: border-color 0.15s ease-out;
+}
+.menu-search input:focus-visible {
+  outline: none;
+  border-color: var(--accent-border, #6366f1);
 }
 </style>
