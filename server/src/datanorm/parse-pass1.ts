@@ -203,7 +203,7 @@ export function parseVorsatz(
   let waehrung: string | null = null
   let stichtag: string | null = null
   let lieferantName: string | null = null
-  let lieferantMatchcode: string | null = null
+  const lieferantMatchcode: string | null = null
 
   if (zeile.includes(';')) {
     const f = zerlegeFelder(zeile)

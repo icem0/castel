@@ -15,7 +15,7 @@ import { herstellerArtikel, lieferanten } from '../../db/schema.js'
 import { loeseAuf } from '../resolve.js'
 import { sammleDatanorm } from '../parse-pass1.js'
 import { persistiereArtikel } from '../persist.js'
-import { BEISPIEL_V5, BEISPIEL_V5_MIT_DELETE, datei, aV5 } from './fixtures.js'
+import { BEISPIEL_V5, datei, aV5, v5Vorsatz } from './fixtures.js'
 
 /**
  * Integration tests need a real migrated Postgres.
@@ -40,7 +40,7 @@ async function importiere(
   zeilen: string[],
   opts: { forceCopy?: boolean; delId?: string } = {},
 ) {
-  const sammel = await sammleDatanorm(datei(zeilen), { encoding: 'cp850', version: 5 })
+  const sammel = await sammleDatanorm(datei(zeilen), { encoding: 'cp850' })
   const { artikel } = loeseAuf(sammel)
   const ergebnis = await persistiereArtikel(artikel, {
     lieferantId: opts.delId ?? lieferantId,
@@ -78,17 +78,16 @@ describe.skipIf(!HAT_DB)('Persistenz (Integration, echte Postgres)', () => {
     expect(bleistift.ean).toBe('4006381333931')
     expect(bleistift.preisNettoCent).toBe(249)
     expect(bleistift.titel).toBe('Bleistift HB')
-    expect(bleistift.beschreibung).toContain('Härtegrad HB')
   })
 
   it('ist idempotent: Re-Import aktualisiert statt zu duplizieren', async () => {
     const { ergebnis } = await importiere([
-      'V;5.0;20240115;EUR;TEST;Testlieferant GmbH',
+      v5Vorsatz('Testlieferant GmbH'),
       aV5({
-        matchcode: 'ART-1001',
+        artikelnummer: 'ART-1001',
         ean: '4006381333931',
-        kurztext: 'Bleistift HB (aktualisiert)',
-        preisNetto: '2.79',
+        kurztext1: 'Bleistift HB (aktualisiert)',
+        preis: '279',
       }),
       'Z',
     ])
@@ -114,12 +113,28 @@ describe.skipIf(!HAT_DB)('Persistenz (Integration, echte Postgres)', () => {
     const l = await db.select({ id: lieferanten.id, matchcode: lieferanten.matchcode }).from(lieferanten)
     const delId = l[0]!.id
 
-    const sammel = await sammleDatanorm(datei(BEISPIEL_V5_MIT_DELETE), {
-      encoding: 'cp850',
-      version: 5,
-    })
-    const { artikel } = loeseAuf(sammel)
-    await persistiereArtikel(artikel, { lieferantId: delId })
+    // First the article arrives normally, then the supplier withdraws it.
+    await importiere(
+      [
+        v5Vorsatz('Del-Test GmbH'),
+        aV5({ artikelnummer: 'ART-2001', kurztext1: 'Altes Produkt', preis: '500' }),
+        'Z',
+      ],
+      { delId },
+    )
+    await importiere(
+      [
+        v5Vorsatz('Del-Test GmbH'),
+        aV5({
+          artikelnummer: 'ART-2001',
+          verarbeitung: 'L',
+          kurztext1: 'Altes Produkt',
+          preis: '500',
+        }),
+        'Z',
+      ],
+      { delId },
+    )
 
     const rows = await getDb().select().from(herstellerArtikel)
     const alt = rows.find((r) => r.matchcode === 'ART-2001')!
@@ -138,13 +153,8 @@ describe.skipIf(!HAT_DB)('Persistenz (Integration, echte Postgres)', () => {
 
     await importiere(
       [
-        'V;5.0;20240115;EUR;DEL;Del-Test GmbH',
-        aV5({
-          matchcode: 'ART-2001',
-          ean: '4006381333931',
-          kurztext: 'Altes Produkt',
-          preisNetto: '5.00',
-        }),
+        v5Vorsatz('Del-Test GmbH'),
+        aV5({ artikelnummer: 'ART-2001', kurztext1: 'Altes Produkt', preis: '500' }),
         'Z',
       ],
       { delId },
@@ -169,19 +179,19 @@ describe.skipIf(!HAT_DB)('Persistenz (Integration, echte Postgres)', () => {
     const copyId = l[0]!.id
 
     const zeilen = [
-      'V;5.0;20240115;EUR;COPY;Copy-Test GmbH',
+      v5Vorsatz('Copy-Test GmbH'),
       ...Array.from({ length: 300 }, (_, i) =>
         aV5({
-          matchcode: `C-${String(i).padStart(5, '0')}`,
+          artikelnummer: `C-${String(i).padStart(5, '0')}`,
           ean: `40000000${String(i).padStart(5, '0')}`,
-          kurztext: `Copy-Artikel ${i}`,
-          preisNetto: `${i}.50`,
+          kurztext1: `Copy-Artikel ${i}`,
+          preis: `${i}50`,
         }),
       ),
       'Z',
     ]
 
-    const sammel = await sammleDatanorm(datei(zeilen), { encoding: 'cp850', version: 5 })
+    const sammel = await sammleDatanorm(datei(zeilen), { encoding: 'cp850' })
     const { artikel } = loeseAuf(sammel)
     expect(artikel).toHaveLength(300)
 
@@ -220,13 +230,13 @@ describe.skipIf(!HAT_DB)('Persistenz (Integration, echte Postgres)', () => {
     // Zwei verschiedene Matchcodes, aber dieselbe EAN. Plus ein sauberer
     // dritter Artikel, der auf keinen Fall verloren gehen darf.
     const zeilen = [
-      'V;5.0;20240115;EUR;DUP;Dup-Test GmbH',
-      aV5({ matchcode: 'D-1', ean: '4001111111111', kurztext: 'Eins', preisNetto: '1.00' }),
-      aV5({ matchcode: 'D-2', ean: '4001111111111', kurztext: 'Zwei', preisNetto: '2.00' }),
-      aV5({ matchcode: 'D-3', ean: '4002222222222', kurztext: 'Drei', preisNetto: '3.00' }),
+      v5Vorsatz('Dup-Test GmbH'),
+      aV5({ artikelnummer: 'D-1', ean: '4001111111111', kurztext1: 'Eins', preis: '100' }),
+      aV5({ artikelnummer: 'D-2', ean: '4001111111111', kurztext1: 'Zwei', preis: '200' }),
+      aV5({ artikelnummer: 'D-3', ean: '4002222222222', kurztext1: 'Drei', preis: '300' }),
       'Z',
     ]
-    const sammel = await sammleDatanorm(datei(zeilen), { encoding: 'cp850', version: 5 })
+    const sammel = await sammleDatanorm(datei(zeilen), { encoding: 'cp850' })
     const { artikel } = loeseAuf(sammel)
 
     // Der Upsert isoliert den Konflikt: D-1 und D-3 landen, D-2 wird

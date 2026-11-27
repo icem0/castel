@@ -87,7 +87,7 @@ export async function rollenRoutes(app: FastifyInstance): Promise<void> {
       const berecht = berechtigungen ?? []
       // Alle uebergebenen Berechtigungen muessen bekannt sein
       for (const b of berecht) {
-        if (!KNOWN_PERMISSIONS.includes(b as any)) {
+        if (!(KNOWN_PERMISSIONS as readonly string[]).includes(b)) {
           return reply.code(400).send({ code: 'VALIDATION', message: `Unbekannte Berechtigung: ${b}` })
         }
       }
@@ -213,7 +213,7 @@ export async function rollenRoutes(app: FastifyInstance): Promise<void> {
 
       // Alle uebergebenen Berechtigungen muessen bekannt sein
       for (const b of berechtigungen) {
-        if (!KNOWN_PERMISSIONS.includes(b as any)) {
+        if (!(KNOWN_PERMISSIONS as readonly string[]).includes(b)) {
           return reply.code(400).send({ code: 'VALIDATION', message: `Unbekannte Berechtigung: ${b}` })
         }
       }

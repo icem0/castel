@@ -76,6 +76,8 @@ export function erkenneEncoding(buffer: Buffer, probe = PROBE_BYTES): EncodingEr
   //    printable German text, whereas mis-decoding random bytes produces
   //    control characters. Cheap heuristic, avoids false positives.
   const cp850 = iconv.decode(slice, 'cp850')
+  // Matching control characters is the point of this heuristic.
+  // eslint-disable-next-line no-control-regex
   const steuerzeichen = (cp850.match(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g) ?? []).length
   if (steuerzeichen / Math.max(1, cp850.length) < 0.02) {
     return { encoding: 'cp850', ersetzungen: 0, unsicher: false }

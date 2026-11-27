@@ -25,6 +25,13 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: build-and-push-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Runs auf main werden pro Ref nacheinander abgearbeitet, damit :latest
+  # nie von einem aelteren, spaeter fertigen Lauf ueberschrieben wird. Ein
+  # zwischenzeitig verdraengter Lauf wird nicht gebaut, das ist beabsichtigt.
+
 jobs:
   # ---------- Version ----------
   # Liest die Versionsnummern aus beiden package.json (Root=PWA, server=API)
@@ -48,9 +55,28 @@ jobs:
           echo "::notice title=Build version::PWA v$ROOT_VERSION / API v$SERVER_VERSION"
 
   # ---------- API ----------
-  api:
+  # api-check prueft den Code (Install, Lint, Typecheck, Migration, Tests
+  # inkl. DB-Integrationstests gegen einen Postgres-16-Service). Kein
+  # Docker, kein Image-Push. Läuft bei jedem Event.
+  # api-publish baut und pusht das API-Image erst, nachdem BEIDE Check-Jobs
+  # (api-check und pwa-check) gruen sind. Nur ausserhalb von PRs.
+  api-check:
     needs: version
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: castel
+          POSTGRES_PASSWORD: castel
+          POSTGRES_DB: castel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U castel -d castel"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -59,17 +85,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: server/package-lock.json
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install
         working-directory: server
@@ -81,29 +96,55 @@ jobs:
 
       - name: Lint
         working-directory: server
-        run: npm run lint || true # Server-Lint ist optional, ESLint teilt mit Frontend
+        run: npm run lint
 
       - name: Typecheck
         working-directory: server
         run: npm run typecheck
 
+      - name: Migrate test database
+        working-directory: server
+        # The migrate script imports the config module, which validates
+        # JWT_SECRET at import time, so the placeholder is needed here too.
+        env:
+          DATABASE_URL: postgres://castel:castel@127.0.0.1:5432/castel
+          JWT_SECRET: ci-placeholder-secret-at-least-32-characters
+          DATANORM_DIR: /tmp/castel-ci-datanorm
+        run: npm run db:migrate
+
       - name: Test
         working-directory: server
-        # The server's config module validates required env vars at import
-        # time and calls process.exit(1) when one is missing. Any test that
-        # (transitively) imports it needs these placeholders — they are
-        # never connected to: tests that need a database skip themselves
-        # via describe.skipIf(!process.env.DATABASE_URL). The DB values here
-        # are deliberately unroutable so an accidental real connection fails
-        # loudly instead of hitting a developer's local Postgres.
+        # Datenbank-Integrationstests brauchen eine echte, migrierte Postgres.
+        # Sie melden sich via CASTEL_TEST_DB=1 + DATABASE_URL selbst und
+        # skippen sich ohne beides (describe.skipIf). Die CI liefert hier den
+        # laufenden postgres-Service, damit die DB-Schicht nicht ungetestet
+        # bleibt. JWT_SECRET/DATANORM_DIR sind Platzhalter, die der Config-
+        # Import braucht, ohne eine echte Verbindung aufzubauen.
         env:
-          DATABASE_URL: postgres://castel:castel@127.0.0.1:1/castel
+          DATABASE_URL: postgres://castel:castel@127.0.0.1:5432/castel
+          CASTEL_TEST_DB: '1'
           JWT_SECRET: ci-placeholder-secret-at-least-32-characters
           DATANORM_DIR: /tmp/castel-ci-datanorm
         run: npm run test:run
 
+  api-publish:
+    needs: [version, api-check, pwa-check]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build image
-        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: ./server
@@ -119,11 +160,12 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
 
       - name: Set package visibility to public
-        if: github.event_name != 'pull_request'
         env:
           # GHCR_ADMIN_TOKEN: klassischer PAT mit scopes 'repo' + 'write:packages'.
           # Der automatische GITHUB_TOKEN darf fuer User-Repos keine Packages flippen
@@ -166,7 +208,11 @@ jobs:
           done
 
   # ---------- PWA ----------
-  pwa:
+  # pwa-check prueft den Code (Checkout, Node, Install, Lint, Typecheck, Test,
+  # Build mit UTF-8-Env). Kein Docker, kein Image-Push. Läuft bei jedem Event.
+  # pwa-publish baut und pusht das PWA-Image erst, nachdem BEIDE Check-Jobs
+  # (api-check und pwa-check) gruen sind. Nur ausserhalb von PRs.
+  pwa-check:
     needs: version
     runs-on: ubuntu-latest
     steps:
@@ -177,17 +223,6 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: package-lock.json
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install
         run: npm ci --no-audit --no-fund
@@ -212,7 +247,7 @@ jobs:
         # Ohne das transcodiert vite/rollup die mehrbyte-Zeichen
         # (U+23FB, U+2026, Emojis, Umlaute) in der C/POSIX-Default-
         # Locale des ubuntu-latest-Runners, und das Ergebnis im
-        # GHCR-Image zeigt im Browser ÔÅ╗-Mojibake. Dockerfile.pwa
+        # GHCR-Image zeigt im Browser Mojibake. Dockerfile.pwa
         # braucht dasselbe ENV, weil 'npm run build' dort
         # nochmal laeuft (sonst wuerde der Image-eigene Build,
         # z. B. bei manuellem 'docker build', wieder kaputt sein).
@@ -222,8 +257,24 @@ jobs:
           TZ: Europe/Berlin
         run: npm run build
 
+  pwa-publish:
+    needs: [version, api-check, pwa-check]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build image
-        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -239,11 +290,12 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             GIT_BRANCH=${{ github.ref_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          cache-from: type=gha,scope=pwa
+          cache-to: type=gha,mode=max,scope=pwa
 
       - name: Set package visibility to public
-        if: github.event_name != 'pull_request'
         env:
           # GHCR_ADMIN_TOKEN: klassischer PAT mit scopes 'repo' + 'write:packages'.
           # Der automatische GITHUB_TOKEN darf fuer User-Repos keine Packages flippen
@@ -284,3 +336,43 @@ jobs:
             echo "::warning::could not flip visibility for ${pkg} (alle Endpoints 404) -- Paket bleibt 'private'. GHCR_ADMIN_TOKEN pruefen (PAT mit scopes repo + write:packages)."
             exit 0
           done
+
+  # ---------- Image-Checks fuer Pull Requests ----------
+  # Bei PRs wird das Image ohne Push gebaut (push: false), damit ein kaputtes
+  # Dockerfile vor dem Merge auffaellt. Kein Login, keine Tags, kein Publish.
+  api-image-check:
+    if: github.event_name == 'pull_request'
+    needs: [version, api-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./server
+          push: false
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+  pwa-image-check:
+    if: github.event_name == 'pull_request'
+    needs: [version, pwa-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.pwa
+          push: false
+          cache-from: type=gha,scope=pwa
+          cache-to: type=gha,mode=max,scope=pwa

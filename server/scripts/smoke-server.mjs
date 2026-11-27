@@ -7,7 +7,7 @@
 // Setzt voraus: tsc wurde bereits ausgeführt (dist/ existiert).
 
 import { createRequire } from 'node:module'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 const require = createRequire(import.meta.url)
 const { default: EmbeddedPostgres } = require('embedded-postgres')
 import postgres from 'postgres'

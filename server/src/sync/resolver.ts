@@ -78,6 +78,8 @@ interface SyncLogger {
 export type PushOp = z.infer<typeof pushSchema>
 
 // Schema nur für den Resolver (leichtgewichtige Variante)
+// Only used to derive the PushOp type above.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const pushSchema = z.discriminatedUnion('entity', [
   z.object({
     op: z.enum(['create', 'update', 'delete']),
@@ -217,11 +219,12 @@ export async function resolvePush(
   }
   for (const [paarId, list] of paarBuckets) {
     if (list.length === 1) {
-      list[0]?.payload.id !== undefined &&
+      if (list[0]?.payload.id !== undefined) {
         result.conflicts.push({
           id: list[0].payload.id,
           reason: `Umlagerungspartner mit paarId ${paarId} fehlt — erneuter Sync erforderlich`,
         })
+      }
     } else {
       try {
         const paar = await resolveUmlagerungPaar(db, list, benutzerId)
