@@ -4,7 +4,6 @@
 import 'dotenv/config'
 import { z } from 'zod'
 import { isLanOrigin, normaliseOrigin } from './origin.js'
-import { isSelfCallWebhookUrl, resolveUpdateWebhookUrl } from './webhook-url.js'
 
 const schema = z.object({
   // Postgres
@@ -32,15 +31,6 @@ const schema = z.object({
   GITHUB_REPO: z.string().default('icem0/castel'),
   GITHUB_BRANCH: z.string().default('main'),
   GITHUB_TOKEN: z.string().default(''),
-  // Host-Port of the PWA (nginx proxies /api/* to this API). Only used to
-  // derive a sane UPDATE_WEBHOOK_URL when the .env leaves it unset - the API
-  // container cannot reach the host over localhost, only over its published
-  // host port (see resolveUpdateWebhookUrl).
-  PWA_PORT: z.coerce.number().int().positive().default(4280),
-  // Empty means "not configured" and gets replaced by the derived default
-  // below; an explicit value always wins untouched.
-  UPDATE_WEBHOOK_URL: z.string().default(''),
-  UPDATE_WEBHOOK_TOKEN: z.string().default(''),
   COOKIE_SECURE: z
     .union([z.literal('true'), z.literal('false')])
     .transform((v) => v === 'true')
@@ -171,23 +161,7 @@ if (!parsed.success) {
   process.exit(1)
 }
 
-const updateWebhookUrl = resolveUpdateWebhookUrl(parsed.data.UPDATE_WEBHOOK_URL, parsed.data.PWA_PORT)
-if (isSelfCallWebhookUrl(updateWebhookUrl, parsed.data.PORT)) {
-  // eslint-disable-next-line no-console
-  console.warn(
-    `castel-update: UPDATE_WEBHOOK_URL "${updateWebhookUrl}" addresses the API itself - ` +
-      'no host update can run. Use the published host port of the PWA, e.g. http://host.docker.internal:4280/api/admin/update/webhook.',
-  )
-}
-if (String(parsed.data.UPDATE_WEBHOOK_URL).trim() === '') {
-  // eslint-disable-next-line no-console
-  console.info(
-    `castel-update: UPDATE_WEBHOOK_URL is unset, using the derived default ${updateWebhookUrl}. ` +
-      'The host-side runner (scripts/update.sh) still has to exist; see the update help page.',
-  )
-}
-
-export const config = { ...parsed.data, UPDATE_WEBHOOK_URL: updateWebhookUrl }
+export const config = { ...parsed.data }
 export type AppConfig = typeof config
 
 // Contradicting .env combinations are warned about but never fatal: a running

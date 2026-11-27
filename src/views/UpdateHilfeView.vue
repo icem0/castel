@@ -1,15 +1,9 @@
 <script setup lang="ts">
-// Help page: how the update of the stack works.
+// Help page: how the stack is updated.
 //
-// The flow is deliberately simple:
-//   1. one line in the .env (UPDATE_RUNNER=true)
-//   2. one `docker compose up -d`
-//   3. the button "Jetzt aktualisieren" in the PWA
-//
-// The PWA only marks the request in the DB; the execution happens in the
-// update service on the host (compose service `update-runner` or a systemd
-// timer). The webhook/token path is optional and only needed for external
-// triggers (CI/CD, another machine).
+// The app only checks for a newer version (GET /api/update/check). The update
+// itself runs on the host (scripts/update.sh or plain docker compose); the API
+// neither updates itself nor accepts an update trigger.
 
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -31,108 +25,35 @@ function zurueck(): void {
     </header>
 
     <div class="card">
-      <h2>{{ t('view.update.hilfe.ablaufTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.ablaufText') }}</p>
-      <ol class="steps">
-        <li>{{ t('view.update.hilfe.ablaufS1') }}</li>
-        <li>{{ t('view.update.hilfe.ablaufS2') }}</li>
-        <li>{{ t('view.update.hilfe.ablaufS3') }}</li>
-        <li>{{ t('view.update.hilfe.ablaufS4') }}</li>
-      </ol>
+      <h2>{{ t('view.update.hilfe.pruefenTitel') }}</h2>
+      <p class="hint">{{ t('view.update.hilfe.pruefenText') }}</p>
     </div>
 
     <div class="card">
-      <h2>{{ t('view.update.hilfe.setupTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.setupText') }}</p>
+      <h2>{{ t('view.update.hilfe.skriptTitel') }}</h2>
+      <p class="hint">{{ t('view.update.hilfe.skriptText') }}</p>
       <pre>
-# .env im Projektordner (neben docker-compose.yml) - optional, nur wenn die
-# Gruppe des Docker-Sockets nicht der Default 999 ist:
-# DOCKER_SOCKET_GID=999
+cd /srv/castel
+./scripts/update.sh            # pruefen, nachfragen, aktualisieren
+./scripts/update.sh --check    # nur Versionen vergleichen
+./scripts/update.sh --yes      # ohne Rueckfrage</pre>
+    </div>
 
-# einmal neu starten, damit der API-Container den Socket sieht
+    <div class="card">
+      <h2>{{ t('view.update.hilfe.manuellTitel') }}</h2>
+      <p class="hint">{{ t('view.update.hilfe.manuellText') }}</p>
+      <pre>
+cd /srv/castel
+git pull
+docker compose pull
 docker compose up -d</pre>
-      <p class="hint">{{ t('view.update.hilfe.setupHinweis') }}</p>
-    </div>
-
-    <div class="card">
-      <h2>{{ t('view.update.hilfe.statusTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.statusText') }}</p>
-      <pre>{{ t('view.update.hilfe.statusBefehl') }}</pre>
-    </div>
-
-    <div class="card">
-      <h2>{{ t('view.update.hilfe.voraussetzungenTitel') }}</h2>
-      <ul class="bullets">
-        <li>{{ t('view.update.hilfe.voraussetzungSocket') }}</li>
-        <li>{{ t('view.update.hilfe.voraussetzungCheckout') }}</li>
-        <li>{{ t('view.update.hilfe.voraussetzungToken') }}</li>
-      </ul>
-    </div>
-
-    <div class="card">
-      <h2>{{ t('view.update.hilfe.dienstTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.dienstText') }}</p>
-
-      <h3 class="sub">{{ t('view.update.hilfe.dienstTimerTitel') }}</h3>
-      <p class="hint">{{ t('view.update.hilfe.dienstTimerText') }}</p>
-      <pre>{{ t('view.update.hilfe.dienstTimerHinweis') }}</pre>
-
-      <h3 class="sub">{{ t('view.update.hilfe.dienstWebhookTitel') }}</h3>
-      <p class="hint">{{ t('view.update.hilfe.dienstWebhookText') }}</p>
-      <pre>{{ t('view.update.hilfe.dienstWebhookHinweis') }}</pre>
-
-      <h3 class="sub">{{ t('view.update.hilfe.assistantTitel') }}</h3>
-      <p class="hint">{{ t('view.update.hilfe.assistantText') }}</p>
-    </div>
-
-    <div class="card">
-      <h2>{{ t('view.update.hilfe.webhookTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.webhookText') }}</p>
-      <pre>
-# Der eingehende Endpunkt (nur für externe Auslöser, Token noetig):
-#   curl -X POST https://&lt;server&gt;/api/admin/update/webhook \
-#     -H "X-Deploy-Token: $(grep -m1 '^UPDATE_WEBHOOK_TOKEN=' .env | cut -d= -f2-)" \
-#     -H "Content-Type: application/json" -d '{}'</pre>
-      <h3 class="sub">{{ t('view.update.hilfe.webhookCicdTitel') }}</h3>
-      <p class="hint">{{ t('view.update.hilfe.webhookCicdText') }}</p>
-      <pre v-pre>
-# GitHub Actions: .github/workflows/deploy.yml
-on:
-  push:
-    branches: [main]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: castel update
-        run: |
-          curl -fsS -X POST "${{ secrets.CASTEL_UPDATE_URL }}" \
-            -H "X-Deploy-Token: ${{ secrets.CASTEL_UPDATE_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{}'</pre>
-    </div>
-
-    <div class="card">
-      <h2>{{ t('view.update.hilfe.tokenTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.tokenText') }}</p>
-      <pre>
-# sicheres Token erzeugen (nur für externe Auslöser nötig)
-openssl rand -hex 32</pre>
-    </div>
-
-    <div class="card">
-      <h2>{{ t('view.update.hilfe.selbstupdateTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.selbstupdateText') }}</p>
-      <pre>cd /srv/castel && ./scripts/update.sh --if-requested</pre>
     </div>
 
     <div class="card">
       <h2>{{ t('view.update.hilfe.fehlerTitel') }}</h2>
-      <p class="hint">{{ t('view.update.hilfe.fehlerText') }}</p>
       <ul class="bullets">
-        <li>{{ t('view.update.hilfe.fehlerSocket') }}</li>
-        <li>{{ t('view.update.hilfe.fehlerProjekt') }}</li>
-        <li>{{ t('view.update.hilfe.fehlerToken') }}</li>
+        <li>{{ t('view.update.hilfe.fehlerGithub') }}</li>
+        <li>{{ t('view.update.hilfe.fehlerUnbekannt') }}</li>
       </ul>
     </div>
 
@@ -149,10 +70,6 @@ openssl rand -hex 32</pre>
   margin: 0 0 0.5rem;
   font-size: 1.05rem;
 }
-.update-hilfe h3.sub {
-  margin: 1rem 0 0.4rem;
-  font-size: 0.95rem;
-}
 .update-hilfe pre {
   margin: 0.5rem 0;
   padding: 0.75rem;
@@ -165,12 +82,10 @@ openssl rand -hex 32</pre>
   line-height: 1.45;
   white-space: pre;
 }
-.steps,
 .bullets {
   margin: 0.25rem 0;
   padding-left: 1.25rem;
 }
-.steps li,
 .bullets li {
   margin-bottom: 0.35rem;
 }

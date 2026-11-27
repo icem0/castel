@@ -30,7 +30,7 @@ PR-Titeln oder Work-Package-Titeln erscheinen.
 | **C** | Input-Validierung und Injection: SQL (drizzle parameterisiert, keine String-Konkatenation mit User-Input), Command (pg_dump/pg_restore/unzip/docker argv-Arrays), Path Traversal (Fotos, DATANORM, Backup-ZIP), Deserialisierung (keine), Zukunftszeitstempel (LWW), LIKE-Wildcards. |
 | **D** | Frontend: XSS/Output-Encoding (innerHTML-Sinks, DOMPurify), CSP, lokale Speicherung von Tokens (JWT im localStorage, PBKDF2-Cache, Session-PII), Service Worker. |
 | **E** | HTTP-Hardening: CORS (fester Origin, nicht wildcard), CSRF/Cookies (Refresh-Cookie httpOnly/sameSite, COOKIE_SECURE), Security-Header (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy), Rate Limits, Fehlermeldungen (kein Leak interner Details). |
-| **F** | Secrets/Config: `.env` nicht getrackt, `.env.example` ohne echte Secrets, Default-Werte (COOKIE_SECURE, UPDATE_WEBHOOK_TOKEN), Secrets in Logs oder Git-Historie (kein Scanner installiert → Hinweis). |
+| **F** | Secrets/Config: `.env` nicht getrackt, `.env.example` ohne echte Secrets, Default-Werte (COOKIE_SECURE, GITHUB_TOKEN), Secrets in Logs oder Git-Historie (kein Scanner installiert → Hinweis). |
 | **G** | Dateien: Upload/Download (Fotos: servergenerierter Dateiname, MIME-Allowliste; DATANORM: sichererDateiname), Pfade, Typprüfung, Zip-Slip (Restore nutzt system-unzip), `@fastify/static` (fotoStaticRoutes). |
 | **H** | Abhängigkeiten: `npm audit --omit=dev` Ergebnisse (Root, Server), transitive Schwachstellen, CI ohne `npm audit`. |
 | **I** | Docker/Compose: User (api läuft als `user: "0:0"` mit Docker-Socket — dokumentierte Design-Entscheidung), Ports (API nicht standardmäßig exponiert), Volumes, Secrets-Übergabe (ENV), pg_dump/Major-Kopplung zu Postgres. |
@@ -51,7 +51,7 @@ Die Details (Fundstelle, Angriffspfad, Empfehlung) stehen ausschließlich in
 | Bereich | zuletzt geprüft (Commit-SHA) | Datum | offen | behoben | angenommen | Fehlbefund |
 |---------|------------------------------|-------|-------|---------|------------|------------|
 | A Authentifizierung / Sessions / Tokens | 42b01858 → 326cd4d | 2026-11-06 | 0 | 3 | 0 | 0 |
-| B Autorisierung (Routen einzeln) | 42b01858 → 326cd4d → 8d77c82 | 2026-11-26 | 0 | 15 | 4 | 2 |
+| B Autorisierung (Routen einzeln) | 42b01858 → 326cd4d → 8d77c82 → v1.1.61 | 2026-11-27 | 0 | 15 | 4 | 2 |
 | C Input-Validierung / Injection | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 0 | 0 |
 | D Frontend (XSS, CSP, lokale Speicherung) | 42b01858 → 326cd4d | 2026-11-06 | 0 | 2 | 3 | 0 |
 | E HTTP-Hardening | 42b01858 → 326cd4d | 2026-11-06 | 0 | 1 | 0 | 0 |
@@ -68,6 +68,14 @@ routes `/einstungen/account` and `/einstungen/benachrichtigengs` (open to every
 signed-in role by design, only per-user settings) and `/einstungen/general`
 (gated with `globalEinstung`). The client-side visibility in the menu mirrors
 the router gates. No new findings.
+
+Route-recheck 2026-11-27 (v1.1.61, base `6a7583e`): the update module was
+reduced to `GET /api/update/check` (admin-only, read-only, GitHub token stays
+server-side). `POST /api/update/start`, `POST /api/admin/update/request`,
+`POST /api/admin/update/webhook` (token-only, no JWT) and
+`GET /api/admin/update/status` are no longer registered; the self-update code
+with Docker-socket access is gone. A route test covers 401/403/200 and the
+absence of the removed routes. No new findings.
 
 ## Regeln für Wiederholungsläufe
 

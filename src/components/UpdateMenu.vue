@@ -1,10 +1,14 @@
 <script setup lang="ts">
 // UpdateMenu: der Update-Block im Versions-Panel (nur fuer Admins).
 //
-// WICHTIG — zwei Regeln, die den Bug "Klick auf Pruefen passiert nichts"
-// verhindert:
+// Read-only: zeigt installierte und neueste Version (GET /api/update/check).
+// Das Update selbst laeuft auf dem Server (scripts/update.sh), nicht aus der
+// App - deshalb gibt es hier keinen Start-Button.
+//
+// WICHTIG - zwei Regeln, die den Bug "Klick auf Pruefen passiert nichts"
+// verhindern:
 //   1. Der Pruef-Button bleibt IMMER sichtbar. Er wird weder durch einen
-//      Lade-Hinweis ersetzt noch in einen anderen Block verschoben — der
+//      Lade-Hinweis ersetzt noch in einen anderen Block verschoben - der
 //      Admin kann immer neu pruefen.
 //   2. Der Fehler wird IMMER angezeigt, auch wenn kein Ergebnis vorliegt.
 //      Ein fehlgeschlagener Check liefert `current` + `error`; beides wird
@@ -15,9 +19,7 @@
 // Dokument blubbern und das Panel (onDocumentClick -> closeVersion) schliessen.
 
 import { useI18n } from 'vue-i18n'
-import type { UpdateCheck } from '../services/admin/update-webhook'
-
-export type UpdatePhase = 'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'
+import type { UpdateCheck } from '../services/admin/update-check'
 
 const props = defineProps<{
   /** Ergebnis des letzten Checks (null = noch nie geprueft). */
@@ -26,20 +28,10 @@ const props = defineProps<{
   checkLaeuft: boolean
   /** Fehlermeldung des letzten Checks. */
   checkFehler: string | null
-  /** Phase des Update-Starts. */
-  phase: UpdatePhase
-  /** Fehlermeldung des Update-Starts. */
-  fehler: string | null
-  /** Erfolgsmeldung des Update-Starts (vom Server). */
-  erfolg?: string | null
 }>()
 
 const emit = defineEmits<{
   (e: 'pruefen'): void
-  (e: 'start'): void
-  (e: 'bestaetigen'): void
-  (e: 'abbrechen'): void
-  (e: 'schliessen'): void
 }>()
 
 const { t } = useI18n()
@@ -49,7 +41,7 @@ const { t } = useI18n()
   <div class="update-block">
     <h3>{{ t('view.update.h1') }}</h3>
 
-    <!-- Fehler immer anzeigen — auch wenn kein Ergebnis vorliegt. -->
+    <!-- Fehler immer anzeigen - auch wenn kein Ergebnis vorliegt. -->
     <p v-if="props.checkFehler" class="wert-fehler" data-test="update-fehler">
       {{ t('view.update.fehlgeschlagen', { error: props.checkFehler }) }}
     </p>
@@ -63,63 +55,18 @@ const { t } = useI18n()
           })
         }}
       </p>
-      <p v-if="props.check.updateAvailable === true" class="hint hint-ok">
-        {{ t('view.update.verfuegbar', { latest: props.check.latest }) }}
-      </p>
+      <template v-if="props.check.updateAvailable === true">
+        <p class="hint hint-ok" data-test="update-verfuegbar">
+          {{ t('view.update.verfuegbar', { latest: props.check.latest }) }}
+        </p>
+        <p class="hint" data-test="update-manuell">{{ t('view.update.manuell') }}</p>
+      </template>
       <p v-else-if="props.check.updateAvailable === false" class="hint hint-ok">
         {{ t('view.update.aktuellVersion') }}
       </p>
-
-      <!-- Update-Dienst-Status: der Button kann nur funktionieren, wenn der
-           externe Webhook konfiguriert und erreichbar ist. -->
-      <p
-        v-if="props.check.webhook.selfCall"
-        class="wert-fehler"
-        data-test="update-webhook-selfcall"
-      >
-        {{ t('view.update.webhookSelfCall') }}
-      </p>
-      <p
-        v-else-if="props.check.webhook.publicTarget"
-        :class="props.check.webhook.publicReachable ? 'hint hint-ok' : 'wert-fehler'"
-        data-test="update-webhook-oeffentlich"
-      >
-        {{
-          props.check.webhook.publicReachable
-            ? t('view.update.webhookPublicErreichbar', {
-                target: props.check.webhook.publicTarget,
-              })
-            : t('view.update.webhookPublicNichtErreichbar', {
-                target: props.check.webhook.publicTarget,
-                grund: props.check.webhook.publicReason ?? '?',
-              })
-        }}
-      </p>
-      <p
-        v-else-if="!props.check.webhook.configured"
-        class="hint"
-        data-test="update-webhook-nicht-konfiguriert"
-      >
-        {{ t('view.update.webhookNichtKonfiguriert') }}
-      </p>
-      <p
-        v-else-if="!props.check.webhook.reachable"
-        class="wert-fehler"
-        data-test="update-webhook-nicht-erreichbar"
-      >
-        {{
-          t('view.update.webhookNichtErreichbar', {
-            target: props.check.webhook.target ?? '?',
-            grund: props.check.webhook.reason ?? '?',
-          })
-        }}
-      </p>
-      <p v-else class="hint" data-test="update-webhook-erreichbar">
-        {{ t('view.update.webhookErreichbar', { target: props.check.webhook.target ?? '?' }) }}
-      </p>
     </template>
 
-    <!-- Der Button bleibt immer sichtbar — auch waehrend und nach dem Check. -->
+    <!-- Der Button bleibt immer sichtbar - auch waehrend und nach dem Check. -->
     <div class="actions">
       <button
         type="button"
@@ -129,62 +76,6 @@ const { t } = useI18n()
       >
         {{ props.checkLaeuft ? t('view.update.pruefLaeuft') : t('view.update.pruefen') }}
       </button>
-      <button
-        v-if="props.check && props.check.updateAvailable === true"
-        type="button"
-        class="primary"
-        data-test="update-start"
-        :disabled="props.phase === 'laufend'"
-        @click.stop="emit('start')"
-      >
-        {{ props.phase === 'laufend' ? t('view.update.startLaeuft') : t('view.update.start') }}
-      </button>
-    </div>
-
-    <!-- Update-Bestaetigung / Status -->
-    <div v-if="props.phase !== 'idle'" class="confirm" role="alertdialog" data-test="update-dialog">
-      <template v-if="props.phase === 'fertig'">
-        <p class="hint hint-ok">{{ props.erfolg || t('view.update.startErfolg') }}</p>
-        <div class="actions">
-          <button type="button" @click.stop="emit('schliessen')">
-            {{ t('view.common.schliessen') }}
-          </button>
-        </div>
-      </template>
-      <template v-else-if="props.phase === 'fehler' && props.fehler">
-        <p class="wert-fehler">{{ props.fehler }}</p>
-        <div class="actions">
-          <button type="button" @click.stop="emit('abbrechen')">
-            {{ t('view.common.schliessen') }}
-          </button>
-        </div>
-      </template>
-      <template v-else>
-        <p>
-          <strong>
-            {{
-              props.phase === 'bestaetigen'
-                ? t('view.update.startFrage', { latest: props.check?.latest ?? '' })
-                : t('view.update.startLaeuft')
-            }}
-          </strong>
-        </p>
-        <p class="hint">{{ t('view.update.startDetail') }}</p>
-        <div class="actions">
-          <button
-            v-if="props.phase === 'bestaetigen'"
-            type="button"
-            class="primary danger"
-            data-test="update-bestaetigen"
-            @click.stop="emit('bestaetigen')"
-          >
-            {{ t('view.update.startBestaetigen') }}
-          </button>
-          <button type="button" @click.stop="emit('abbrechen')">
-            {{ t('view.common.abbrechen') }}
-          </button>
-        </div>
-      </template>
     </div>
   </div>
 </template>
@@ -205,21 +96,6 @@ const { t } = useI18n()
   gap: 0.5rem;
   flex-wrap: wrap;
   margin-top: 0.5rem;
-}
-.confirm {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-.confirm p {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-}
-.confirm .hint {
-  color: var(--text-muted);
-  font-size: 0.78rem !important;
 }
 .hint-ok {
   color: var(--success);

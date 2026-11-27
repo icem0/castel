@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import InfoHint from '../components/InfoHint.vue'
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { apiFetch, getApiBaseUrl } from '../auth/api'
 import { clearAppCacheAndReload } from '../services/sync/clear-cache'
 import { holeAktiveUserliste, type UserDto } from '../auth/users'
 import { resetLocalDbAndPull, wipeLocalDbWithoutPull } from '../services/sync/reset-local-db'
-import { fetchUpdateState, type UpdateState } from '../services/admin/update'
-import { checkUpdate, startUpdate, type UpdateCheck } from '../services/admin/update-webhook'
+import { checkUpdate, type UpdateCheck } from '../services/admin/update-check'
 import {
   collectReseedPlan,
   reseedServer,
@@ -42,36 +41,9 @@ const reseedErfolg = ref<string | null>(null)
 const reseedPlan = ref<ReseedPlan | null>(null)
 const reseedGuardFehler = ref(false)
 
-const updatePhase = ref<'idle' | 'bestaetigen' | 'laufend' | 'fertig' | 'fehler'>('idle')
-const updateFehler = ref<string | null>(null)
-const updateErfolg = ref<string | null>(null)
-const updateState = ref<UpdateState | null>(null)
-/** Der Server ist während des Stack-Neustarts kurz nicht erreichbar. */
-const updateServerAus = ref(false)
 const updateCheck = ref<UpdateCheck | null>(null)
 const updateCheckLaeuft = ref(false)
 const updateCheckFehler = ref<string | null>(null)
-/** Zeigt die Webhook-Info-Karte (externes System kann Update ausloesen). */
-const updateWebhookInfo = ref(false)
-
-/** API-Basis-URL fuer den Webhook-Endpunkt. */
-const apiBaseUrl = computed(() => getApiBaseUrl())
-/** Curl-Beispiel fuer den Inbound-Webhook (Token-Placeholder bleibt offentlich). */
-const webhookCurl = computed(() => {
-  const base = apiBaseUrl.value
-  const url = base ? `${base}/api/admin/update/webhook` : '<API-URL>/api/admin/update/webhook'
-  const tokenHint = '$(grep -m1 UPDATE_WEBHOOK_TOKEN .env | cut -d= -f2-)'
-  return `curl -X POST ${url} \\\n  -H "X-Deploy-Token: ${tokenHint}" \\\n  -H "Content-Type: application/json" \\\n  -d '{}'`
-})
-
-/** Anzeigename des aktuellen Schritts - unbekannte Schritte bleiben leer. */
-const updateStepLabel = computed(() => {
-  const step = updateState.value?.step
-  if (!step) return null
-  const key = `view.development.updateStep.${step}`
-  const translated = t(key)
-  return translated === key ? null : translated
-})
 
 type Geraet = {
   id: string
@@ -481,50 +453,6 @@ async function updateCheckLaden(): Promise<void> {
     updateCheckFehler.value = e instanceof Error ? e.message : String(e)
   } finally {
     updateCheckLaeuft.value = false
-  }
-}
-
-async function updateFrageStarten(): Promise<void> {
-  updatePhase.value = 'bestaetigen'
-  updateFehler.value = null
-  updateErfolg.value = null
-  updateServerAus.value = false
-}
-function updateAbbrechen(): void {
-  updatePhase.value = 'idle'
-  updateFehler.value = null
-  updateErfolg.value = null
-  updateServerAus.value = false
-}
-async function updateBestaetigen(): Promise<void> {
-  updatePhase.value = 'laufend'
-  updateFehler.value = null
-  updateErfolg.value = null
-  updateServerAus.value = false
-  try {
-    const result = await startUpdate()
-    if (!result.started) {
-      updatePhase.value = 'fehler'
-      updateFehler.value = result.message ?? t('view.development.updateStartFehler')
-      return
-    }
-    updateErfolg.value = result.message ?? null
-    updatePhase.value = 'fertig'
-    // Read-only diagnostics snapshot of what scripts/update.sh wrote.
-    void updateStatusLaden()
-  } catch (e) {
-    updateFehler.value = e instanceof Error ? e.message : String(e)
-    updatePhase.value = 'fehler'
-  }
-}
-async function updateStatusLaden(): Promise<void> {
-  try {
-    const state = await fetchUpdateState()
-    updateState.value = state
-    updateServerAus.value = false
-  } catch {
-    // Waehrend des Neustarts ist der API-Container kurz weg.
-    updateServerAus.value = true
   }
 }
 </script>
@@ -1042,19 +970,11 @@ async function updateStatusLaden(): Promise<void> {
     </div>
 
     <h2>{{ t('view.development.update') }}</h2>
-    <button
-      type="button"
-      class="small"
-      :class="{ aktiv: updateWebhookInfo }"
-      @click="updateWebhookInfo = !updateWebhookInfo"
-    >
-      {{ t('view.development.updateWebhookInfo') }}
-    </button>
     <div class="card">
       <p class="hint">{{ t('view.development.updateHint') }}</p>
       <p class="hint hint-ok">{{ t('view.development.updateHowto') }}</p>
 
-      <!-- Versions-Check gegen GHCR -->
+      <!-- Versions-Check gegen GitHub -->
       <div class="update-check">
         <span v-if="updateCheckLaeuft" class="hint">
           {{ t('view.development.updateCheckLaeuft') }}
@@ -1077,42 +997,6 @@ async function updateStatusLaden(): Promise<void> {
           <p v-if="updateCheck.error" class="hint">
             {{ t('view.development.updateCheckFehler', { error: updateCheck.error }) }}
           </p>
-          <p v-if="updateCheck.webhook.selfCall" class="hint hint-danger">
-            {{ t('view.development.updateWebhookSelfCall') }}
-          </p>
-          <p
-            v-else-if="updateCheck.webhook.publicTarget"
-            :class="updateCheck.webhook.publicReachable ? 'hint hint-ok' : 'hint hint-danger'"
-          >
-            {{
-              updateCheck.webhook.publicReachable
-                ? t('view.development.updateWebhookPublicErreichbar', {
-                    target: updateCheck.webhook.publicTarget,
-                  })
-                : t('view.development.updateWebhookPublicNichtErreichbar', {
-                    target: updateCheck.webhook.publicTarget,
-                    grund: updateCheck.webhook.publicReason ?? '?',
-                  })
-            }}
-          </p>
-          <p v-else-if="!updateCheck.webhook.configured" class="hint">
-            {{ t('view.development.updateWebhookNichtKonfiguriert') }}
-          </p>
-          <p v-else-if="!updateCheck.webhook.reachable" class="hint hint-danger">
-            {{
-              t('view.development.updateWebhookNichtErreichbar', {
-                target: updateCheck.webhook.target ?? '?',
-                grund: updateCheck.webhook.reason ?? '?',
-              })
-            }}
-          </p>
-          <p v-else class="hint">
-            {{
-              t('view.development.updateWebhookErreichbar', {
-                target: updateCheck.webhook.target ?? '?',
-              })
-            }}
-          </p>
         </template>
         <p v-if="updateCheckFehler" class="wert-fehler">{{ updateCheckFehler }}</p>
         <div class="actions">
@@ -1126,104 +1010,6 @@ async function updateStatusLaden(): Promise<void> {
           </button>
         </div>
       </div>
-
-      <div class="actions">
-        <button
-          type="button"
-          class="danger"
-          :disabled="updatePhase === 'laufend'"
-          @click="updateFrageStarten"
-        >
-          {{
-            updatePhase === 'laufend'
-              ? t('view.development.updateLaeuft')
-              : updatePhase === 'fertig'
-                ? t('view.development.updateFertig')
-                : t('view.development.updateBtn')
-          }}
-        </button>
-      </div>
-
-      <!-- Status -->
-      <div v-if="updateState" class="update-status">
-        <p>
-          <strong>{{ t(`view.development.updatePhase.${updateState.phase}`) }}</strong>
-          <span v-if="updateStepLabel" class="hint">— {{ updateStepLabel }}</span>
-        </p>
-        <p v-if="updateState.host" class="hint">
-          {{ t('view.development.updateHost', { host: updateState.host }) }}
-        </p>
-        <p v-if="updateState.versionBefore && updateState.versionAfter" class="hint">
-          {{
-            t('view.development.updateVersion', {
-              before: updateState.versionBefore,
-              after: updateState.versionAfter,
-            })
-          }}
-        </p>
-        <p v-if="updateState.message" class="hint">{{ updateState.message }}</p>
-        <p v-if="updateState.phase === 'requested'" class="hint">
-          {{ t('view.development.updateWartetAufDienst') }}
-        </p>
-        <p v-if="updateServerAus" class="hint">{{ t('view.development.updateServerAus') }}</p>
-        <p v-if="updateFehler" class="wert-fehler">{{ updateFehler }}</p>
-        <details v-if="updateState.log" class="update-log">
-          <summary>{{ t('view.development.updateLog') }}</summary>
-          <pre>{{ updateState.log }}</pre>
-        </details>
-      </div>
-    </div>
-
-    <!-- Webhook-Info: externes System kann Update auf diesem Server ausloesen -->
-    <div v-if="updateWebhookInfo" class="card update-anleitung">
-      <h3>{{ t('view.development.updateWebhookTitel') }}</h3>
-      <p class="hint">{{ t('view.development.updateWebhookText') }}</p>
-      <pre>{{ webhookCurl }}</pre>
-      <p class="hint">{{ t('view.development.updateWebhookHeader') }}</p>
-      <p class="hint">{{ t('view.development.updateWebhookHinweis') }}</p>
-      <p class="hint">{{ t('view.development.updateWebhookFlow') }}</p>
-      <p class="hint">{{ t('view.development.updateWebhookErrors') }}</p>
-      <p class="hint">{{ t('view.development.updateWebhookSelf') }}</p>
-      <p class="hint">{{ t('view.development.updateWebhookExternal') }}</p>
-    </div>
-
-    <div v-if="updatePhase !== 'idle'" class="confirm" role="alertdialog">
-      <template v-if="updatePhase === 'fertig'">
-        <p class="hint hint-ok">{{ updateErfolg || t('view.development.updateFertigText') }}</p>
-        <p class="hint">{{ t('view.development.updateNachHinweis') }}</p>
-        <div class="actions">
-          <button type="button" @click="updateAbbrechen">
-            {{ t('view.common.schliessen') }}
-          </button>
-        </div>
-      </template>
-      <template v-else>
-        <p>
-          <strong>{{ t('view.development.updateFrage') }}</strong>
-        </p>
-        <p class="hint">{{ t('view.development.updateDetail') }}</p>
-        <p class="hint hint-danger">{{ t('view.development.updateWarnung') }}</p>
-        <p v-if="updatePhase === 'fehler' && updateFehler" class="wert-fehler">
-          {{ updateFehler }}
-        </p>
-        <div class="actions">
-          <button
-            type="button"
-            class="danger"
-            :disabled="updatePhase === 'laufend'"
-            @click="updateBestaetigen"
-          >
-            {{
-              updatePhase === 'laufend'
-                ? t('view.development.updateLaeuft')
-                : t('view.development.updateBestaetigen')
-            }}
-          </button>
-          <button type="button" :disabled="updatePhase === 'laufend'" @click="updateAbbrechen">
-            {{ t('view.common.abbrechen') }}
-          </button>
-        </div>
-      </template>
     </div>
 
     <!-- Sync-Fehler-Report ausklappbar (ganz unten, alle Details) -->
@@ -1431,57 +1217,5 @@ async function updateStatusLaden(): Promise<void> {
 }
 .sync-error-header:hover {
   text-decoration: underline;
-}
-.update-status {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-.update-status p {
-  margin: 0 0 0.35rem;
-}
-.update-log {
-  margin-top: 0.5rem;
-}
-.update-log summary {
-  cursor: pointer;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-.update-log pre {
-  margin-top: 0.5rem;
-  padding: 0.5rem;
-  background: var(--bg-input);
-  border-radius: var(--radius-sm);
-  font-size: 0.75rem;
-  white-space: pre-wrap;
-  overflow-x: auto;
-}
-.update-anleitung h3 {
-  margin-top: 0;
-}
-.update-anleitung h4 {
-  margin: 1rem 0 0.25rem;
-  font-size: 0.9rem;
-}
-.update-anleitung pre {
-  margin: 0.35rem 0 0;
-  padding: 0.5rem;
-  background: var(--bg-input);
-  border-radius: var(--radius-sm);
-  font-size: 0.78rem;
-  white-space: pre-wrap;
-  overflow-x: auto;
-}
-.update-anleitung-liste {
-  margin: 0.35rem 0 0;
-  padding-left: 1.2rem;
-}
-.update-anleitung-liste li {
-  margin-bottom: 0.35rem;
-}
-button.aktiv {
-  background: var(--primary);
-  color: var(--text-on-primary);
 }
 </style>
