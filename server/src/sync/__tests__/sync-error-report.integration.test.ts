@@ -24,10 +24,13 @@ const DEVICE_ID = 'sync-error-report-test-device'
 
 let app: FastifyInstance
 
-async function sauber(): Promise<void> {
+async function sauber(mitUsern = false): Promise<void> {
   const db = getDb()
   await db.delete(syncErrorReports).where(eq(syncErrorReports.deviceId, DEVICE_ID))
   await db.delete(geraete).where(eq(geraete.id, DEVICE_ID))
+  // The test users are created once in beforeAll; per-test cleanup must
+  // keep them, otherwise the device FK on geraete.user_id fails.
+  if (!mitUsern) return
   await db.delete(users).where(eq(users.id, USER_ID))
   await db.delete(users).where(eq(users.id, OTHER_USER_ID))
 }
@@ -42,6 +45,7 @@ async function legeUserAn(id: string, email: string): Promise<void> {
       passwordHash: 'x',
       rolle: 'user',
       aktiv: true,
+      erstelltAm: new Date(),
     })
     .onConflictDoNothing()
 }
@@ -100,7 +104,7 @@ describe.skipIf(!HAT_DB)('Sync-Fehler-Reports (Integration, echte Postgres)', ()
   })
 
   afterAll(async () => {
-    await sauber()
+    await sauber(true)
     await app.close()
     await closeDb()
   })

@@ -23,11 +23,14 @@ const DEVICE_ID_B = 'device-reset-test-device-b'
 
 let app: FastifyInstance
 
-async function sauber(): Promise<void> {
+async function sauber(mitUsern = false): Promise<void> {
   const db = getDb()
   await db.delete(geraete).where(eq(geraete.id, DEVICE_ID_A))
   await db.delete(geraete).where(eq(geraete.id, DEVICE_ID_B))
   await db.delete(geraete).where(eq(geraete.userId, USER_ID))
+  // The test users are created once in beforeAll; per-test cleanup must
+  // keep them, otherwise the device FK on geraete.user_id fails.
+  if (!mitUsern) return
   await db.delete(users).where(eq(users.id, USER_ID))
 }
 
@@ -72,12 +75,13 @@ describe.skipIf(!HAT_DB)('Geraete-Reset (Integration, echte Postgres)', () => {
         passwordHash: 'x',
         rolle: 'user',
         aktiv: true,
+        erstelltAm: new Date(),
       })
       .onConflictDoNothing()
   })
 
   afterAll(async () => {
-    await sauber()
+    await sauber(true)
     await app.close()
     await closeDb()
   })
@@ -98,6 +102,8 @@ describe.skipIf(!HAT_DB)('Geraete-Reset (Integration, echte Postgres)', () => {
 
   it('gesetztes Flag wird erkannt; nach Anwendung des Resets nicht erneut', async () => {
     await sauber()
+    // The admin route only flags devices that already exist.
+    await herzschlag(DEVICE_ID_A)
     await app.inject({
       method: 'POST',
       url: `/api/admin/geraete/${DEVICE_ID_A}/reset`,
